@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { GatheringStats } from '../types';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, PRODUCTION_URL } from '../constants';
 
 interface Props {
   onAuthSuccess?: (status: boolean) => void;
@@ -24,8 +24,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [showSettings, setShowSettings] = useState(!localStorage.getItem('gdrive_client_id'));
   const [currentOrigin, setCurrentOrigin] = useState<string>('');
   
-  // Fix: Define isProd locally to determine if the environment is production
-  const isProd = window.location.hostname === 'us-alpha-seeker.vercel.app';
+  const isProdHost = window.location.hostname === 'us-alpha-seeker.vercel.app';
 
   const [stats, setStats] = useState<GatheringStats>({
     totalFound: 12450,
@@ -44,7 +43,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const tokenClient = useRef<any>(null);
 
   useEffect(() => {
-    // Vercel 배포 주소에서 끝 슬래시를 제거한 순수 Origin 추출
     const origin = window.location.origin.replace(/\/$/, "");
     setCurrentOrigin(origin);
     if (accessToken && onAuthSuccess) onAuthSuccess(true);
@@ -68,6 +66,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             }
             if (response.error) {
               setConsoleLogs(cl => [...cl, `> [AUTH ERROR] ${response.error}: Verify JavaScript Origin in Google Console.`]);
+              alert(`인증 에러: 구글 콘솔에 현재 접속 주소(${currentOrigin})가 등록되어 있는지 확인하세요.`);
             }
           },
         });
@@ -203,7 +202,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           {showSettings && (
             <div className="absolute inset-0 z-50 bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-8 animate-in zoom-in duration-300">
                <div className="max-w-2xl w-full glass-panel p-12 rounded-[48px] border-white/10 shadow-[0_0_150px_rgba(0,0,0,1)]">
-                  <div className="flex justify-between items-center mb-10">
+                  <div className="flex justify-between items-center mb-8">
                     <div>
                       <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase underline decoration-blue-500 decoration-4 underline-offset-8">Cloud Handshake Setup</h3>
                       <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mt-6">Google Cloud Console Integration</p>
@@ -213,34 +212,48 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                     </button>
                   </div>
 
-                  <div className="space-y-10">
-                     <div className="p-8 rounded-[32px] bg-indigo-500/5 border border-indigo-500/20 relative">
-                        <h4 className="text-[11px] font-black text-indigo-400 uppercase tracking-widest mb-4 flex items-center">
-                           <span className="w-2 h-2 bg-indigo-500 rounded-full mr-3 animate-ping"></span>
-                           Authorized JavaScript Origin (Critical)
+                  <div className="space-y-6">
+                     <div className="p-6 rounded-[32px] bg-amber-500/5 border border-amber-500/20 relative">
+                        <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-3 flex items-center">
+                           <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
+                           Google OAuth 가이드 (필독)
                         </h4>
-                        <p className="text-xs text-slate-400 leading-relaxed mb-8">
-                           Google Console의 <span className="text-white font-bold">'승인된 JavaScript 원본'</span> 필드에 아래의 **Vercel 주소**를 정확히 입력해야 400 에러가 발생하지 않습니다.
+                        <p className="text-[11px] text-slate-400 leading-relaxed mb-4">
+                           구글 콘솔의 <span className="text-white font-bold">'승인된 JavaScript 원본'</span>에 아래 주소를 **모두** 추가해야 모든 환경에서 로그인이 가능합니다.
                         </p>
                         
-                        <div className="flex items-center space-x-4">
-                           <div className="flex-1 bg-black/80 p-5 rounded-2xl border border-white/5 font-mono text-[13px] text-blue-400 truncate shadow-inner select-all">
-                              {currentOrigin}
+                        <div className="space-y-4">
+                           {/* Current Preview Origin */}
+                           <div className="space-y-2">
+                              <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">1. 현재 테스트 환경 (지금 화면용)</span>
+                              <div className="flex items-center space-x-2">
+                                 <div className="flex-1 bg-black/60 p-3 rounded-xl border border-white/5 font-mono text-[11px] text-blue-400 truncate shadow-inner select-all">
+                                    {currentOrigin}
+                                 </div>
+                                 <button onClick={() => { navigator.clipboard.writeText(currentOrigin); alert("복사되었습니다."); }} className="px-4 py-3 bg-slate-800 text-white text-[9px] font-black rounded-xl hover:bg-slate-700 transition-all uppercase">Copy</button>
+                              </div>
                            </div>
-                           <button onClick={() => {
-                              navigator.clipboard.writeText(currentOrigin);
-                              alert("Vercel 주소가 복사되었습니다. 구글 콘솔에 붙여넣으세요!\n" + currentOrigin);
-                           }} className="px-8 py-5 bg-indigo-600 text-white text-[10px] font-black rounded-2xl hover:bg-indigo-500 transition-all shadow-xl active:scale-95 uppercase tracking-widest">Copy URL</button>
+
+                           {/* Vercel Production Origin */}
+                           <div className="space-y-2">
+                              <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">2. Vercel 배포 주소 (최종 서비스용)</span>
+                              <div className="flex items-center space-x-2">
+                                 <div className="flex-1 bg-black/60 p-3 rounded-xl border border-white/5 font-mono text-[11px] text-emerald-400 truncate shadow-inner select-all">
+                                    {PRODUCTION_URL}
+                                 </div>
+                                 <button onClick={() => { navigator.clipboard.writeText(PRODUCTION_URL); alert("복사되었습니다."); }} className="px-4 py-3 bg-slate-800 text-white text-[9px] font-black rounded-xl hover:bg-slate-700 transition-all uppercase">Copy</button>
+                              </div>
+                           </div>
                         </div>
                      </div>
 
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                        <div className="space-y-3">
-                           <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block px-1">OAuth Client ID</label>
-                           <input type="text" value={clientId} onChange={(e) => {setClientId(e.target.value); localStorage.setItem('gdrive_client_id', e.target.value)}} className="w-full bg-slate-900 border border-white/10 rounded-2xl p-5 text-[11px] font-mono text-white focus:border-indigo-500 outline-none transition-all" placeholder="Pungkings-client-id..." />
+                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                        <div className="space-y-2">
+                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block px-1">Google OAuth Client ID</label>
+                           <input type="text" value={clientId} onChange={(e) => {setClientId(e.target.value); localStorage.setItem('gdrive_client_id', e.target.value)}} className="w-full bg-slate-900 border border-white/10 rounded-xl p-4 text-[10px] font-mono text-white focus:border-indigo-500 outline-none transition-all" placeholder="...apps.googleusercontent.com" />
                         </div>
                         <div className="flex items-end">
-                           <button onClick={() => setShowSettings(false)} className="w-full py-5 bg-white text-slate-950 text-[11px] font-black uppercase rounded-2xl shadow-2xl hover:bg-blue-500 hover:text-white transition-all active:scale-95">Save Configuration</button>
+                           <button onClick={() => setShowSettings(false)} className="w-full py-4 bg-white text-slate-950 text-[10px] font-black uppercase rounded-xl shadow-2xl hover:bg-blue-600 hover:text-white transition-all active:scale-95">Save & Close</button>
                         </div>
                      </div>
                   </div>
@@ -253,7 +266,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                { label: 'Node Uptime', value: [Math.floor(stats.elapsedSeconds/60), stats.elapsedSeconds%60].map(v => v < 10 ? "0"+v : v).join(":"), color: 'text-white' },
                { label: 'Cloud Handshake', value: accessToken ? 'SUCCESS' : 'PENDING', color: accessToken ? 'text-emerald-400' : 'text-amber-500' },
                { label: 'Matrix Sync', value: stats.processed.toLocaleString(), color: 'text-white' },
-               { label: 'Current Origin', value: isProd ? 'VERCEL' : 'LOCAL', color: 'text-indigo-400' }
+               { label: 'Current Origin', value: isProdHost ? 'VERCEL' : 'PREVIEW', color: 'text-indigo-400' }
              ].map((item, idx) => (
                <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner group transition-all">
                  <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">{item.label}</p>
