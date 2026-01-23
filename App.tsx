@@ -4,6 +4,7 @@ import { ApiProvider, ApiStatus } from './types';
 import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
 import ApiStatusCard from './components/ApiStatusCard';
 import UniverseGathering from './components/UniverseGathering';
+import MarketTicker from './components/MarketTicker';
 import { analyzeCollectionSummary } from './services/geminiService';
 
 const App: React.FC = () => {
@@ -19,7 +20,6 @@ const App: React.FC = () => {
     setIsGdriveConnected(hasGdriveToken);
     
     setApiStatuses(() => {
-      // 카테고리 순서대로 정렬 (Acquisition -> Intelligence -> Infrastructure)
       const orderedConfigs = [
         ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
         ...API_CONFIGS.filter(c => c.category === 'Intelligence'),
@@ -88,19 +88,30 @@ const App: React.FC = () => {
       </header>
 
       {/* Unified API Row - All 9 Nodes in one line */}
-      <div className="space-y-2">
-        <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
-          <span className="mr-3">Nexus Node Status Matrix</span>
-          <div className="h-[1px] flex-1 bg-white/5"></div>
-        </h2>
-        <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-3 px-1 scroll-smooth">
-          {apiStatuses.map(status => (
-            <ApiStatusCard 
-              key={status.provider} 
-              status={status} 
-              isAuthConnected={isGdriveConnected} 
-            />
-          ))}
+      <div className="space-y-4">
+        <div className="space-y-2">
+          <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
+            <span className="mr-3">Nexus Node Status Matrix</span>
+            <div className="h-[1px] flex-1 bg-white/5"></div>
+          </h2>
+          <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
+            {apiStatuses.map(status => (
+              <ApiStatusCard 
+                key={status.provider} 
+                status={status} 
+                isAuthConnected={isGdriveConnected} 
+              />
+            ))}
+          </div>
+        </div>
+
+        {/* Market Intelligence Ticker - NEW SECTION */}
+        <div className="space-y-2">
+          <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
+            <span className="mr-3">Market Intelligence Terminal</span>
+            <div className="h-[1px] flex-1 bg-white/5"></div>
+          </h2>
+          <MarketTicker />
         </div>
       </div>
 
