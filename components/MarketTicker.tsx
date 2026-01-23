@@ -28,36 +28,36 @@ const MarketTicker: React.FC = () => {
   useEffect(() => {
     const fetchMarketData = async () => {
       try {
-        // Grouped daily API를 사용하여 한 번에 주요 종목 가격 획득
-        const res = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/2026-01-22?adjusted=true&apiKey=${polygonKey}`).then(r => r.json());
+        // Snapshot API를 사용하여 날짜 지정 없이 현재 시장 상태 획득
+        const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.map(t => t.s).join(',')}&apiKey=${polygonKey}`).then(r => r.json());
         
-        if (res.results) {
-          const resultMap = new Map(res.results.map((r: any) => [r.T, r]));
+        if (res.tickers) {
+          const resultMap = new Map(res.tickers.map((r: any) => [r.ticker, r]));
           const merged = tickers.map(t => {
             const r: any = resultMap.get(t.s);
             return {
               symbol: t.s,
               label: t.l,
-              price: r?.c || 0,
-              change: r ? ((r.c - r.o) / r.o) * 100 : 0,
+              price: r?.min?.c || r?.prevDay?.c || r?.lastTrade?.p || 0,
+              change: r?.todaysChangePerc || 0,
               isIndex: t.i
             };
           });
           setData(merged);
         }
       } catch (e) {
-        console.error("Market data fetch failed");
+        console.error("Market pulse fetch failed");
       }
     };
 
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000); // 1분마다 갱신
+    const interval = setInterval(fetchMarketData, 30000); 
     return () => clearInterval(interval);
   }, []);
 
   return (
     <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1 px-1">
-      {data.map((item) => (
+      {data.length > 0 ? data.map((item) => (
         <div 
           key={item.symbol} 
           className="flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-all hover:bg-white/5"
@@ -71,14 +71,16 @@ const MarketTicker: React.FC = () => {
           </div>
           <div className="text-right">
             <p className="text-[10px] font-mono font-bold text-white tracking-tighter">
-              ${item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              ${item.price > 0 ? item.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : '---'}
             </p>
             <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
               {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
             </p>
           </div>
         </div>
-      ))}
+      )) : (
+        <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">Initializing Market Pulse...</div>
+      )}
       <div className="flex-1 h-[1px] bg-white/5 ml-4"></div>
       <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic ml-4 whitespace-nowrap">
         <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
