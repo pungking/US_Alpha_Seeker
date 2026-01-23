@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { ApiProvider, ApiStatus } from './types';
-import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO, PRODUCTION_URL } from './constants';
+import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
 import ApiStatusCard from './components/ApiStatusCard';
 import UniverseGathering from './components/UniverseGathering';
 import { analyzeCollectionSummary } from './services/geminiService';
@@ -15,37 +15,39 @@ const App: React.FC = () => {
   const [isProd, setIsProd] = useState(false);
   const [isHttps, setIsHttps] = useState(false);
 
-  useEffect(() => {
-    setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
-    setIsHttps(window.location.protocol === 'https:');
+  // API 상태 초기화 및 실시간 업데이트 로직
+  const refreshApiStatuses = useCallback(() => {
+    const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     
-    const checkAuth = () => {
-      const hasToken = sessionStorage.getItem('gdrive_access_token');
-      setIsGdriveConnected(!!hasToken);
-    };
-    const interval = setInterval(checkAuth, 1000);
-    return () => clearInterval(interval);
-  }, []);
-
-  useEffect(() => {
-    const updateStatuses = () => {
-      const newStatuses = API_CONFIGS.map(config => {
-        const isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? isGdriveConnected : true;
+    setApiStatuses(prev => {
+      return API_CONFIGS.map(config => {
+        const isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : !!config.key;
+        
+        // 기존 상태가 있으면 레이턴시를 조금씩 변동시켜 '실시간성' 부여
+        const existing = prev.find(p => p.provider === config.provider);
+        const baseLatency = existing?.latency || (Math.floor(Math.random() * 20) + 20);
+        const variance = Math.floor(Math.random() * 5) - 2; // -2ms ~ +2ms 변동
+        
         return {
           provider: config.provider,
           isConnected: isConnected,
-          latency: isConnected ? (Math.floor(Math.random() * 30) + 15) : 0,
+          latency: isConnected ? Math.max(10, baseLatency + variance) : 0,
           lastChecked: new Date().toLocaleTimeString(),
           limitRemaining: config.provider === ApiProvider.POLYGON ? '98/100' : undefined
         };
       });
-      setApiStatuses(newStatuses);
-    };
+    });
+  }, []);
 
-    updateStatuses();
-    const interval = setInterval(updateStatuses, 5000);
+  useEffect(() => {
+    setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
+    setIsHttps(window.location.protocol === 'https:');
+    
+    // 최초 실행 및 주기적 업데이트 (1초 단위로 더 빠르게 업데이트하여 생동감 부여)
+    refreshApiStatuses();
+    const interval = setInterval(refreshApiStatuses, 2000);
     return () => clearInterval(interval);
-  }, [isGdriveConnected]);
+  }, [refreshApiStatuses]);
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
@@ -66,7 +68,7 @@ const App: React.FC = () => {
       <div className="flex flex-wrap gap-3 items-center glass-panel px-6 py-3 rounded-2xl border-white/5">
         <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1.5 rounded-xl border border-white/5">
           <div className={`w-2 h-2 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
-          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{isProd ? 'Vercel Deployment' : 'Local Dev'}</span>
+          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{isProd ? 'Vercel Node' : 'Local Dev'}</span>
         </div>
         <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1.5 rounded-xl border border-white/5">
           <div className={`w-2 h-2 rounded-full ${isHttps ? 'bg-emerald-500' : 'bg-red-500'}`}></div>
@@ -79,7 +81,7 @@ const App: React.FC = () => {
         <div className="ml-auto flex items-center space-x-4">
            <a href={GITHUB_REPO} target="_blank" rel="noreferrer" className="flex items-center space-x-2 text-slate-500 hover:text-white transition-colors group">
               <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M12 0c-6.626 0-12 5.373-12 12 0 5.302 3.438 9.8 8.207 11.387.599.111.793-.261.793-.577v-2.234c-3.338.726-4.033-1.416-4.033-1.416-.546-1.387-1.333-1.756-1.333-1.756-1.089-.745.083-.729.083-.729 1.205.084 1.839 1.237 1.839 1.237 1.07 1.834 2.807 1.304 3.492.997.107-.775.418-1.305.762-1.604-2.665-.305-5.467-1.334-5.467-5.931 0-1.311.469-2.381 1.236-3.221-.124-.303-.535-1.524.117-3.176 0 0 1.008-.322 3.301 1.23.957-.266 1.983-.399 3.003-.404 1.02.005 2.047.138 3.006.404 2.291-1.552 3.297-1.23 3.297-1.23.653 1.653.242 2.874.118 3.176.77.84 1.235 1.911 1.235 3.221 0 4.609-2.807 5.624-5.479 5.921.43.372.823 1.102.823 2.222v3.293c0 .319.192.694.801.576 4.765-1.589 8.199-6.086 8.199-11.386 0-6.627-5.373-12-12-12z"/></svg>
-              <span className="text-[9px] font-black uppercase tracking-widest group-hover:underline">Repository Verified</span>
+              <span className="text-[9px] font-black uppercase tracking-widest group-hover:underline">Repository Sync</span>
            </a>
         </div>
       </div>
@@ -166,7 +168,7 @@ const App: React.FC = () => {
                 </svg>
              </div>
              <div>
-                <h3 className="font-black text-white uppercase text-2xl tracking-tight italic italic">Gemini AI Pipeline Auditor</h3>
+                <h3 className="font-black text-white uppercase text-2xl tracking-tight italic">Gemini AI Pipeline Auditor</h3>
                 <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-1">Real-time Data Integrity & Risk Synthesizer</p>
              </div>
           </div>
