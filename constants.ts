@@ -32,7 +32,8 @@ export const GOOGLE_DRIVE_TARGET = {
   rootFolderName: 'US_Alpha_Seeker',
   rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
   targetSubFolder: 'Stage0_Universe_Data',
-  stage1SubFolder: 'Stage1_Quality_Data'
+  stage1SubFolder: 'Stage1_Quality_Data',
+  stage2SubFolder: 'Stage2_Deep_Quality'
 };
 
 export const STAGES_FLOW = [
