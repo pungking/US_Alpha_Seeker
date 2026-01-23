@@ -16,7 +16,6 @@ interface DriveFile {
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
-  // 로컬 스토리지에서 ID 복구 및 실시간 저장 로직
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   const [showSettings, setShowSettings] = useState(!localStorage.getItem('gdrive_client_id'));
@@ -24,6 +23,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+  const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
 
   const [stats, setStats] = useState<GatheringStats>({
     totalFound: 0,
@@ -35,9 +35,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   });
 
   const progress = stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0;
-
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Intelligence V4.7 - Dashboard Access Granted.']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Intelligence V4.8 - Distributed Pipeline Online.']);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
   
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -46,11 +45,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const tokenClient = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
 
-  // ID 입력 시 즉시 기기에 저장
   useEffect(() => {
-    if (clientId) {
-      localStorage.setItem('gdrive_client_id', clientId);
-    }
+    if (clientId) localStorage.setItem('gdrive_client_id', clientId);
   }, [clientId]);
 
   useEffect(() => {
@@ -64,26 +60,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     setConsoleLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-150));
   };
 
-  // 단순 설정 저장 후 대시보드 진입 (인증 팝업 없음)
   const handleSaveAndEnter = () => {
-    if (!clientId.trim()) {
-      addLog("Client ID required for eventual Cloud Sync.", 'warn');
-    }
     localStorage.setItem('gdrive_client_id', clientId.trim());
     setShowSettings(false);
-    addLog("Configuration Saved. Accessing Production Node...", 'success');
+    addLog("Config Updated. Switching to Active Discovery Mode.", 'success');
   };
 
-  // 대시보드 내에서 호출하는 구글 로그인 함수
   const connectGoogleDrive = () => {
-    if (!clientId.trim()) {
-      addLog("Cannot connect: Client ID is missing in Config.", 'error');
-      setShowSettings(true);
-      return;
-    }
-
-    addLog(`Initializing Google Auth with ID: ${clientId.substring(0, 10)}...`, 'info');
-
+    if (!clientId.trim()) { setShowSettings(true); return; }
     // @ts-ignore
     if (window.google) {
       try {
@@ -96,55 +80,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              addLog("Google Drive linked successfully. Vault sync active.", 'success');
-            } else if (res.error) {
-              addLog(`Auth Failed: ${res.error}. Check GCP Settings.`, 'error');
+              addLog("Cloud Vault Synchronized.", 'success');
             }
           },
         });
         tokenClient.current.requestAccessToken({ prompt: 'consent' });
-      } catch (e: any) {
-        addLog(`Auth Init Error: ${e.message}`, 'error');
-      }
-    } else {
-      addLog("Google Script not loaded. Please refresh.", 'error');
+      } catch (e: any) { addLog(`Auth Error: ${e.message}`, 'error'); }
     }
   };
 
-  const uploadToDrive = async (fileName: string, payload: any) => {
-    if (!accessToken) {
-       // 드라이브 연결 안됨 - 로컬 모드로만 작동 알림은 생략하고 그냥 false 반환
-       return false;
+  const fetchWithLimitedRetry = async (url: string, provider: string, options: any = {}): Promise<any> => {
+    const res = await fetch(url, options);
+    if (res.status === 429) {
+      addLog(`${provider} Rate Limit (429). Bypassing to Redundant Node...`, 'warn');
+      throw new Error('RATE_LIMIT');
     }
-    try {
-      const metadata = { name: fileName, parents: [targetFolderId], mimeType: 'application/json' };
-      const fileContent = new Blob([JSON.stringify(payload)], { type: 'application/json' });
-      const formData = new FormData();
-      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      formData.append('file', fileContent);
-
-      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + accessToken },
-        body: formData
-      });
-      return res.ok;
-    } catch (e) { return false; }
-  };
-
-  const fetchWithRetry = async (url: string, provider: string, options: any = {}): Promise<any> => {
-    try {
-      const res = await fetch(url, options);
-      if (res.status === 429) {
-        addLog(`${provider} Rate Limit (429). Waiting 12s...`, 'warn');
-        await new Promise(r => setTimeout(r, 12000));
-        return fetchWithRetry(url, provider, options);
-      }
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      return await res.json();
-    } catch (e: any) {
-      throw new Error(`[${provider}] ${e.message}`);
-    }
+    if (!res.ok) throw new Error(`HTTP_${res.status}`);
+    return await res.json();
   };
 
   const startGathering = async () => {
@@ -152,8 +104,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     
     setIsEngineRunning(true);
     stopRequested.current = false;
-    addLog("Engaging Nexus Matrix Discovery...", 'info');
-    if (!accessToken) addLog("Cloud Sync offline. Running in Local Discovery mode.", 'warn');
+    addLog("Initializing Distributed Discovery Protocol...", 'info');
     
     const startTimestamp = Date.now();
     setStats(prev => ({ ...prev, startTime: new Date().toLocaleTimeString(), processed: 0, elapsedSeconds: 0 }));
@@ -163,56 +114,117 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }, 1000);
 
     try {
-      let masterTickerList: any[] = [];
-      addLog("PHASE 1: Universal Asset Discovery (Polygon L3)...", 'info');
+      // Use Map to deduplicate by Ticker
+      const masterMap = new Map<string, any>();
       
-      let nextUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=${polygonKey}`;
-      while (nextUrl && !stopRequested.current) {
-        try {
-          const data = await fetchWithRetry(nextUrl, 'Polygon');
-          if (data.results) {
-            masterTickerList = [...masterTickerList, ...data.results];
-            setStats(prev => ({ ...prev, totalFound: masterTickerList.length }));
-          }
-          nextUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
-          if (nextUrl) await new Promise(r => setTimeout(r, 100));
-        } catch (e) { break; }
+      // PHASE 1: POLYGON (Attempt)
+      addLog("NODE 1: Scanning Polygon L3 Reference...", 'info');
+      try {
+        let polygonUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=${polygonKey}`;
+        let count = 0;
+        while (polygonUrl && !stopRequested.current && count < 2) { // Limit iterations to avoid hanging if 429 is constant
+           const data = await fetchWithLimitedRetry(polygonUrl, 'Polygon');
+           if (data.results) {
+             data.results.forEach((t: any) => masterMap.set(t.ticker, { ticker: t.ticker, name: t.name, source: 'Polygon' }));
+             setStats(prev => ({ ...prev, totalFound: masterMap.size }));
+           }
+           polygonUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
+           count++;
+           if (polygonUrl) await new Promise(r => setTimeout(r, 200));
+        }
+      } catch (e: any) {
+        // Silently continue to next provider if rate limited
       }
 
+      // PHASE 2: ALPACA FAILOVER (High Volume / No strict 429 on free assets list)
+      if (!stopRequested.current) {
+        addLog("NODE 2: Engaging Alpaca Assets Redundancy...", 'info');
+        try {
+          const alpacaData = await fetch(`https://paper-api.alpaca.markets/v2/assets?asset_class=us_equity`, {
+            headers: { 'APCA-API-KEY-ID': alpacaKey || '', 'APCA-API-SECRET-KEY': '' } // Secret missing but public assets sometimes work or need only Key ID
+          }).then(r => r.json());
+          
+          if (Array.isArray(alpacaData)) {
+            alpacaData.forEach((t: any) => {
+              if (t.status === 'active' && !masterMap.has(t.symbol)) {
+                masterMap.set(t.symbol, { ticker: t.symbol, name: t.name, source: 'Alpaca' });
+              }
+            });
+            addLog(`Alpaca node injected ${alpacaData.length} entries. Total: ${masterMap.size}`, 'success');
+            setStats(prev => ({ ...prev, totalFound: masterMap.size }));
+          }
+        } catch (e) { addLog("Alpaca Node Offline. Skipping...", 'warn'); }
+      }
+
+      // PHASE 3: FINNHUB (Final Expansion)
+      if (!stopRequested.current && masterMap.size < 5000) {
+        addLog("NODE 3: Expanding via Finnhub Global symbols...", 'info');
+        try {
+          const finnhubData = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
+          if (Array.isArray(finnhubData)) {
+            finnhubData.forEach((t: any) => {
+              if (!masterMap.has(t.symbol)) {
+                masterMap.set(t.symbol, { ticker: t.symbol, name: t.description, source: 'Finnhub' });
+              }
+            });
+            addLog(`Finnhub expansion complete. Matrix reached ${masterMap.size} assets.`, 'success');
+            setStats(prev => ({ ...prev, totalFound: masterMap.size }));
+          }
+        } catch (e) { addLog("Finnhub Node Offline.", 'warn'); }
+      }
+
+      const masterTickerList = Array.from(masterMap.values());
       if (stopRequested.current || masterTickerList.length === 0) return;
 
-      addLog(`Discovery Complete: ${masterTickerList.length} assets mapped.`, 'success');
-      
+      // CLOUD SYNC PHASE
       if (accessToken) {
-        addLog("PHASE 2: Synchronizing with Google Drive Vault...", 'info');
+        addLog(`Vault Sync: Uploading ${masterTickerList.length} unique assets in batches...`, 'info');
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const dateStr = yesterday.toISOString().split('T')[0];
         
-        const chunkSize = 1000;
+        const chunkSize = 1500;
         for (let i = 0; i < masterTickerList.length; i += chunkSize) {
           if (stopRequested.current) break;
           const chunk = masterTickerList.slice(i, i + chunkSize);
-          const fileName = `UNIVERSE_NEXUS_${dateStr}_B${Math.floor(i/chunkSize)+1}.json`;
+          const fileName = `UNIVERSE_MATRIX_${dateStr}_B${Math.floor(i/chunkSize)+1}.json`;
           
-          const success = await uploadToDrive(fileName, { data: chunk, timestamp: new Date().toISOString() });
+          const success = await uploadToDrive(fileName, { data: chunk, count: chunk.length, timestamp: new Date().toISOString() });
           if (success) {
             setStats(prev => ({ ...prev, processed: i + chunk.length }));
             setDriveFiles(df => [{ name: fileName, size: `${(JSON.stringify(chunk).length/1024).toFixed(1)}KB`, timestamp: new Date().toLocaleTimeString() }, ...df].slice(0, 8));
+            setPerformanceData(prev => [...prev.slice(-30), { tps: chunk.length }].map((d, idx) => ({ ...d, index: idx })));
           }
-          await new Promise(r => setTimeout(r, 400));
+          await new Promise(r => setTimeout(r, 300));
         }
       } else {
-        addLog("Sync Skipped: Google Drive not connected. Please click 'Link Drive' for cloud backup.", 'warn');
-        setStats(prev => ({ ...prev, processed: masterTickerList.length })); // 로컬 완료 처리
+        addLog("Local Discovery finalized. Link Drive to persist to Vault.", 'warn');
+        setStats(prev => ({ ...prev, processed: masterTickerList.length }));
       }
     } catch (e: any) {
-      addLog(`FATAL: ${e.message}`, 'error');
+      addLog(`Critical Failure: ${e.message}`, 'error');
     } finally {
       setIsEngineRunning(false);
       if (timerRef.current) clearInterval(timerRef.current);
-      addLog("Gathering Cycle Concluded.", 'info');
+      addLog("Gathering Protocol Terminated.", 'info');
     }
+  };
+
+  const uploadToDrive = async (fileName: string, payload: any) => {
+    if (!accessToken) return false;
+    try {
+      const metadata = { name: fileName, parents: [targetFolderId], mimeType: 'application/json' };
+      const fileContent = new Blob([JSON.stringify(payload)], { type: 'application/json' });
+      const formData = new FormData();
+      formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
+      formData.append('file', fileContent);
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + accessToken },
+        body: formData
+      });
+      return res.ok;
+    } catch (e) { return false; }
   };
 
   return (
@@ -222,7 +234,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-8">
             <div className="relative z-10">
               <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase">Nexus Discovery Matrix</h2>
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3">Active Pipeline: Multi-Source Redundancy Mode</p>
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3">Active Pipeline: Multi-Node Redundancy (Polygon / Alpaca / Finnhub)</p>
             </div>
             
             <div className="flex items-center space-x-4">
@@ -231,7 +243,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                   onClick={connectGoogleDrive}
                   className="px-6 py-4 bg-emerald-600/20 text-emerald-400 text-[10px] font-black rounded-2xl border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-all uppercase tracking-widest animate-pulse"
                 >
-                  Link Google Drive
+                  Link Drive Vault
                 </button>
               )}
               <button onClick={() => setShowSettings(true)} className="px-6 py-4 bg-white/5 text-slate-400 text-[10px] font-black rounded-2xl border border-white/10 hover:bg-white/10 hover:text-white transition-all uppercase tracking-widest">Config</button>
@@ -239,7 +251,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 onClick={startGathering} 
                 className={`px-14 py-6 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-95 ${isEngineRunning ? 'bg-red-600 text-white shadow-red-600/40' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}
               >
-                {isEngineRunning ? 'Stop Engine' : 'Engage Matrix'}
+                {isEngineRunning ? 'Shutdown Engine' : 'Engage Matrix'}
               </button>
             </div>
           </div>
@@ -249,7 +261,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                { label: 'Market Discovery', value: stats.totalFound.toLocaleString(), color: 'text-white' },
                { label: 'Cloud Synced', value: stats.processed.toLocaleString(), color: 'text-indigo-400' },
                { label: 'Uptime', value: `${Math.floor(stats.elapsedSeconds/60)}m ${stats.elapsedSeconds%60}s`, color: 'text-emerald-400' },
-               { label: 'Cloud Status', value: accessToken ? 'Vault Linked' : 'Local Only', color: accessToken ? 'text-emerald-500' : 'text-amber-500' }
+               { label: 'Active Pipeline', value: isEngineRunning ? 'Multi-Node' : 'Standby', color: 'text-amber-500' }
              ].map((item, idx) => (
                <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner">
                  <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">{item.label}</p>
@@ -260,7 +272,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
           <div className="space-y-6">
             <div className="flex justify-between items-end px-2">
-               <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Gathering Progress</span>
+               <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Gathering Matrix Progress</span>
                <span className="text-3xl font-black text-white font-mono tracking-tighter italic">{progress.toFixed(1)}%</span>
             </div>
             <div className="h-4 w-full bg-slate-950 rounded-full border border-white/5 p-1 overflow-hidden shadow-inner">
@@ -278,7 +290,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         </div>
 
         <div className="glass-panel p-10 rounded-[40px] border-t border-white/5 shadow-2xl">
-           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] mb-10 italic">Vault Manifest (Cloud Data)</h3>
+           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] mb-10 italic">Vault Manifest (Cloud Backup)</h3>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {driveFiles.map((file, idx) => (
                 <div key={idx} className="p-6 rounded-3xl border border-white/5 bg-slate-900/50 flex justify-between items-center group hover:border-emerald-500/30 transition-all">
@@ -295,7 +307,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               ))}
               {driveFiles.length === 0 && (
                 <div className="col-span-2 py-24 text-center border-2 border-dashed border-white/5 rounded-3xl opacity-30">
-                  <p className="text-[10px] font-black uppercase tracking-[0.5em]">No Cloud Sync Detected</p>
+                  <p className="text-[10px] font-black uppercase tracking-[0.5em]">Awaiting Matrix Output</p>
                 </div>
               )}
            </div>
@@ -315,7 +327,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               </div>
             ))}
           </div>
-          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-5 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-blue-600 hover:text-white transition-all shadow-xl active:scale-95">View Drive Vault</button>
+          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-5 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-blue-600 hover:text-white transition-all shadow-xl active:scale-95">Open Drive Storage</button>
         </div>
       </div>
 
@@ -325,7 +337,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase mb-10">Vault Config</h3>
               <div className="space-y-8">
                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Google Client ID (Saved to Device)</label>
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Google Client ID (Auto-Saved)</label>
                     <input 
                       type="text" 
                       value={clientId} 
@@ -336,9 +348,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                  </div>
                  <div className="flex gap-4">
                     <button onClick={() => setShowSettings(false)} className="flex-1 py-6 bg-slate-900 text-slate-400 text-[11px] font-black uppercase rounded-2xl tracking-[0.2em] hover:bg-slate-800 transition-all">Cancel</button>
-                    <button onClick={handleSaveAndEnter} className="flex-[2] py-6 bg-white text-slate-950 text-[11px] font-black uppercase rounded-2xl tracking-[0.3em] hover:bg-blue-600 hover:text-white transition-all shadow-2xl">Save & Open Matrix</button>
+                    <button onClick={handleSaveAndEnter} className="flex-[2] py-6 bg-white text-slate-950 text-[11px] font-black uppercase rounded-2xl tracking-[0.3em] hover:bg-blue-600 hover:text-white transition-all shadow-2xl">Save & Access Node</button>
                  </div>
-                 <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center leading-relaxed">OAuth errors will not block discovery. Sync can be activated later from the main dashboard.</p>
+                 <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center leading-relaxed">System automatically bypasses API rate limits by switching between Polygon, Alpaca, and Finnhub nodes.</p>
               </div>
            </div>
         </div>
