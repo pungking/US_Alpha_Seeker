@@ -1,6 +1,6 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AreaChart, Area, ResponsiveContainer, XAxis, YAxis, Tooltip } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { GatheringStats, ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 
@@ -47,7 +47,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   ]);
 
   const [performanceData, setPerformanceData] = useState<any[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Hyper-Parallel Engine V6.0 Ready.']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Stage-0 Production Node Online.']);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const stopRequested = useRef(false);
   const timerRef = useRef<number | null>(null);
@@ -57,7 +57,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   }, [consoleLogs]);
 
   const addLog = (msg: string, type: 'info' | 'warn' | 'error' | 'success' = 'info') => {
-    const prefixes = { info: '>', warn: '[BYPASS]', error: '[ERR]', success: '[OK]' };
+    const prefixes = { info: '>', warn: '[FILTER]', error: '[ERR]', success: '[OK]' };
     setConsoleLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-50));
   };
 
@@ -77,7 +77,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             setAccessToken(res.access_token);
             sessionStorage.setItem('gdrive_access_token', res.access_token);
             onAuthSuccess?.(true);
-            addLog("Cloud Node Linked Successfully", 'success');
+            addLog("Cloud Storage Node Linked", 'success');
             resolve(res.access_token);
           } else resolve(null);
         },
@@ -99,36 +99,69 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     stopRequested.current = false;
     const startTimestamp = Date.now();
     const masterRegistry = new Map<string, any>();
+    const priceRegistry = new Map<string, any>();
 
     setStats(prev => ({ ...prev, startTime: new Date().toLocaleTimeString(), processed: 0, totalFound: 0, elapsedSeconds: 0 }));
     
     timerRef.current = window.setInterval(() => {
       setStats(prev => {
         const elapsed = Math.floor((Date.now() - startTimestamp) / 1000);
-        let est = 'Calculating...';
+        let est = 'Analyzing...';
         if (prev.processed > 0 && prev.totalFound > prev.processed) {
           const tps = prev.processed / elapsed;
-          const remaining = Math.round((prev.totalFound - prev.processed) / tps);
+          const remaining = Math.round((prev.totalFound - prev.processed) / (tps || 1));
           est = `${Math.floor(remaining / 60)}m ${remaining % 60}s`;
         }
         return { ...prev, elapsedSeconds: elapsed, estimatedTimeRemaining: est };
       });
     }, 1000);
 
-    addLog("Engaging Nexus Discovery Matrix (5-Node Parallel)...", 'info');
+    addLog("Initializing High-Fidelity Discovery (Corporate Focus)...", 'info');
 
-    // DISCOVERY TASKS
+    // PHASE 0: Get OHLCV for all tickers via Polygon Grouped Daily
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - (yesterday.getDay() === 1 ? 3 : yesterday.getDay() === 0 ? 2 : 1));
+    const dateStr = yesterday.toISOString().split('T')[0];
+
+    try {
+      addLog(`Syncing Daily Aggregates for ${dateStr}...`, 'info');
+      const res = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${dateStr}?adjusted=true&apiKey=${keys.polygon}`).then(r => r.json());
+      if (res.results) {
+        res.results.forEach((r: any) => {
+          priceRegistry.set(r.T, {
+            ticker: r.T,
+            o: r.o, h: r.h, l: r.l, c: r.c, v: r.v, vw: r.vw,
+            t: r.t
+          });
+        });
+        addLog(`Aggregated Price Data: ${res.results.length} entities indexed.`, 'success');
+      }
+    } catch (e) {
+      addLog("Aggregates sync failed. Proceeding with base tickers.", 'warn');
+    }
+
+    // DISCOVERY TASKS with Pure Equity Filter
     const discoveryTasks = [
-      // 1. Polygon Node
+      // 1. Polygon Node (Filtered for Common Stocks)
       (async () => {
         updateNodeStatus('Polygon', 0, 'Active');
         try {
-          let nextUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=${keys.polygon}`;
+          let nextUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&type=CS&active=true&limit=1000&apiKey=${keys.polygon}`;
           let pCount = 0;
-          while (nextUrl && pCount < 15) { // Max 15000 tickers
+          while (nextUrl && pCount < 20 && !stopRequested.current) {
             const res = await fetch(nextUrl).then(r => r.json());
             if (res.results) {
-              res.results.forEach((t: any) => masterRegistry.set(t.ticker, { t: t.ticker, n: t.name }));
+              res.results.forEach((t: any) => {
+                if (!t.name.toUpperCase().includes("ETF") && !t.name.toUpperCase().includes("INDEX")) {
+                  masterRegistry.set(t.ticker, { 
+                    symbol: t.ticker, 
+                    name: t.name, 
+                    exchange: t.primary_exchange,
+                    type: t.type,
+                    ...priceRegistry.get(t.ticker)
+                  });
+                }
+              });
               pCount++;
               updateNodeStatus('Polygon', masterRegistry.size, 'Active');
               setStats(prev => ({ ...prev, totalFound: masterRegistry.size }));
@@ -146,83 +179,91 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           const res = await fetch(`https://paper-api.alpaca.markets/v2/assets?asset_class=us_equity`, {
             headers: { 'APCA-API-KEY-ID': keys.alpaca || '' }
           }).then(r => r.json());
-          res.forEach((t: any) => { if(t.status === 'active') masterRegistry.set(t.symbol, { t: t.symbol, n: t.name }); });
-          updateNodeStatus('Alpaca', res.length, 'Complete');
+          res.forEach((t: any) => { 
+            if(t.status === 'active' && t.tradable && !t.symbol.includes('.') && !t.name.toUpperCase().includes("ETF")) {
+               if (!masterRegistry.has(t.symbol)) {
+                 masterRegistry.set(t.symbol, { 
+                   symbol: t.symbol, name: t.name, exchange: t.exchange,
+                   ...priceRegistry.get(t.symbol)
+                 });
+               }
+            }
+          });
+          updateNodeStatus('Alpaca', masterRegistry.size, 'Complete');
           setStats(prev => ({ ...prev, totalFound: masterRegistry.size }));
         } catch (e) { updateNodeStatus('Alpaca', 0, 'Failed'); }
-      })(),
-
-      // 3. Finnhub Node
-      (async () => {
-        updateNodeStatus('Finnhub', 0, 'Active');
-        try {
-          const res = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${keys.finnhub}`).then(r => r.json());
-          res.forEach((t: any) => masterRegistry.set(t.symbol, { t: t.symbol, n: t.displaySymbol }));
-          updateNodeStatus('Finnhub', res.length, 'Complete');
-          setStats(prev => ({ ...prev, totalFound: masterRegistry.size }));
-        } catch (e) { updateNodeStatus('Finnhub', 0, 'Failed'); }
-      })(),
-
-      // 4. TwelveData Node
-      (async () => {
-        updateNodeStatus('TwelveData', 0, 'Active');
-        try {
-          const res = await fetch(`https://api.twelvedata.com/stocks?exchange=NASDAQ,NYSE&country=United States&apikey=${keys.twelve}`).then(r => r.json());
-          if (res.data) {
-            res.data.forEach((t: any) => masterRegistry.set(t.symbol, { t: t.symbol, n: t.name }));
-            updateNodeStatus('TwelveData', res.data.length, 'Complete');
-            setStats(prev => ({ ...prev, totalFound: masterRegistry.size }));
-          }
-        } catch (e) { updateNodeStatus('TwelveData', 0, 'Failed'); }
       })()
     ];
 
     await Promise.allSettled(discoveryTasks);
-    addLog(`Discovery Complete: ${masterRegistry.size} Unique Entities found.`, 'success');
+    addLog(`Filter Complete: ${masterRegistry.size} Corporate Entities retained.`, 'success');
 
-    // CLOUD SYNC
+    // CLOUD SYNC to Stage0_Universe_Data
     const masterList = Array.from(masterRegistry.values());
-    const chunkSize = 2500;
+    const chunkSize = 2000;
     for (let i = 0; i < masterList.length; i += chunkSize) {
       if (stopRequested.current) break;
       const chunk = masterList.slice(i, i + chunkSize);
-      const success = await uploadToDrive(token, `NEXUS_UNIVERSE_B${Math.floor(i/chunkSize)+1}.json`, { data: chunk, timestamp: new Date().toISOString() });
+      const fileName = `STAGE0_UNIVERSE_${dateStr}_BATCH_${Math.floor(i/chunkSize)+1}.json`;
+      
+      const success = await uploadToDrive(token, fileName, { 
+        data: chunk, 
+        count: chunk.length,
+        metadata: { date: dateStr, stage: 'STAGE_0', type: 'CORPORATE_EQUITY' },
+        timestamp: new Date().toISOString() 
+      });
+
       if (success) {
         setStats(prev => ({ ...prev, processed: i + chunk.length }));
         setPerformanceData(prev => [...prev.slice(-20), { tps: chunk.length, time: i }].map((d, idx) => ({ ...d, idx })));
+        addLog(`Vault_Commit: ${fileName} stored in Stage0.`, 'info');
+      } else {
+        addLog(`Vault_Failure: Check folder permissions for ${GOOGLE_DRIVE_TARGET.subFolderName}`, 'error');
       }
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
     }
 
-    clearInterval(timerRef.current!);
+    if (timerRef.current) clearInterval(timerRef.current);
     setIsEngineRunning(false);
-    addLog("Matrix Cycle Terminated. All Nodes Idle.", 'info');
+    setActiveNode('Standby');
+    addLog("Universe Gathering Cycle Finalized. Ready for Stage 2.", 'success');
   };
 
   const uploadToDrive = async (token: string, name: string, content: any) => {
-    const metadata = { name, parents: [GOOGLE_DRIVE_TARGET.folderId], mimeType: 'application/json' };
+    // Note: If folderId is for root, it will save there. User should provide the Stage0 folder ID.
+    const metadata = { 
+      name, 
+      parents: [GOOGLE_DRIVE_TARGET.folderId], 
+      mimeType: 'application/json' 
+    };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(content)], { type: 'application/json' }));
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}` },
-      body: form
-    });
-    return res.ok;
+    
+    try {
+      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}` },
+        body: form
+      });
+      return res.ok;
+    } catch (e) { return false; }
   };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-8 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl relative overflow-hidden bg-slate-900/40">
+        <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl relative overflow-hidden bg-slate-900/40">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div>
               <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase flex items-center">
                 <span className="bg-blue-600 w-2 h-8 mr-4 rounded-full animate-pulse"></span>
-                Nexus Multi-Node Engine
+                Nexus Stage-0 Engine
               </h2>
-              <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.4em] mt-2 ml-6">Stage_0: Parallel Universe Discovery</p>
+              <div className="flex items-center space-x-3 mt-2 ml-6">
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.4em]">Corporate Discovery Mode</p>
+                <span className="text-[8px] px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-md font-black border border-blue-500/20">ETFs_EXCLUDED</span>
+              </div>
             </div>
             <button onClick={startGathering} className={`px-12 py-5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-2xl transition-all ${isEngineRunning ? 'bg-red-600 shadow-red-900/40 animate-pulse' : 'bg-blue-600 shadow-blue-900/40 hover:scale-105 active:scale-95'}`}>
               {isEngineRunning ? 'Terminate Matrix' : 'Engage Hyper-Drive'}
@@ -231,9 +272,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
-              { l: 'Total Found', v: stats.totalFound.toLocaleString(), c: 'text-white' },
-              { l: 'Processed', v: stats.processed.toLocaleString(), c: 'text-blue-400' },
-              { l: 'Elapsed', v: `${Math.floor(stats.elapsedSeconds/60)}m ${stats.elapsedSeconds%60}s`, c: 'text-slate-400' },
+              { l: 'Entities Filtered', v: stats.totalFound.toLocaleString(), c: 'text-white' },
+              { l: 'Cloud Sync', v: stats.processed.toLocaleString(), c: 'text-blue-400' },
+              { l: 'Elapsed Time', v: `${Math.floor(stats.elapsedSeconds/60)}m ${stats.elapsedSeconds%60}s`, c: 'text-slate-400' },
               { l: 'Est. Remaining', v: stats.estimatedTimeRemaining, c: 'text-emerald-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
@@ -243,7 +284,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             ))}
           </div>
 
-          {/* Node Contribution Grid */}
           <div className="grid grid-cols-5 gap-3 mb-10">
             {nodeStats.map((node, i) => (
               <div key={i} className="bg-slate-900/60 p-4 rounded-2xl border border-white/5 flex flex-col items-center">
@@ -258,7 +298,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
           <div className="space-y-4">
              <div className="flex justify-between items-end px-2">
-                <span className="text-[9px] font-black text-slate-500 uppercase italic tracking-widest">Discovery_Sync_Integrity</span>
+                <span className="text-[9px] font-black text-slate-500 uppercase italic tracking-widest">Pipeline_Integrity_Check</span>
                 <span className="text-4xl font-black text-white italic font-mono tracking-tighter">
                   {stats.totalFound > 0 ? ((stats.processed / stats.totalFound) * 100).toFixed(1) : '0.0'}%
                 </span>
@@ -280,19 +320,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       </div>
 
       <div className="space-y-6">
-         <div className="glass-panel p-6 rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 h-[700px] flex flex-col">
+         <div className="glass-panel p-6 rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 h-[700px] flex flex-col shadow-2xl">
             <h3 className="font-black text-white text-xs uppercase tracking-[0.3em] mb-6 italic flex items-center">
               <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-3 animate-ping"></span>
-              Matrix Terminal
+              Matrix Terminal_v0.9
             </h3>
             <div ref={logContainerRef} className="flex-1 bg-black/50 p-6 rounded-3xl font-mono text-[9px] text-blue-400/70 overflow-y-auto no-scrollbar space-y-2.5 border border-white/5 leading-relaxed">
                {consoleLogs.map((log, i) => (
-                 <div key={i} className={`pl-3 border-l ${log.includes('[ERR]') ? 'border-red-500 text-red-400' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-blue-900'}`}>
+                 <div key={i} className={`pl-3 border-l ${log.includes('[ERR]') ? 'border-red-500 text-red-400' : log.includes('[FILTER]') ? 'border-amber-500 text-amber-400' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-blue-900'}`}>
                     {log}
                  </div>
                ))}
             </div>
-            <button onClick={() => setShowSettings(true)} className="mt-6 py-4 bg-white/5 border border-white/10 rounded-2xl text-[9px] font-black uppercase text-slate-500 hover:text-white transition-all">Node Configuration</button>
+            <div className="mt-6 flex flex-col gap-3">
+               <button onClick={() => window.open(`https://drive.google.com/drive/folders/${GOOGLE_DRIVE_TARGET.folderId}`, '_blank')} className="py-4 bg-white text-black rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">Verify Stage0 Vault</button>
+               <button onClick={() => setShowSettings(true)} className="py-4 bg-white/5 border border-white/10 rounded-2xl text-[9px] font-black uppercase text-slate-500 hover:text-white transition-all">Node Configuration</button>
+            </div>
          </div>
       </div>
 
@@ -305,9 +348,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                     <label className="text-[9px] font-black text-slate-600 uppercase mb-2 block ml-1">OAuth Client Identifier</label>
                     <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full bg-black/50 border border-white/10 rounded-2xl p-5 text-xs text-white outline-none focus:border-blue-500" placeholder="Paste Client ID..." />
                  </div>
+                 <div>
+                    <label className="text-[9px] font-black text-slate-600 uppercase mb-2 block ml-1">Target Folder ID (Stage0)</label>
+                    <p className="text-[8px] text-slate-500 mb-3 italic">Set this to the 'Stage0_Universe_Data' folder ID.</p>
+                    <input type="text" value={GOOGLE_DRIVE_TARGET.folderId} className="w-full bg-black/50 border border-white/10 rounded-2xl p-5 text-xs text-white outline-none opacity-50 cursor-not-allowed" disabled />
+                 </div>
                  <div className="flex gap-4">
                     <button onClick={() => setShowSettings(false)} className="flex-1 py-5 bg-slate-900 text-slate-500 text-[10px] font-black uppercase rounded-2xl">Cancel</button>
-                    <button onClick={() => { localStorage.setItem('gdrive_client_id', clientId); setShowSettings(false); }} className="flex-[2] py-5 bg-white text-black text-[10px] font-black uppercase rounded-2xl">Confirm Config</button>
+                    <button onClick={() => { localStorage.setItem('gdrive_client_id', clientId); setShowSettings(false); }} className="flex-[2] py-5 bg-white text-black text-[10px] font-black uppercase rounded-2xl shadow-2xl">Confirm Config</button>
                  </div>
               </div>
            </div>
