@@ -20,6 +20,7 @@ interface MasterTicker {
   volume: number;
   change: number;
   updated: string;
+  type?: string; // 추가: Common Stock, ADR, ETF 등
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
@@ -43,7 +44,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.4: Quota-Aware Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.5: Equity-Focus Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -118,26 +119,34 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }, 1000);
 
     try {
-      addLog("Step 1: Fetching Master List (Finnhub)...", "info");
+      addLog("Step 1: Discovering Global Equities (Finnhub)...", "info");
       const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
       
       if (Array.isArray(fhRes)) {
+        let filteredCount = 0;
         fhRes.forEach((s: any) => {
-          newRegistry.set(s.symbol, {
-            symbol: s.symbol,
-            name: s.description,
-            price: 0,
-            volume: 0,
-            change: 0,
-            updated: new Date().toISOString()
-          });
+          // ETF, ETN, Bond 등을 제외하고 보통주(Common Stock)와 ADR만 수집
+          const allowedTypes = ['Common Stock', 'ADR', 'REIT', 'MLP'];
+          if (allowedTypes.includes(s.type) || !s.type) {
+            newRegistry.set(s.symbol, {
+              symbol: s.symbol,
+              name: s.description,
+              price: 0,
+              volume: 0,
+              change: 0,
+              updated: new Date().toISOString(),
+              type: s.type || 'Common Stock'
+            });
+          } else {
+            filteredCount++;
+          }
         });
-        addLog(`Finnhub: ${newRegistry.size} tickers mapped.`, "ok");
+        addLog(`Purged ${filteredCount} Non-Equity items (ETFs, etc.)`, "ok");
+        addLog(`Mapping ${newRegistry.size} primary tickers.`, "ok");
       }
 
       setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
 
-      // Wait a bit to ensure quota is clear
       await new Promise(r => setTimeout(r, 2000));
 
       const targetDate = getLatestTradingDate();
@@ -177,9 +186,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       // Drive Sync
       const masterData = Array.from(newRegistry.values());
-      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.4.json`;
+      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.5.json`;
       const payload = {
-        manifest: { version: "1.9.4", data_date: targetDate, total: masterData.length },
+        manifest: { version: "1.9.5", data_date: targetDate, total: masterData.length, mode: "Equity_Only" },
         universe: masterData
       };
 
@@ -208,7 +217,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/folder' })
+      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
   };
@@ -233,7 +242,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
-          {/* Config Overlay */}
           {showConfig && (
             <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl z-50 p-10 flex flex-col justify-center items-center text-center">
                <div className="max-w-md space-y-6">
@@ -253,17 +261,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             </div>
           )}
 
-          {/* Header */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-14 h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isEngineRunning ? 'animate-pulse' : ''}`}>
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.4</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.5</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Safety_Active'}
+                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Equity_Only_Active'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
                 </div>
@@ -274,15 +281,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               disabled={isEngineRunning || cooldown > 0}
               className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
             >
-              {isEngineRunning ? 'Processing Matrix...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
+              {isEngineRunning ? 'Purging ETFs...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
           </div>
 
-          {/* Search/Integrity */}
           <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-              <span className="text-[8px] text-slate-500 uppercase">Status: {stats.phase}</span>
+              <span className="text-[8px] text-slate-500 uppercase">Mode: Filtering_Derivatives</span>
             </div>
             <div className="flex gap-4">
               <input 
@@ -295,7 +301,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               <div className={`flex-1 flex items-center px-6 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
                 {searchResult ? (
                   <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
-                    <span className="truncate">{searchResult.name || searchResult.symbol}</span>
+                    <span className="truncate">{searchResult.name || searchResult.symbol} ({searchResult.type})</span>
                     <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 ml-4">${searchResult.price.toFixed(2)}</span>
                   </div>
                 ) : (
@@ -305,13 +311,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             </div>
           </div>
 
-          {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
-              { label: 'Symbols Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Quota State', val: cooldown > 0 ? 'THROTTLED' : 'HEALTHY', color: cooldown > 0 ? 'text-red-400' : 'text-emerald-400' },
+              { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
+              { label: 'Asset Type', val: 'COMMON/ADR', color: 'text-indigo-400' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
-              { label: 'Engine Mode', val: 'V1.9.4_SAFE', color: 'text-blue-400' }
+              { label: 'Engine Mode', val: 'V1.9.5_EQUITY', color: 'text-blue-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
@@ -329,11 +334,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         </div>
       </div>
 
-      {/* Terminal */}
       <div className="xl:col-span-1">
         <div className="glass-panel h-[680px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Pipeline_Terminal</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Equity_Only_Terminal</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
