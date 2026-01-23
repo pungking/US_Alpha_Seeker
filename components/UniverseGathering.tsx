@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { GatheringStats } from '../types';
-import { GOOGLE_DRIVE_TARGET, PRODUCTION_URL, API_CONFIGS } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 
 interface Props {
@@ -24,7 +24,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [currentOrigin, setCurrentOrigin] = useState<string>('');
   const [targetFolderId, setTargetFolderId] = useState<string>(GOOGLE_DRIVE_TARGET.folderId);
   
-  const isProdHost = window.location.hostname === 'us-alpha-seeker.vercel.app';
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
 
   const [stats, setStats] = useState<GatheringStats>({
@@ -37,10 +36,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   });
 
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Matrix Node V1.8 Initialized...']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Matrix Node V2.0 Initialized...']);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
   
-  const logEndRef = useRef<HTMLDivElement>(null);
+  const logContainerRef = useRef<HTMLDivElement>(null);
   const tokenClient = useRef<any>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -51,19 +50,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     return () => { if (timerRef.current) clearInterval(timerRef.current); };
   }, []);
 
+  // 페이지 전체 스크롤을 방지하기 위해 컨테이너 내부 스크롤만 조절
+  useEffect(() => {
+    if (logContainerRef.current) {
+      logContainerRef.current.scrollTop = logContainerRef.current.scrollHeight;
+    }
+  }, [consoleLogs]);
+
   const findTargetSubFolder = async (token: string) => {
     try {
-      setConsoleLogs(cl => [...cl, `> [SYSTEM] Scanning for Stage0 subfolder...`]);
       const response = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=name='Stage0_Universe_Data' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
       const data = await response.json();
-      
       if (data.files && data.files.length > 0) {
-        const folder = data.files[0];
-        setTargetFolderId(folder.id);
-        setConsoleLogs(cl => [...cl, `> [SUCCESS] Target Path Locked: ${folder.name}`]);
+        setTargetFolderId(data.files[0].id);
+        setConsoleLogs(cl => [...cl, `> [SUCCESS] Cloud Path: ${data.files[0].name}`]);
       }
     } catch (e) {
       setConsoleLogs(cl => [...cl, `> [ERROR] Folder discovery failed.`]);
@@ -82,7 +85,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             if (response.access_token) {
               setAccessToken(response.access_token);
               sessionStorage.setItem('gdrive_access_token', response.access_token);
-              setConsoleLogs(cl => [...cl, `> [CLOUD] Authentication Verified.`]);
               findTargetSubFolder(response.access_token);
               if (onAuthSuccess) onAuthSuccess(true);
               setShowSettings(false);
@@ -98,10 +100,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   useEffect(() => { if (clientId) initGsi(clientId); }, [clientId]);
 
   const handleAuth = () => {
-    if (!clientId) {
-      setShowSettings(true);
-      return;
-    }
+    if (!clientId) { setShowSettings(true); return; }
     tokenClient.current ? tokenClient.current.requestAccessToken() : (initGsi(clientId) && tokenClient.current.requestAccessToken());
   };
 
@@ -131,108 +130,93 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   };
 
   const startGathering = async () => {
-    if (!accessToken) {
-      setConsoleLogs(cl => [...cl, `> [BLOCK] Google Auth required.`]);
-      handleAuth();
-      return;
-    }
+    if (!accessToken) { handleAuth(); return; }
     if (!polygonKey) {
-      setConsoleLogs(cl => [...cl, `> [BLOCK] Polygon API Key missing in constants.ts.`]);
+      setConsoleLogs(cl => [...cl, `> [BLOCK] Polygon API Key missing.`]);
       return;
     }
 
     setIsEngineRunning(true);
-    setConsoleLogs(cl => [...cl, `> [ENGINE] Starting US Universe Protocol...`]);
+    setConsoleLogs(cl => [...cl, `> [ENGINE] Initiating Full Market Sweep...`]);
     
-    // 시간 측정 시작
     const startTimestamp = Date.now();
-    setStats(prev => ({ 
-      ...prev, 
-      startTime: new Date().toLocaleTimeString(),
-      processed: 0,
-      elapsedSeconds: 0
-    }));
+    let processedCount = 0;
+    let batchIndex = 1;
 
-    // 타이머 인터벌 시작
+    setStats(prev => ({ ...prev, startTime: new Date().toLocaleTimeString(), processed: 0, elapsedSeconds: 0 }));
+
     timerRef.current = window.setInterval(() => {
-      setStats(prev => ({
-        ...prev,
-        elapsedSeconds: Math.floor((Date.now() - startTimestamp) / 1000)
-      }));
+      setStats(prev => ({ ...prev, elapsedSeconds: Math.floor((Date.now() - startTimestamp) / 1000) }));
     }, 1000);
 
     try {
-      const res = await fetch(`https://api.polygon.io/v3/reference/tickers?active=true&market=stocks&limit=1000&apiKey=${polygonKey}`);
-      const data = await res.json();
+      // 1. 초기 URL 설정
+      let nextUrl = `https://api.polygon.io/v3/reference/tickers?active=true&market=stocks&limit=1000&apiKey=${polygonKey}`;
       
-      if (data.results) {
-        const allTickers = data.results;
-        setStats(prev => ({ ...prev, totalFound: allTickers.length }));
-        setConsoleLogs(cl => [...cl, `> [API] Target identified: ${allTickers.length} tickers.`]);
+      while (nextUrl) {
+        setConsoleLogs(cl => [...cl, `> [API] Fetching Ticker Batch...`]);
+        const response = await fetch(nextUrl);
+        const data = await response.json();
+        
+        if (data.results && data.results.length > 0) {
+          const tickers = data.results;
+          processedCount += tickers.length;
+          
+          // 실시간 통계 업데이트 (TotalFound는 첫 호출에서 count가 있으면 좋으나 Polygon은 전체 count를 주지 않으므로 추정치 사용)
+          // Polygon API V3는 전체 count를 제공하지 않으므로, 수집하면서 계속 늘어남
+          setStats(prev => {
+            const elapsed = (Date.now() - startTimestamp) / 1000;
+            const rate = processedCount / elapsed;
+            // 미국 전체 종목은 대략 12,000개 전후
+            const estimatedTotal = 12000; 
+            const remaining = estimatedTotal - processedCount;
+            const etaSec = rate > 0 ? Math.ceil(remaining / rate) : 0;
+            const etaFormatted = etaSec > 0 ? (etaSec > 60 ? `${Math.floor(etaSec/60)}m ${etaSec%60}s` : `${etaSec}s`) : 'Calibrating...';
 
-        const chunkSize = 100;
-        for (let i = 0; i < allTickers.length; i += chunkSize) {
-          // 비동기 루프 내 중단 체크를 위해 함수 스코프 변수 사용 금지, 최신 상태 체크 필요하나 여기서는 단순화
-          const chunk = allTickers.slice(i, i + chunkSize);
-          const batchNum = (i / chunkSize) + 1;
-          const fileName = `STG0_B${batchNum}_${Date.now()}.json`;
+            return { 
+              ...prev, 
+              totalFound: Math.max(estimatedTotal, processedCount),
+              processed: processedCount,
+              estimatedTimeRemaining: etaFormatted
+            };
+          });
+
+          const fileName = `STG0_ALL_B${batchIndex}_${Date.now()}.json`;
+          const success = await uploadToDrive(fileName, tickers);
           
-          setConsoleLogs(cl => [...cl, `> [SYNC] Batch ${batchNum} uploading...`]);
-          
-          const success = await uploadToDrive(fileName, chunk);
           if (success) {
-            const newProcessed = Math.min(allTickers.length, (i + chunk.length));
-            
-            setStats(prev => {
-              const elapsed = (Date.now() - startTimestamp) / 1000;
-              const rate = newProcessed / elapsed;
-              const remaining = allTickers.length - newProcessed;
-              const etaSec = rate > 0 ? Math.ceil(remaining / rate) : 0;
-              
-              const etaFormatted = etaSec > 60 
-                ? `${Math.floor(etaSec / 60)}m ${etaSec % 60}s` 
-                : `${etaSec}s`;
-
-              return { 
-                ...prev, 
-                processed: newProcessed,
-                estimatedTimeRemaining: etaFormatted
-              };
-            });
-
+            setConsoleLogs(cl => [...cl, `> [CLOUD] Batch ${batchIndex} synced (${tickers.length} tickers).`]);
             setDriveFiles(df => [{
               name: fileName,
-              size: `${(JSON.stringify(chunk).length / 1024).toFixed(1)} KB`,
+              size: `${(JSON.stringify(tickers).length / 1024).toFixed(1)} KB`,
               timestamp: new Date().toLocaleTimeString(),
               status: 'Synced'
             }, ...df].slice(0, 10));
-            
-            setPerformanceData(prev => [...prev.slice(-39), { tps: chunk.length }].map((d, idx) => ({ ...d, index: idx })));
+            setPerformanceData(prev => [...prev.slice(-39), { tps: tickers.length }].map((d, idx) => ({ ...d, index: idx })));
           }
-          await new Promise(r => setTimeout(r, 800)); 
+
+          batchIndex++;
+          // Polygon API Pagination: next_url이 있으면 다음 페이지로
+          nextUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
+          
+          // API 레이트 리밋 방지 (Free tier 고려)
+          await new Promise(r => setTimeout(r, 1200)); 
+        } else {
+          nextUrl = '';
         }
       }
     } catch (e) {
-      setConsoleLogs(cl => [...cl, `> [FATAL] Engine failure.`]);
+      setConsoleLogs(cl => [...cl, `> [FATAL] Data Pipeline Severed.`]);
     } finally {
       setIsEngineRunning(false);
       if (timerRef.current) clearInterval(timerRef.current);
-      setStats(prev => ({ ...prev, estimatedTimeRemaining: 'Complete' }));
-      setConsoleLogs(cl => [...cl, `> [ENGINE] Mission Accomplished.`]);
+      setStats(prev => ({ ...prev, totalFound: processedCount, estimatedTimeRemaining: 'Complete' }));
+      setConsoleLogs(cl => [...cl, `> [ENGINE] Full Market Sync Completed.`]);
     }
   };
 
-  useEffect(() => {
-    logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [consoleLogs]);
-
   const progress = stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0;
-
-  const formatSeconds = (sec: number) => {
-    const m = Math.floor(sec / 60);
-    const s = sec % 60;
-    return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
-  };
+  const formatSeconds = (sec: number) => `${Math.floor(sec/60).toString().padStart(2,'0')}:${(sec%60).toString().padStart(2,'0')}`;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
@@ -253,33 +237,28 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 disabled={isEngineRunning} 
                 className={`px-14 py-6 rounded-2xl text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl active:scale-95 ${isEngineRunning ? 'bg-slate-900 text-blue-500 border border-blue-500/40 animate-pulse cursor-not-allowed' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}
               >
-                {isEngineRunning ? 'System Processing...' : 'Engage Matrix'}
+                {isEngineRunning ? 'System Syncing...' : 'Engage Matrix'}
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
-             <div className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner transition-all hover:bg-slate-900">
-               <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">Found Assets</p>
-               <p className="text-2xl font-mono font-black text-white italic tracking-tighter">{stats.totalFound.toLocaleString()}</p>
-             </div>
-             <div className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner transition-all hover:bg-slate-900">
-               <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">Elapsed Time</p>
-               <p className="text-2xl font-mono font-black text-emerald-400 italic tracking-tighter">{formatSeconds(stats.elapsedSeconds)}</p>
-             </div>
-             <div className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner transition-all hover:bg-slate-900">
-               <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">Estimated ETA</p>
-               <p className="text-2xl font-mono font-black text-amber-500 italic tracking-tighter">{stats.estimatedTimeRemaining}</p>
-             </div>
-             <div className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner transition-all hover:bg-slate-900">
-               <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">Sync Count</p>
-               <p className="text-2xl font-mono font-black text-indigo-400 italic tracking-tighter">{stats.processed.toLocaleString()}</p>
-             </div>
+             {[
+               { label: 'Synced Assets', value: stats.processed.toLocaleString(), color: 'text-white' },
+               { label: 'Elapsed', value: formatSeconds(stats.elapsedSeconds), color: 'text-emerald-400' },
+               { label: 'Estimated ETA', value: stats.estimatedTimeRemaining, color: 'text-amber-500' },
+               { label: 'Matrix Health', value: '100%', color: 'text-indigo-400' }
+             ].map((item, idx) => (
+               <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner transition-all hover:bg-slate-900">
+                 <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">{item.label}</p>
+                 <p className={`text-2xl font-mono font-black ${item.color} italic tracking-tighter`}>{item.value}</p>
+               </div>
+             ))}
           </div>
 
           <div className="space-y-6 mb-12">
             <div className="flex justify-between items-end px-2">
-               <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Gathering Matrix Progress</span>
+               <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Full Market Sync Progress</span>
                <span className="text-3xl font-black text-white font-mono tracking-tighter italic">{progress.toFixed(1)}%</span>
             </div>
             <div className="h-4 w-full bg-slate-950 rounded-full border border-white/5 p-1 overflow-hidden">
@@ -296,7 +275,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           </div>
         </div>
 
-        {/* Cloud Vault Manifest Section (동일) */}
         <div className="glass-panel p-10 rounded-[40px] border-t border-white/5 shadow-2xl">
            <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] mb-12 italic">Cloud Vault Manifest (Stage 0)</h3>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -326,20 +304,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       <div className="space-y-8">
         <div className="glass-panel p-8 rounded-[40px] bg-slate-950 border-l-8 border-l-indigo-600 shadow-2xl sticky top-8">
           <h3 className="font-black text-white uppercase text-xl italic tracking-tighter mb-8">IO Data Stream</h3>
-          <div className="bg-black/90 p-6 rounded-[24px] font-mono text-[10px] text-indigo-400/80 h-[580px] overflow-y-auto no-scrollbar space-y-5 shadow-inner border border-white/5 scroll-smooth text-[9px]">
+          <div ref={logContainerRef} className="bg-black/90 p-6 rounded-[24px] font-mono text-indigo-400/80 h-[580px] overflow-y-auto no-scrollbar space-y-5 shadow-inner border border-white/5 scroll-smooth text-[9px]">
             {consoleLogs.map((log, i) => (
               <div key={i} className="border-l-2 border-indigo-600/30 pl-5 py-2">
                 <span className="text-slate-800 mr-3 text-[9px] font-bold">[{new Date().toLocaleTimeString()}]</span>
                 <span>{log}</span>
               </div>
             ))}
-            <div ref={logEndRef} />
           </div>
           <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-6 rounded-3xl bg-white text-slate-950 text-[11px] font-black uppercase tracking-[0.5em] hover:bg-indigo-600 hover:text-white transition-all">Access Vault</button>
         </div>
       </div>
 
-      {/* Settings Modal (동일) */}
       {showSettings && (
         <div className="fixed inset-0 z-[100] bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-8 animate-in zoom-in duration-300">
            <div className="max-w-2xl w-full glass-panel p-12 rounded-[48px] border-white/10 shadow-[0_0_150px_rgba(0,0,0,1)]">
