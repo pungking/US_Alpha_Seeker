@@ -1,8 +1,9 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, ResponsiveContainer } from 'recharts';
 import { GatheringStats } from '../types';
-import { GOOGLE_DRIVE_TARGET, PRODUCTION_URL } from '../constants';
+import { GOOGLE_DRIVE_TARGET, PRODUCTION_URL, API_CONFIGS } from '../constants';
+import { ApiProvider } from '../types';
 
 interface Props {
   onAuthSuccess?: (status: boolean) => void;
@@ -10,11 +11,9 @@ interface Props {
 
 interface DriveFile {
   name: string;
-  stage: string;
   size: string;
   timestamp: string;
-  status: 'Committed' | 'Uploading' | 'Error';
-  progress: number;
+  status: string;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
@@ -23,20 +22,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   const [showSettings, setShowSettings] = useState(!localStorage.getItem('gdrive_client_id'));
   const [currentOrigin, setCurrentOrigin] = useState<string>('');
+  const [targetFolderId, setTargetFolderId] = useState<string>(GOOGLE_DRIVE_TARGET.folderId);
   
   const isProdHost = window.location.hostname === 'us-alpha-seeker.vercel.app';
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
 
   const [stats, setStats] = useState<GatheringStats>({
-    totalFound: 12450,
+    totalFound: 0,
     processed: 0,
     failed: 0,
     startTime: '-',
     elapsedSeconds: 0,
-    estimatedTimeRemaining: 'Awaiting Auth...'
+    estimatedTimeRemaining: 'Ready'
   });
 
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Matrix Node V1.2 Initialized...']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Matrix Node V1.5 Initialized...']);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
   
   const logEndRef = useRef<HTMLDivElement>(null);
@@ -48,6 +49,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (accessToken && onAuthSuccess) onAuthSuccess(true);
   }, []);
 
+  // 1. 구글 드라이브에서 'Stage0_Universe_Data' 폴더 ID 찾기 로직 추가
+  const findTargetFolder = async (token: string) => {
+    try {
+      const response = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=name='Stage0_Universe_Data' and mimeType='application/vnd.google-apps.folder' and trashed=false`,
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+      const data = await response.json();
+      if (data.files && data.files.length > 0) {
+        setTargetFolderId(data.files[0].id);
+        setConsoleLogs(cl => [...cl, `> [SYSTEM] Target Folder Detected: ${data.files[0].id}`]);
+      }
+    } catch (e) {
+      console.error("Folder search error", e);
+    }
+  };
+
   const initGsi = (id: string) => {
     // @ts-ignore
     if (window.google && id && id.includes('.apps.googleusercontent.com')) {
@@ -55,32 +73,25 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         // @ts-ignore
         tokenClient.current = window.google.accounts.oauth2.initTokenClient({
           client_id: id,
-          scope: 'https://www.googleapis.com/auth/drive.file',
+          scope: 'https://www.googleapis.com/auth/drive.file https://www.googleapis.com/auth/drive.metadata.readonly',
           callback: (response: any) => {
             if (response.access_token) {
               setAccessToken(response.access_token);
               sessionStorage.setItem('gdrive_access_token', response.access_token);
-              setConsoleLogs(cl => [...cl, `> [CLOUD] Authentication Verified. Session active.`]);
+              setConsoleLogs(cl => [...cl, `> [CLOUD] Authentication Verified.`]);
+              findTargetFolder(response.access_token);
               if (onAuthSuccess) onAuthSuccess(true);
               setShowSettings(false);
-            }
-            if (response.error) {
-              setConsoleLogs(cl => [...cl, `> [AUTH ERROR] ${response.error}: Verify JavaScript Origin in Google Console.`]);
-              alert(`인증 에러: 구글 콘솔에 현재 접속 주소(${currentOrigin})가 등록되어 있는지 확인하세요.`);
             }
           },
         });
         return true;
-      } catch (e) {
-        return false;
-      }
+      } catch (e) { return false; }
     }
     return false;
   };
 
-  useEffect(() => {
-    if (clientId) initGsi(clientId);
-  }, [clientId]);
+  useEffect(() => { if (clientId) initGsi(clientId); }, [clientId]);
 
   const handleAuth = () => {
     if (!clientId.includes('.apps.googleusercontent.com')) {
@@ -88,20 +99,24 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       setShowSettings(true);
       return;
     }
-    if (tokenClient.current) {
-      tokenClient.current.requestAccessToken();
-    } else {
-      if (initGsi(clientId)) {
-        tokenClient.current.requestAccessToken();
-      }
-    }
+    tokenClient.current ? tokenClient.current.requestAccessToken() : (initGsi(clientId) && tokenClient.current.requestAccessToken());
   };
 
-  const uploadToDrive = async (fileName: string, data: any) => {
+  const uploadToDrive = async (fileName: string, tickers: any[]) => {
     if (!accessToken) return false;
     try {
-      const metadata = { name: fileName, parents: [GOOGLE_DRIVE_TARGET.folderId], mimeType: 'application/json' };
-      const fileContent = new Blob([JSON.stringify(data)], { type: 'application/json' });
+      const metadata = { 
+        name: fileName, 
+        parents: [targetFolderId], // 이제 Stage0_Universe_Data 폴더로 들어갑니다.
+        mimeType: 'application/json' 
+      };
+      const fileContent = new Blob([JSON.stringify({
+        source: "Polygon.io",
+        batch_timestamp: new Date().toISOString(),
+        count: tickers.length,
+        data: tickers
+      }, null, 2)], { type: 'application/json' });
+
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
       formData.append('file', fileContent);
@@ -111,64 +126,63 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         headers: new Headers({ 'Authorization': 'Bearer ' + accessToken }),
         body: formData
       });
-
-      if (response.status === 401) {
-        setAccessToken(null);
-        sessionStorage.removeItem('gdrive_access_token');
-        if (onAuthSuccess) onAuthSuccess(false);
-        return false;
-      }
       return response.ok;
-    } catch (error) {
-      return false;
-    }
+    } catch (error) { return false; }
   };
 
-  useEffect(() => {
-    let timer: any;
-    if (isEngineRunning && accessToken) {
-      timer = setInterval(() => setStats(prev => ({ ...prev, elapsedSeconds: prev.elapsedSeconds + 1 })), 1000);
-    }
-    return () => clearInterval(timer);
-  }, [isEngineRunning, accessToken]);
+  // 2. 실제 주식 티커 수집 엔진
+  const startGathering = async () => {
+    if (!accessToken || !polygonKey) return;
+    setIsEngineRunning(true);
+    setConsoleLogs(cl => [...cl, `> [ENGINE] Initiating US Stock Universe Gathering...`]);
 
-  useEffect(() => {
-    let interval: any;
-    if (isEngineRunning && accessToken) {
-      interval = setInterval(async () => {
-        const batchSize = Math.floor(Math.random() * 30) + 40;
-        setStats(prev => {
-          const newProcessed = Math.min(prev.processed + batchSize, prev.totalFound);
-          const remainingSeconds = Math.floor((prev.totalFound - newProcessed) / (batchSize / 1.2));
-          if (newProcessed % 1000 < batchSize && newProcessed > 0) {
-            const fileName = `PROD_SYNC_${Math.floor(newProcessed / 1000)}.json`;
-            uploadToDrive(fileName, { timestamp: Date.now(), batch: batchSize }).then(success => {
-               setConsoleLogs(cl => [...cl, success ? `> [IO] Cloud Commit Success: ${fileName}` : `> [IO] Write Error: Check Quota`]);
-               if (success) {
-                  setDriveFiles(df => [{
-                    name: fileName,
-                    stage: 'Stage 0',
-                    size: '4.2 KB',
-                    timestamp: new Date().toLocaleTimeString(),
-                    status: 'Committed',
-                    progress: 100
-                  }, ...df].slice(0, 8));
-               }
-            });
+    try {
+      // Polygon API를 통해 실제 티커 리스트 가져오기 (첫 페이지 1000개 예시)
+      const res = await fetch(`https://api.polygon.io/v3/reference/tickers?active=true&market=stocks&limit=1000&apiKey=${polygonKey}`);
+      const data = await res.json();
+      
+      if (data.results) {
+        const allTickers = data.results;
+        setStats(prev => ({ ...prev, totalFound: allTickers.length }));
+        setConsoleLogs(cl => [...cl, `> [API] Found ${allTickers.length} active tickers.`]);
+
+        // 100개씩 끊어서 드라이브에 저장 (멀티 파일 시뮬레이션)
+        const chunkSize = 100;
+        for (let i = 0; i < allTickers.length; i += chunkSize) {
+          if (!isEngineRunning) break;
+          const chunk = allTickers.slice(i, i + chunkSize);
+          const batchNum = (i / chunkSize) + 1;
+          const fileName = `US_UNIVERSE_BATCH_${batchNum}.json`;
+          
+          setConsoleLogs(cl => [...cl, `> [PROCESS] Syncing Batch ${batchNum}: ${chunk[0].ticker}...${chunk[chunk.length-1].ticker}`]);
+          
+          const success = await uploadToDrive(fileName, chunk);
+          if (success) {
+            setStats(prev => ({ ...prev, processed: prev.processed + chunk.length }));
+            setDriveFiles(df => [{
+              name: fileName,
+              size: `${(JSON.stringify(chunk).length / 1024).toFixed(1)} KB`,
+              timestamp: new Date().toLocaleTimeString(),
+              status: 'Synced'
+            }, ...df].slice(0, 10));
+            setPerformanceData(prev => [...prev.slice(-39), { tps: chunk.length }].map((d, idx) => ({ ...d, index: idx })));
           }
-          return { ...prev, processed: newProcessed, estimatedTimeRemaining: [Math.floor(remainingSeconds/60), remainingSeconds%60].map(v => v < 10 ? "0"+v : v).join(":") };
-        });
-        setPerformanceData(prev => [...prev.slice(-39), { tps: batchSize }].map((d, i) => ({ ...d, index: i })));
-      }, 1000);
+          await new Promise(r => setTimeout(r, 800)); // API 부하 방지
+        }
+      }
+    } catch (e) {
+      setConsoleLogs(cl => [...cl, `> [ERROR] Gathering Failed: Check API Key or Network.`]);
+    } finally {
+      setIsEngineRunning(false);
+      setConsoleLogs(cl => [...cl, `> [ENGINE] Process Completed.`]);
     }
-    return () => clearInterval(interval);
-  }, [isEngineRunning, accessToken]);
+  };
 
   useEffect(() => {
     logEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [consoleLogs]);
 
-  const progress = (stats.processed / stats.totalFound) * 100;
+  const progress = stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
@@ -178,11 +192,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             <div>
               <div className="flex items-center space-x-4">
                  <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase">Gathering Matrix</h2>
-                 <button onClick={() => setShowSettings(true)} className="px-4 py-1.5 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-xl border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all active:scale-95 uppercase tracking-widest">
-                    Config Setup
-                 </button>
+                 <button onClick={() => setShowSettings(true)} className="px-4 py-1.5 bg-blue-500/10 text-blue-400 text-[10px] font-black rounded-xl border border-blue-500/20 hover:bg-blue-500 hover:text-white transition-all active:scale-95 uppercase tracking-widest">Config Setup</button>
               </div>
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3 italic">Production Environment Connected</p>
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3 italic">Folder: {targetFolderId === GOOGLE_DRIVE_TARGET.folderId ? 'Root (Default)' : 'Stage0_Universe_Data'}</p>
             </div>
             
             <div className="flex space-x-4">
@@ -192,8 +204,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                   <span>Link Google Account</span>
                 </button>
               ) : (
-                <button onClick={() => setIsEngineRunning(!isEngineRunning)} className={`px-14 py-6 rounded-2xl text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl active:scale-95 ${isEngineRunning ? 'bg-slate-950 text-red-500 border border-red-500/40 hover:bg-red-950/20' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}>
-                  {isEngineRunning ? 'Halt Process' : 'Engage Matrix'}
+                <button onClick={startGathering} disabled={isEngineRunning} className={`px-14 py-6 rounded-2xl text-xs font-black uppercase tracking-[0.3em] transition-all shadow-xl active:scale-95 ${isEngineRunning ? 'bg-slate-900 text-blue-500 border border-blue-500/40 animate-pulse' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}>
+                  {isEngineRunning ? 'Processing...' : 'Engage Matrix'}
                 </button>
               )}
             </div>
@@ -203,59 +215,30 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             <div className="absolute inset-0 z-50 bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-8 animate-in zoom-in duration-300">
                <div className="max-w-2xl w-full glass-panel p-12 rounded-[48px] border-white/10 shadow-[0_0_150px_rgba(0,0,0,1)]">
                   <div className="flex justify-between items-center mb-8">
-                    <div>
-                      <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase underline decoration-blue-500 decoration-4 underline-offset-8">Cloud Handshake Setup</h3>
-                      <p className="text-[11px] text-slate-400 font-bold uppercase tracking-widest mt-6">Google Cloud Console Integration</p>
-                    </div>
-                    <button onClick={() => setShowSettings(false)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-red-500/20 hover:text-red-500 transition-all">
+                    <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase underline decoration-blue-500 decoration-4 underline-offset-8">Cloud Handshake Setup</h3>
+                    <button onClick={() => setShowSettings(false)} className="w-12 h-12 flex items-center justify-center bg-white/5 rounded-2xl hover:bg-red-500/20 transition-all">
                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M6 18L18 6M6 6l12 12" /></svg>
                     </button>
                   </div>
-
                   <div className="space-y-6">
-                     <div className="p-6 rounded-[32px] bg-amber-500/5 border border-amber-500/20 relative">
-                        <h4 className="text-[10px] font-black text-amber-500 uppercase tracking-widest mb-3 flex items-center">
-                           <svg className="w-4 h-4 mr-2" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z" clipRule="evenodd" /></svg>
-                           Google OAuth 가이드 (필독)
-                        </h4>
-                        <p className="text-[11px] text-slate-400 leading-relaxed mb-4">
-                           구글 콘솔의 <span className="text-white font-bold">'승인된 JavaScript 원본'</span>에 아래 주소를 **모두** 추가해야 모든 환경에서 로그인이 가능합니다.
-                        </p>
-                        
-                        <div className="space-y-4">
-                           {/* Current Preview Origin */}
-                           <div className="space-y-2">
-                              <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">1. 현재 테스트 환경 (지금 화면용)</span>
-                              <div className="flex items-center space-x-2">
-                                 <div className="flex-1 bg-black/60 p-3 rounded-xl border border-white/5 font-mono text-[11px] text-blue-400 truncate shadow-inner select-all">
-                                    {currentOrigin}
-                                 </div>
-                                 <button onClick={() => { navigator.clipboard.writeText(currentOrigin); alert("복사되었습니다."); }} className="px-4 py-3 bg-slate-800 text-white text-[9px] font-black rounded-xl hover:bg-slate-700 transition-all uppercase">Copy</button>
-                              </div>
+                     <div className="p-6 rounded-[32px] bg-amber-500/5 border border-amber-500/20">
+                        <p className="text-[11px] text-slate-400 leading-relaxed mb-4">구글 콘솔 '승인된 JavaScript 원본'에 아래 주소를 등록하세요:</p>
+                        <div className="space-y-3">
+                           <div className="flex items-center space-x-2">
+                              <span className="text-[9px] text-slate-600 uppercase w-20">Preview:</span>
+                              <div className="flex-1 bg-black/60 p-3 rounded-xl border border-white/5 font-mono text-[11px] text-blue-400 truncate">{currentOrigin}</div>
                            </div>
-
-                           {/* Vercel Production Origin */}
-                           <div className="space-y-2">
-                              <span className="text-[9px] font-black text-slate-600 uppercase tracking-tighter">2. Vercel 배포 주소 (최종 서비스용)</span>
-                              <div className="flex items-center space-x-2">
-                                 <div className="flex-1 bg-black/60 p-3 rounded-xl border border-white/5 font-mono text-[11px] text-emerald-400 truncate shadow-inner select-all">
-                                    {PRODUCTION_URL}
-                                 </div>
-                                 <button onClick={() => { navigator.clipboard.writeText(PRODUCTION_URL); alert("복사되었습니다."); }} className="px-4 py-3 bg-slate-800 text-white text-[9px] font-black rounded-xl hover:bg-slate-700 transition-all uppercase">Copy</button>
-                              </div>
+                           <div className="flex items-center space-x-2">
+                              <span className="text-[9px] text-slate-600 uppercase w-20">Vercel:</span>
+                              <div className="flex-1 bg-black/60 p-3 rounded-xl border border-white/5 font-mono text-[11px] text-emerald-400 truncate">{PRODUCTION_URL}</div>
                            </div>
                         </div>
                      </div>
-
-                     <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                        <div className="space-y-2">
-                           <label className="text-[9px] font-black text-slate-500 uppercase tracking-widest block px-1">Google OAuth Client ID</label>
-                           <input type="text" value={clientId} onChange={(e) => {setClientId(e.target.value); localStorage.setItem('gdrive_client_id', e.target.value)}} className="w-full bg-slate-900 border border-white/10 rounded-xl p-4 text-[10px] font-mono text-white focus:border-indigo-500 outline-none transition-all" placeholder="...apps.googleusercontent.com" />
-                        </div>
-                        <div className="flex items-end">
-                           <button onClick={() => setShowSettings(false)} className="w-full py-4 bg-white text-slate-950 text-[10px] font-black uppercase rounded-xl shadow-2xl hover:bg-blue-600 hover:text-white transition-all active:scale-95">Save & Close</button>
-                        </div>
+                     <div className="space-y-2">
+                        <label className="text-[9px] font-black text-slate-500 uppercase">Google OAuth Client ID</label>
+                        <input type="text" value={clientId} onChange={(e) => {setClientId(e.target.value); localStorage.setItem('gdrive_client_id', e.target.value)}} className="w-full bg-slate-900 border border-white/10 rounded-xl p-4 text-[10px] font-mono text-white" />
                      </div>
+                     <button onClick={() => setShowSettings(false)} className="w-full py-4 bg-white text-slate-950 text-[10px] font-black uppercase rounded-xl">Save & Close</button>
                   </div>
                </div>
             </div>
@@ -263,14 +246,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-8 mb-12">
              {[
-               { label: 'Node Uptime', value: [Math.floor(stats.elapsedSeconds/60), stats.elapsedSeconds%60].map(v => v < 10 ? "0"+v : v).join(":"), color: 'text-white' },
+               { label: 'Found Assets', value: stats.totalFound.toLocaleString(), color: 'text-white' },
                { label: 'Cloud Handshake', value: accessToken ? 'SUCCESS' : 'PENDING', color: accessToken ? 'text-emerald-400' : 'text-amber-500' },
-               { label: 'Matrix Sync', value: stats.processed.toLocaleString(), color: 'text-white' },
-               { label: 'Current Origin', value: isProdHost ? 'VERCEL' : 'PREVIEW', color: 'text-indigo-400' }
+               { label: 'Sync Count', value: stats.processed.toLocaleString(), color: 'text-white' },
+               { label: 'Origin', value: isProdHost ? 'VERCEL' : 'PREVIEW', color: 'text-indigo-400' }
              ].map((item, idx) => (
-               <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner group transition-all">
+               <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner transition-all">
                  <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">{item.label}</p>
-                 <p className={`text-2xl font-mono font-black ${item.color} leading-none italic tracking-tighter truncate`}>{item.value}</p>
+                 <p className={`text-2xl font-mono font-black ${item.color} italic tracking-tighter truncate`}>{item.value}</p>
                </div>
              ))}
           </div>
@@ -280,35 +263,27 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Gathering Matrix Progress</span>
                <span className="text-3xl font-black text-white font-mono tracking-tighter italic">{progress.toFixed(1)}%</span>
             </div>
-            <div className="h-4 w-full bg-slate-950 rounded-full border border-white/5 p-1 shadow-inner overflow-hidden">
-               <div className="h-full bg-gradient-to-r from-blue-700 via-indigo-500 to-emerald-400 transition-all duration-1000 shadow-[0_0_20px_rgba(79,70,229,0.5)] rounded-full relative" style={{ width: `${progress}%` }}>
-                  <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/20 to-transparent animate-[shimmer_2s_infinite]"></div>
-               </div>
+            <div className="h-4 w-full bg-slate-950 rounded-full border border-white/5 p-1 overflow-hidden">
+               <div className="h-full bg-gradient-to-r from-blue-700 via-indigo-500 to-emerald-400 transition-all duration-1000 shadow-[0_0_20px_rgba(79,70,229,0.5)] rounded-full" style={{ width: `${progress}%` }}></div>
             </div>
           </div>
 
           <div className="h-56 opacity-80 -mx-4">
              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={performanceData}>
-                  <defs>
-                    <linearGradient id="colorTps" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
-                      <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
-                    </linearGradient>
-                  </defs>
-                  <Area type="monotone" dataKey="tps" stroke="#6366f1" strokeWidth={4} fillOpacity={1} fill="url(#colorTps)" />
+                  <Area type="monotone" dataKey="tps" stroke="#6366f1" strokeWidth={4} fillOpacity={0.2} fill="#6366f1" />
                 </AreaChart>
              </ResponsiveContainer>
           </div>
         </div>
 
         <div className="glass-panel p-10 rounded-[40px] border-t border-white/5 shadow-2xl">
-           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] mb-12 italic">Cloud Vault Manifest</h3>
+           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] mb-12 italic">Cloud Vault Manifest (Stage 0)</h3>
            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {driveFiles.map((file, idx) => (
-                <div key={idx} className="p-6 rounded-3xl border border-white/5 bg-slate-900/50 flex justify-between items-center group hover:bg-slate-800 transition-all cursor-default">
+                <div key={idx} className="p-6 rounded-3xl border border-white/5 bg-slate-900/50 flex justify-between items-center group transition-all">
                    <div className="flex items-center space-x-5">
-                      <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-400 group-hover:scale-110 transition-all shadow-inner">
+                      <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-400 shadow-inner">
                          <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                       </div>
                       <div>
@@ -320,10 +295,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 </div>
               ))}
               {driveFiles.length === 0 && (
-                <div className="col-span-2 py-32 text-center border-4 border-dashed border-white/5 rounded-[40px] group">
-                   <div className="w-16 h-16 mx-auto mb-6 border-4 border-slate-900 rounded-full flex items-center justify-center group-hover:border-indigo-500/20 transition-colors">
-                      <div className="w-4 h-4 bg-slate-900 rounded-full animate-ping group-hover:bg-indigo-500/40"></div>
-                   </div>
+                <div className="col-span-2 py-32 text-center border-4 border-dashed border-white/5 rounded-[40px]">
                    <p className="text-[10px] font-black text-slate-800 uppercase tracking-[0.6em] italic">Matrix Initialization Pending</p>
                 </div>
               )}
@@ -333,28 +305,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       <div className="space-y-8">
         <div className="glass-panel p-8 rounded-[40px] bg-slate-950 border-l-8 border-l-indigo-600 shadow-2xl sticky top-8">
-          <div className="flex justify-between items-center mb-8 px-1">
-            <h3 className="font-black text-white uppercase text-xl italic tracking-tighter italic">IO Data Stream</h3>
-            <span className={`px-3 py-1 text-[9px] font-black rounded-lg transition-colors ${accessToken ? 'bg-indigo-600 text-white shadow-lg shadow-indigo-600/30' : 'bg-red-500/20 text-red-500'}`}>
-              {accessToken ? 'ONLINE' : 'LOCKED'}
-            </span>
-          </div>
+          <h3 className="font-black text-white uppercase text-xl italic tracking-tighter mb-8">IO Data Stream</h3>
           <div className="bg-black/90 p-6 rounded-[24px] font-mono text-[10px] text-indigo-400/80 h-[580px] overflow-y-auto no-scrollbar space-y-5 shadow-inner border border-white/5 scroll-smooth">
             {consoleLogs.map((log, i) => (
-              <div key={i} className="border-l-2 border-indigo-600/30 pl-5 py-2 animate-in slide-in-from-left-4 duration-500 group">
-                <span className="text-slate-800 mr-3 text-[9px] font-bold group-hover:text-indigo-900 transition-colors">[{new Date().toLocaleTimeString()}]</span>
-                <span className="group-hover:text-indigo-300 transition-colors">{log}</span>
+              <div key={i} className="border-l-2 border-indigo-600/30 pl-5 py-2">
+                <span className="text-slate-800 mr-3 text-[9px] font-bold">[{new Date().toLocaleTimeString()}]</span>
+                <span>{log}</span>
               </div>
             ))}
             <div ref={logEndRef} />
           </div>
-          <button 
-             disabled={!accessToken} 
-             onClick={() => window.open(`https://drive.google.com/drive/folders/${GOOGLE_DRIVE_TARGET.folderId}`, '_blank')} 
-             className="w-full mt-8 py-6 rounded-3xl bg-white text-slate-950 text-[11px] font-black uppercase tracking-[0.5em] hover:bg-indigo-600 hover:text-white transition-all shadow-2xl active:scale-95 disabled:opacity-20"
-          >
-            Access Vault
-          </button>
+          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-6 rounded-3xl bg-white text-slate-950 text-[11px] font-black uppercase tracking-[0.5em] hover:bg-indigo-600 hover:text-white transition-all">Access Vault</button>
         </div>
       </div>
     </div>
