@@ -28,11 +28,11 @@ const MarketTicker: React.FC = () => {
   useEffect(() => {
     const fetchMarketData = async () => {
       try {
-        // Snapshot API를 사용하여 날짜 지정 없이 현재 시장 상태 획득
-        const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.map(t => t.s).join(',')}&apiKey=${polygonKey}`).then(r => r.json());
+        // Attempt Snapshot first (often fails on free tier)
+        const snapRes = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.map(t => t.s).join(',')}&apiKey=${polygonKey}`).then(r => r.json());
         
-        if (res.tickers) {
-          const resultMap = new Map(res.tickers.map((r: any) => [r.ticker, r]));
+        if (snapRes.status === 'OK' && snapRes.tickers) {
+          const resultMap = new Map(snapRes.tickers.map((r: any) => [r.ticker, r]));
           const merged = tickers.map(t => {
             const r: any = resultMap.get(t.s);
             return {
@@ -44,6 +44,25 @@ const MarketTicker: React.FC = () => {
             };
           });
           setData(merged);
+        } else {
+          // Fallback to Previous Close (Highly available on free tier)
+          const fallbackData = await Promise.all(tickers.map(async (t) => {
+            try {
+              const res = await fetch(`https://api.polygon.io/v2/aggs/ticker/${t.s}/prev?adjusted=true&apiKey=${polygonKey}`).then(r => r.json());
+              if (res.results && res.results[0]) {
+                const r = res.results[0];
+                return {
+                  symbol: t.s,
+                  label: t.l,
+                  price: r.c,
+                  change: r.o ? ((r.c - r.o) / r.o) * 100 : 0,
+                  isIndex: t.i
+                };
+              }
+            } catch (e) { /* ignore */ }
+            return { symbol: t.s, label: t.l, price: 0, change: 0, isIndex: t.i };
+          }));
+          setData(fallbackData.filter(d => d.price > 0));
         }
       } catch (e) {
         console.error("Market pulse fetch failed");
@@ -51,9 +70,9 @@ const MarketTicker: React.FC = () => {
     };
 
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, 30000); 
+    const interval = setInterval(fetchMarketData, 60000); // 1 minute for free tier safety
     return () => clearInterval(interval);
-  }, []);
+  }, [polygonKey]);
 
   return (
     <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1 px-1">
