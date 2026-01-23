@@ -22,13 +22,12 @@ interface NodeContribution {
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
-  const [activeNode, setActiveNode] = useState<string>('Standby');
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
-  const [showSettings, setShowSettings] = useState(!localStorage.getItem('gdrive_client_id'));
   
   const keys = {
     polygon: API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key,
+    alpaca: API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key,
   };
 
   const [stats, setStats] = useState<GatheringStats>({
@@ -41,13 +40,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   });
 
   const [nodeStats, setNodeStats] = useState<NodeContribution[]>([
-    { provider: 'Polygon_CS', count: 0, status: 'Idle' },
-    { provider: 'Polygon_SP', count: 0, status: 'Idle' },
-    { provider: 'Vault_Sync', count: 0, status: 'Idle' },
+    { provider: 'Polygon_Node', count: 0, status: 'Idle' },
+    { provider: 'Alpaca_Backup', count: 0, status: 'Idle' },
+    { provider: 'Merge_Vault', count: 0, status: 'Idle' },
   ]);
 
   const [performanceData, setPerformanceData] = useState<any[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Deep Crawler Ready.']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Omni-Channel Engine Ready.']);
   const logContainerRef = useRef<HTMLDivElement>(null);
   const stopRequested = useRef(false);
   const timerRef = useRef<number | null>(null);
@@ -106,39 +105,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     executeEngine(token);
   };
 
-  const fetchType = async (type: string, nodeName: string, registry: Map<string, any>, priceData: Map<string, any>) => {
-    updateNodeStatus(nodeName, 0, 'Active');
-    let nextUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&type=${type}&active=true&limit=1000&apiKey=${keys.polygon}`;
-    let count = 0;
-    
-    while (nextUrl && !stopRequested.current) {
-      try {
-        const res = await fetch(nextUrl).then(r => r.json());
-        if (res.results) {
-          res.results.forEach((t: any) => {
-            // 정밀 필터링: ETF/INDEX 명시적 제외 및 기업성 주식만 수집
-            const name = t.name.toUpperCase();
-            if (!name.includes("ETF") && !name.includes("INDEX") && !name.includes("TRUST")) {
-              registry.set(t.ticker, {
-                ...t,
-                ohlcv: priceData.get(t.ticker) || null
-              });
-            }
-          });
-          count = registry.size;
-          updateNodeStatus(nodeName, count, 'Active');
-          setStats(prev => ({ ...prev, totalFound: registry.size }));
-        }
-        nextUrl = res.next_url ? `${res.next_url}&apiKey=${keys.polygon}` : null;
-        if (nextUrl) await new Promise(r => setTimeout(r, 100)); // Rate limit safety
-      } catch (e) {
-        addLog(`${nodeName} failure on page fetch.`, 'error');
-        break;
-      }
-    }
-    updateNodeStatus(nodeName, registry.size, 'Complete');
-  };
-
   const executeEngine = async (token: string) => {
     const targetId = await ensureStage0Folder(token);
     if (!targetId) { addLog("Cloud Vault Sync Failed", "error"); return; }
@@ -152,75 +118,131 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     setStats(prev => ({ ...prev, startTime: new Date().toLocaleTimeString(), processed: 0, totalFound: 0, elapsedSeconds: 0 }));
     
     timerRef.current = window.setInterval(() => {
-      setStats(prev => {
-        const elapsed = Math.floor((Date.now() - startTimestamp) / 1000);
-        return { ...prev, elapsedSeconds: elapsed };
-      });
+      setStats(prev => ({ ...prev, elapsedSeconds: Math.floor((Date.now() - startTimestamp) / 1000) }));
     }, 1000);
 
-    // Node 0: Aggregates Sync (Price Context)
     const yesterday = new Date();
     yesterday.setDate(yesterday.getDate() - (yesterday.getDay() === 1 ? 3 : yesterday.getDay() === 0 ? 2 : 1));
     const dateStr = yesterday.toISOString().split('T')[0];
 
+    // Node 0: Aggregates Sync (Price Mapping)
     try {
-      addLog(`Harvesting Daily Aggregates for ${dateStr}...`, 'info');
+      addLog("Harvesting Global OHLCV Data...", "info");
       const res = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${dateStr}?adjusted=true&apiKey=${keys.polygon}`).then(r => r.json());
-      if (res.results) {
-        res.results.forEach((r: any) => priceRegistry.set(r.T, { o: r.o, h: r.h, l: r.l, c: r.c, v: r.v, vw: r.vw }));
-      }
+      if (res.results) res.results.forEach((r: any) => priceRegistry.set(r.T, r));
     } catch (e) {}
 
-    // Task 1: Fetch CS (Common Stocks)
-    addLog("Engaging Node: Common Equity (CS) 전수조사...", "info");
-    await fetchType('CS', 'Polygon_CS', masterRegistry, priceRegistry);
-    
-    // Task 2: Fetch SP (Preferred/Dividend Stocks)
-    addLog("Engaging Node: Specialized Equity (SP) 전수조사...", "info");
-    await fetchType('SP', 'Polygon_SP', masterRegistry, priceRegistry);
+    // Multi-Source Discovery 로직
+    const filterTicker = (name: string) => {
+      const n = name.toUpperCase();
+      return !n.includes("ETF") && !n.includes("INDEX") && !n.includes("TRUST") && !n.includes("FUND");
+    };
 
-    addLog(`Discovery Concluded: ${masterRegistry.size} Entities Identified.`, 'success');
+    // 1. Polygon Node (CS & SP)
+    const runPolygon = async () => {
+      updateNodeStatus('Polygon_Node', 0, 'Active');
+      const types = ['CS', 'SP'];
+      for (const type of types) {
+        let nextUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&type=${type}&active=true&limit=1000&apiKey=${keys.polygon}`;
+        while (nextUrl && !stopRequested.current) {
+          try {
+            const res = await fetch(nextUrl).then(r => r.json());
+            if (res.results) {
+              res.results.forEach((t: any) => {
+                if (filterTicker(t.name)) masterRegistry.set(t.ticker, { ...t, source_origin: 'Polygon' });
+              });
+              updateNodeStatus('Polygon_Node', masterRegistry.size, 'Active');
+            }
+            nextUrl = res.next_url ? `${res.next_url}&apiKey=${keys.polygon}` : null;
+            await new Promise(r => setTimeout(r, 100));
+          } catch (e) { break; }
+        }
+      }
+      updateNodeStatus('Polygon_Node', masterRegistry.size, 'Complete');
+    };
 
-    // Sync to Cloud in requested JSON format
-    const masterList = Array.from(masterRegistry.values());
-    const chunkSize = 1000;
-    updateNodeStatus('Vault_Sync', 0, 'Active');
+    // 2. Alpaca Node (Full Market Discovery) - 5000개 제한 우회의 핵심
+    const runAlpaca = async () => {
+      updateNodeStatus('Alpaca_Backup', 0, 'Active');
+      try {
+        addLog("Engaging Alpaca Node for Market-Wide Discovery...", "info");
+        const res = await fetch(`https://paper-api.alpaca.markets/v2/assets?asset_class=us_equity`, {
+          headers: { 'APCA-API-KEY-ID': keys.alpaca || '' }
+        }).then(r => r.json());
+        
+        let alpacaNewCount = 0;
+        res.forEach((t: any) => {
+          if (t.status === 'active' && t.tradable && filterTicker(t.name)) {
+            if (!masterRegistry.has(t.symbol)) {
+              masterRegistry.set(t.symbol, {
+                ticker: t.symbol,
+                name: t.name,
+                primary_exchange: t.exchange,
+                active: true,
+                type: 'CS', // Alpaca assets are primarily equities
+                source_origin: 'Alpaca_Sync'
+              });
+              alpacaNewCount++;
+            }
+          }
+        });
+        addLog(`Alpaca Coverage: Added ${alpacaNewCount} Unique Entities.`, "success");
+        updateNodeStatus('Alpaca_Backup', alpacaNewCount, 'Complete');
+      } catch (e) { updateNodeStatus('Alpaca_Backup', 0, 'Failed'); }
+    };
 
-    for (let i = 0; i < masterList.length; i += chunkSize) {
+    await runPolygon();
+    await runAlpaca();
+
+    const totalFound = masterRegistry.size;
+    setStats(prev => ({ ...prev, totalFound }));
+    addLog(`Omni-Discovery Final: ${totalFound} Corporate Entities.`, 'success');
+
+    // Merge & Pretty Print Upload
+    const finalData = Array.from(masterRegistry.values()).map(item => ({
+      ...item,
+      last_ohlcv: priceRegistry.get(item.ticker) || null
+    }));
+
+    const chunkSize = 1500;
+    updateNodeStatus('Merge_Vault', 0, 'Active');
+
+    for (let i = 0; i < finalData.length; i += chunkSize) {
       if (stopRequested.current) break;
-      const chunk = masterList.slice(i, i + chunkSize);
+      const chunk = finalData.slice(i, i + chunkSize);
       const batchNum = Math.floor(i/chunkSize) + 1;
-      const fileName = `STAGE0_UNIVERSE_${dateStr}_BATCH_${batchNum}.json`;
+      const fileName = `STAGE0_UNIVERSE_FINAL_${dateStr}_B${batchNum}.json`;
       
-      // 요청된 JSON 구조 생성
       const payload = {
-        source: "Polygon.io",
+        source: "Nexus_Aggregated_Node",
         batch_timestamp: new Date().toISOString(),
-        target_stage: "Stage0_Universe",
+        target_stage: "Stage0_Universe_Full",
         count: chunk.length,
+        total_registry_count: totalFound,
         data: chunk
       };
 
       const success = await uploadToDrive(token, targetId, fileName, payload);
       if (success) {
         setStats(prev => ({ ...prev, processed: i + chunk.length }));
-        updateNodeStatus('Vault_Sync', i + chunk.length, 'Active');
-        addLog(`Vault_Commit: ${fileName} (Corporate Focus)`, 'info');
+        updateNodeStatus('Merge_Vault', i + chunk.length, 'Active');
+        addLog(`Vault_Commit: ${fileName} (Formatted)`, 'info');
       }
-      await new Promise(r => setTimeout(r, 150));
+      await new Promise(r => setTimeout(r, 200));
     }
 
     if (timerRef.current) clearInterval(timerRef.current);
     setIsEngineRunning(false);
-    updateNodeStatus('Vault_Sync', masterRegistry.size, 'Complete');
-    addLog("Matrix Cycle Complete. Stage 2 Filter Ready.", 'success');
+    updateNodeStatus('Merge_Vault', totalFound, 'Complete');
+    addLog("Matrix Cycle Complete. Pretty JSON Saved.", 'success');
   };
 
   const uploadToDrive = async (token: string, folderId: string, name: string, content: any) => {
     const metadata = { name, parents: [folderId], mimeType: 'application/json' };
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-    form.append('file', new Blob([JSON.stringify(content)], { type: 'application/json' }));
+    // 줄바꿈(space=2)을 적용하여 시인성 확보
+    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
     try {
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
@@ -234,29 +256,29 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl relative overflow-hidden bg-slate-900/40">
+        <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-indigo-500 shadow-2xl relative overflow-hidden bg-slate-900/40">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div>
               <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase flex items-center">
-                <span className="bg-blue-600 w-2 h-8 mr-4 rounded-full animate-pulse"></span>
-                Alpha_Nexus Matrix v1.1
+                <span className="bg-indigo-600 w-2 h-8 mr-4 rounded-full animate-pulse"></span>
+                Omni_Nexus Matrix v1.2
               </h2>
               <div className="flex items-center space-x-3 mt-2 ml-6">
-                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.4em]">Equity Types: CS + SP (Full Scan)</p>
-                <span className="text-[8px] px-2 py-0.5 bg-blue-500/10 text-blue-400 rounded-md font-black border border-blue-500/20 uppercase tracking-widest">No_Page_Limit</span>
+                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-[0.4em]">Node Cluster: Polygon + Alpaca</p>
+                <span className="text-[8px] px-2 py-0.5 bg-indigo-500/10 text-indigo-400 rounded-md font-black border border-indigo-500/20 uppercase">Pretty_JSON_Sync</span>
               </div>
             </div>
-            <button onClick={startGathering} className={`px-12 py-5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-2xl transition-all ${isEngineRunning ? 'bg-red-600 shadow-red-900/40 animate-pulse' : 'bg-blue-600 shadow-blue-900/40 hover:scale-105 active:scale-95'}`}>
-              {isEngineRunning ? 'Terminate Matrix' : 'Engage Hyper-Drive'}
+            <button onClick={startGathering} className={`px-12 py-5 rounded-2xl text-xs font-black uppercase tracking-widest shadow-2xl transition-all ${isEngineRunning ? 'bg-red-600 shadow-red-900/40 animate-pulse' : 'bg-indigo-600 shadow-indigo-900/40 hover:scale-105 active:scale-95'}`}>
+              {isEngineRunning ? 'Abort Matrix' : 'Engage Omni-Drive'}
             </button>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
-              { l: 'Total Corporate', v: stats.totalFound.toLocaleString(), c: 'text-white' },
-              { l: 'Vault Sync', v: stats.processed.toLocaleString(), c: 'text-blue-400' },
-              { l: 'Elapsed', v: `${Math.floor(stats.elapsedSeconds/60)}m ${stats.elapsedSeconds%60}s`, c: 'text-slate-400' },
-              { l: 'Status', v: isEngineRunning ? 'RUNNING' : 'STANDBY', c: 'text-emerald-400' }
+              { l: 'Full Corporate Universe', v: stats.totalFound.toLocaleString(), c: 'text-white' },
+              { l: 'Vault Sync (Pretty)', v: stats.processed.toLocaleString(), c: 'text-indigo-400' },
+              { l: 'Process Time', v: `${Math.floor(stats.elapsedSeconds/60)}m ${stats.elapsedSeconds%60}s`, c: 'text-slate-400' },
+              { l: 'Integrity', v: stats.totalFound > 0 ? `${((stats.processed/stats.totalFound)*100).toFixed(1)}%` : '0%', c: 'text-emerald-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[8px] font-black text-slate-600 uppercase mb-2 tracking-widest">{s.l}</p>
@@ -268,44 +290,36 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           <div className="grid grid-cols-3 gap-3 mb-10">
             {nodeStats.map((node, i) => (
               <div key={i} className="bg-slate-900/60 p-4 rounded-2xl border border-white/5 flex flex-col items-center">
-                 <p className="text-[7px] font-black text-slate-500 uppercase mb-2">{node.provider}</p>
-                 <p className="text-xs font-mono font-bold text-blue-400">{node.count.toLocaleString()}</p>
-                 <div className={`mt-2 px-2 py-0.5 rounded text-[6px] font-black uppercase ${node.status === 'Active' ? 'bg-blue-500/20 text-blue-400 animate-pulse' : node.status === 'Complete' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-600'}`}>
+                 <p className="text-[7px] font-black text-slate-500 uppercase mb-1">{node.provider}</p>
+                 <p className="text-xs font-mono font-bold text-indigo-400">{node.count.toLocaleString()}</p>
+                 <div className={`mt-2 px-2 py-0.5 rounded text-[6px] font-black uppercase ${node.status === 'Active' ? 'bg-indigo-500/20 text-indigo-400 animate-pulse' : node.status === 'Complete' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-slate-800 text-slate-600'}`}>
                     {node.status}
                  </div>
               </div>
             ))}
           </div>
 
-          <div className="space-y-4">
-             <div className="flex justify-between items-end px-2">
-                <span className="text-[9px] font-black text-slate-500 uppercase italic tracking-widest">Pipeline_Integrity_Check</span>
-                <span className="text-4xl font-black text-white italic font-mono tracking-tighter">
-                  {stats.totalFound > 0 ? ((stats.processed / stats.totalFound) * 100).toFixed(1) : '0.0'}%
-                </span>
-             </div>
-             <div className="h-4 bg-black rounded-full p-1 border border-white/5 overflow-hidden">
-                <div className="h-full bg-gradient-to-r from-blue-700 via-blue-400 to-emerald-400 rounded-full transition-all duration-700 shadow-[0_0_15px_rgba(59,130,246,0.5)]" style={{ width: `${stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0}%` }}></div>
-             </div>
+          <div className="h-2 bg-black rounded-full overflow-hidden border border-white/5">
+             <div className="h-full bg-gradient-to-r from-indigo-700 via-purple-500 to-emerald-400 transition-all duration-1000 shadow-[0_0_15px_rgba(99,102,241,0.5)]" style={{ width: `${stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0}%` }}></div>
           </div>
         </div>
       </div>
 
       <div className="space-y-6">
-         <div className="glass-panel p-6 rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 h-[600px] flex flex-col shadow-2xl">
+         <div className="glass-panel p-6 rounded-[40px] bg-slate-950 border-l-4 border-l-indigo-600 h-[600px] flex flex-col shadow-2xl">
             <h3 className="font-black text-white text-xs uppercase tracking-[0.3em] mb-6 italic flex items-center">
-              <span className="w-1.5 h-1.5 bg-blue-500 rounded-full mr-3 animate-ping"></span>
+              <span className="w-1.5 h-1.5 bg-indigo-500 rounded-full mr-3 animate-ping"></span>
               Matrix Terminal
             </h3>
-            <div ref={logContainerRef} className="flex-1 bg-black/50 p-6 rounded-3xl font-mono text-[9px] text-blue-400/70 overflow-y-auto no-scrollbar space-y-2.5 border border-white/5 leading-relaxed">
+            <div ref={logContainerRef} className="flex-1 bg-black/50 p-6 rounded-3xl font-mono text-[9px] text-indigo-400/70 overflow-y-auto no-scrollbar space-y-2.5 border border-white/5 leading-relaxed">
                {consoleLogs.map((log, i) => (
-                 <div key={i} className={`pl-3 border-l ${log.includes('[ERR]') ? 'border-red-500 text-red-400' : log.includes('[SCAN]') ? 'border-amber-500 text-amber-400' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-blue-900'}`}>
+                 <div key={i} className={`pl-3 border-l ${log.includes('[ERR]') ? 'border-red-500 text-red-400' : log.includes('[SCAN]') ? 'border-amber-500 text-amber-400' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-indigo-900'}`}>
                     {log}
                  </div>
                ))}
             </div>
             <div className="mt-6">
-               <button onClick={() => window.open(`https://drive.google.com/drive/folders/${GOOGLE_DRIVE_TARGET.rootFolderId}`, '_blank')} className="w-full py-4 bg-white text-black rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all">Verify Vault</button>
+               <button onClick={() => window.open(`https://drive.google.com/drive/folders/${GOOGLE_DRIVE_TARGET.rootFolderId}`, '_blank')} className="w-full py-4 bg-white text-black rounded-2xl text-[9px] font-black uppercase tracking-widest hover:bg-indigo-600 hover:text-white transition-all shadow-xl">Verify Vault</button>
             </div>
          </div>
       </div>
