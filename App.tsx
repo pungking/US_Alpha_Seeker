@@ -4,6 +4,7 @@ import { ApiProvider, ApiStatus } from './types';
 import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
 import ApiStatusCard from './components/ApiStatusCard';
 import UniverseGathering from './components/UniverseGathering';
+import PreliminaryFilter from './components/PreliminaryFilter';
 import MarketTicker from './components/MarketTicker';
 import { analyzeCollectionSummary } from './services/geminiService';
 
@@ -68,7 +69,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
-          <span>Pipeline_State: 0_Gathering</span>
+          <span>Pipeline_State: Stage_{currentStage}</span>
         </div>
         <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
@@ -87,7 +88,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Unified API Row - All 9 Nodes in one line */}
+      {/* Unified API Row */}
       <div className="space-y-4">
         <div className="space-y-2">
           <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
@@ -105,7 +106,6 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Market Intelligence Ticker */}
         <div className="space-y-2">
           <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
             <span className="mr-3">Market Intelligence Terminal</span>
@@ -132,12 +132,16 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
-        {currentStage === 0 ? (
+        {currentStage === 0 && (
           <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
-        ) : (
+        )}
+        {currentStage === 1 && (
+          <PreliminaryFilter />
+        )}
+        {currentStage > 1 && (
           <div className="glass-panel p-16 md:p-24 rounded-[32px] border-dashed border-2 border-slate-800 flex flex-col items-center justify-center text-center opacity-30">
             <h2 className="text-xl md:text-2xl font-black text-slate-600 uppercase tracking-[0.3em]">Stage_Locked</h2>
-            <p className="text-[8px] md:text-[9px] text-slate-500 mt-4 uppercase tracking-[0.2em]">Discovery Matrix Finalization Required</p>
+            <p className="text-[8px] md:text-[9px] text-slate-500 mt-4 uppercase tracking-[0.2em]">Previous Matrix Finalization Required</p>
           </div>
         )}
       </main>

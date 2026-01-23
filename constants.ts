@@ -30,14 +30,15 @@ export const API_CONFIGS: ApiConfig[] = [
 export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
   rootFolderName: 'US_Alpha_Seeker',
-  // US_Alpha_Seeker 루트 폴더 ID
   rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
-  targetSubFolder: 'Stage0_Universe_Data'
+  targetSubFolder: 'Stage0_Universe_Data',
+  stage1SubFolder: 'Stage1_Quality_Data'
 };
 
 export const STAGES_FLOW = [
   { id: 0, label: '0: Gathering' },
-  { id: 2, label: '2: Filter' },
+  { id: 1, label: '1: Pre-Filter' },
+  { id: 2, label: '2: Quality' },
   { id: 3, label: '3: Funds' },
   { id: 4, label: '4: Techs' },
   { id: 5, label: '5: ICT' },
