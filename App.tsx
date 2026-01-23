@@ -76,7 +76,7 @@ const App: React.FC = () => {
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
         <div>
           <p className="text-blue-500 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic">US Alpha Seeker Infrastructure</p>
-          <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white italic">ALPHA_NODE.v0</h1>
+          <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white italic uppercase">US_Alpha_Seeker</h1>
         </div>
         <div className="flex items-center space-x-3 glass-panel px-4 py-2.5 rounded-xl border-white/5">
            <div className="text-right">
@@ -105,7 +105,7 @@ const App: React.FC = () => {
           </div>
         </div>
 
-        {/* Market Intelligence Ticker - NEW SECTION */}
+        {/* Market Intelligence Ticker */}
         <div className="space-y-2">
           <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
             <span className="mr-3">Market Intelligence Terminal</span>

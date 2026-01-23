@@ -287,7 +287,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             <div className="flex gap-4">
               <input 
                 type="text" 
-                placeholder="Verify Ticker (e.g. NVDA, FRGT)"
+                placeholder="Verify Ticker (e.g. AAPL, TSLA)"
                 className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
