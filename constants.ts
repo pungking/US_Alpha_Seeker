@@ -29,10 +29,10 @@ export const API_CONFIGS: ApiConfig[] = [
 
 export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
-  rootFolder: 'US_Alpha_Seeker',
-  // Stage0_Universe_Data 폴더 ID (사용자가 이 ID를 Stage0 폴더 ID로 교체해야 함)
-  folderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
-  subFolderName: 'Stage0_Universe_Data'
+  rootFolderName: 'US_Alpha_Seeker',
+  // US_Alpha_Seeker 루트 폴더 ID
+  rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
+  targetSubFolder: 'Stage0_Universe_Data'
 };
 
 export const STAGES_FLOW = [
