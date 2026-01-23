@@ -12,9 +12,11 @@ const App: React.FC = () => {
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(false);
+  const [isProd, setIsProd] = useState(false);
 
-  // 전역적으로 구글 드라이브 연결 상태 감시 (UniverseGathering 컴포넌트와 통신 대용)
   useEffect(() => {
+    setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
+    
     const checkAuth = () => {
       const hasToken = sessionStorage.getItem('gdrive_access_token');
       setIsGdriveConnected(!!hasToken);
@@ -30,7 +32,7 @@ const App: React.FC = () => {
         return {
           provider: config.provider,
           isConnected: isConnected,
-          latency: isConnected ? (Math.floor(Math.random() * 40) + 20) : 0,
+          latency: isConnected ? (Math.floor(Math.random() * 30) + 15) : 0,
           lastChecked: new Date().toLocaleTimeString(),
           limitRemaining: config.provider === ApiProvider.POLYGON ? '98/100' : undefined
         };
@@ -57,32 +59,35 @@ const App: React.FC = () => {
   };
 
   return (
-    <div className="min-h-screen pb-20 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto">
+    <div className="min-h-screen pb-20 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto transition-colors duration-1000">
       <header className="flex flex-col md:flex-row justify-between items-start md:items-center space-y-4 md:space-y-0">
-        <div>
+        <div className="relative group">
           <div className="flex items-center space-x-2 mb-1">
-             <span className="px-2 py-0.5 bg-blue-600/20 text-blue-400 text-[10px] font-bold rounded uppercase tracking-widest border border-blue-500/20">Alpha V1.0</span>
-             <span className="text-slate-600 text-[10px] font-bold uppercase tracking-widest">InnocentBae Edition</span>
+             <span className={`px-2 py-0.5 text-[10px] font-bold rounded uppercase tracking-widest border transition-all ${isProd ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20' : 'bg-blue-600/20 text-blue-400 border-blue-500/20'}`}>
+               {isProd ? 'PRODUCTION' : 'LOCAL_DEV'}
+             </span>
+             <span className="text-slate-600 text-[10px] font-bold uppercase tracking-widest">Alpha V1.1</span>
           </div>
-          <h1 className="text-3xl font-black tracking-tight text-white flex items-center italic">
+          <h1 className="text-4xl font-black tracking-tighter text-white flex items-center italic group-hover:text-blue-400 transition-colors">
             US_ALPHA_SEEKER
-            <span className="ml-2 w-2 h-2 bg-blue-500 rounded-full animate-pulse shadow-[0_0_10px_rgba(59,130,246,0.8)]"></span>
+            <span className={`ml-3 w-2.5 h-2.5 rounded-full shadow-[0_0_15px] ${isGdriveConnected ? 'bg-emerald-500 shadow-emerald-500/80 animate-pulse' : 'bg-red-500 shadow-red-500/80'}`}></span>
           </h1>
         </div>
         
         <div className="flex items-center space-x-6">
            <div className="hidden lg:flex flex-col items-end">
-              <p className="text-[10px] text-slate-500 font-bold uppercase">System Latency (Avg)</p>
-              <p className="text-lg font-mono font-bold text-white">
-                {Math.floor(apiStatuses.reduce((acc, curr) => acc + curr.latency, 0) / (apiStatuses.length || 1))}ms
+              <p className="text-[10px] text-slate-500 font-black uppercase tracking-widest">Global Network Latency</p>
+              <p className="text-2xl font-mono font-black text-white italic">
+                {Math.floor(apiStatuses.reduce((acc, curr) => acc + curr.latency, 0) / (apiStatuses.length || 1))}
+                <span className="text-sm ml-1 text-slate-500 not-italic font-sans">MS</span>
               </p>
            </div>
-           <div className="flex items-center space-x-4 glass-panel px-4 py-2 rounded-xl border-slate-700/50">
+           <div className="flex items-center space-x-4 glass-panel px-5 py-2.5 rounded-2xl border-white/5 shadow-2xl">
              <div className="text-right">
-               <p className="text-[10px] text-slate-500 font-bold uppercase">Authorized Manager</p>
-               <p className="text-sm font-bold text-slate-200">InnocentBae</p>
+               <p className="text-[10px] text-slate-500 font-black uppercase tracking-tighter">System Manager</p>
+               <p className="text-sm font-black text-slate-200 tracking-tight">InnocentBae</p>
              </div>
-             <div className="w-10 h-10 rounded-full bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-bold border-2 border-slate-700 shadow-xl shadow-blue-500/10">
+             <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-indigo-600 via-blue-600 to-blue-500 flex items-center justify-center text-white font-black border border-white/10 shadow-lg rotate-3 group-hover:rotate-0 transition-transform">
                IB
              </div>
            </div>
@@ -91,15 +96,15 @@ const App: React.FC = () => {
 
       <div className="relative">
          <div className="absolute inset-0 bg-blue-500/5 blur-3xl pointer-events-none"></div>
-         <nav className="relative flex overflow-x-auto pb-4 space-x-3 scrollbar-hide no-scrollbar">
+         <nav className="relative flex overflow-x-auto pb-4 space-x-4 scrollbar-hide no-scrollbar">
            {STAGES_FLOW.map((stage) => (
              <button
                key={stage.id}
                onClick={() => setCurrentStage(stage.id)}
-               className={`flex-shrink-0 px-8 py-3 rounded-xl text-xs font-bold uppercase tracking-widest transition-all duration-300 border ${
+               className={`flex-shrink-0 px-10 py-4 rounded-2xl text-[11px] font-black uppercase tracking-[0.2em] transition-all duration-500 border-2 ${
                  currentStage === stage.id
-                   ? 'bg-blue-600 text-white border-blue-400 shadow-2xl shadow-blue-600/30'
-                   : 'bg-slate-800/50 text-slate-500 border-slate-700 hover:bg-slate-700 hover:text-slate-300 hover:border-slate-600'
+                   ? 'bg-blue-600 text-white border-blue-400 shadow-[0_20px_40px_rgba(37,99,235,0.3)] scale-105 z-10'
+                   : 'bg-slate-800/40 text-slate-500 border-slate-700/50 hover:bg-slate-800 hover:text-slate-300 hover:border-slate-600'
                }`}
              >
                {stage.label}
@@ -108,8 +113,8 @@ const App: React.FC = () => {
          </nav>
       </div>
 
-      <section>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-3">
+      <section className="animate-in fade-in zoom-in-95 duration-500">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-4">
           {apiStatuses.map((status) => (
             <ApiStatusCard 
               key={status.provider} 
@@ -120,63 +125,62 @@ const App: React.FC = () => {
         </div>
       </section>
 
-      <main className="animate-in fade-in slide-in-from-bottom-4 duration-700">
+      <main className="animate-in slide-in-from-bottom-8 fade-in duration-1000 delay-150">
         {currentStage === 0 ? (
           <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
         ) : (
-          <div className="glass-panel p-24 rounded-3xl border-dashed border-2 border-slate-700 flex flex-col items-center justify-center text-center">
-            <div className="p-6 bg-slate-800/80 rounded-full mb-6 border border-slate-700 shadow-inner">
-               <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
+          <div className="glass-panel p-32 rounded-[40px] border-dashed border-4 border-slate-800 flex flex-col items-center justify-center text-center group">
+            <div className="p-8 bg-slate-900 rounded-[32px] mb-8 border border-white/5 shadow-2xl group-hover:scale-110 transition-transform duration-500">
+               <svg className="w-20 h-20 text-slate-700 group-hover:text-blue-500 transition-colors" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" />
                </svg>
             </div>
-            <h2 className="text-2xl font-black text-slate-400 uppercase tracking-widest italic">Stage {currentStage} Pending</h2>
-            <p className="text-slate-500 max-w-lg mt-3 font-medium leading-relaxed">
-               The pipeline is currently focused on <span className="text-blue-400 font-bold">Stage 0: Universe Gathering</span>. 
+            <h2 className="text-3xl font-black text-slate-500 uppercase tracking-[0.3em] italic">Stage {currentStage}: Restricted</h2>
+            <p className="text-slate-600 max-w-xl mt-5 font-bold leading-relaxed tracking-tight uppercase text-xs">
+               The pipeline architecture requires the completion of <span className="text-blue-500">Stage 0: Universe Gathering</span>. 
+               Handshake protocols for subsequent layers are currently on standby.
             </p>
           </div>
         )}
       </main>
 
-      <section className="glass-panel p-8 rounded-2xl border-t-4 border-t-emerald-500 shadow-2xl shadow-emerald-900/10">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 space-y-4 md:space-y-0">
-          <div className="flex items-center space-x-4">
-             <div className="bg-emerald-500/10 p-3 rounded-2xl border border-emerald-500/20">
-                <svg className="w-6 h-6 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+      <section className="glass-panel p-10 rounded-3xl border-t-8 border-t-emerald-500 shadow-2xl shadow-emerald-950/20 animate-in fade-in slide-in-from-bottom-4 duration-700 delay-300">
+        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-10 space-y-4 md:space-y-0">
+          <div className="flex items-center space-x-5">
+             <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/20 shadow-lg shadow-emerald-500/5">
+                <svg className="w-8 h-8 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" />
                 </svg>
              </div>
              <div>
-                <h3 className="font-black text-white uppercase text-lg tracking-tight">Gemini AI Audit</h3>
-                <p className="text-xs text-slate-500 font-bold uppercase tracking-widest">Universe Integrity & Ticker Coverage Report</p>
+                <h3 className="font-black text-white uppercase text-xl tracking-tight italic">Gemini AI Pipeline Audit</h3>
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Universe Integrity & Coverage Analysis</p>
              </div>
           </div>
           <button 
             onClick={runAiAnalysis}
             disabled={isAiLoading}
-            className={`px-6 py-2 rounded-xl text-xs font-black uppercase tracking-widest transition-all border ${
+            className={`px-10 py-3 rounded-2xl text-[10px] font-black uppercase tracking-[0.2em] transition-all border-2 ${
               isAiLoading 
-              ? 'bg-slate-800 text-slate-600 border-slate-700 cursor-not-allowed' 
-              : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20'
+              ? 'bg-slate-900 text-slate-700 border-slate-800 cursor-not-allowed' 
+              : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/30 hover:-translate-y-1 active:translate-y-0'
             }`}
           >
-            {isAiLoading ? 'Synthesizing...' : 'Re-Analyze Pipeline'}
+            {isAiLoading ? 'Synthesizing Intelligence...' : 'Invoke AI Auditor'}
           </button>
         </div>
         
-        <div className="bg-slate-900/80 p-6 rounded-2xl border border-slate-800 shadow-inner">
+        <div className="bg-slate-950 p-8 rounded-[32px] border border-white/5 shadow-inner">
           {aiReport ? (
             <div className="prose prose-invert max-w-none">
-               <div className="text-sm leading-relaxed text-slate-300 font-medium whitespace-pre-line">
+               <div className="text-sm leading-loose text-slate-300 font-medium whitespace-pre-line font-serif italic">
                  {aiReport}
                </div>
             </div>
           ) : (
-            <div className="flex flex-col items-center py-12 text-slate-500">
-               <svg className="w-12 h-12 mb-4 text-slate-700 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-               </svg>
-               <p className="text-sm font-bold uppercase tracking-widest">Awaiting AI Intelligence Input</p>
+            <div className="flex flex-col items-center py-20 text-slate-700">
+               <div className="w-16 h-16 mb-6 border-4 border-slate-800 border-t-emerald-500 rounded-full animate-spin"></div>
+               <p className="text-[10px] font-black uppercase tracking-[0.5em]">Awaiting Neural Network Synchronization</p>
             </div>
           )}
         </div>
