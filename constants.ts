@@ -1,6 +1,9 @@
 
 import { ApiProvider } from './types';
 
+export const GITHUB_REPO = "https://github.com/pungking/US_Alpha_Seeker";
+export const PRODUCTION_URL = "https://us-alpha-seeker.vercel.app";
+
 export const API_CONFIGS = [
   { provider: ApiProvider.ALPACA, key: 'PKHWDYDOEWWLYZKMUG9L' },
   { provider: ApiProvider.PERPLEXITY, key: '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' },
@@ -17,7 +20,7 @@ export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
   rootFolder: '/US_Alpha_Seeker',
   subFolder: '/Stage0_Universe_Data',
-  folderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', // 사용자 제공 폴더 ID
+  folderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD',
   lastSync: '2024-05-21 14:22:05'
 };
 
