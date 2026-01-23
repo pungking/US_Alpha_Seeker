@@ -20,7 +20,7 @@ interface MasterTicker {
   volume: number;
   change: number;
   updated: string;
-  type?: string; // 추가: Common Stock, ADR, ETF 등
+  type?: string; 
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
@@ -44,7 +44,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.5: Equity-Focus Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.6: High-Frequency Equity Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -119,13 +119,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }, 1000);
 
     try {
-      addLog("Step 1: Discovering Global Equities (Finnhub)...", "info");
+      addLog("Step 1: Identifying Global Equities (Finnhub)...", "info");
       const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
       
       if (Array.isArray(fhRes)) {
         let filteredCount = 0;
         fhRes.forEach((s: any) => {
-          // ETF, ETN, Bond 등을 제외하고 보통주(Common Stock)와 ADR만 수집
           const allowedTypes = ['Common Stock', 'ADR', 'REIT', 'MLP'];
           if (allowedTypes.includes(s.type) || !s.type) {
             newRegistry.set(s.symbol, {
@@ -141,8 +140,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             filteredCount++;
           }
         });
-        addLog(`Purged ${filteredCount} Non-Equity items (ETFs, etc.)`, "ok");
-        addLog(`Mapping ${newRegistry.size} primary tickers.`, "ok");
+        addLog(`Refined ${newRegistry.size} primary tickers. Excluded ${filteredCount} non-equity assets.`, "ok");
       }
 
       setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
@@ -178,7 +176,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             matchCount++;
           }
         });
-        addLog(`Fusion: ${matchCount} active prices synced.`, "ok");
+        addLog(`Fusion: ${matchCount} active prices synced with master map.`, "ok");
       }
 
       setRegistry(new Map(newRegistry));
@@ -186,9 +184,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       // Drive Sync
       const masterData = Array.from(newRegistry.values());
-      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.5.json`;
+      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.6.json`;
       const payload = {
-        manifest: { version: "1.9.5", data_date: targetDate, total: masterData.length, mode: "Equity_Only" },
+        manifest: { version: "1.9.6", data_date: targetDate, total: masterData.length, mode: "Equity_Focus" },
         universe: masterData
       };
 
@@ -267,10 +265,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.5</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.6</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Equity_Only_Active'}
+                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Equity_Protocol_Active'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
                 </div>
@@ -281,14 +279,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               disabled={isEngineRunning || cooldown > 0}
               className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
             >
-              {isEngineRunning ? 'Purging ETFs...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
+              {isEngineRunning ? 'Synthesizing Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
           </div>
 
           <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-              <span className="text-[8px] text-slate-500 uppercase">Mode: Filtering_Derivatives</span>
+              <span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span>
             </div>
             <div className="flex gap-4">
               <input 
@@ -314,9 +312,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
               { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Asset Type', val: 'COMMON/ADR', color: 'text-indigo-400' },
+              { label: 'Asset Type', val: 'EQUITY_NODES', color: 'text-indigo-400' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
-              { label: 'Engine Mode', val: 'V1.9.5_EQUITY', color: 'text-blue-400' }
+              { label: 'Engine Mode', val: 'V1.9.6_CORE', color: 'text-blue-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
@@ -337,7 +335,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       <div className="xl:col-span-1">
         <div className="glass-panel h-[680px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Equity_Only_Terminal</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
