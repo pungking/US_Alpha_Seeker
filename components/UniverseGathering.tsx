@@ -37,7 +37,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
   const progress = stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0;
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Intelligence V4.9 - Distributed Bypass Logic Enabled.']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus V5.0 - Hybrid Cloud Pipeline Online.']);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
   
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -58,41 +58,54 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
   const addLog = (msg: string, type: 'info' | 'warn' | 'error' | 'success' = 'info') => {
     const prefixes = { info: '>', warn: '[BYPASS]', error: '[ERR]', success: '[OK]' };
-    setConsoleLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-150));
-  };
-
-  const handleSaveAndEnter = () => {
-    localStorage.setItem('gdrive_client_id', clientId.trim());
-    setShowSettings(false);
-    addLog("Matrix Config Finalized.", 'success');
+    setConsoleLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-100));
   };
 
   const connectGoogleDrive = () => {
-    if (!clientId.trim()) { setShowSettings(true); return; }
-    // @ts-ignore
-    if (window.google) {
-      try {
-        // @ts-ignore
-        tokenClient.current = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId.trim(),
-          scope: 'https://www.googleapis.com/auth/drive.file',
-          callback: (res: any) => {
-            if (res.access_token) {
-              setAccessToken(res.access_token);
-              sessionStorage.setItem('gdrive_access_token', res.access_token);
-              onAuthSuccess?.(true);
-              addLog("Cloud Vault Sync: ACTIVE", 'success');
-            }
-          },
-        });
-        tokenClient.current.requestAccessToken({ prompt: 'consent' });
-      } catch (e: any) { addLog(`Auth Error: ${e.message}`, 'error'); }
-    }
+    return new Promise<string | null>((resolve) => {
+      if (!clientId.trim()) { setShowSettings(true); resolve(null); return; }
+      // @ts-ignore
+      if (window.google) {
+        try {
+          // @ts-ignore
+          tokenClient.current = window.google.accounts.oauth2.initTokenClient({
+            client_id: clientId.trim(),
+            scope: 'https://www.googleapis.com/auth/drive.file',
+            callback: (res: any) => {
+              if (res.access_token) {
+                setAccessToken(res.access_token);
+                sessionStorage.setItem('gdrive_access_token', res.access_token);
+                onAuthSuccess?.(true);
+                addLog("Cloud_Vault Auth: SUCCESS", 'success');
+                resolve(res.access_token);
+              } else {
+                resolve(null);
+              }
+            },
+          });
+          tokenClient.current.requestAccessToken({ prompt: 'consent' });
+        } catch (e: any) { 
+          addLog(`Auth Error: ${e.message}`, 'error'); 
+          resolve(null);
+        }
+      }
+    });
   };
 
   const startGathering = async () => {
     if (isEngineRunning) { stopRequested.current = true; setIsEngineRunning(false); setActiveNode('Standby'); return; }
     
+    // 강제 구글 드라이브 체크
+    let currentToken = accessToken;
+    if (!currentToken) {
+      addLog("Local Storage Forbidden. Authenticating Drive Vault...", 'warn');
+      currentToken = await connectGoogleDrive();
+      if (!currentToken) {
+        addLog("Authentication Failed. Discovery aborted.", 'error');
+        return;
+      }
+    }
+
     setIsEngineRunning(true);
     stopRequested.current = false;
     addLog("Engaging Nexus Discovery Matrix...", 'info');
@@ -108,31 +121,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       const masterMap = new Map<string, any>();
       
       // PHASE 1: POLYGON
-      setActiveNode('Polygon_L3');
-      addLog("Node_1 (Polygon) Attempting High-Res Sync...", 'info');
+      setActiveNode('Polygon_Node');
       try {
         let polygonUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=${polygonKey}`;
-        let count = 0;
-        while (polygonUrl && !stopRequested.current && count < 2) {
-           const res = await fetch(polygonUrl);
-           if (res.status === 429) throw new Error('RATE_LIMIT');
-           const data = await res.json();
-           if (data.results) {
-             data.results.forEach((t: any) => masterMap.set(t.ticker, { ticker: t.ticker, name: t.name, src: 'P' }));
-             setStats(prev => ({ ...prev, totalFound: masterMap.size }));
-           }
-           polygonUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
-           count++;
-           await new Promise(r => setTimeout(r, 200));
+        const res = await fetch(polygonUrl);
+        if (res.status === 429) throw new Error('429');
+        const data = await res.json();
+        if (data.results) {
+          data.results.forEach((t: any) => masterMap.set(t.ticker, { t: t.ticker, n: t.name }));
+          setStats(prev => ({ ...prev, totalFound: masterMap.size }));
         }
       } catch (e) {
-        addLog("Polygon 429 Detected. Diverting Traffic to Alpaca...", 'warn');
+        addLog("Polygon 429 Detected. Bypassing to Alpaca...", 'warn');
       }
 
       // PHASE 2: ALPACA FAILOVER
-      if (!stopRequested.current) {
-        setActiveNode('Alpaca_Failover');
-        addLog("Node_2 (Alpaca) Engaging Assets Redundancy...", 'info');
+      if (!stopRequested.current && masterMap.size < 2000) {
+        setActiveNode('Alpaca_Node');
         try {
           const alpacaData = await fetch(`https://paper-api.alpaca.markets/v2/assets?asset_class=us_equity`, {
             headers: { 'APCA-API-KEY-ID': alpacaKey || '' }
@@ -140,36 +145,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           if (Array.isArray(alpacaData)) {
             alpacaData.forEach((t: any) => {
               if (t.status === 'active' && !masterMap.has(t.symbol)) {
-                masterMap.set(t.symbol, { ticker: t.symbol, name: t.name, src: 'A' });
+                masterMap.set(t.symbol, { t: t.symbol, n: t.name });
               }
             });
             setStats(prev => ({ ...prev, totalFound: masterMap.size }));
           }
-        } catch (e) { addLog("Alpaca Node Offline.", 'error'); }
-      }
-
-      // PHASE 3: FINNHUB
-      if (!stopRequested.current) {
-        setActiveNode('Finnhub_Expand');
-        addLog("Node_3 (Finnhub) Global Symbol Expansion...", 'info');
-        try {
-          const finnhubData = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
-          if (Array.isArray(finnhubData)) {
-            finnhubData.forEach((t: any) => {
-              if (!masterMap.has(t.symbol)) {
-                masterMap.set(t.symbol, { ticker: t.symbol, name: t.description, src: 'F' });
-              }
-            });
-            setStats(prev => ({ ...prev, totalFound: masterMap.size }));
-          }
-        } catch (e) { addLog("Finnhub Node Offline.", 'error'); }
+        } catch (e) {}
       }
 
       const masterTickerList = Array.from(masterMap.values());
       setActiveNode('Vault_Sync');
 
-      if (accessToken && masterTickerList.length > 0) {
-        addLog(`Vault Sync: Uploading ${masterTickerList.length} unique assets...`, 'info');
+      if (currentToken && masterTickerList.length > 0) {
+        addLog(`Vault_Sync: Pushing ${masterTickerList.length} entities...`, 'info');
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const dateStr = yesterday.toISOString().split('T')[0];
@@ -180,30 +168,26 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           const chunk = masterTickerList.slice(i, i + chunkSize);
           const fileName = `NEXUS_UNIVERSE_${dateStr}_B${Math.floor(i/chunkSize)+1}.json`;
           
-          const success = await uploadToDrive(fileName, { data: chunk, count: chunk.length, timestamp: new Date().toISOString() });
+          const success = await uploadToDrive(currentToken, fileName, { data: chunk, count: chunk.length });
           if (success) {
             setStats(prev => ({ ...prev, processed: i + chunk.length }));
-            setDriveFiles(df => [{ name: fileName, size: `${(JSON.stringify(chunk).length/1024).toFixed(1)}KB`, timestamp: new Date().toLocaleTimeString() }, ...df].slice(0, 8));
-            setPerformanceData(prev => [...prev.slice(-30), { tps: chunk.length }].map((d, idx) => ({ ...d, index: idx })));
+            setDriveFiles(df => [{ name: fileName, size: `${(JSON.stringify(chunk).length/1024).toFixed(1)}KB`, timestamp: new Date().toLocaleTimeString() }, ...df].slice(0, 5));
+            setPerformanceData(prev => [...prev.slice(-20), { tps: chunk.length }].map((d, idx) => ({ ...d, index: idx })));
           }
           await new Promise(r => setTimeout(r, 200));
         }
-      } else if (!accessToken) {
-        addLog("Discovery Finalized Locally. Cloud sync unavailable.", 'warn');
-        setStats(prev => ({ ...prev, processed: masterTickerList.length }));
       }
     } catch (e: any) {
-      addLog(`Matrix Failure: ${e.message}`, 'error');
+      addLog(`Critical Failure: ${e.message}`, 'error');
     } finally {
       setIsEngineRunning(false);
       setActiveNode('Standby');
       if (timerRef.current) clearInterval(timerRef.current);
-      addLog("Nexus Cycle Terminated.", 'info');
+      addLog("Matrix Cycle Complete.", 'success');
     }
   };
 
-  const uploadToDrive = async (fileName: string, payload: any) => {
-    if (!accessToken) return false;
+  const uploadToDrive = async (token: string, fileName: string, payload: any) => {
     try {
       const metadata = { name: fileName, parents: [targetFolderId], mimeType: 'application/json' };
       const formData = new FormData();
@@ -211,7 +195,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       formData.append('file', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + accessToken },
+        headers: { 'Authorization': 'Bearer ' + token },
         body: formData
       });
       return res.ok;
@@ -219,115 +203,113 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-8">
-      <div className="xl:col-span-3 space-y-8">
-        <div className="glass-panel p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl relative overflow-hidden">
-          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-8">
-            <div className="relative z-10">
-              <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase">Nexus Matrix Discovery</h2>
-              <div className="flex items-center space-x-3 mt-3">
-                 <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em]">Bypass Protocol: ACTIVE</span>
-                 <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${activeNode === 'Standby' ? 'bg-slate-800 text-slate-400' : 'bg-blue-600/20 text-blue-400 border border-blue-500/30 animate-pulse'}`}>
-                    Active Node: {activeNode}
+    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+      <div className="xl:col-span-3 space-y-6">
+        <div className="glass-panel p-6 md:p-10 rounded-[32px] border-t-2 border-t-blue-500 shadow-2xl relative overflow-hidden">
+          <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-8 gap-6">
+            <div>
+              <h2 className="text-2xl md:text-3xl font-black text-white italic tracking-tighter uppercase">Nexus Discovery</h2>
+              <div className="flex items-center space-x-2 mt-2">
+                 <div className={`px-2 py-0.5 rounded-full text-[7px] font-black uppercase tracking-widest ${activeNode === 'Standby' ? 'bg-slate-800 text-slate-500' : 'bg-blue-600/20 text-blue-400 border border-blue-500/30 animate-pulse'}`}>
+                    Active_Node: {activeNode}
                  </div>
               </div>
             </div>
             
-            <div className="flex items-center space-x-4">
-              {!accessToken && (
-                <button onClick={connectGoogleDrive} className="px-6 py-4 bg-emerald-600/20 text-emerald-400 text-[10px] font-black rounded-2xl border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-all uppercase tracking-widest animate-pulse">Link Drive</button>
-              )}
-              <button onClick={() => setShowSettings(true)} className="px-6 py-4 bg-white/5 text-slate-400 text-[10px] font-black rounded-2xl border border-white/10 hover:bg-white/10 uppercase tracking-widest">Config</button>
-              <button onClick={startGathering} className={`px-14 py-6 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-95 ${isEngineRunning ? 'bg-red-600 text-white shadow-red-600/40' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}>
-                {isEngineRunning ? 'Halt Engine' : 'Engage Matrix'}
+            <div className="flex items-center gap-3 w-full md:w-auto">
+              <button onClick={() => setShowSettings(true)} className="flex-1 md:flex-none px-4 py-3 bg-white/5 text-slate-500 text-[9px] font-black rounded-xl border border-white/10 uppercase tracking-widest">Config</button>
+              <button onClick={startGathering} className={`flex-1 md:flex-none px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all active:scale-95 ${isEngineRunning ? 'bg-red-600 text-white' : 'bg-blue-600 text-white'}`}>
+                {isEngineRunning ? 'Shutdown' : 'Engage Matrix'}
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
              {[
-               { label: 'Discovery Count', value: stats.totalFound.toLocaleString(), color: 'text-white' },
-               { label: 'Vault Synced', value: stats.processed.toLocaleString(), color: 'text-indigo-400' },
-               { label: 'Latency Node', value: activeNode, color: 'text-emerald-400' },
-               { label: 'Redundancy', value: '3-Layer', color: 'text-amber-500' }
+               { label: 'Discovery', value: stats.totalFound.toLocaleString(), color: 'text-white' },
+               { label: 'Vault_Sync', value: stats.processed.toLocaleString(), color: 'text-indigo-400' },
+               { label: 'Latency', value: activeNode === 'Standby' ? 'Idle' : 'Optimal', color: 'text-emerald-400' },
+               { label: 'Pipeline', value: 'Hybrid', color: 'text-amber-500' }
              ].map((item, idx) => (
-               <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner">
-                 <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">{item.label}</p>
-                 <p className={`text-xl font-mono font-black ${item.color} italic tracking-tighter truncate`}>{item.value}</p>
+               <div key={idx} className="p-4 md:p-6 bg-slate-900/50 rounded-2xl border border-white/5 shadow-inner">
+                 <p className="text-[8px] font-black text-slate-600 uppercase mb-2 tracking-widest">{item.label}</p>
+                 <p className={`text-lg font-mono font-black ${item.color} italic tracking-tighter`}>{item.value}</p>
                </div>
              ))}
           </div>
 
-          <div className="space-y-6">
-            <div className="flex justify-between items-end px-2">
-               <span className="text-[11px] font-black text-slate-500 uppercase tracking-[0.3em] italic">Gathering Matrix Progress</span>
-               <span className="text-3xl font-black text-white font-mono tracking-tighter italic">{progress.toFixed(1)}%</span>
+          <div className="space-y-4">
+            <div className="flex justify-between items-end px-1">
+               <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest italic">Matrix Synchronizing</span>
+               <span className="text-xl font-black text-white font-mono italic">{progress.toFixed(1)}%</span>
             </div>
-            <div className="h-4 w-full bg-slate-950 rounded-full border border-white/5 p-1 overflow-hidden shadow-inner">
-               <div className="h-full bg-gradient-to-r from-blue-700 via-indigo-500 to-emerald-400 transition-all duration-1000 shadow-[0_0_20px_rgba(79,70,229,0.5)] rounded-full" style={{ width: `${progress}%` }}></div>
+            <div className="h-2 w-full bg-slate-950 rounded-full border border-white/5 p-0.5 overflow-hidden shadow-inner">
+               <div className="h-full bg-gradient-to-r from-blue-700 to-emerald-400 transition-all duration-700 shadow-[0_0_15px_rgba(59,130,246,0.3)] rounded-full" style={{ width: `${progress}%` }}></div>
             </div>
           </div>
 
-          <div className="h-40 mt-12 opacity-20 -mx-10">
+          <div className="h-32 mt-8 opacity-20 -mx-6">
              <ResponsiveContainer width="100%" height="100%">
                 <AreaChart data={performanceData}>
-                  <Area type="monotone" dataKey="tps" stroke="#6366f1" strokeWidth={4} fillOpacity={0.1} fill="#6366f1" />
+                  <Area type="monotone" dataKey="tps" stroke="#3b82f6" strokeWidth={3} fillOpacity={0.1} fill="#3b82f6" />
                 </AreaChart>
              </ResponsiveContainer>
           </div>
         </div>
 
-        <div className="glass-panel p-10 rounded-[40px] border-t border-white/5 shadow-2xl">
-           <h3 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.4em] mb-10 italic">Vault Manifest (Cloud Backup)</h3>
-           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+        {/* Vault Manifest - Receipt logic */}
+        <div className="glass-panel p-6 md:p-8 rounded-[32px] border-t border-white/5">
+           <h3 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.3em] mb-6 italic">Vault Manifest (Pipeline Receipt)</h3>
+           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               {driveFiles.map((file, idx) => (
-                <div key={idx} className="p-6 rounded-3xl border border-white/5 bg-slate-900/50 flex justify-between items-center group hover:border-emerald-500/30 transition-all">
-                   <div className="flex items-center space-x-5">
-                      <div className="w-12 h-12 bg-emerald-500/10 rounded-2xl flex items-center justify-center text-emerald-400">
-                         <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                <div key={idx} className="p-4 rounded-xl border border-white/5 bg-slate-900/50 flex justify-between items-center text-[10px]">
+                   <div className="flex items-center space-x-3">
+                      <div className="w-8 h-8 bg-emerald-500/10 rounded-lg flex items-center justify-center text-emerald-400">
+                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
                       </div>
                       <div>
-                         <p className="text-sm font-black text-white font-mono tracking-tighter truncate max-w-[180px]">{file.name}</p>
-                         <p className="text-[10px] text-slate-600 font-bold uppercase mt-1 tracking-widest">{file.timestamp} • {file.size}</p>
+                         <p className="font-black text-white font-mono tracking-tighter truncate max-w-[150px]">{file.name}</p>
+                         <p className="text-[8px] text-slate-600 font-bold uppercase mt-0.5 tracking-tighter">{file.timestamp} • {file.size}</p>
                       </div>
                    </div>
                 </div>
               ))}
               {driveFiles.length === 0 && (
-                <div className="col-span-2 py-24 text-center border-2 border-dashed border-white/5 rounded-3xl opacity-30">
-                  <p className="text-[10px] font-black uppercase tracking-[0.5em]">Awaiting Matrix Output</p>
+                <div className="col-span-2 py-10 text-center border-dashed border border-white/5 rounded-2xl opacity-20">
+                  <p className="text-[8px] font-black uppercase tracking-[0.4em]">Awaiting Cloud Commits</p>
                 </div>
               )}
            </div>
         </div>
       </div>
 
-      <div className="space-y-8">
-        <div className="glass-panel p-8 rounded-[40px] bg-slate-950 border-l-8 border-l-indigo-600 shadow-2xl h-[800px] flex flex-col">
-          <h3 className="font-black text-white uppercase text-xl italic tracking-tighter mb-8">Matrix Status Stream</h3>
-          <div ref={logContainerRef} className="flex-1 bg-black/80 p-6 rounded-[24px] font-mono text-indigo-400/80 overflow-y-auto no-scrollbar space-y-3 shadow-inner border border-white/5 text-[10px] scroll-smooth">
+      {/* Terminal View */}
+      <div className="space-y-6">
+        <div className="glass-panel p-6 rounded-[32px] bg-slate-950 border-l-4 border-l-indigo-600 shadow-2xl h-[500px] md:h-[700px] flex flex-col">
+          <h3 className="font-black text-white uppercase text-sm italic tracking-widest mb-6 px-2">Matrix Stream</h3>
+          <div ref={logContainerRef} className="flex-1 bg-black/40 p-5 rounded-2xl font-mono text-indigo-400/80 overflow-y-auto no-scrollbar space-y-2 shadow-inner border border-white/5 text-[9px]">
             {consoleLogs.map((log, i) => (
-              <div key={i} className={`border-l-2 pl-4 py-1 transition-colors ${log.includes('[ERR]') ? 'border-red-500 text-red-400 bg-red-500/5' : log.includes('[BYPASS]') ? 'border-amber-500 text-amber-400 bg-amber-500/5' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-indigo-600/30'}`}>
-                <span className="leading-relaxed">{log}</span>
+              <div key={i} className={`border-l pl-3 py-0.5 ${log.includes('[ERR]') ? 'border-red-500 text-red-400 bg-red-500/5' : log.includes('[BYPASS]') ? 'border-amber-500 text-amber-400' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-indigo-600/30'}`}>
+                {log}
               </div>
             ))}
           </div>
-          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-5 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-blue-600 hover:text-white transition-all shadow-xl active:scale-95 italic">Open Drive Storage</button>
+          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-6 py-4 rounded-xl bg-white text-slate-950 text-[9px] font-black uppercase tracking-widest hover:bg-blue-600 hover:text-white transition-all shadow-xl italic">Open Vault Storage</button>
         </div>
       </div>
 
       {showSettings && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-8">
-           <div className="max-w-xl w-full glass-panel p-12 rounded-[48px] border-white/10 shadow-2xl">
-              <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase mb-10">Nexus Vault Config</h3>
-              <div className="space-y-8">
-                 <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">G-Cloud Client ID (Node Auth)</label>
-                    <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full bg-slate-900 border border-white/10 rounded-2xl p-6 text-[11px] font-mono text-white outline-none focus:border-blue-500 transition-all shadow-inner" placeholder="Paste Client ID..." />
+        <div className="fixed inset-0 z-[100] bg-slate-950/95 backdrop-blur-xl flex items-center justify-center p-4">
+           <div className="max-w-md w-full glass-panel p-10 rounded-[40px] border-white/10 shadow-2xl">
+              <h3 className="text-2xl font-black text-white tracking-tighter italic uppercase mb-8">Nexus Vault Config</h3>
+              <div className="space-y-6">
+                 <div className="space-y-2">
+                    <label className="text-[8px] font-black text-slate-500 uppercase tracking-widest ml-1">G-Cloud Node Client ID</label>
+                    <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full bg-slate-900 border border-white/10 rounded-xl p-4 text-[10px] font-mono text-white outline-none focus:border-blue-500 transition-all shadow-inner" placeholder="Paste Client ID..." />
                  </div>
-                 <div className="flex gap-4">
-                    <button onClick={() => setShowSettings(false)} className="flex-1 py-6 bg-slate-900 text-slate-400 text-[11px] font-black uppercase rounded-2xl tracking-[0.2em] hover:bg-slate-800 transition-all">Dismiss</button>
-                    <button onClick={handleSaveAndEnter} className="flex-[2] py-6 bg-white text-slate-950 text-[11px] font-black uppercase rounded-2xl tracking-[0.3em] hover:bg-blue-600 hover:text-white transition-all shadow-2xl">Save & Access</button>
+                 <div className="flex gap-3">
+                    <button onClick={() => setShowSettings(false)} className="flex-1 py-4 bg-slate-800 text-slate-400 text-[9px] font-black uppercase rounded-xl tracking-widest">Dismiss</button>
+                    <button onClick={() => { localStorage.setItem('gdrive_client_id', clientId); setShowSettings(false); }} className="flex-[2] py-4 bg-white text-slate-950 text-[9px] font-black uppercase rounded-xl tracking-widest hover:bg-blue-600 hover:text-white transition-all shadow-2xl">Save Node Config</button>
                  </div>
               </div>
            </div>

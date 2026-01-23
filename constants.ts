@@ -29,17 +29,16 @@ export const API_CONFIGS: ApiConfig[] = [
 
 export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
-  rootFolder: '/US_Alpha_Seeker',
-  subFolder: '/Stage0_Universe_Data',
-  folderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD',
+  rootFolder: 'US_Alpha_Seeker',
+  folderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', // 실제 드라이브 루트 또는 US_Alpha_Seeker 폴더 ID
   lastSync: '2024-05-21 14:22:05'
 };
 
 export const STAGES_FLOW = [
-  { id: 0, label: '0: Universe Gathering' },
-  { id: 2, label: '2: Quality Filter' },
-  { id: 3, label: '3: Fundamentals' },
-  { id: 4, label: '4: Technicals' },
-  { id: 5, label: '5: ICT Smart Money' },
-  { id: 6, label: '6: AI Final Alpha' }
+  { id: 0, label: '0: Gathering' },
+  { id: 2, label: '2: Filter' },
+  { id: 3, label: '3: Funds' },
+  { id: 4, label: '4: Techs' },
+  { id: 5, label: '5: ICT' },
+  { id: 6, label: '6: Alpha' }
 ];
