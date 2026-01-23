@@ -13,6 +13,7 @@ interface MarketItem {
 
 const MarketTicker: React.FC = () => {
   const [data, setData] = useState<MarketItem[]>([]);
+  const [isPaused, setIsPaused] = useState(false);
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
 
   const tickers = [
@@ -25,52 +26,50 @@ const MarketTicker: React.FC = () => {
     { s: 'AMZN', l: 'AMAZON', i: false },
   ];
 
+  const getLatestTradingDate = () => {
+    const d = new Date();
+    d.setDate(d.getDate() - 1);
+    if (d.getDay() === 0) d.setDate(d.getDate() - 2);
+    else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
+    return d.toISOString().split('T')[0];
+  };
+
   useEffect(() => {
     const fetchMarketData = async () => {
+      // 파이프라인 가동 중이면 쿼터 보호를 위해 중단
+      if (document.body.getAttribute('data-engine-running') === 'true') {
+        setIsPaused(true);
+        return;
+      }
+      setIsPaused(false);
+
       try {
-        // Attempt Snapshot first (often fails on free tier)
-        const snapRes = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers?tickers=${tickers.map(t => t.s).join(',')}&apiKey=${polygonKey}`).then(r => r.json());
+        const targetDate = getLatestTradingDate();
+        // 7번 호출 대신 '벌크' 1번으로 해결
+        const res = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`).then(r => r.json());
         
-        if (snapRes.status === 'OK' && snapRes.tickers) {
-          const resultMap = new Map(snapRes.tickers.map((r: any) => [r.ticker, r]));
+        if (res.results) {
+          const resultMap = new Map(res.results.map((r: any) => [r.T, r]));
           const merged = tickers.map(t => {
             const r: any = resultMap.get(t.s);
             return {
               symbol: t.s,
               label: t.l,
-              price: r?.min?.c || r?.prevDay?.c || r?.lastTrade?.p || 0,
-              change: r?.todaysChangePerc || 0,
+              price: r?.c || 0,
+              change: r?.o ? ((r.c - r.o) / r.o) * 100 : 0,
               isIndex: t.i
             };
           });
-          setData(merged);
-        } else {
-          // Fallback to Previous Close (Highly available on free tier)
-          const fallbackData = await Promise.all(tickers.map(async (t) => {
-            try {
-              const res = await fetch(`https://api.polygon.io/v2/aggs/ticker/${t.s}/prev?adjusted=true&apiKey=${polygonKey}`).then(r => r.json());
-              if (res.results && res.results[0]) {
-                const r = res.results[0];
-                return {
-                  symbol: t.s,
-                  label: t.l,
-                  price: r.c,
-                  change: r.o ? ((r.c - r.o) / r.o) * 100 : 0,
-                  isIndex: t.i
-                };
-              }
-            } catch (e) { /* ignore */ }
-            return { symbol: t.s, label: t.l, price: 0, change: 0, isIndex: t.i };
-          }));
-          setData(fallbackData.filter(d => d.price > 0));
+          setData(merged.filter(d => d.price > 0));
         }
       } catch (e) {
-        console.error("Market pulse fetch failed");
+        console.error("Market pulse fetch throttled or failed");
       }
     };
 
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000); // 1 minute for free tier safety
+    // 무료 티어 안전을 위해 3분(180000ms) 주기로 변경
+    const interval = setInterval(fetchMarketData, 180000); 
     return () => clearInterval(interval);
   }, [polygonKey]);
 
@@ -98,12 +97,12 @@ const MarketTicker: React.FC = () => {
           </div>
         </div>
       )) : (
-        <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">Initializing Market Pulse...</div>
+        <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">Establishing Secure Connection...</div>
       )}
       <div className="flex-1 h-[1px] bg-white/5 ml-4"></div>
       <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic ml-4 whitespace-nowrap">
-        <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full animate-pulse"></span>
-        <span>Market_Pulse_Live</span>
+        <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`}></span>
+        <span>{isPaused ? 'Pulse_Paused_For_Sync' : 'Market_Pulse_Safe_Mode'}</span>
       </div>
     </div>
   );

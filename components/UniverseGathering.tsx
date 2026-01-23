@@ -25,6 +25,7 @@ interface MasterTicker {
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
@@ -39,10 +40,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     synced: 0,
     target: 10000,
     elapsed: 0,
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized'
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.3: Hybrid Resilient Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.4: Quota-Aware Protocol Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -50,17 +51,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
-  };
-
-  const saveClientId = (id: string) => {
-    const cleanId = id.trim();
-    setClientId(cleanId);
-    localStorage.setItem('gdrive_client_id', cleanId);
-    addLog(`Client ID Updated: ${cleanId.substring(0, 10)}...`, "ok");
-    setShowConfig(false);
   };
 
   const getLatestTradingDate = () => {
@@ -72,14 +72,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   };
 
   const startEngine = async () => {
-    if (isEngineRunning) return;
+    if (isEngineRunning || cooldown > 0) return;
     
-    if (!clientId || !clientId.includes('.apps.googleusercontent.com')) {
-      addLog("Invalid or Missing Client ID. Please configure Infrastructure settings.", "err");
+    if (!clientId) {
+      addLog("Missing Client ID. Open ⚙ Config.", "err");
       setShowConfig(true);
       return;
     }
 
+    document.body.setAttribute('data-engine-running', 'true');
     let token = accessToken;
     if (!token) {
       try {
@@ -94,13 +95,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               runAggregatedPipeline(res.access_token);
             }
           },
-          error_callback: (err: any) => {
-             addLog(`OAuth2 Auth Error: ${err.message || 'Check Client ID'}`, "err");
-          }
         });
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
-        addLog(`Auth Initialization Failed: ${e.message}`, "err");
+        addLog(`Auth Error: ${e.message}`, "err");
+        document.body.removeAttribute('data-engine-running');
       }
       return;
     }
@@ -119,7 +118,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }, 1000);
 
     try {
-      addLog("Contacting Finnhub Relay for Alpha Registry...", "info");
+      addLog("Step 1: Fetching Master List (Finnhub)...", "info");
       const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
       
       if (Array.isArray(fhRes)) {
@@ -133,20 +132,31 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             updated: new Date().toISOString()
           });
         });
-        addLog(`Finnhub Success: ${newRegistry.size} symbols discovered.`, "ok");
+        addLog(`Finnhub: ${newRegistry.size} tickers mapped.`, "ok");
       }
 
       setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
 
-      const targetDate = getLatestTradingDate();
-      addLog(`Requesting Polygon Grouped Aggregates (${targetDate})...`, "info");
-      
-      const polyUrl = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`;
-      const polyRes = await fetch(polyUrl).then(r => r.json());
+      // Wait a bit to ensure quota is clear
+      await new Promise(r => setTimeout(r, 2000));
 
-      if (polyRes.results) {
+      const targetDate = getLatestTradingDate();
+      addLog(`Step 2: Merging Price Aggregates (${targetDate})...`, "info");
+      
+      const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+      
+      if (polyRes.status === 429) {
+        addLog("API QUOTA EXCEEDED (429). Initiating 60s cooldown.", "err");
+        setCooldown(60);
+        setStats(prev => ({ ...prev, phase: 'Cooldown' }));
+        throw new Error("Rate limit hit");
+      }
+
+      const polyData = await polyRes.json();
+
+      if (polyData.results) {
         let matchCount = 0;
-        polyRes.results.forEach((r: any) => {
+        polyData.results.forEach((r: any) => {
           if (newRegistry.has(r.T)) {
             const current = newRegistry.get(r.T)!;
             newRegistry.set(r.T, {
@@ -159,41 +169,33 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             matchCount++;
           }
         });
-        addLog(`Market Fusion Complete: ${matchCount} active price points mapped.`, "ok");
-      } else {
-        const errorMsg = polyRes.error || polyRes.message || "Unknown error";
-        addLog(`Polygon Aggregates Failed: ${errorMsg}`, "warn");
+        addLog(`Fusion: ${matchCount} active prices synced.`, "ok");
       }
 
       setRegistry(new Map(newRegistry));
       setStats(prev => ({ ...prev, phase: 'Commit' }));
 
+      // Drive Sync
       const masterData = Array.from(newRegistry.values());
-      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.3.json`;
+      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.4.json`;
       const payload = {
-        manifest: {
-          version: "1.9.3-HYBRID",
-          data_date: targetDate,
-          total_count: masterData.length,
-          generated_at: new Date().toISOString()
-        },
+        manifest: { version: "1.9.4", data_date: targetDate, total: masterData.length },
         universe: masterData
       };
 
       const folderId = await ensureFolder(token);
       if (folderId) {
-        const success = await uploadFile(token, folderId, fileName, payload);
-        if (success) {
-          setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
-          addLog(`Sync Successful: [${fileName}] verified in cloud vault.`, "ok");
-        }
+        await uploadFile(token, folderId, fileName, payload);
+        setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
+        addLog("System: Cloud Vault Sync Complete.", "ok");
       }
 
     } catch (e: any) {
-      addLog(`Pipeline Crash: ${e.message}`, "err");
+      if (e.message !== "Rate limit hit") addLog(`Fatal Error: ${e.message}`, "err");
     } finally {
       if (timerRef.current) clearInterval(timerRef.current);
       setIsEngineRunning(false);
+      document.body.removeAttribute('data-engine-running');
     }
   };
 
@@ -203,7 +205,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
-    
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -217,10 +218,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
     });
-    return res.ok;
   };
 
   const searchResult = useMemo(() => {
@@ -235,37 +235,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           
           {/* Config Overlay */}
           {showConfig && (
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl z-50 p-10 flex flex-col justify-center items-center">
-              <div className="max-w-md w-full space-y-6">
-                <div className="text-center">
-                  <h3 className="text-2xl font-black text-white italic uppercase tracking-tighter">Infrastructure Setup</h3>
-                  <p className="text-[10px] text-slate-500 font-bold uppercase tracking-widest mt-2">Required: Google OAuth2 Client ID</p>
-                </div>
-                <input 
+            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl z-50 p-10 flex flex-col justify-center items-center text-center">
+               <div className="max-w-md space-y-6">
+                 <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase">Infrastructure Node</h3>
+                 <input 
                   type="text" 
-                  placeholder="Enter Client ID (ending in .apps.googleusercontent.com)"
+                  placeholder="Google OAuth Client ID"
                   className="w-full bg-black border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-xs focus:border-blue-500 outline-none"
                   value={clientId}
                   onChange={(e) => setClientId(e.target.value)}
                 />
-                <div className="flex gap-3">
-                  <button 
-                    onClick={() => saveClientId(clientId)}
-                    className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-blue-500 transition-all"
-                  >
-                    Save Configuration
-                  </button>
-                  <button 
-                    onClick={() => setShowConfig(false)}
-                    className="px-6 bg-slate-800 text-slate-400 py-4 rounded-xl font-black text-[10px] uppercase tracking-widest hover:bg-slate-700"
-                  >
-                    Cancel
-                  </button>
+                <div className="flex gap-2">
+                  <button onClick={() => { localStorage.setItem('gdrive_client_id', clientId); setShowConfig(false); addLog("ID Cached.", "ok"); }} className="flex-1 bg-blue-600 text-white py-4 rounded-xl font-black text-[10px] uppercase">Save</button>
+                  <button onClick={() => setShowConfig(false)} className="px-6 bg-slate-800 text-slate-400 py-4 rounded-xl font-black text-[10px] uppercase">Close</button>
                 </div>
-                <p className="text-[8px] text-slate-600 text-center leading-relaxed">
-                  Go to <a href="https://console.cloud.google.com/apis/credentials" target="_blank" className="text-blue-500 underline">Google Cloud Console</a> to create an OAuth 2.0 Client ID for your project.
-                </p>
-              </div>
+               </div>
             </div>
           )}
 
@@ -276,61 +260,58 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.3</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.4</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                  <span className="text-[8px] px-2 py-0.5 bg-indigo-500/20 text-indigo-400 rounded-md font-black border border-indigo-500/20 uppercase tracking-widest">Resilient_Hybrid</span>
-                  <button 
-                    onClick={() => setShowConfig(true)}
-                    className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all"
-                  >
-                    ⚙ Config
-                  </button>
+                  <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
+                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Safety_Active'}
+                  </span>
+                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
                 </div>
               </div>
             </div>
             <button 
               onClick={startEngine} 
-              disabled={isEngineRunning}
-              className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning ? 'bg-slate-800 text-slate-500' : 'bg-blue-600 text-white shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95'}`}
+              disabled={isEngineRunning || cooldown > 0}
+              className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
             >
-              {isEngineRunning ? 'Synchronizing Universe...' : 'Execute Universal Fusion'}
+              {isEngineRunning ? 'Processing Matrix...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
           </div>
 
-          {/* Validation Tool */}
+          {/* Search/Integrity */}
           <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
-              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Local Integrity Checker</p>
-              <span className="text-[8px] text-slate-500 uppercase">Snapshot Date: {getLatestTradingDate()}</span>
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
+              <span className="text-[8px] text-slate-500 uppercase">Status: {stats.phase}</span>
             </div>
             <div className="flex gap-4">
               <input 
                 type="text" 
-                placeholder="Ticker (e.g. NVDA, TSLA)"
-                className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none transition-all uppercase"
+                placeholder="Verify Ticker (e.g. NVDA, FRGT)"
+                className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
               <div className={`flex-1 flex items-center px-6 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
                 {searchResult ? (
                   <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
-                    <span className="truncate max-w-[150px]">{searchResult.name || searchResult.symbol}</span>
-                    <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price.toFixed(2)}</span>
-                    <span className="text-slate-400">Vol: {(searchResult.volume/1000).toFixed(1)}k</span>
+                    <span className="truncate">{searchResult.name || searchResult.symbol}</span>
+                    <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 ml-4">${searchResult.price.toFixed(2)}</span>
                   </div>
                 ) : (
-                  <span className="text-[10px] font-black italic uppercase tracking-widest">{searchTerm ? 'TICKER NOT IN MEMORY' : 'Awaiting Data Sync'}</span>
+                  <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
                 )}
               </div>
             </div>
           </div>
 
+          {/* Stats */}
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
               { label: 'Symbols Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Cloud Status', val: accessToken ? 'CONNECTED' : 'STANDBY', color: 'text-emerald-400' },
-              { label: 'Session Calls', val: isEngineRunning ? '3' : '0', color: 'text-slate-400' },
-              { label: 'Protocol', val: 'HYBRID_V3', color: 'text-blue-400' }
+              { label: 'Quota State', val: cooldown > 0 ? 'THROTTLED' : 'HEALTHY', color: cooldown > 0 ? 'text-red-400' : 'text-emerald-400' },
+              { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
+              { label: 'Engine Mode', val: 'V1.9.4_SAFE', color: 'text-blue-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
@@ -339,17 +320,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             ))}
           </div>
 
-          <div className="space-y-2">
-            <div className="flex justify-between items-end px-2">
-              <p className="text-[9px] font-black text-slate-400 uppercase tracking-widest">Gathering Efficiency</p>
-              <p className="text-[10px] font-mono font-bold text-white">{stats.phase === 'Finalized' ? '100%' : `${Math.min(99.9, (stats.found / stats.target) * 100).toFixed(1)}%`}</p>
-            </div>
-            <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
-              <div 
-                className="h-full bg-gradient-to-r from-blue-700 via-indigo-500 to-blue-400 rounded-xl transition-all duration-700"
-                style={{ width: stats.phase === 'Finalized' ? '100%' : `${Math.min(100, (stats.found / stats.target) * 100)}%` }}
-              ></div>
-            </div>
+          <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
+            <div 
+              className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600 animate-pulse' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`}
+              style={{ width: stats.phase === 'Finalized' ? '100%' : cooldown > 0 ? `${(cooldown/60)*100}%` : `${Math.min(100, (stats.found / stats.target) * 100)}%` }}
+            ></div>
           </div>
         </div>
       </div>
@@ -366,12 +341,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 {l}
               </div>
             ))}
-          </div>
-          <div className="mt-8 space-y-3 text-center">
-            <div className="p-5 bg-blue-600/5 rounded-2xl border border-blue-500/10">
-              <p className="text-[7px] text-blue-400 font-black uppercase tracking-[0.2em] mb-2">Auth Resilience</p>
-              <p className="text-[9px] text-slate-400 font-bold italic leading-snug">Ensures Client ID exists before OAuth2 handshake. Prevents 'Missing client_id' protocol error.</p>
-            </div>
           </div>
         </div>
       </div>
