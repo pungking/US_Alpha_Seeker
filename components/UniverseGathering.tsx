@@ -16,6 +16,7 @@ interface DriveFile {
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
+  const [activeNode, setActiveNode] = useState<string>('Standby');
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   const [showSettings, setShowSettings] = useState(!localStorage.getItem('gdrive_client_id'));
@@ -36,7 +37,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
   const progress = stats.totalFound > 0 ? (stats.processed / stats.totalFound) * 100 : 0;
   const [driveFiles, setDriveFiles] = useState<DriveFile[]>([]);
-  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Intelligence V4.8 - Distributed Pipeline Online.']);
+  const [consoleLogs, setConsoleLogs] = useState<string[]>(['> Nexus Intelligence V4.9 - Distributed Bypass Logic Enabled.']);
   const [performanceData, setPerformanceData] = useState<any[]>([]);
   
   const logContainerRef = useRef<HTMLDivElement>(null);
@@ -56,14 +57,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   }, [consoleLogs]);
 
   const addLog = (msg: string, type: 'info' | 'warn' | 'error' | 'success' = 'info') => {
-    const prefixes = { info: '>', warn: '[WARN]', error: '[ERR]', success: '[OK]' };
+    const prefixes = { info: '>', warn: '[BYPASS]', error: '[ERR]', success: '[OK]' };
     setConsoleLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-150));
   };
 
   const handleSaveAndEnter = () => {
     localStorage.setItem('gdrive_client_id', clientId.trim());
     setShowSettings(false);
-    addLog("Config Updated. Switching to Active Discovery Mode.", 'success');
+    addLog("Matrix Config Finalized.", 'success');
   };
 
   const connectGoogleDrive = () => {
@@ -80,7 +81,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              addLog("Cloud Vault Synchronized.", 'success');
+              addLog("Cloud Vault Sync: ACTIVE", 'success');
             }
           },
         });
@@ -89,22 +90,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }
   };
 
-  const fetchWithLimitedRetry = async (url: string, provider: string, options: any = {}): Promise<any> => {
-    const res = await fetch(url, options);
-    if (res.status === 429) {
-      addLog(`${provider} Rate Limit (429). Bypassing to Redundant Node...`, 'warn');
-      throw new Error('RATE_LIMIT');
-    }
-    if (!res.ok) throw new Error(`HTTP_${res.status}`);
-    return await res.json();
-  };
-
   const startGathering = async () => {
-    if (isEngineRunning) { stopRequested.current = true; setIsEngineRunning(false); return; }
+    if (isEngineRunning) { stopRequested.current = true; setIsEngineRunning(false); setActiveNode('Standby'); return; }
     
     setIsEngineRunning(true);
     stopRequested.current = false;
-    addLog("Initializing Distributed Discovery Protocol...", 'info');
+    addLog("Engaging Nexus Discovery Matrix...", 'info');
     
     const startTimestamp = Date.now();
     setStats(prev => ({ ...prev, startTime: new Date().toLocaleTimeString(), processed: 0, elapsedSeconds: 0 }));
@@ -114,80 +105,80 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }, 1000);
 
     try {
-      // Use Map to deduplicate by Ticker
       const masterMap = new Map<string, any>();
       
-      // PHASE 1: POLYGON (Attempt)
-      addLog("NODE 1: Scanning Polygon L3 Reference...", 'info');
+      // PHASE 1: POLYGON
+      setActiveNode('Polygon_L3');
+      addLog("Node_1 (Polygon) Attempting High-Res Sync...", 'info');
       try {
         let polygonUrl = `https://api.polygon.io/v3/reference/tickers?market=stocks&active=true&limit=1000&apiKey=${polygonKey}`;
         let count = 0;
-        while (polygonUrl && !stopRequested.current && count < 2) { // Limit iterations to avoid hanging if 429 is constant
-           const data = await fetchWithLimitedRetry(polygonUrl, 'Polygon');
+        while (polygonUrl && !stopRequested.current && count < 2) {
+           const res = await fetch(polygonUrl);
+           if (res.status === 429) throw new Error('RATE_LIMIT');
+           const data = await res.json();
            if (data.results) {
-             data.results.forEach((t: any) => masterMap.set(t.ticker, { ticker: t.ticker, name: t.name, source: 'Polygon' }));
+             data.results.forEach((t: any) => masterMap.set(t.ticker, { ticker: t.ticker, name: t.name, src: 'P' }));
              setStats(prev => ({ ...prev, totalFound: masterMap.size }));
            }
            polygonUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
            count++;
-           if (polygonUrl) await new Promise(r => setTimeout(r, 200));
+           await new Promise(r => setTimeout(r, 200));
         }
-      } catch (e: any) {
-        // Silently continue to next provider if rate limited
+      } catch (e) {
+        addLog("Polygon 429 Detected. Diverting Traffic to Alpaca...", 'warn');
       }
 
-      // PHASE 2: ALPACA FAILOVER (High Volume / No strict 429 on free assets list)
+      // PHASE 2: ALPACA FAILOVER
       if (!stopRequested.current) {
-        addLog("NODE 2: Engaging Alpaca Assets Redundancy...", 'info');
+        setActiveNode('Alpaca_Failover');
+        addLog("Node_2 (Alpaca) Engaging Assets Redundancy...", 'info');
         try {
           const alpacaData = await fetch(`https://paper-api.alpaca.markets/v2/assets?asset_class=us_equity`, {
-            headers: { 'APCA-API-KEY-ID': alpacaKey || '', 'APCA-API-SECRET-KEY': '' } // Secret missing but public assets sometimes work or need only Key ID
+            headers: { 'APCA-API-KEY-ID': alpacaKey || '' }
           }).then(r => r.json());
-          
           if (Array.isArray(alpacaData)) {
             alpacaData.forEach((t: any) => {
               if (t.status === 'active' && !masterMap.has(t.symbol)) {
-                masterMap.set(t.symbol, { ticker: t.symbol, name: t.name, source: 'Alpaca' });
+                masterMap.set(t.symbol, { ticker: t.symbol, name: t.name, src: 'A' });
               }
             });
-            addLog(`Alpaca node injected ${alpacaData.length} entries. Total: ${masterMap.size}`, 'success');
             setStats(prev => ({ ...prev, totalFound: masterMap.size }));
           }
-        } catch (e) { addLog("Alpaca Node Offline. Skipping...", 'warn'); }
+        } catch (e) { addLog("Alpaca Node Offline.", 'error'); }
       }
 
-      // PHASE 3: FINNHUB (Final Expansion)
-      if (!stopRequested.current && masterMap.size < 5000) {
-        addLog("NODE 3: Expanding via Finnhub Global symbols...", 'info');
+      // PHASE 3: FINNHUB
+      if (!stopRequested.current) {
+        setActiveNode('Finnhub_Expand');
+        addLog("Node_3 (Finnhub) Global Symbol Expansion...", 'info');
         try {
           const finnhubData = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
           if (Array.isArray(finnhubData)) {
             finnhubData.forEach((t: any) => {
               if (!masterMap.has(t.symbol)) {
-                masterMap.set(t.symbol, { ticker: t.symbol, name: t.description, source: 'Finnhub' });
+                masterMap.set(t.symbol, { ticker: t.symbol, name: t.description, src: 'F' });
               }
             });
-            addLog(`Finnhub expansion complete. Matrix reached ${masterMap.size} assets.`, 'success');
             setStats(prev => ({ ...prev, totalFound: masterMap.size }));
           }
-        } catch (e) { addLog("Finnhub Node Offline.", 'warn'); }
+        } catch (e) { addLog("Finnhub Node Offline.", 'error'); }
       }
 
       const masterTickerList = Array.from(masterMap.values());
-      if (stopRequested.current || masterTickerList.length === 0) return;
+      setActiveNode('Vault_Sync');
 
-      // CLOUD SYNC PHASE
-      if (accessToken) {
-        addLog(`Vault Sync: Uploading ${masterTickerList.length} unique assets in batches...`, 'info');
+      if (accessToken && masterTickerList.length > 0) {
+        addLog(`Vault Sync: Uploading ${masterTickerList.length} unique assets...`, 'info');
         const yesterday = new Date();
         yesterday.setDate(yesterday.getDate() - 1);
         const dateStr = yesterday.toISOString().split('T')[0];
         
-        const chunkSize = 1500;
+        const chunkSize = 2000;
         for (let i = 0; i < masterTickerList.length; i += chunkSize) {
           if (stopRequested.current) break;
           const chunk = masterTickerList.slice(i, i + chunkSize);
-          const fileName = `UNIVERSE_MATRIX_${dateStr}_B${Math.floor(i/chunkSize)+1}.json`;
+          const fileName = `NEXUS_UNIVERSE_${dateStr}_B${Math.floor(i/chunkSize)+1}.json`;
           
           const success = await uploadToDrive(fileName, { data: chunk, count: chunk.length, timestamp: new Date().toISOString() });
           if (success) {
@@ -195,18 +186,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             setDriveFiles(df => [{ name: fileName, size: `${(JSON.stringify(chunk).length/1024).toFixed(1)}KB`, timestamp: new Date().toLocaleTimeString() }, ...df].slice(0, 8));
             setPerformanceData(prev => [...prev.slice(-30), { tps: chunk.length }].map((d, idx) => ({ ...d, index: idx })));
           }
-          await new Promise(r => setTimeout(r, 300));
+          await new Promise(r => setTimeout(r, 200));
         }
-      } else {
-        addLog("Local Discovery finalized. Link Drive to persist to Vault.", 'warn');
+      } else if (!accessToken) {
+        addLog("Discovery Finalized Locally. Cloud sync unavailable.", 'warn');
         setStats(prev => ({ ...prev, processed: masterTickerList.length }));
       }
     } catch (e: any) {
-      addLog(`Critical Failure: ${e.message}`, 'error');
+      addLog(`Matrix Failure: ${e.message}`, 'error');
     } finally {
       setIsEngineRunning(false);
+      setActiveNode('Standby');
       if (timerRef.current) clearInterval(timerRef.current);
-      addLog("Gathering Protocol Terminated.", 'info');
+      addLog("Nexus Cycle Terminated.", 'info');
     }
   };
 
@@ -214,10 +206,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (!accessToken) return false;
     try {
       const metadata = { name: fileName, parents: [targetFolderId], mimeType: 'application/json' };
-      const fileContent = new Blob([JSON.stringify(payload)], { type: 'application/json' });
       const formData = new FormData();
       formData.append('metadata', new Blob([JSON.stringify(metadata)], { type: 'application/json' }));
-      formData.append('file', fileContent);
+      formData.append('file', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST',
         headers: { 'Authorization': 'Bearer ' + accessToken },
@@ -233,39 +224,36 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         <div className="glass-panel p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl relative overflow-hidden">
           <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-12 gap-8">
             <div className="relative z-10">
-              <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase">Nexus Discovery Matrix</h2>
-              <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-3">Active Pipeline: Multi-Node Redundancy (Polygon / Alpaca / Finnhub)</p>
+              <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase">Nexus Matrix Discovery</h2>
+              <div className="flex items-center space-x-3 mt-3">
+                 <span className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em]">Bypass Protocol: ACTIVE</span>
+                 <div className={`px-3 py-1 rounded-full text-[8px] font-black uppercase tracking-widest ${activeNode === 'Standby' ? 'bg-slate-800 text-slate-400' : 'bg-blue-600/20 text-blue-400 border border-blue-500/30 animate-pulse'}`}>
+                    Active Node: {activeNode}
+                 </div>
+              </div>
             </div>
             
             <div className="flex items-center space-x-4">
               {!accessToken && (
-                <button 
-                  onClick={connectGoogleDrive}
-                  className="px-6 py-4 bg-emerald-600/20 text-emerald-400 text-[10px] font-black rounded-2xl border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-all uppercase tracking-widest animate-pulse"
-                >
-                  Link Drive Vault
-                </button>
+                <button onClick={connectGoogleDrive} className="px-6 py-4 bg-emerald-600/20 text-emerald-400 text-[10px] font-black rounded-2xl border border-emerald-500/30 hover:bg-emerald-600 hover:text-white transition-all uppercase tracking-widest animate-pulse">Link Drive</button>
               )}
-              <button onClick={() => setShowSettings(true)} className="px-6 py-4 bg-white/5 text-slate-400 text-[10px] font-black rounded-2xl border border-white/10 hover:bg-white/10 hover:text-white transition-all uppercase tracking-widest">Config</button>
-              <button 
-                onClick={startGathering} 
-                className={`px-14 py-6 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-95 ${isEngineRunning ? 'bg-red-600 text-white shadow-red-600/40' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}
-              >
-                {isEngineRunning ? 'Shutdown Engine' : 'Engage Matrix'}
+              <button onClick={() => setShowSettings(true)} className="px-6 py-4 bg-white/5 text-slate-400 text-[10px] font-black rounded-2xl border border-white/10 hover:bg-white/10 uppercase tracking-widest">Config</button>
+              <button onClick={startGathering} className={`px-14 py-6 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all shadow-2xl active:scale-95 ${isEngineRunning ? 'bg-red-600 text-white shadow-red-600/40' : 'bg-blue-600 text-white shadow-blue-600/40 hover:bg-blue-500'}`}>
+                {isEngineRunning ? 'Halt Engine' : 'Engage Matrix'}
               </button>
             </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-6 mb-12">
              {[
-               { label: 'Market Discovery', value: stats.totalFound.toLocaleString(), color: 'text-white' },
-               { label: 'Cloud Synced', value: stats.processed.toLocaleString(), color: 'text-indigo-400' },
-               { label: 'Uptime', value: `${Math.floor(stats.elapsedSeconds/60)}m ${stats.elapsedSeconds%60}s`, color: 'text-emerald-400' },
-               { label: 'Active Pipeline', value: isEngineRunning ? 'Multi-Node' : 'Standby', color: 'text-amber-500' }
+               { label: 'Discovery Count', value: stats.totalFound.toLocaleString(), color: 'text-white' },
+               { label: 'Vault Synced', value: stats.processed.toLocaleString(), color: 'text-indigo-400' },
+               { label: 'Latency Node', value: activeNode, color: 'text-emerald-400' },
+               { label: 'Redundancy', value: '3-Layer', color: 'text-amber-500' }
              ].map((item, idx) => (
                <div key={idx} className="p-8 bg-slate-900/50 rounded-3xl border border-white/5 shadow-inner">
                  <p className="text-[10px] font-black text-slate-600 uppercase mb-3 tracking-widest">{item.label}</p>
-                 <p className={`text-2xl font-mono font-black ${item.color} italic tracking-tighter`}>{item.value}</p>
+                 <p className={`text-xl font-mono font-black ${item.color} italic tracking-tighter truncate`}>{item.value}</p>
                </div>
              ))}
           </div>
@@ -316,41 +304,31 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       <div className="space-y-8">
         <div className="glass-panel p-8 rounded-[40px] bg-slate-950 border-l-8 border-l-indigo-600 shadow-2xl h-[800px] flex flex-col">
-          <h3 className="font-black text-white uppercase text-xl italic tracking-tighter mb-8">Live Matrix Stream</h3>
-          <div 
-            ref={logContainerRef} 
-            className="flex-1 bg-black/80 p-6 rounded-[24px] font-mono text-indigo-400/80 overflow-y-auto no-scrollbar space-y-3 shadow-inner border border-white/5 text-[10px] scroll-smooth"
-          >
+          <h3 className="font-black text-white uppercase text-xl italic tracking-tighter mb-8">Matrix Status Stream</h3>
+          <div ref={logContainerRef} className="flex-1 bg-black/80 p-6 rounded-[24px] font-mono text-indigo-400/80 overflow-y-auto no-scrollbar space-y-3 shadow-inner border border-white/5 text-[10px] scroll-smooth">
             {consoleLogs.map((log, i) => (
-              <div key={i} className={`border-l-2 pl-4 py-1 transition-colors ${log.includes('[ERR]') ? 'border-red-500 text-red-400 bg-red-500/5' : log.includes('[WARN]') ? 'border-amber-500 text-amber-400' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-indigo-600/30'}`}>
+              <div key={i} className={`border-l-2 pl-4 py-1 transition-colors ${log.includes('[ERR]') ? 'border-red-500 text-red-400 bg-red-500/5' : log.includes('[BYPASS]') ? 'border-amber-500 text-amber-400 bg-amber-500/5' : log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-indigo-600/30'}`}>
                 <span className="leading-relaxed">{log}</span>
               </div>
             ))}
           </div>
-          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-5 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-blue-600 hover:text-white transition-all shadow-xl active:scale-95">Open Drive Storage</button>
+          <button onClick={() => window.open(`https://drive.google.com/drive/folders/${targetFolderId}`, '_blank')} className="w-full mt-8 py-5 rounded-2xl bg-white text-slate-950 text-[10px] font-black uppercase tracking-[0.4em] hover:bg-blue-600 hover:text-white transition-all shadow-xl active:scale-95 italic">Open Drive Storage</button>
         </div>
       </div>
 
       {showSettings && (
-        <div className="fixed inset-0 z-[100] bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-8 animate-in fade-in zoom-in duration-300">
+        <div className="fixed inset-0 z-[100] bg-slate-950/98 backdrop-blur-3xl flex items-center justify-center p-8">
            <div className="max-w-xl w-full glass-panel p-12 rounded-[48px] border-white/10 shadow-2xl">
-              <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase mb-10">Vault Config</h3>
+              <h3 className="text-3xl font-black text-white tracking-tighter italic uppercase mb-10">Nexus Vault Config</h3>
               <div className="space-y-8">
                  <div className="space-y-3">
-                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">Google Client ID (Auto-Saved)</label>
-                    <input 
-                      type="text" 
-                      value={clientId} 
-                      onChange={(e) => setClientId(e.target.value)}
-                      className="w-full bg-slate-900 border border-white/10 rounded-2xl p-6 text-[11px] font-mono text-white outline-none focus:border-blue-500 transition-all shadow-inner" 
-                      placeholder="Paste your Google Client ID..." 
-                    />
+                    <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest ml-1">G-Cloud Client ID (Node Auth)</label>
+                    <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)} className="w-full bg-slate-900 border border-white/10 rounded-2xl p-6 text-[11px] font-mono text-white outline-none focus:border-blue-500 transition-all shadow-inner" placeholder="Paste Client ID..." />
                  </div>
                  <div className="flex gap-4">
-                    <button onClick={() => setShowSettings(false)} className="flex-1 py-6 bg-slate-900 text-slate-400 text-[11px] font-black uppercase rounded-2xl tracking-[0.2em] hover:bg-slate-800 transition-all">Cancel</button>
-                    <button onClick={handleSaveAndEnter} className="flex-[2] py-6 bg-white text-slate-950 text-[11px] font-black uppercase rounded-2xl tracking-[0.3em] hover:bg-blue-600 hover:text-white transition-all shadow-2xl">Save & Access Node</button>
+                    <button onClick={() => setShowSettings(false)} className="flex-1 py-6 bg-slate-900 text-slate-400 text-[11px] font-black uppercase rounded-2xl tracking-[0.2em] hover:bg-slate-800 transition-all">Dismiss</button>
+                    <button onClick={handleSaveAndEnter} className="flex-[2] py-6 bg-white text-slate-950 text-[11px] font-black uppercase rounded-2xl tracking-[0.3em] hover:bg-blue-600 hover:text-white transition-all shadow-2xl">Save & Access</button>
                  </div>
-                 <p className="text-[9px] text-slate-600 font-bold uppercase tracking-widest text-center leading-relaxed">System automatically bypasses API rate limits by switching between Polygon, Alpaca, and Finnhub nodes.</p>
               </div>
            </div>
         </div>

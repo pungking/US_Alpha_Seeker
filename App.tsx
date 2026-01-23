@@ -7,13 +7,12 @@ import UniverseGathering from './components/UniverseGathering';
 import { analyzeCollectionSummary } from './services/geminiService';
 
 const App: React.FC = () => {
-  const [apiStatuses, setApiStatuses] = useState<ApiStatus[]>([]);
+  const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(false);
   const [isProd, setIsProd] = useState(false);
-  const [isHttps, setIsHttps] = useState(false);
 
   const refreshApiStatuses = useCallback(() => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
@@ -23,6 +22,7 @@ const App: React.FC = () => {
         const isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : !!config.key;
         return {
           provider: config.provider,
+          category: config.category,
           isConnected: isConnected,
           latency: isConnected ? Math.floor(Math.random() * 40) + 15 : 0,
           lastChecked: new Date().toLocaleTimeString()
@@ -33,7 +33,6 @@ const App: React.FC = () => {
 
   useEffect(() => {
     setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
-    setIsHttps(window.location.protocol === 'https:');
     refreshApiStatuses();
     const interval = setInterval(refreshApiStatuses, 5000);
     return () => clearInterval(interval);
@@ -47,40 +46,63 @@ const App: React.FC = () => {
     setIsAiLoading(false);
   };
 
+  const categories = ['Acquisition', 'Intelligence', 'Infrastructure'] as const;
+
   return (
     <div className="min-h-screen pb-20 p-4 md:p-8 space-y-8 max-w-[1600px] mx-auto overflow-x-hidden">
       <div className="flex flex-wrap gap-3 items-center glass-panel px-6 py-3 rounded-2xl border-white/5">
         <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1.5 rounded-xl border border-white/5">
           <div className={`w-2 h-2 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
-          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{isProd ? 'Production' : 'Development'}</span>
+          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{isProd ? 'Production' : 'Dev_Sandbox'}</span>
         </div>
         <div className="flex items-center space-x-2 bg-slate-900/50 px-3 py-1.5 rounded-xl border border-white/5">
           <div className={`w-2 h-2 rounded-full ${isGdriveConnected ? 'bg-emerald-500 animate-pulse' : 'bg-slate-700'}`}></div>
-          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Vault Sync</span>
+          <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">Vault_Sync</span>
         </div>
         <div className="ml-auto hidden md:flex items-center space-x-4">
-           <a href={GITHUB_REPO} target="_blank" rel="noreferrer" className="text-[9px] font-black text-slate-500 hover:text-white transition-all uppercase tracking-widest border border-white/5 px-4 py-2 rounded-lg">Sync Repository</a>
+           <a href={GITHUB_REPO} target="_blank" rel="noreferrer" className="text-[9px] font-black text-slate-500 hover:text-white transition-all uppercase tracking-widest border border-white/5 px-4 py-2 rounded-lg italic">Nexus Repo</a>
         </div>
       </div>
 
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-6">
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-center py-4">
         <div className="relative group">
-          <p className="text-blue-500 text-[10px] font-black uppercase tracking-[0.4em] mb-2 italic">US Market Discovery Node</p>
-          <h1 className="text-6xl font-black tracking-tighter text-white italic transition-all group-hover:text-blue-500">US_ALPHA_SEEKER</h1>
+          <p className="text-blue-500 text-[10px] font-black uppercase tracking-[0.4em] mb-2 italic">US Alpha Seeker Pipeline</p>
+          <h1 className="text-6xl font-black tracking-tighter text-white italic transition-all group-hover:text-blue-500">ALPHA_NODE.v0</h1>
         </div>
         
         <div className="flex items-center space-x-6 mt-6 md:mt-0">
            <div className="glass-panel px-8 py-4 rounded-3xl border-white/5 shadow-2xl flex items-center space-x-5 group cursor-pointer hover:bg-slate-800 transition-all">
              <div className="text-right">
-               <p className="text-[9px] text-slate-500 font-black uppercase tracking-tighter">Chief Architect</p>
-               <p className="text-lg font-black text-white italic tracking-tight">InnocentBae</p>
+               <p className="text-[9px] text-slate-500 font-black uppercase tracking-tighter">Nexus Architect</p>
+               <p className="text-lg font-black text-white italic tracking-tight uppercase">InnocentBae</p>
              </div>
              <div className="w-14 h-14 rounded-2xl bg-gradient-to-br from-blue-600 to-indigo-700 flex items-center justify-center text-white font-black text-xl border border-white/10 shadow-lg group-hover:rotate-6 transition-all">IB</div>
            </div>
         </div>
       </header>
 
-      <nav className="flex space-x-4 pb-4 overflow-x-auto no-scrollbar">
+      {/* API Category Groups */}
+      <div className="space-y-12">
+        {categories.map(cat => (
+          <div key={cat} className="space-y-4">
+            <div className="flex items-center space-x-4">
+              <h2 className="text-[11px] font-black text-slate-500 uppercase tracking-[0.5em] italic">{cat} Nodes</h2>
+              <div className="h-[1px] flex-1 bg-gradient-to-r from-white/10 to-transparent"></div>
+            </div>
+            <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-5 gap-4">
+              {apiStatuses.filter(s => s.category === cat).map(status => (
+                <ApiStatusCard 
+                  key={status.provider} 
+                  status={status} 
+                  isAuthConnected={status.provider === ApiProvider.GOOGLE_DRIVE ? isGdriveConnected : true} 
+                />
+              ))}
+            </div>
+          </div>
+        ))}
+      </div>
+
+      <nav className="flex space-x-4 py-4 overflow-x-auto no-scrollbar border-t border-white/5">
         {STAGES_FLOW.map((stage) => (
           <button
             key={stage.id}
@@ -96,23 +118,13 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      <section className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-5 xl:grid-cols-9 gap-4">
-        {apiStatuses.map((status) => (
-          <ApiStatusCard 
-            key={status.provider} 
-            status={status} 
-            isAuthConnected={status.provider === ApiProvider.GOOGLE_DRIVE ? isGdriveConnected : true} 
-          />
-        ))}
-      </section>
-
       <main>
         {currentStage === 0 ? (
           <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
         ) : (
-          <div className="glass-panel p-32 rounded-[40px] border-dashed border-4 border-slate-900 flex flex-col items-center justify-center text-center opacity-50 grayscale hover:grayscale-0 transition-all">
-            <h2 className="text-4xl font-black text-slate-700 uppercase tracking-[0.5em] italic">Access Restricted</h2>
-            <p className="text-slate-500 max-w-lg mt-8 font-bold leading-relaxed tracking-tight uppercase text-[11px]">Please complete the Stage 0 Universe Gathering protocol to unlock next-gen analysis pipelines.</p>
+          <div className="glass-panel p-32 rounded-[40px] border-dashed border-4 border-slate-900 flex flex-col items-center justify-center text-center opacity-50 grayscale">
+            <h2 className="text-4xl font-black text-slate-700 uppercase tracking-[0.5em] italic">Stage Locked</h2>
+            <p className="text-slate-500 max-w-lg mt-8 font-bold leading-relaxed tracking-tight uppercase text-[11px]">Nexus Discovery Matrix must be finalized before unlocking analytical layers.</p>
           </div>
         )}
       </main>
@@ -124,21 +136,21 @@ const App: React.FC = () => {
                 <svg className="w-10 h-10 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
              </div>
              <div>
-                <h3 className="font-black text-white uppercase text-2xl tracking-tight italic tracking-tighter">AI Neural Pipeline Auditor</h3>
-                <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-1 italic">Gemini 3.0 Pro Intelligence Protocol</p>
+                <h3 className="font-black text-white uppercase text-2xl tracking-tighter italic">AI Pipeline Auditor</h3>
+                <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.3em] mt-1 italic">Intelligence Synthesis: Gemini_3.x</p>
              </div>
           </div>
           <button 
             onClick={runAiAnalysis}
             disabled={isAiLoading}
-            className={`px-12 py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all border-2 ${isAiLoading ? 'bg-slate-900 text-slate-700 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 active:scale-95 shadow-xl shadow-emerald-600/30'}`}
+            className={`px-12 py-5 rounded-2xl text-[11px] font-black uppercase tracking-[0.3em] transition-all border-2 ${isAiLoading ? 'bg-slate-900 text-slate-700 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/30'}`}
           >
-            {isAiLoading ? 'Synthesizing...' : 'Invoke Auditor'}
+            {isAiLoading ? 'Auditing...' : 'Invoke Auditor'}
           </button>
         </div>
         
-        <div className="bg-slate-950/80 p-12 rounded-[48px] border border-white/5 min-h-[250px] shadow-inner font-serif italic text-lg text-slate-300 leading-relaxed whitespace-pre-line">
-          {aiReport || "Awaiting Matrix Command..."}
+        <div className="bg-slate-950/80 p-12 rounded-[48px] border border-white/5 min-h-[250px] font-serif italic text-lg text-slate-300 leading-relaxed whitespace-pre-line">
+          {aiReport || "Awaiting Matrix Summary Command..."}
         </div>
       </section>
     </div>
