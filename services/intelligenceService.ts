@@ -3,8 +3,6 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS } from "../constants";
 import { ApiProvider } from "../types";
 
-const OPENAI_ORG_ID = "org-vI8HiEH3t5pkhYmkdyvuGYAt";
-
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
   items: {
@@ -63,8 +61,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
-      
-      // Flash 모델을 기본으로 사용하여 503 과부하 회피
       const result = await fetchWithRetry(async () => {
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
@@ -86,20 +82,34 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'OpenAI-Organization': OPENAI_ORG_ID
+          'Authorization': `Bearer ${apiKey}`
+          // 특정 Org ID를 강제하지 않음으로써 Admin Key의 범용성 확보
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages: [{ role: "system", content: "You are a professional quant. Output only JSON." }, { role: "user", content: prompt }],
+          messages: [
+            { role: "system", content: "You are a professional quant analyst. Always output strictly valid JSON arrays in Korean." },
+            { role: "user", content: prompt }
+          ],
           response_format: { type: "json_object" },
-          temperature: 0.1
+          temperature: 0.2
         })
       });
-      if (res.status === 429) return { data: null, error: "OPENAI_QUOTA_EXCEEDED" };
+
+      if (res.status === 429) {
+        return { data: null, error: "OPENAI_QUOTA_EXCEEDED: 결제 잔액이 부족하거나 사용량이 초과되었습니다. Gemini로 전환하여 실행하세요." };
+      }
+      
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        return { data: null, error: `OPENAI_API_ERROR: ${errorData.error?.message || res.statusText}` };
+      }
+
       const data = await res.json();
-      const parsed = sanitizeAndParseJson(data.choices[0].message.content);
-      return parsed ? { data: parsed } : { data: null, error: "OPENAI_PARSE_ERROR" };
+      const rawContent = data.choices[0].message.content;
+      // OpenAI json_object 모드는 객체로 감싸져 올 수 있으므로 추출 로직 강화
+      const parsed = sanitizeAndParseJson(rawContent);
+      return parsed ? { data: parsed } : { data: null, error: "OPENAI_PARSE_ERROR: 응답 형식이 유효하지 않습니다." };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
@@ -112,6 +122,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       });
+      if (!res.ok) return { data: null, error: `PERPLEXITY_ERROR: ${res.status}` };
       const data = await res.json();
       const parsed = sanitizeAndParseJson(data.choices[0].message.content);
       return parsed ? { data: parsed } : { data: null, error: "PERPLEXITY_PARSE_ERROR" };
@@ -119,7 +130,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     return { data: null, error: "PROVIDER_NOT_SUPPORTED" };
   } catch (error: any) {
-    return { data: null, error: `CRITICAL: ${error.message.substring(0, 100)}` };
+    return { data: null, error: `CRITICAL_NODE_FAILURE: ${error.message.substring(0, 80)}` };
   }
 }
 

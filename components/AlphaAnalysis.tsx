@@ -101,8 +101,8 @@ const AlphaAnalysis: React.FC = () => {
       setProgress(30);
 
       const statusMsgs = {
-        [ApiProvider.GEMINI]: "Connecting to Google Cloud AI (gemini-3-pro)...",
-        [ApiProvider.CHATGPT]: "Handshaking with OpenAI Enterprise Cluster (gpt-4o)...",
+        [ApiProvider.GEMINI]: "Connecting to Google Gemini 3 Flash Node...",
+        [ApiProvider.CHATGPT]: "Handshaking with OpenAI Admin Cluster...",
         [ApiProvider.PERPLEXITY]: "Querying Perplexity Engine (sonar)..."
       };
 
@@ -112,6 +112,9 @@ const AlphaAnalysis: React.FC = () => {
       
       if (error) {
         addLog(`Link Failure: ${error}`, "err");
+        if (error.includes("QUOTA")) {
+          addLog("ACTION REQUIRED: OpenAI API 결제 정보를 확인하거나 Gemini 모델을 사용하십시오.", "warn");
+        }
         setLoading(false);
         return;
       }
@@ -158,7 +161,7 @@ const AlphaAnalysis: React.FC = () => {
   };
 
   const brains = [
-    { provider: ApiProvider.GEMINI, label: 'Gemini 3 Pro', color: 'bg-indigo-600', icon: 'G' },
+    { provider: ApiProvider.GEMINI, label: 'Gemini 3 Flash', color: 'bg-indigo-600', icon: 'G' },
     { provider: ApiProvider.CHATGPT, label: 'ChatGPT-4o', color: 'bg-emerald-600', icon: 'C' },
     { provider: ApiProvider.PERPLEXITY, label: 'Perplexity', color: 'bg-cyan-600', icon: 'P' }
   ];
