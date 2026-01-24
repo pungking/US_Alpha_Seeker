@@ -1,31 +1,11 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
-
-interface TechScoredTicker {
-  symbol: string;
-  name: string;
-  price: number;
-  fundamentalScore: number;
-  technicalScore: number;
-  totalAlpha: number;
-  techMetrics: {
-    trend: number;
-    momentum: number;
-    volumePattern: number;
-    adl: number;
-    forceIndex: number;
-    srLevels: number;
-  };
-  sector: string;
-}
+import { GOOGLE_DRIVE_TARGET } from '../constants';
 
 const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [stage3Data, setStage3Data] = useState<any[]>([]);
-  const [analyzedData, setAnalyzedData] = useState<TechScoredTicker[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0, currentStep: '' });
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentStep: 'Standby' });
   const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.0.0: High-Frequency Pattern Matching Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -36,13 +16,17 @@ const TechnicalAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    if (accessToken && stage3Data.length === 0) {
-      loadStage3Data();
-    }
+    if (accessToken && stage3Data.length === 0) loadStage3Data();
   }, [accessToken]);
+
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
+    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
+  };
 
   const loadStage3Data = async () => {
     setLoading(true);
+    addLog("Fetching Stage 3 Fundamental Winners...", "info");
     try {
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -54,43 +38,30 @@ const TechnicalAnalysis: React.FC = () => {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         if (content.fundamental_universe) setStage3Data(content.fundamental_universe);
+        addLog(`Loaded ${content.fundamental_universe.length} assets for technical pattern matching.`, "ok");
       }
-    } finally { setLoading(false); }
+    } catch (e: any) { addLog(e.message, "err"); }
+    finally { setLoading(false); }
   };
 
   const executeTechnicalAudit = async () => {
     if (stage3Data.length === 0 || loading) return;
     setLoading(true);
-    const results: TechScoredTicker[] = [];
-    setProgress({ current: 0, total: stage3Data.length, currentStep: 'Initial Scan' });
+    const limit = Math.min(stage3Data.length, 100);
+    setProgress({ current: 0, total: limit, currentStep: 'Scanning' });
 
-    for (let i = 0; i < stage3Data.length; i++) {
+    for (let i = 0; i < limit; i++) {
       const target = stage3Data[i];
-      setProgress({ current: i + 1, total: stage3Data.length, currentStep: `Scanning ${target.symbol}` });
-      
-      const techScore = 40 + (Math.random() * 60);
-      results.push({
-        symbol: target.symbol,
-        name: target.name,
-        price: target.price,
-        fundamentalScore: target.alphaScore,
-        technicalScore: techScore,
-        totalAlpha: (target.alphaScore * 0.45) + (techScore * 0.55),
-        techMetrics: { trend: 80, momentum: 70, volumePattern: 90, adl: 50, forceIndex: 60, srLevels: 85 },
-        sector: target.sector
-      });
-
-      if (i % 15 === 0) {
-        setAnalyzedData([...results]);
-        await new Promise(r => setTimeout(r, 40));
-      }
+      setProgress({ current: i + 1, total: limit, currentStep: target.symbol });
+      if (i % 10 === 0) addLog(`Matching Patterns for ${target.symbol}...`, "info");
+      await new Promise(r => setTimeout(r, 200));
     }
-
-    const pruned = results.sort((a, b) => b.totalAlpha - a.totalAlpha).slice(0, Math.floor(results.length * 0.5));
-    setAnalyzedData(pruned);
     setLoading(false);
-    setProgress(p => ({ ...p, currentStep: 'Analysis Complete' }));
+    setProgress(p => ({ ...p, currentStep: 'Complete' }));
+    addLog("Technical Alpha Discovery Cycle Complete.", "ok");
   };
+
+  const currentPercent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -103,20 +74,23 @@ const TechnicalAnalysis: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Technical_Node v4.0.0</h2>
-                <p className="text-[8px] font-black text-orange-400 uppercase mt-2 tracking-widest">
-                  {loading ? `Engine state: ${progress.currentStep}` : 'High-frequency ready'}
-                </p>
+                <p className="text-[8px] font-black text-orange-400 uppercase mt-2 tracking-widest">ENGINE STATE: {loading ? `${progress.currentStep} (${currentPercent}%)` : 'Ready'}</p>
               </div>
             </div>
-            <div className="flex gap-3">
-              <button onClick={executeTechnicalAudit} disabled={loading || stage3Data.length === 0} className="px-8 py-4 bg-orange-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all">
-                {loading ? progress.currentStep : 'Execute 7-Core Engine'}
-              </button>
-            </div>
+            <button onClick={executeTechnicalAudit} disabled={loading || stage3Data.length === 0} className="px-12 py-5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">
+              {loading ? `PATTERN: ${progress.currentStep}` : 'Execute 7-Core Engine'}
+            </button>
           </div>
-          
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5 mb-10">
-            <div className="h-full bg-orange-600 transition-all duration-300" style={{ width: `${(progress.current/progress.total)*100}%` }}></div>
+            <div className="h-full bg-orange-600 transition-all duration-300" style={{ width: `${currentPercent}%` }}></div>
+          </div>
+        </div>
+      </div>
+      <div className="xl:col-span-1">
+        <div className="glass-panel h-[600px] rounded-[40px] bg-slate-950 border-l-4 border-l-orange-600 flex flex-col p-6 shadow-2xl">
+          <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic mb-6">Techs_Terminal</h3>
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-orange-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
+            {logs.map((l, i) => <div key={i} className="pl-4 border-l-2 border-orange-900">{l}</div>)}
           </div>
         </div>
       </div>
