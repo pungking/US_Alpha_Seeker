@@ -3,17 +3,15 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
 import { generateAlphaSynthesis } from '../services/geminiService';
 
-/**
- * AI Studio API Key selection interface definition.
- * Modified to be optional and use an inline definition to ensure compatibility with 
- * host-provided global declarations and resolve TypeScript modifier/type conflicts.
- */
 declare global {
+  // Fix: Defining AIStudio interface to match the global Window expectation and resolve type conflict
+  interface AIStudio {
+    hasSelectedApiKey(): Promise<boolean>;
+    openSelectKey(): Promise<void>;
+  }
+
   interface Window {
-    aistudio?: {
-      hasSelectedApiKey(): Promise<boolean>;
-      openSelectKey(): Promise<void>;
-    };
+    aistudio?: AIStudio;
   }
 }
 
@@ -41,7 +39,7 @@ interface AlphaCandidate {
 
 const AlphaAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
+  const [hasValidApiKey, setHasValidApiKey] = useState<boolean>(true);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
@@ -63,23 +61,25 @@ const AlphaAnalysis: React.FC = () => {
   }, [accessToken]);
 
   const checkApiKeyStatus = async () => {
-    // process.env.API_KEY가 있거나 aistudio에서 선택된 경우 모두 OK
-    if (process.env.API_KEY) {
-      setHasApiKey(true);
+    // 1순위: 환경변수 주입 확인
+    if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
+      setHasValidApiKey(true);
       return;
     }
+    // 2순위: AI Studio 선택 확인
     if (window.aistudio) {
       const selected = await window.aistudio.hasSelectedApiKey();
-      setHasApiKey(selected);
+      setHasValidApiKey(selected);
     }
   };
 
   const handleSelectKey = async () => {
     if (window.aistudio) {
+      addLog("Redirecting to API Key Selection UI...", "info");
       await window.aistudio.openSelectKey();
-      // 레이스 컨디션 방지를 위해 선택 시도 후 성공한 것으로 가정하고 진행
-      setHasApiKey(true);
-      addLog("Handshake: API Key validation sequence initiated.", "ok");
+      // Fix: Follow race condition rule - assume success after triggering openSelectKey and proceed
+      setHasValidApiKey(true);
+      addLog("Handshake Initiated: New Key provisioned.", "ok");
     }
   };
 
@@ -100,7 +100,7 @@ const AlphaAnalysis: React.FC = () => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Stage 5 input not found. Execution blocked.", "err");
+        addLog("Stage 5 input not found. Finalize Stage 5 first.", "err");
         setLoading(false);
         return;
       }
@@ -123,48 +123,37 @@ const AlphaAnalysis: React.FC = () => {
   const executeAlphaFinalization = async () => {
     if (elite50.length === 0 || loading) return;
     
-    // 최종 관문: Gemini 3 Pro를 위한 API 키 유효성 재검증
-    const selected = !!process.env.API_KEY || (window.aistudio && await window.aistudio.hasSelectedApiKey());
-    if (!selected) {
-      setHasApiKey(false);
-      addLog("Synthesis Blocked: Paid API Key required for Stage 6 Reasoning.", "err");
-      return;
-    }
-
     setLoading(true);
     setProgress(0);
     addLog("Initiating Multi-Model Strategy Synthesis...", "info");
     
     try {
-      // 1. 데이터 전처리 (0% -> 60%)
-      const steps = ["Quant-Data Mapping", "Order-Block Scanning", "Sentiment Hashing"];
+      // 1. 데이터 시뮬레이션
+      const steps = ["Quant Mapping", "Pattern Matching", "Sentiment Hashing"];
       for (let i = 0; i < steps.length; i++) {
         const nextProgress = (i + 1) * 20;
         setProgress(nextProgress);
-        addLog(`Node Status: ${steps[i]}...`, "info");
+        addLog(`Processing: ${steps[i]}...`, "info");
         await new Promise(r => setTimeout(r, 600));
       }
 
       // 2. AI 추론 가동 (80%)
       setProgress(80);
-      addLog("[THINKING] Gemini 3 Pro reasoning engine is active...", "warn");
+      addLog("[THINKING] Gemini 3 Pro reasoning engine analysis...", "warn");
       
       const top5 = [...elite50]
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 5);
 
-      if (top5.length === 0) throw new Error("Null_Candidate_Pool: Elite50 data is empty.");
-
-      // 3. 실제 API 호출 및 파싱 (90%)
+      // 3. 실제 API 호출 (90%)
       setProgress(90);
       const aiResults = await generateAlphaSynthesis(top5);
       
-      if (!aiResults || !Array.isArray(aiResults)) {
-        if (!aiResults) {
-          addLog("Reasoning Engine returned 404/401. Re-selecting key is mandatory.", "err");
-          setHasApiKey(false);
-        }
-        throw new Error("Reasoning Engine Output Integrity Failed.");
+      if (!aiResults) {
+        // API 호출 실패 시 (404/401 등)
+        addLog("API Error: Gemini Pro model not found on current key. Paid GCP project key required.", "err");
+        setHasValidApiKey(false);
+        throw new Error("Entitlement_Missing: Paid Key Required.");
       }
 
       const finalSelection = top5.map(item => {
@@ -182,13 +171,9 @@ const AlphaAnalysis: React.FC = () => {
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
       setProgress(100);
-      addLog(`Alpha Synthesis Successful. High-Conviction assets localized.`, "ok");
+      addLog(`Alpha Synthesis Successful. 5 High-Conviction assets localized.`, "ok");
     } catch (error: any) {
-      addLog(`System Error: ${error.message}`, "err");
-      // 특정 에러 시 키 선택 초기화 유도
-      if (error.message.includes("not found") || error.message.includes("401")) {
-        setHasApiKey(false);
-      }
+      addLog(`System Stop: ${error.message}`, "err");
     } finally {
       setLoading(false);
     }
@@ -213,25 +198,24 @@ const AlphaAnalysis: React.FC = () => {
             </div>
             
             <div className="flex gap-3">
-              {!hasApiKey ? (
-                <div className="flex items-center space-x-4 bg-slate-950/60 p-2 rounded-2xl border border-rose-500/20">
-                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-[8px] font-bold text-slate-500 underline uppercase px-2">Billing Doc</a>
+              {!hasValidApiKey && (
+                <div className="flex items-center space-x-4 bg-slate-950/80 p-3 rounded-2xl border border-rose-500/30">
+                  <span className="text-[9px] font-black text-rose-500 uppercase">Paid Key Required</span>
                   <button 
                     onClick={handleSelectKey}
-                    className="px-6 py-4 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 transition-all animate-pulse"
+                    className="px-6 py-3 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 animate-pulse"
                   >
-                    Select Paid API Key
+                    Select Key
                   </button>
                 </div>
-              ) : (
-                <button 
-                  onClick={executeAlphaFinalization}
-                  disabled={loading || elite50.length === 0}
-                  className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
-                >
-                  {loading ? (progress < 100 ? `Synthesizing ${Math.floor(progress)}%` : 'Reasoning...') : 'Start AI Synthesis'}
-                </button>
               )}
+              <button 
+                onClick={executeAlphaFinalization}
+                disabled={loading || elite50.length === 0}
+                className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
+              >
+                {loading ? (progress < 100 ? `Synthesizing ${Math.floor(progress)}%` : 'Reasoning...') : 'Start AI Synthesis'}
+              </button>
             </div>
           </div>
 

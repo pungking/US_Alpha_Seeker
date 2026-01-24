@@ -25,10 +25,12 @@ const App: React.FC = () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
     
-    // Gemini API의 실제 연동 여부 확인 (AI Studio 인터페이스 대응)
-    let isGeminiActuallyConnected = !!process.env.API_KEY;
-    if (window.aistudio && !isGeminiActuallyConnected) {
-      isGeminiActuallyConnected = await window.aistudio.hasSelectedApiKey();
+    // Gemini API의 실제 가용 여부 확인
+    // 1. process.env.API_KEY가 주입되어 있는지 확인
+    // 2. AI Studio의 openSelectKey를 통해 키가 선택되었는지 확인
+    let geminiActive = !!process.env.API_KEY;
+    if (window.aistudio && !geminiActive) {
+      geminiActive = await window.aistudio.hasSelectedApiKey();
     }
 
     setApiStatuses(() => {
@@ -43,7 +45,7 @@ const App: React.FC = () => {
         if (config.provider === ApiProvider.GOOGLE_DRIVE) {
           isConnected = hasGdriveToken;
         } else if (config.provider === ApiProvider.GEMINI) {
-          isConnected = isGeminiActuallyConnected;
+          isConnected = geminiActive;
         } else {
           isConnected = !!config.key;
         }
@@ -52,7 +54,7 @@ const App: React.FC = () => {
           provider: config.provider,
           category: config.category,
           isConnected: isConnected,
-          latency: isConnected ? Math.floor(Math.random() * 40) + 15 : 0,
+          latency: isConnected ? Math.floor(Math.random() * 30) + 10 : 0,
           lastChecked: new Date().toLocaleTimeString()
         };
       });
@@ -68,7 +70,7 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    setAiReport("> INITIALIZING SYSTEM SCAN...\n> COLLECTING NODE TELEMETRY...\n> ANALYZING IMPACT ON ALPHA DISCOVERY...");
+    setAiReport("> INITIALIZING SYSTEM SCAN...\n> COLLECTING NODE TELEMETRY...\n> VERIFYING GEMINI_PRO_ENTITLEMENTS...");
     
     const report = await analyzePipelineStatus({
       currentStage,
@@ -125,7 +127,7 @@ const App: React.FC = () => {
               <ApiStatusCard 
                 key={status.provider} 
                 status={status} 
-                isAuthConnected={status.provider === ApiProvider.GEMINI ? status.isConnected : isGdriveConnected} 
+                isAuthConnected={status.isConnected} 
               />
             ))}
           </div>
@@ -180,7 +182,7 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* AI Auditor Section 고도화 */}
+      {/* AI Auditor Section */}
       <section className="glass-panel p-6 md:p-10 rounded-[40px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden">
         <div className="absolute top-0 right-0 p-10 opacity-[0.03] pointer-events-none">
            <svg className="w-64 h-64 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
@@ -199,53 +201,17 @@ const App: React.FC = () => {
                 </div>
              </div>
           </div>
-          <div className="flex gap-3 w-full lg:w-auto">
-             <div className="hidden md:flex flex-col items-end mr-4">
-                <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Audit Role</p>
-                <p className="text-[9px] font-bold text-slate-400 italic text-right max-w-[200px]">데이터 오염 방지 및 분석 신뢰도 무결성 검증</p>
-             </div>
-             <button 
-               onClick={runAiAnalysis}
-               disabled={isAiLoading}
-               className={`flex-1 lg:flex-none px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/20'}`}
-             >
-               {isAiLoading ? 'Synthesizing Report...' : 'Execute Operational Audit'}
-             </button>
-          </div>
+          <button 
+            onClick={runAiAnalysis}
+            disabled={isAiLoading}
+            className={`px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/20'}`}
+          >
+            {isAiLoading ? 'Synthesizing Report...' : 'Execute Operational Audit'}
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative z-10">
-           <div className="lg:col-span-3">
-              <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[180px] shadow-inner overflow-y-auto max-h-[400px]">
-                {aiReport || "> CORE_SYSTEM_IDLE... \n> Awaiting manual audit trigger. \n> Auditor role: Verifying if API nodes are providing valid stock data for Stage " + currentStage + "."}
-              </div>
-           </div>
-           
-           <div className="space-y-4">
-              <div className="bg-white/5 p-6 rounded-[24px] border border-white/5">
-                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-3">Impact Analysis</p>
-                 <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">Data Integrity</span>
-                       <span className="text-[9px] font-black text-emerald-500">NOMINAL</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">Alpha Bias</span>
-                       <span className="text-[9px] font-black text-blue-500">ZERO</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">Node Sync</span>
-                       <span className="text-[9px] font-black text-amber-500">ACTIVE</span>
-                    </div>
-                 </div>
-              </div>
-              <div className="p-6 bg-emerald-500/5 rounded-[24px] border border-emerald-500/10">
-                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-2 italic">Auditor Tip</p>
-                 <p className="text-[8px] text-slate-500 leading-relaxed font-bold uppercase">
-                   API 노드 중 하나라도 비활성화되면 6단계 Alpha 분석 시 데이터 결손으로 인해 Conviction 점수가 하향 조정될 수 있습니다.
-                 </p>
-              </div>
-           </div>
+        <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[120px] shadow-inner overflow-y-auto max-h-[400px]">
+          {aiReport || "> CORE_SYSTEM_IDLE... \n> Ready to verify Node integrity and Gemini API permissions."}
         </div>
       </section>
     </div>

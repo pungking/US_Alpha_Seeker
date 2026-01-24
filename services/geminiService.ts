@@ -6,11 +6,13 @@ export async function analyzePipelineStatus(data: {
   apiStatuses: any[];
   systemLoad: string;
 }) {
+  // Fix: Initialize GoogleGenAI directly with process.env.API_KEY as per strict guidelines
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const activeNodes = data.apiStatuses.filter(s => s.isConnected).map(s => s.provider).join(", ");
   const inactiveNodes = data.apiStatuses.filter(s => !s.isConnected).map(s => s.provider).join(", ");
-  const maxLatency = Math.max(...data.apiStatuses.map(s => s.latency));
+  // Fix: Safe latency calculation to prevent -Infinity with empty arrays
+  const maxLatency = data.apiStatuses.length > 0 ? Math.max(...data.apiStatuses.map(s => s.latency)) : 0;
 
   const prompt = `
     [US_Alpha_Seeker 시스템 텔레메트리 리포트]
@@ -29,25 +31,21 @@ export async function analyzePipelineStatus(data: {
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
-    // Correct usage: .text property instead of .text() method
     return response.text;
   } catch (error) {
     console.error("Gemini Auditor Error:", error);
-    return "CORE_CRITICAL_ERROR: AI Auditor 연결에 실패했습니다.";
+    return "CORE_CRITICAL_ERROR: AI Auditor 연결에 실패했습니다. API 키의 유효성을 확인하십시오.";
   }
 }
 
 /**
  * Stage 6: 종목별 맞춤형 AI 분석 및 심층 전망 생성
  * 고성능 추론 모델 gemini-3-pro-preview 사용
+ * 주의: 이 모델은 유료 결제가 활성화된 API 키를 필수로 합니다.
  */
 export async function generateAlphaSynthesis(candidates: any[]) {
-  if (!process.env.API_KEY) {
-    console.error("Gemini API Key is missing in environment.");
-    return null;
-  }
-
-  // 매 요청마다 새로운 인스턴스 생성 (최신 API 키 보장)
+  // Fix: Directly use process.env.API_KEY in the constructor. 
+  // API key presence and validity are assumed hard requirements handled externally.
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
   const prompt = `
@@ -66,12 +64,11 @@ export async function generateAlphaSynthesis(candidates: any[]) {
   `;
 
   try {
-    // Corrected contents parameter to a single string for better compatibility with guidelines
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
-        thinkingConfig: { thinkingBudget: 4096 }, // 복잡한 분석을 위해 추론 예산 할당
+        thinkingConfig: { thinkingBudget: 4096 }, 
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -96,16 +93,13 @@ export async function generateAlphaSynthesis(candidates: any[]) {
       }
     });
     
-    // Safely access response.text and handle undefined cases
     const resultText = response.text;
     if (!resultText) throw new Error("Empty AI response");
     return JSON.parse(resultText.trim());
   } catch (error: any) {
     console.error("Alpha Synthesis Engine Critical Error:", error);
-    // API 키 관련 오류(401, 404 등) 시 에러 전파
-    if (error.message && (error.message.includes("401") || error.message.includes("404") || error.message.includes("not found"))) {
-      return null; 
-    }
+    // Requested entity not found(404) 또는 Permission Denied(403) 발생 시 null 반환
+    // 이는 유료 티어 모델에 접근할 수 없음을 의미함
     return null;
   }
 }
