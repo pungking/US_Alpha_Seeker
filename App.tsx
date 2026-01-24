@@ -11,7 +11,7 @@ import TechnicalAnalysis from './components/TechnicalAnalysis';
 import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
-import { analyzeCollectionSummary } from './services/geminiService';
+import { analyzePipelineStatus } from './services/geminiService';
 
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
@@ -54,8 +54,14 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    const mockStats = { totalFound: 12450, processed: 12450, failed: 0 };
-    const report = await analyzeCollectionSummary(mockStats);
+    setAiReport("시스템 텔레메트리 스캔 중... 실시간 노드 상태를 수집하고 있습니다.");
+    
+    const report = await analyzePipelineStatus({
+      currentStage,
+      apiStatuses,
+      systemLoad: "OPTIMIZED_LOAD"
+    });
+    
     setAiReport(report);
     setIsAiLoading(false);
   };
@@ -165,11 +171,11 @@ const App: React.FC = () => {
         <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
           <div className="flex items-center space-x-4">
              <div className="bg-emerald-500/10 p-2.5 rounded-xl">
-                <svg className="w-5 h-5 text-emerald-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                <svg className={`w-5 h-5 text-emerald-400 ${isAiLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
              </div>
              <div>
                 <h3 className="font-black text-white uppercase text-base md:text-lg tracking-tighter italic">AI Pipeline Auditor</h3>
-                <p className="text-[7px] md:text-[8px] text-slate-500 font-black uppercase tracking-widest">Model_Node: Gemini_3_Flash</p>
+                <p className="text-[7px] md:text-[8px] text-slate-500 font-black uppercase tracking-widest">Model_Node: Gemini_3_Flash_Diagnostics</p>
              </div>
           </div>
           <button 
@@ -177,11 +183,11 @@ const App: React.FC = () => {
             disabled={isAiLoading}
             className={`w-full md:w-auto px-7 py-3.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20'}`}
           >
-            {isAiLoading ? 'Auditing Matrix...' : 'Invoke Auditor'}
+            {isAiLoading ? 'Generating Diagnostic...' : 'Run Operational Audit'}
           </button>
         </div>
-        <div className="bg-slate-950/50 p-6 md:p-8 rounded-2xl border border-white/5 font-serif italic text-xs md:text-sm text-slate-400 leading-relaxed min-h-[120px]">
-          {aiReport || "Awaiting Node Status Telemetry..."}
+        <div className="bg-slate-950/70 p-6 md:p-8 rounded-2xl border border-white/5 font-mono text-xs md:text-sm text-emerald-300/80 leading-relaxed min-h-[140px] whitespace-pre-wrap">
+          {aiReport || "> Awaiting Node Status Telemetry... \n> Click 'Run Operational Audit' to analyze system readiness."}
         </div>
       </section>
     </div>
