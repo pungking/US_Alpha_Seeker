@@ -19,7 +19,6 @@ interface AlphaCandidate {
   selectionReasons?: string[];
   investmentOutlook?: string;
   aiSentiment?: string;
-  analysisLogic?: string; // 추가된 필드
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
@@ -28,16 +27,16 @@ interface AlphaCandidate {
 interface Props {
   selectedBrain: ApiProvider;
   setSelectedBrain: (brain: ApiProvider) => void;
-  onFinalResultsDetected?: (results: any[]) => void;
+  onFinalSymbolsDetected?: (symbols: string[]) => void;
 }
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalResultsDetected }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
   const [loading, setLoading] = useState(false);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.0.0: Fully Dynamic Logic Integrated.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.9.0: Synchronized Intelligence Hub.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -103,51 +102,53 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 5);
 
-      addLog(`Task: Synthesizing strategies for ${top5.map(t => t.symbol).join(", ")}`, "info");
+      addLog(`Task: Synthesizing final strategies for Top 5 candidates.`, "info");
+      
+      // 부모 컴포넌트에 현재 분석 중인 종목 리스트 전달 (동기화)
+      onFinalSymbolsDetected?.(top5.map(t => t.symbol));
+
       setProgress(30);
 
+      const statusMsgs = {
+        [ApiProvider.GEMINI]: "Connecting to Google Gemini 3 Pro Node...",
+        [ApiProvider.PERPLEXITY]: "Querying Perplexity Engine (Sonar Pro)..."
+      };
+
+      addLog(`[CONNECTING] ${statusMsgs[selectedBrain] || 'AI Handshake...'}`, "warn");
+      
       const { data: aiResults, error } = await generateAlphaSynthesis(top5, selectedBrain);
       
       if (error) {
-        addLog(`Intelligence Link Failure: ${error}`, "err");
+        addLog(`Link Failure: ${error}`, "err");
         setLoading(false);
         return;
       }
 
       if (!aiResults || aiResults.length === 0) {
-        addLog(`Protocol Failure: AI returned empty response.`, "err");
+        addLog(`Protocol Failure: Empty payload received.`, "err");
         setLoading(false);
         return;
       }
 
       setProgress(85);
-      addLog(`Data Sync: Received ${aiResults.length} analysis reports.`, "ok");
+      addLog("Intelligence Payload parsed successfully.", "ok");
 
       const finalSelection = top5.map(item => {
-        const aiData = aiResults.find((r: any) => r.symbol?.toUpperCase() === item.symbol.toUpperCase()) || {};
+        const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
         const entry = item.price * 0.985;
-        
         return {
           ...item,
-          theme: aiData.theme || "섹터 분석 중",
-          aiVerdict: aiData.aiVerdict || "Neutral",
-          investmentOutlook: aiData.investmentOutlook || "투자 전망 분석 데이터를 기다리고 있습니다.",
-          selectionReasons: aiData.selectionReasons || ["퀀트 점수 우수", "기술적 반등 가능성", "기관 수급 유입"],
-          convictionScore: aiData.convictionScore || 75.0,
-          aiSentiment: aiData.aiSentiment || "중립적 시장 심리",
-          analysisLogic: aiData.analysisLogic || `본 종목은 ${selectedBrain} 추론 엔진을 통해 분석되었으며, ICT 스마트 머니 흐름과 퀀트 알파 스코어를 결합한 전략이 적용되었습니다.`,
+          ...aiData,
           entryPrice: entry,
-          targetPrice: entry * 1.25,
+          targetPrice: entry * 1.28,
           stopLoss: entry * 0.92,
         };
       });
 
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
-      onFinalResultsDetected?.(finalSelection);
-
       setProgress(100);
-      addLog(`Discovery Finalized: 5 Alpha targets localized with full AI data.`, "ok");
+      addLog(`Discovery Finalized: 5 Alpha targets localized.`, "ok");
     } catch (error: any) {
       addLog(`Core Shutdown: ${error.message.substring(0, 50)}`, "err");
     } finally {
@@ -172,16 +173,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative overflow-hidden transition-all duration-500 ${getThemeColor()}`}>
+          
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-14 h-14 rounded-3xl bg-white/5 flex items-center justify-center border border-white/10 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v7.9</h2>
                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture • {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}</p>
               </div>
             </div>
+            
             <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5">
               {brains.map((brain) => (
                 <button
@@ -194,6 +197,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </button>
               ))}
             </div>
+
             <button 
               onClick={executeAlphaFinalization}
               disabled={loading || elite50.length === 0}
@@ -214,7 +218,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      <div>
                         <span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">ALPHA #{idx + 1}</span>
                         <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4>
-                        <p className="text-[8px] font-bold text-slate-500 uppercase truncate w-32">{item.theme}</p>
+                        <p className="text-[8px] font-bold text-slate-500 uppercase truncate w-32">{item.theme || item.name}</p>
                      </div>
                      <div className="text-right">
                         <p className="text-[8px] font-black text-slate-500 italic uppercase">Conviction</p>
@@ -229,23 +233,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              ))}
              {final5.length === 0 && (
                 <div className="col-span-full py-24 text-center opacity-20">
-                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Initiate Alpha Protocol to visualize AI Intelligence...</p>
+                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Select Intelligence Node and Initiate Alpha Protocol...</p>
                 </div>
              )}
           </div>
         </div>
 
         {selectedStock && (
-          <div className="glass-panel p-8 md:p-12 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl bg-slate-950/90 animate-in fade-in slide-in-from-bottom-6 overflow-hidden">
+          <div className="glass-panel p-8 md:p-12 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl bg-slate-950/90 animate-in fade-in slide-in-from-bottom-6">
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                 <div className="lg:col-span-2 space-y-8">
                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                       <div>
                         <div className="flex items-center space-x-3">
                            <h3 className="text-5xl font-black text-white italic tracking-tighter uppercase">{selectedStock.symbol}</h3>
-                           <span className="text-[10px] bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-rose-500/30">{selectedStock.aiVerdict}</span>
+                           <span className="text-[10px] bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-rose-500/30">Alpha_Tier_1</span>
                         </div>
-                        <p className="text-sm font-bold text-slate-500 uppercase mt-1">{selectedStock.name} Intelligence Audit</p>
+                        <p className="text-sm font-bold text-slate-500 uppercase mt-1">Deep Intelligence Audit Matrix</p>
                       </div>
                       <div className="flex gap-4">
                          <div className="text-center px-6 py-3 bg-white/5 rounded-2xl border border-white/5">
@@ -270,7 +274,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4">Investment Perspective</h4>
                       <p className="text-sm text-slate-300 leading-relaxed font-medium italic">
-                        {selectedStock.investmentOutlook}
+                        {selectedStock.investmentOutlook || "Intelligence data parsing in progress..."}
                       </p>
                    </div>
                 </div>
@@ -294,17 +298,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-rose-600 to-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.6)]" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div>
                          </div>
-                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1)}%</span>
+                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1) || "50.0"}%</span>
                       </div>
                       <p className="text-[9px] text-slate-500 italic leading-relaxed uppercase">
                         {selectedStock.aiSentiment}
                       </p>
                    </div>
 
-                   <div className="p-6 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500">
+                   <div className="p-6 bg-white/5 rounded-[32px] border border-white/5">
                       <p className="text-[8px] font-black text-slate-600 uppercase mb-3">Analysis Logic</p>
                       <p className="text-[9px] text-slate-400 leading-relaxed italic">
-                        {selectedStock.analysisLogic}
+                        This asset was localized using the {selectedBrain} reasoning engine, combining institutional ICT patterns with deep quant scoring.
                       </p>
                    </div>
                 </div>
