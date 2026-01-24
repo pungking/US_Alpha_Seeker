@@ -11,7 +11,7 @@ import TechnicalAnalysis from './components/TechnicalAnalysis';
 import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
-import { analyzePipelineStatus } from './services/geminiService';
+import { analyzePipelineStatus } from './services/intelligenceService';
 
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
@@ -20,17 +20,18 @@ const App: React.FC = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
+  
+  // Intelligence Brain Selection - Lifted from AlphaAnalysis
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
     
-    // Gemini 상태 체크: Env, AI Studio 선택, 또는 상수 키 존재 여부 확인
     let geminiActive = !!process.env.API_KEY;
     if (window.aistudio && !geminiActive) {
       geminiActive = await window.aistudio.hasSelectedApiKey();
     }
-    // 상수 설정에 키가 명시적으로 있으면 액티브로 간주
     if (!geminiActive) {
       const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
       geminiActive = !!geminiConfig?.key;
@@ -73,16 +74,22 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    setAiReport("> INITIALIZING SYSTEM SCAN...\n> COLLECTING NODE TELEMETRY...\n> VERIFYING GEMINI_FLASH_STABILITY...");
+    const brainLabel = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Flash" : "Sonar Pro (PPLX)";
+    setAiReport(`> INITIALIZING SYSTEM SCAN...\n> ALLOCATING ${brainLabel.toUpperCase()} NODE...\n> GATHERING TELEMETRY...`);
     
-    const report = await analyzePipelineStatus({
-      currentStage,
-      apiStatuses,
-      systemLoad: "STABILITY_MODE"
-    });
-    
-    setAiReport(report);
-    setIsAiLoading(false);
+    try {
+      const report = await analyzePipelineStatus({
+        currentStage,
+        apiStatuses,
+        systemLoad: "DYNAMIC_AUDIT_MODE"
+      }, selectedBrain);
+      
+      setAiReport(report);
+    } catch (err: any) {
+      setAiReport(`> AUDIT_CRITICAL_FAILURE: ${err.message}`);
+    } finally {
+      setIsAiLoading(false);
+    }
   };
 
   return (
@@ -170,7 +177,12 @@ const App: React.FC = () => {
         {currentStage === 3 && <FundamentalAnalysis />}
         {currentStage === 4 && <TechnicalAnalysis />}
         {currentStage === 5 && <IctAnalysis />}
-        {currentStage === 6 && <AlphaAnalysis />}
+        {currentStage === 6 && (
+          <AlphaAnalysis 
+            selectedBrain={selectedBrain} 
+            setSelectedBrain={setSelectedBrain} 
+          />
+        )}
       </main>
 
       {/* AI Auditor Section */}
@@ -188,7 +200,9 @@ const App: React.FC = () => {
                 <h3 className="font-black text-white uppercase text-xl tracking-tighter italic">AI Pipeline Auditor</h3>
                 <div className="flex items-center space-x-2 mt-1">
                    <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Alpha_Confidence_Shield</span>
-                   <span className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Model: Gemini_3_Flash_Stable</span>
+                   <span className="text-[7px] text-slate-500 font-black uppercase tracking-widest italic">
+                     Active Engine: {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Flash' : 'Sonar Pro'}
+                   </span>
                 </div>
              </div>
           </div>
@@ -201,8 +215,8 @@ const App: React.FC = () => {
           </button>
         </div>
 
-        <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[120px] shadow-inner overflow-y-auto max-h-[400px]">
-          {aiReport || "> CORE_SYSTEM_IDLE... \n> Ready to verify Node integrity with Gemini Flash Node."}
+        <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[120px] shadow-inner overflow-y-auto max-h-[400px] whitespace-pre-wrap">
+          {aiReport || `> CORE_SYSTEM_IDLE... \n> Ready to verify Node integrity with ${selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Flash' : 'Sonar Pro'} Node.`}
         </div>
       </section>
     </div>

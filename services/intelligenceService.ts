@@ -38,12 +38,11 @@ function sanitizeAndParseJson(text: string): any[] | null {
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 3000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 3500): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
     const errorMsg = error.message?.toLowerCase() || "";
-    // 429, 503, 500 계열의 일시적 오류에 대해 재시도
     const isRetryable = errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("quota") || errorMsg.includes("overloaded");
     
     if (retries > 0 && isRetryable) {
@@ -82,7 +81,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       } catch (geminiErr: any) {
         const msg = geminiErr.message?.toLowerCase() || "";
         if (msg.includes("429") || msg.includes("quota")) {
-          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 호출 한도가 초과되었습니다. (무료 티어 RPM 도달). 1분 후 시도하거나 Sonar Pro를 사용하세요." };
+          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 제미나이 호출 한도가 초과되었습니다(RPM). Sonar Pro를 사용해 보세요." };
         }
         throw geminiErr;
       }
@@ -95,7 +94,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "You are a quant analyst. Return strictly valid JSON arrays in Korean." },
+            { role: "system", content: "You are a professional quant analyst. Return strictly valid JSON arrays in Korean." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -114,22 +113,53 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   }
 }
 
-export async function analyzePipelineStatus(data: any) {
-  const config = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  const apiKey = process.env.API_KEY || config?.key;
-  if (!apiKey) return "API_KEY_OFFLINE";
-  const ai = new GoogleGenAI({ apiKey });
+export async function analyzePipelineStatus(data: any, provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  
+  if (!apiKey) return `AUDIT_OFFLINE: ${provider} API 키가 설정되지 않았습니다.`;
+
+  const prompt = `System Status Audit Request:
+  - Current Stage: ${data.currentStage}
+  - API Health: ${JSON.stringify(data.apiStatuses.map((s:any) => ({p: s.provider, ok: s.isConnected})))}
+  - Load Mode: ${data.systemLoad}
+  
+  Please provide a professional, technical diagnostic report in Korean. 
+  If you are Perplexity, include a brief mention of current US market sentiment based on your search capability.`;
+
   try {
-    const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: `Audit this system state: ${JSON.stringify(data)}. Tone: Technical. Language: Korean.`,
-    }));
-    return response.text;
-  } catch (e: any) { 
+    if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await fetchWithRetry(() => ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+      }));
+      return response.text;
+    }
+
+    if (provider === ApiProvider.PERPLEXITY) {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'sonar-pro',
+          messages: [
+            { role: "system", content: "You are the US_Alpha_Seeker System Auditor. Provide a sharp, data-driven diagnostic report in Korean." },
+            { role: "user", content: prompt }
+          ]
+        })
+      });
+      if (!res.ok) return `AUDIT_NODE_ERROR: ${res.status} (${provider})`;
+      const data = await res.json();
+      return data.choices[0].message.content;
+    }
+
+    return "AUDIT_PROVIDER_UNSUPPORTED";
+  } catch (e: any) {
     const msg = e.message?.toLowerCase() || "";
     if (msg.includes("429") || msg.includes("quota")) {
-      return "AUDIT_QUOTA_EXCEEDED: 제미나이 호출 한도가 초과되었습니다. 무료 티어 정책상 짧은 간격의 반복 요청이 차단되었습니다. 1분 후 다시 시도해 주세요.";
+      return `AUDIT_QUOTA_EXCEEDED: ${provider}의 호출 한도가 초과되었습니다. 잠시 대기하거나 다른 엔진으로 전환하십시오.`;
     }
-    return `AUDIT_NODE_ERROR: ${e.message.substring(0, 50)}`; 
+    return `AUDIT_NODE_FAILURE: ${e.message.substring(0, 60)}`;
   }
 }
