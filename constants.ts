@@ -33,7 +33,8 @@ export const GOOGLE_DRIVE_TARGET = {
   rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
   targetSubFolder: 'Stage0_Universe_Data',
   stage1SubFolder: 'Stage1_Quality_Data',
-  stage2SubFolder: 'Stage2_Deep_Quality'
+  stage2SubFolder: 'Stage2_Deep_Quality',
+  stage3SubFolder: 'Stage3_Fundamental_Data'
 };
 
 export const STAGES_FLOW = [
