@@ -38,12 +38,14 @@ function sanitizeAndParseJson(text: string): any[] | null {
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 2000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 3000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
-    // 429 (Quota) 혹은 503 (Overload) 에러 시 재시도
-    const isRetryable = error.message.includes("429") || error.message.includes("503") || error.message.includes("quota");
+    const errorMsg = error.message?.toLowerCase() || "";
+    // 429, 503, 500 계열의 일시적 오류에 대해 재시도
+    const isRetryable = errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("quota") || errorMsg.includes("overloaded");
+    
     if (retries > 0 && isRetryable) {
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(fn, retries - 1, delay * 2);
@@ -78,8 +80,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         const parsed = sanitizeAndParseJson(result.text || "");
         return parsed ? { data: parsed } : { data: null, error: "GEMINI_PAYLOAD_PARSE_FAILED" };
       } catch (geminiErr: any) {
-        if (geminiErr.message.includes("429") || geminiErr.message.includes("quota")) {
-          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 호출 한도가 초과되었습니다. 1분 후 다시 시도하거나 Perplexity를 사용하세요." };
+        const msg = geminiErr.message?.toLowerCase() || "";
+        if (msg.includes("429") || msg.includes("quota")) {
+          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 호출 한도가 초과되었습니다. (무료 티어 RPM 도달). 1분 후 시도하거나 Sonar Pro를 사용하세요." };
         }
         throw geminiErr;
       }
@@ -90,7 +93,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'sonar-pro', // 최상위 모델 sonar-pro로 변경
+          model: 'sonar-pro', 
           messages: [
             { role: "system", content: "You are a quant analyst. Return strictly valid JSON arrays in Korean." },
             { role: "user", content: prompt }
@@ -123,9 +126,10 @@ export async function analyzePipelineStatus(data: any) {
     }));
     return response.text;
   } catch (e: any) { 
-    if (e.message.includes("429") || e.message.includes("quota")) {
-      return "AUDIT_QUOTA_EXCEEDED: 제미나이 호출 한도가 초과되었습니다. 잠시 대기 후 실행해 주세요.";
+    const msg = e.message?.toLowerCase() || "";
+    if (msg.includes("429") || msg.includes("quota")) {
+      return "AUDIT_QUOTA_EXCEEDED: 제미나이 호출 한도가 초과되었습니다. 무료 티어 정책상 짧은 간격의 반복 요청이 차단되었습니다. 1분 후 다시 시도해 주세요.";
     }
-    return "AUDIT_NODE_OVERLOADED_RETRY_LATER"; 
+    return `AUDIT_NODE_ERROR: ${e.message.substring(0, 50)}`; 
   }
 }
