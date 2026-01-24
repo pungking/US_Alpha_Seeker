@@ -40,41 +40,33 @@ function sanitizeAndParseJson(text: string): any[] | null {
   }
 }
 
+async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 1500): Promise<any> {
+  try {
+    return await fn();
+  } catch (error: any) {
+    if (retries > 0 && (error.message.includes("503") || error.message.includes("overloaded"))) {
+      await new Promise(resolve => setTimeout(resolve, delay));
+      return fetchWithRetry(fn, retries - 1, delay * 2);
+    }
+    throw error;
+  }
+}
+
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
 
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `
-    Analyze these 5 US stocks and provide a deep quant strategy in Korean.
-    Return ONLY a JSON array.
-    Dataset: ${JSON.stringify(candidates)}
-  `;
+  const prompt = `Analyze these 5 US stocks and provide a deep quant strategy in Korean. Return ONLY a JSON array. Dataset: ${JSON.stringify(candidates)}`;
 
   try {
-    // 1. Google Gemini (Pro with Flash Fallback)
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       
-      try {
-        // Attempt 1: Gemini 3 Pro (High Quality)
+      // Flash 모델을 기본으로 사용하여 503 과부하 회피
+      const result = await fetchWithRetry(async () => {
         const response = await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
-          contents: prompt,
-          config: {
-            thinkingConfig: { thinkingBudget: 8192 },
-            responseMimeType: "application/json",
-            responseSchema: ALPHA_SCHEMA
-          }
-        });
-        const parsed = sanitizeAndParseJson(response.text || "");
-        if (parsed) return { data: parsed };
-        throw new Error("EMPTY_RESPONSE");
-      } catch (proError: any) {
-        // 503 (Overloaded), 429 (Quota), or 404 (Not Found) -> Fallback to Flash
-        console.warn("Gemini Pro unreachable, engaging Flash Stability Node...");
-        const flashRes = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
           config: {
@@ -82,12 +74,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             responseSchema: ALPHA_SCHEMA
           }
         });
-        const parsedFlash = sanitizeAndParseJson(flashRes.text || "");
-        return parsedFlash ? { data: parsedFlash } : { data: null, error: "GEMINI_FLASH_SYNC_ERROR" };
-      }
+        return response;
+      });
+
+      const parsed = sanitizeAndParseJson(result.text || "");
+      return parsed ? { data: parsed } : { data: null, error: "GEMINI_PAYLOAD_PARSE_FAILED" };
     }
 
-    // 2. OpenAI ChatGPT
     if (provider === ApiProvider.CHATGPT) {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -98,7 +91,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages: [{ role: "system", content: "You are a professional quant. Output only JSON arrays." }, { role: "user", content: prompt }],
+          messages: [{ role: "system", content: "You are a professional quant. Output only JSON." }, { role: "user", content: prompt }],
           response_format: { type: "json_object" },
           temperature: 0.1
         })
@@ -109,7 +102,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       return parsed ? { data: parsed } : { data: null, error: "OPENAI_PARSE_ERROR" };
     }
 
-    // 3. Perplexity
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
@@ -137,10 +129,10 @@ export async function analyzePipelineStatus(data: any) {
   if (!apiKey) return "API_KEY_OFFLINE";
   const ai = new GoogleGenAI({ apiKey });
   try {
-    const response = await ai.models.generateContent({
+    const response = await fetchWithRetry(() => ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: `Audit this system state: ${JSON.stringify(data)}. Tone: Technical. Language: Korean.`,
-    });
+    }));
     return response.text;
-  } catch (e) { return "AUDIT_NODE_OFFLINE"; }
+  } catch (e) { return "AUDIT_NODE_OVERLOADED_RETRY_LATER"; }
 }
