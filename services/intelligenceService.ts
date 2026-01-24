@@ -69,7 +69,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       const ai = new GoogleGenAI({ apiKey });
       try {
         const result = await fetchWithRetry(async () => {
-          // Gemini 3 Pro 모델로 업그레이드 (정확도 및 추론 능력 최상)
+          // Gemini 3 Pro 모델 사용 (정확도 우선)
           const response = await ai.models.generateContent({
             model: 'gemini-3-pro-preview',
             contents: prompt,
@@ -81,11 +81,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           return response;
         });
         const parsed = sanitizeAndParseJson(result.text || "");
-        return parsed ? { data: parsed } : { data: null, error: "GEMINI_PAYLOAD_PARSE_FAILED" };
+        return parsed ? { data: parsed } : { data: null, error: "GEMINI_PARSE_ERROR" };
       } catch (geminiErr: any) {
         const msg = geminiErr.message?.toLowerCase() || "";
         if (msg.includes("429") || msg.includes("quota")) {
-          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 제미나이 프로 호출 한도가 초과되었습니다. Sonar Pro를 사용해 보세요." };
+          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 제미나이 프로 한도 초과. Sonar Pro를 사용하세요." };
         }
         throw geminiErr;
       }
@@ -98,7 +98,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "당신은 세계적인 퀀트 투자 전략가입니다. 실시간 시장 데이터와 시스템 분석을 결합하여 한국어로 전문적인 JSON 리포트를 작성합니다." },
+            { role: "system", content: "당신은 세계적인 헤지펀드 퀀트 전략가입니다. 실시간 시장 데이터와 시스템 분석을 결합하여 한국어로 전문적인 JSON 리포트를 작성합니다." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -121,22 +121,25 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   
-  if (!apiKey) return `AUDIT_OFFLINE: ${provider} API 키가 없습니다.`;
+  if (!apiKey) return `통신 오류: ${provider} API 키가 누락되었습니다.`;
 
-  // 퍼플리시티가 '감사'라는 단어에 거부감을 느끼지 않도록 '전략 분석' 관점으로 프롬프트 최적화
+  // 퍼플리시티를 위해 "실시간 시황 + 종목 테마 분석"으로 프롬프트 전면 개편
   const prompt = provider === ApiProvider.PERPLEXITY
-    ? `금융 기술 전략가로서 현재 미국 시장 상황과 우리 시스템의 운용 현황을 결합한 통합 보고서를 한국어로 작성해 주세요.
-       현재 시스템 단계: Stage ${data.currentStage}
-       연결된 API 노드: ${JSON.stringify(data.apiStatuses.map((s:any) => s.provider + (s.isConnected ? ":온라인" : ":오프라인")))}
+    ? `금융 전략 컨설턴트로서 다음 데이터를 기반으로 한국어 전략 리포트를 작성하십시오.
        
-       요청사항: 
-       1. 현재 실시간 미국 주식 시장의 핵심 트렌드와 센티먼트를 분석하십시오.
-       2. 이러한 시장 상황에서 우리 시스템의 현재 단계(Stage ${data.currentStage})가 왜 중요한지 설명하십시오.
-       3. 전문적이고 데이터 중심적인 어조를 유지하십시오. (한국어로 출력)`
-    : `시스템 운영 진단 보고서 작성 요청: 
-       현재 단계: Stage ${data.currentStage}
-       API 헬스체크: ${JSON.stringify(data.apiStatuses.map((s:any) => s.provider))}
-       전문적인 기술 리포트를 한국어로 작성하십시오.`;
+       [분석 컨텍스트]
+       - 현재 파이프라인 단계: Stage ${data.currentStage}
+       - 분석 대상 종목(Symbols): ${data.symbols ? data.symbols.join(", ") : "전체 섹터 스캐닝 중"}
+       - 시스템 상태: ${JSON.stringify(data.apiStatuses.map((s:any) => s.provider + (s.isConnected ? ":온라인" : ":오프라인")))}
+       
+       [요청 사항]
+       1. 현재 실시간 미국 주식 시장의 주요 변동성 요인과 투자 심리(Sentiment)를 검색하여 요약하십시오.
+       2. 위의 분석 대상 종목(Symbols)이 있다면, 해당 종목들의 최신 테마(AI, 실적, 정책 등)와의 연관성을 상세히 분석하십시오.
+       3. 현재 우리 시스템의 ${data.currentStage} 단계가 시장의 기회를 잡기에 적절한지 평가하십시오.
+       4. 시스템 감사자가 아닌, 시장 리서치 센터의 '전략 보고서' 형식으로 한국어로 답변하십시오.`
+    : `시스템 운영 및 시장 통합 진단: 
+       Stage ${data.currentStage}, Symbols: ${data.symbols?.join(", ") || "None"}. 
+       현재 시장 상황과 시스템 무결성을 한국어로 보고하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -155,22 +158,22 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
-            { role: "system", content: "당신은 금융 및 기술 융합 전략 컨설턴트입니다. 실시간 시장 뉴스 검색 능력을 활용하여 시스템 상태와 결합된 수준 높은 전략 리포트를 한국어로 제공합니다." },
+            { role: "system", content: "당신은 월스트리트 출신의 수석 마켓 애널리스트입니다. 실시간 검색을 통해 시장 뉴스/테마와 시스템 데이터를 융합하여 한국어로 리포트를 제공합니다." },
             { role: "user", content: prompt }
           ]
         })
       });
-      if (!res.ok) return `노드 리포트 생성 실패: ${res.status} (${provider})`;
+      if (!res.ok) return `리포트 생성 실패: ${res.status} (${provider})`;
       const resData = await res.json();
       return resData.choices[0].message.content;
     }
 
-    return "지원되지 않는 제공자입니다.";
+    return "지원되지 않는 분석 엔진입니다.";
   } catch (e: any) {
     const msg = e.message?.toLowerCase() || "";
     if (msg.includes("429") || msg.includes("quota")) {
-      return `${provider} 호출 한도가 초과되었습니다. 잠시 후 다시 시도하거나 다른 엔진으로 변경해 주세요.`;
+      return `${provider} 호출 한도가 초과되었습니다. 잠시 후 다시 시도하십시오.`;
     }
-    return `분석 노드 오류: ${e.message.substring(0, 80)}`;
+    return `분석 오류: ${e.message.substring(0, 100)}`;
   }
 }

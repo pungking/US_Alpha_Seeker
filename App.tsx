@@ -21,7 +21,7 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
-  // 기본 엔진을 Perplexity(Sonar Pro)로 변경 (제미나이 429 에러 방지용)
+  // 기본 엔진을 Perplexity(Sonar Pro)로 고정 (제미나이 429 에러 방지 및 실시간성 확보)
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
   const refreshApiStatuses = useCallback(async () => {
@@ -74,19 +74,24 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    const brainLabel = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Flash" : "Sonar Pro (PPLX)";
-    setAiReport(`> INITIALIZING SYSTEM SCAN...\n> ALLOCATING ${brainLabel.toUpperCase()} NODE...\n> GATHERING TELEMETRY...`);
+    const brainLabel = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Pro" : "Sonar Pro (PPLX)";
+    setAiReport(`> ${brainLabel.toUpperCase()} 노드 연결 중...\n> 실시간 시장 뉴스 데이터 스트리밍...\n> 시스템 무결성 및 테마 분석 통합 중...`);
     
+    // 현재 분석 중인 대표 종목 리스트 (예시 또는 저장된 상태에서 가져오기)
+    // 실제로는 각 단계별 컴포넌트에서 상태를 끌어올려 사용해야 함. 여기서는 시연을 위해 고정값 또는 유추.
+    const symbols = currentStage === 6 ? ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN"] : undefined;
+
     try {
       const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
-        systemLoad: "DYNAMIC_AUDIT_MODE"
+        symbols,
+        systemLoad: "DYNAMIC_ANALYSIS_MODE"
       }, selectedBrain);
       
       setAiReport(report);
     } catch (err: any) {
-      setAiReport(`> AUDIT_CRITICAL_FAILURE: ${err.message}`);
+      setAiReport(`> 분석 노드 치명적 오류: ${err.message}`);
     } finally {
       setIsAiLoading(false);
     }
@@ -197,11 +202,11 @@ const App: React.FC = () => {
                 <svg className={`w-8 h-8 text-emerald-400 ${isAiLoading ? 'animate-spin' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
              </div>
              <div>
-                <h3 className="font-black text-white uppercase text-xl tracking-tighter italic">AI Pipeline Auditor</h3>
+                <h3 className="font-black text-white uppercase text-xl tracking-tighter italic">AI Alpha Auditor</h3>
                 <div className="flex items-center space-x-2 mt-1">
-                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Alpha_Confidence_Shield</span>
+                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Alpha_Strategic_Insight</span>
                    <span className="text-[7px] text-slate-500 font-black uppercase tracking-widest italic">
-                     Active Engine: {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Flash' : 'Sonar Pro'}
+                     Active Engine: {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
                    </span>
                 </div>
              </div>
@@ -211,12 +216,12 @@ const App: React.FC = () => {
             disabled={isAiLoading}
             className={`px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/20'}`}
           >
-            {isAiLoading ? 'Synthesizing Report...' : 'Execute Operational Audit'}
+            {isAiLoading ? 'Analyzing Market...' : 'Execute Strategic Report'}
           </button>
         </div>
 
         <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[120px] shadow-inner overflow-y-auto max-h-[400px] whitespace-pre-wrap">
-          {aiReport || `> CORE_SYSTEM_IDLE... \n> Ready to verify Node integrity with ${selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Flash' : 'Sonar Pro'} Node.`}
+          {aiReport || `> 시스템 대기 중... \n> ${selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}를 통해 실시간 시황과 시스템 결합 분석 리포트를 생성할 준비가 되었습니다.`}
         </div>
       </section>
     </div>
