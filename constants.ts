@@ -19,7 +19,7 @@ export const API_CONFIGS: ApiConfig[] = [
   { provider: ApiProvider.ALPHA_VANTAGE, key: '8PBTS3IDZM85B3QE', category: 'Acquisition' },
   
   // Intelligence Node
-  { provider: ApiProvider.GEMINI, key: 'AIzaSyB0In6x4UnMtNFXAUqJfF-fCD1lzPQZtb8', category: 'Intelligence' },
+  { provider: ApiProvider.GEMINI, key: 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc', category: 'Intelligence' },
   { provider: ApiProvider.CHATGPT, key: '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', category: 'Intelligence' },
   { provider: ApiProvider.PERPLEXITY, key: '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', category: 'Intelligence' },
   

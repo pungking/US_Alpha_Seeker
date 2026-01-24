@@ -21,10 +21,16 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
 
-  const refreshApiStatuses = useCallback(() => {
+  const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
     
+    // Gemini API의 실제 연동 여부 확인 (AI Studio 인터페이스 대응)
+    let isGeminiActuallyConnected = !!process.env.API_KEY;
+    if (window.aistudio && !isGeminiActuallyConnected) {
+      isGeminiActuallyConnected = await window.aistudio.hasSelectedApiKey();
+    }
+
     setApiStatuses(() => {
       const orderedConfigs = [
         ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
@@ -33,7 +39,15 @@ const App: React.FC = () => {
       ];
 
       return orderedConfigs.map(config => {
-        const isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : !!config.key;
+        let isConnected = false;
+        if (config.provider === ApiProvider.GOOGLE_DRIVE) {
+          isConnected = hasGdriveToken;
+        } else if (config.provider === ApiProvider.GEMINI) {
+          isConnected = isGeminiActuallyConnected;
+        } else {
+          isConnected = !!config.key;
+        }
+
         return {
           provider: config.provider,
           category: config.category,
@@ -111,7 +125,7 @@ const App: React.FC = () => {
               <ApiStatusCard 
                 key={status.provider} 
                 status={status} 
-                isAuthConnected={isGdriveConnected} 
+                isAuthConnected={status.provider === ApiProvider.GEMINI ? status.isConnected : isGdriveConnected} 
               />
             ))}
           </div>
@@ -181,7 +195,7 @@ const App: React.FC = () => {
                 <h3 className="font-black text-white uppercase text-xl tracking-tighter italic">AI Pipeline Auditor</h3>
                 <div className="flex items-center space-x-2 mt-1">
                    <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Alpha_Confidence_Shield</span>
-                   <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Model: Gemini_3_Flash_Diagnostics</p>
+                   <span className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Model: Gemini_3_Flash_Diagnostics</span>
                 </div>
              </div>
           </div>
@@ -202,7 +216,7 @@ const App: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative z-10">
            <div className="lg:col-span-3">
-              <div className="bg-black/60 p-8 rounded-[32px] border border-white/5 font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[180px] whitespace-pre-wrap shadow-inner overflow-y-auto max-h-[400px]">
+              <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[180px] shadow-inner overflow-y-auto max-h-[400px]">
                 {aiReport || "> CORE_SYSTEM_IDLE... \n> Awaiting manual audit trigger. \n> Auditor role: Verifying if API nodes are providing valid stock data for Stage " + currentStage + "."}
               </div>
            </div>
