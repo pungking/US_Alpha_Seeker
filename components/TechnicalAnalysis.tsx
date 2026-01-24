@@ -5,7 +5,7 @@ import { GOOGLE_DRIVE_TARGET } from '../constants';
 const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [stage3Data, setStage3Data] = useState<any[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0, currentStep: 'Idle' });
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentStep: 'Standby' });
   const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.0.0: High-Frequency Pattern Matching Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -16,9 +16,7 @@ const TechnicalAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    if (accessToken && stage3Data.length === 0) {
-      loadStage3Data();
-    }
+    if (accessToken && stage3Data.length === 0) loadStage3Data();
   }, [accessToken]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
@@ -27,8 +25,8 @@ const TechnicalAnalysis: React.FC = () => {
   };
 
   const loadStage3Data = async () => {
-    if (!accessToken) return;
     setLoading(true);
+    addLog("Fetching Stage 3 Fundamental Winners...", "info");
     try {
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -40,24 +38,30 @@ const TechnicalAnalysis: React.FC = () => {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         if (content.fundamental_universe) setStage3Data(content.fundamental_universe);
+        addLog(`Loaded ${content.fundamental_universe.length} assets for technical pattern matching.`, "ok");
       }
-    } finally { setLoading(false); }
+    } catch (e: any) { addLog(e.message, "err"); }
+    finally { setLoading(false); }
   };
 
   const executeTechnicalAudit = async () => {
     if (stage3Data.length === 0 || loading) return;
     setLoading(true);
     const limit = Math.min(stage3Data.length, 100);
-    setProgress({ current: 0, total: limit, currentStep: 'Init' });
+    setProgress({ current: 0, total: limit, currentStep: 'Scanning' });
 
     for (let i = 0; i < limit; i++) {
       const target = stage3Data[i];
       setProgress({ current: i + 1, total: limit, currentStep: target.symbol });
-      await new Promise(r => setTimeout(r, 150));
+      if (i % 10 === 0) addLog(`Matching Patterns for ${target.symbol}...`, "info");
+      await new Promise(r => setTimeout(r, 200));
     }
     setLoading(false);
-    setProgress(p => ({ ...p, currentStep: 'Done' }));
+    setProgress(p => ({ ...p, currentStep: 'Complete' }));
+    addLog("Technical Alpha Discovery Cycle Complete.", "ok");
   };
+
+  const currentPercent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -70,9 +74,7 @@ const TechnicalAnalysis: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Technical_Node v4.0.0</h2>
-                <p className="text-[8px] font-black text-orange-400 uppercase tracking-widest mt-2">
-                  {loading ? `Matching: ${progress.currentStep} (${Math.round((progress.current/progress.total)*100)}%)` : 'Ready'}
-                </p>
+                <p className="text-[8px] font-black text-orange-400 uppercase mt-2 tracking-widest">ENGINE STATE: {loading ? `${progress.currentStep} (${currentPercent}%)` : 'Ready'}</p>
               </div>
             </div>
             <button onClick={executeTechnicalAudit} disabled={loading || stage3Data.length === 0} className="px-12 py-5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">
@@ -80,7 +82,7 @@ const TechnicalAnalysis: React.FC = () => {
             </button>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5 mb-10">
-            <div className="h-full bg-orange-600 transition-all duration-300" style={{ width: `${(progress.current/(progress.total||1))*100}%` }}></div>
+            <div className="h-full bg-orange-600 transition-all duration-300" style={{ width: `${currentPercent}%` }}></div>
           </div>
         </div>
       </div>

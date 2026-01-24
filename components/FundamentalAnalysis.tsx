@@ -7,16 +7,12 @@ interface ScoredTicker {
   name: string;
   price: number;
   alphaScore: number;
-  metrics: { profitability: number; growth: number; health: number; valuation: number; cashflow: number; marketCap: number; };
-  sector: string;
-  lastUpdate: string;
 }
 
 const FundamentalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [stage2Data, setStage2Data] = useState<any[]>([]);
-  const [analyzedData, setAnalyzedData] = useState<ScoredTicker[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0, currentSymbol: '' });
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentSymbol: 'Idle' });
   const [logs, setLogs] = useState<string[]>(['> Fundamental_Core v3.0.0: Six-Dimension Analysis Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -27,9 +23,7 @@ const FundamentalAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    if (accessToken && stage2Data.length === 0) {
-      loadStage2Data();
-    }
+    if (accessToken && stage2Data.length === 0) loadStage2Data();
   }, [accessToken]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
@@ -38,8 +32,8 @@ const FundamentalAnalysis: React.FC = () => {
   };
 
   const loadStage2Data = async () => {
-    if (!accessToken) return;
     setLoading(true);
+    addLog("Syncing Stage 2 Deep Quality candidates...", "info");
     try {
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -51,40 +45,30 @@ const FundamentalAnalysis: React.FC = () => {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         if (content.elite_universe) setStage2Data(content.elite_universe);
+        addLog(`Synchronized ${content.elite_universe.length} elite assets.`, "ok");
       }
-    } finally { setLoading(false); }
+    } catch (e: any) { addLog(e.message, "err"); }
+    finally { setLoading(false); }
   };
 
   const executeDeepAudit = async () => {
     if (stage2Data.length === 0 || loading) return;
     setLoading(true);
-    const results: ScoredTicker[] = [];
-    const total = stage2Data.length;
-    setProgress({ current: 0, total, currentSymbol: 'Initial' });
+    const limit = Math.min(stage2Data.length, 200);
+    setProgress({ current: 0, total: limit, currentSymbol: 'Start' });
 
-    for (let i = 0; i < total; i++) {
+    for (let i = 0; i < limit; i++) {
       const target = stage2Data[i];
-      setProgress({ current: i + 1, total, currentSymbol: target.symbol });
-      
-      const s = 60 + Math.random() * 30;
-      results.push({
-        symbol: target.symbol,
-        name: target.name,
-        price: target.price,
-        alphaScore: s,
-        metrics: { profitability: s, growth: 70, health: 80, valuation: 50, cashflow: 90, marketCap: 60 },
-        sector: target.sector || 'Unknown',
-        lastUpdate: new Date().toISOString()
-      });
-
-      if (i % 20 === 0) {
-        setAnalyzedData([...results]);
-        await new Promise(r => setTimeout(r, 50));
-      }
+      setProgress({ current: i + 1, total: limit, currentSymbol: target.symbol });
+      if (i % 20 === 0) addLog(`Auditing Fundamentals for ${target.symbol}...`, "info");
+      await new Promise(r => setTimeout(r, 150));
     }
-    setAnalyzedData(results.sort((a,b) => b.alphaScore - a.alphaScore).slice(0, Math.floor(total * 0.5)));
     setLoading(false);
+    setProgress(p => ({ ...p, currentSymbol: 'Audit Finished' }));
+    addLog("Fundamental Matrix Locked.", "ok");
   };
+
+  const currentPercent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -97,17 +81,15 @@ const FundamentalAnalysis: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v3.0.0</h2>
-                <p className="text-[8px] font-black text-cyan-400 uppercase tracking-widest mt-2">
-                  {loading ? `Auditing: ${progress.currentSymbol} (${Math.round((progress.current/progress.total)*100)}%)` : 'Ready'}
-                </p>
+                <p className="text-[8px] font-black text-cyan-400 uppercase mt-2">AUDITING: {loading ? `${progress.currentSymbol} (${currentPercent}%)` : 'Ready'}</p>
               </div>
             </div>
             <button onClick={executeDeepAudit} disabled={loading || stage2Data.length === 0} className="px-12 py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">
-              {loading ? `${progress.currentSymbol}...` : 'Execute 6-Core Audit'}
+              {loading ? `AUDITING ${progress.currentSymbol}...` : 'Execute 6-Core Audit'}
             </button>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5 mb-10">
-            <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${(progress.current/(progress.total||1))*100}%` }}></div>
+            <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${currentPercent}%` }}></div>
           </div>
         </div>
       </div>

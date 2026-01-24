@@ -29,7 +29,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [cooldown, setCooldown] = useState(0);
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
-  const [engineStatus, setEngineStatus] = useState('Standby');
   
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -42,7 +41,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     synced: 0,
     target: 10000,
     elapsed: 0,
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown',
+    currentStep: ''
   });
 
   const [logs, setLogs] = useState<string[]>(['> Engine v1.9.6: High-Frequency Equity Protocol Active.']);
@@ -86,7 +86,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     let token = accessToken;
     if (!token) {
       try {
-        setEngineStatus('Authenticating...');
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
           scope: 'https://www.googleapis.com/auth/drive.file',
@@ -102,7 +101,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
         addLog(`Auth Error: ${e.message}`, "err");
-        setEngineStatus('Auth Failed');
         document.body.removeAttribute('data-engine-running');
       }
       return;
@@ -112,19 +110,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
   const runAggregatedPipeline = async (token: string) => {
     setIsEngineRunning(true);
-    setEngineStatus('Initializing...');
     const startTime = Date.now();
     const newRegistry = new Map<string, MasterTicker>();
     
-    setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0 }));
+    setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0, currentStep: 'Initial Discovery' }));
     
     timerRef.current = window.setInterval(() => {
       setStats(prev => ({ ...prev, elapsed: Math.floor((Date.now() - startTime) / 1000) }));
     }, 1000);
 
     try {
-      setEngineStatus('Step 1: Discovering...');
       addLog("Step 1: Identifying Global Equities (Finnhub)...", "info");
+      setStats(prev => ({ ...prev, currentStep: 'Step 1: Discovering Tickers' }));
       const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
       
       if (Array.isArray(fhRes)) {
@@ -148,20 +145,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         addLog(`Refined ${newRegistry.size} primary tickers.`, "ok");
       }
 
-      setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
-      setEngineStatus('Step 2: Fusion...');
+      setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping', currentStep: 'Step 2: Pricing Logic' }));
+
       await new Promise(r => setTimeout(r, 1000));
 
       const targetDate = getLatestTradingDate();
-      addLog(`Step 2: Merging Price Aggregates (${targetDate})...`, "info");
+      addLog(`Step 2: Merging Price Aggregates...`, "info");
       
       const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
       
       if (polyRes.status === 429) {
-        setEngineStatus('Quota Limit');
-        addLog("API QUOTA EXCEEDED (429). Initiating 60s cooldown.", "err");
+        addLog("API Throttled. 60s cooldown.", "err");
         setCooldown(60);
-        setStats(prev => ({ ...prev, phase: 'Cooldown' }));
         throw new Error("Rate limit hit");
       }
 
@@ -183,23 +178,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       }
 
       setRegistry(new Map(newRegistry));
-      setStats(prev => ({ ...prev, phase: 'Commit' }));
-      setEngineStatus('Step 3: Vaulting...');
+      setStats(prev => ({ ...prev, phase: 'Commit', currentStep: 'Step 3: Drive Vault Sync' }));
 
       const masterData = Array.from(newRegistry.values());
       const payload = { universe: masterData };
 
       const folderId = await ensureFolder(token);
       if (folderId) {
-        await uploadFile(token, folderId, `STAGE0_MASTER_UNIVERSE_v1.9.6.json`, payload);
-        setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
-        setEngineStatus('Complete');
+        await uploadFile(token, folderId, `STAGE0_MASTER_UNIVERSE_${targetDate}.json`, payload);
+        setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized', currentStep: 'Success: Finalized' }));
         addLog("System: Cloud Vault Sync Complete.", "ok");
       }
 
     } catch (e: any) {
-      setEngineStatus('Error');
-      if (e.message !== "Rate limit hit") addLog(`Fatal Error: ${e.message}`, "err");
+      setStats(prev => ({ ...prev, currentStep: 'Error Occurred' }));
     } finally {
       if (timerRef.current) clearInterval(timerRef.current);
       setIsEngineRunning(false);
@@ -250,9 +242,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.6</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : stats.phase === 'Finalized' ? 'Cycle_Complete' : engineStatus}
+                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : stats.currentStep || 'Equity_Protocol_Active'}
                   </span>
-                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
                 </div>
               </div>
             </div>
@@ -261,20 +252,45 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               disabled={isEngineRunning || cooldown > 0}
               className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
             >
-              {isEngineRunning ? engineStatus : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
+              {isEngineRunning ? stats.currentStep : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
           </div>
-          
+
+          <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
+            </div>
+            <div className="flex gap-4">
+              <input 
+                type="text" 
+                placeholder="Verify Ticker (e.g. AAPL)"
+                className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
+                value={searchTerm}
+                onChange={(e) => setSearchTerm(e.target.value)}
+              />
+              <div className={`flex-1 flex items-center px-6 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
+                {searchResult ? (
+                  <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
+                    <span>{searchResult.symbol} PRICE:</span>
+                    <span className="text-emerald-300 ml-4">${searchResult.price.toFixed(2)}</span>
+                  </div>
+                ) : (
+                  <span className="text-[10px] font-black italic uppercase tracking-widest">Ready for verification</span>
+                )}
+              </div>
+            </div>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
               { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Phase', val: stats.phase, color: 'text-indigo-400' },
+              { label: 'Step Status', val: stats.currentStep || 'Idle', color: 'text-indigo-400' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
               { label: 'Engine Mode', val: 'V1.9.6_CORE', color: 'text-blue-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
-                <p className={`text-xl font-mono font-black italic ${s.color}`}>{s.val}</p>
+                <p className={`text-xl font-mono font-black italic truncate ${s.color}`}>{s.val}</p>
               </div>
             ))}
           </div>
@@ -282,7 +298,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
             <div 
               className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600 animate-pulse' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`}
-              style={{ width: stats.phase === 'Finalized' ? '100%' : cooldown > 0 ? `${(cooldown/60)*100}%` : `${Math.min(100, (stats.found / (stats.target || 1)) * 100)}%` }}
+              style={{ width: stats.phase === 'Finalized' ? '100%' : cooldown > 0 ? `${(cooldown/60)*100}%` : `${Math.min(100, (stats.found / 10000) * 100)}%` }}
             ></div>
           </div>
         </div>
@@ -290,7 +306,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       <div className="xl:col-span-1">
         <div className="glass-panel h-[680px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
-          <div className="flex items-center justify-between mb-8 px-2">
+          <div className="flex items-center justify-between mb-8">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">

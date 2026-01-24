@@ -5,7 +5,7 @@ import { GOOGLE_DRIVE_TARGET } from '../constants';
 const IctAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [stage4Data, setStage4Data] = useState<any[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0, activeTarget: 'Standby' });
+  const [progress, setProgress] = useState({ current: 0, total: 0, activeTarget: 'Idle' });
   const [logs, setLogs] = useState<string[]>(['> ICT_SMC_Core v5.0.0: Smart Money Protocol Initialized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -16,9 +16,7 @@ const IctAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    if (accessToken && stage4Data.length === 0) {
-      loadStage4Data();
-    }
+    if (accessToken && stage4Data.length === 0) loadStage4Data();
   }, [accessToken]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
@@ -27,8 +25,8 @@ const IctAnalysis: React.FC = () => {
   };
 
   const loadStage4Data = async () => {
-    if (!accessToken) return;
     setLoading(true);
+    addLog("Syncing Smart Money footprint candidates...", "info");
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -40,8 +38,10 @@ const IctAnalysis: React.FC = () => {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         if (content.technical_universe) setStage4Data(content.technical_universe);
+        addLog(`Synchronized ${content.technical_universe.length} assets for ICT audit.`, "ok");
       }
-    } finally { setLoading(false); }
+    } catch (e: any) { addLog(e.message, "err"); }
+    finally { setLoading(false); }
   };
 
   const executeIctAudit = async () => {
@@ -53,11 +53,15 @@ const IctAnalysis: React.FC = () => {
     for (let i = 0; i < limit; i++) {
       const target = stage4Data[i];
       setProgress({ current: i + 1, total: limit, activeTarget: target.symbol });
-      await new Promise(r => setTimeout(r, 200));
+      if (i % 5 === 0) addLog(`Tracking Smart Money in ${target.symbol}...`, "info");
+      await new Promise(r => setTimeout(r, 300));
     }
     setLoading(false);
     setProgress(p => ({ ...p, activeTarget: 'Leaderboard Updated' }));
+    addLog("ICT Analysis Finalized. Smart Money Leaderboard Synced.", "ok");
   };
+
+  const currentPercent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -70,9 +74,7 @@ const IctAnalysis: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v5.0.0</h2>
-                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest mt-2">
-                  {loading ? `Tracking: ${progress.activeTarget} (${Math.round((progress.current/progress.total)*100)}%)` : 'Ready'}
-                </p>
+                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest mt-2">TARGET NODE: {loading ? `${progress.activeTarget} (${currentPercent}%)` : 'Ready'}</p>
               </div>
             </div>
             <button onClick={executeIctAudit} disabled={loading || stage4Data.length === 0} className="px-12 py-5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">
@@ -80,7 +82,7 @@ const IctAnalysis: React.FC = () => {
             </button>
           </div>
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5 mb-10">
-            <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${(progress.current/(progress.total||1))*100}%` }}></div>
+            <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${currentPercent}%` }}></div>
           </div>
         </div>
       </div>
