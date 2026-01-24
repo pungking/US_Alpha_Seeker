@@ -29,8 +29,8 @@ const TechnicalAnalysis: React.FC = () => {
                 <p className="text-[9px] font-black text-[#f97316] uppercase tracking-[0.4em]">ENGINE STATE:</p>
               </div>
             </div>
-            <button onClick={startAnalysis} className="px-16 py-6 bg-[#f97316] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#ea580c] transition-all min-w-[150px]">
-              {loading ? 'AUDITING...' : ''}
+            <button onClick={startAnalysis} disabled={loading} className="px-16 py-6 bg-[#f97316] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#ea580c] transition-all min-w-[150px]">
+              ANALYZE TECHNICAL PATTERNS
             </button>
           </div>
           <div className="h-6 bg-slate-950 rounded-full overflow-hidden p-1.5 border border-white/5">

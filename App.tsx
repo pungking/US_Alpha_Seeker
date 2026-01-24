@@ -101,7 +101,6 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      {/* Main Analysis Engine */}
       <main className="min-h-[500px]">
         {currentStage === 0 && <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />}
         {currentStage === 1 && <PreliminaryFilter />}
@@ -112,7 +111,7 @@ const App: React.FC = () => {
         {currentStage === 6 && <AlphaAnalysis />}
       </main>
 
-      {/* AI Pipeline Auditor - Scrolled Image Match */}
+      {/* AI Pipeline Auditor */}
       <section className="glass-panel p-10 md:p-14 rounded-[45px] border-t-4 border-t-[#10b981] bg-slate-900/40 relative shadow-2xl">
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-10">
            <div className="flex items-center space-x-8">
@@ -140,7 +139,7 @@ const App: React.FC = () => {
                   isAiLoading ? 'bg-slate-800 text-slate-500' : 'bg-[#10b981] text-white hover:bg-[#059669] hover:scale-105 active:scale-95'
                 }`}
               >
-                {isAiLoading ? 'AUDITING NODE...' : 'EXECUTE OPERATIONAL AUDIT'}
+                EXECUTE OPERATIONAL AUDIT
               </button>
            </div>
         </div>

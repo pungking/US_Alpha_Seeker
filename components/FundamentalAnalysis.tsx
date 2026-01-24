@@ -30,8 +30,8 @@ const FundamentalAnalysis: React.FC = () => {
                 <p className="text-[9px] font-black text-[#06b6d4] uppercase tracking-[0.4em]">AUDITING MATRIX:</p>
               </div>
             </div>
-            <button onClick={startAnalysis} className="px-16 py-6 bg-[#06b6d4] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#0891b2] transition-all">
-              {loading ? 'AUDITING ...' : 'AUDITING ...'}
+            <button onClick={startAnalysis} disabled={loading} className="px-16 py-6 bg-[#06b6d4] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#0891b2] transition-all">
+              RUN FUNDAMENTAL AUDIT
             </button>
           </div>
           <div className="h-6 bg-slate-950 rounded-full overflow-hidden p-1.5 border border-white/5">

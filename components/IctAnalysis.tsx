@@ -29,8 +29,8 @@ const IctAnalysis: React.FC = () => {
                 <p className="text-[9px] font-black text-[#6366f1] uppercase tracking-[0.4em]">TARGET NODE:</p>
               </div>
             </div>
-            <button onClick={startAnalysis} className="px-16 py-6 bg-[#6366f1] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#4f46e5] transition-all min-w-[150px]">
-              {loading ? 'TRACKING...' : ''}
+            <button onClick={startAnalysis} disabled={loading} className="px-16 py-6 bg-[#6366f1] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#4f46e5] transition-all min-w-[150px]">
+              TRACK SMART MONEY
             </button>
           </div>
           <div className="h-6 bg-slate-950 rounded-full overflow-hidden p-1.5 border border-white/5">

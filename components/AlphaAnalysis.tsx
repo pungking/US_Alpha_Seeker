@@ -28,11 +28,11 @@ const AlphaAnalysis: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none mb-3">ALPHA_DEEP_FINAL</h2>
-                <p className="text-[9px] font-black text-[#f43f5e] uppercase tracking-[0.4em]">REASONING: {loading ? 'PROCESSING' : 'STANDBY'}</p>
+                <p className="text-[9px] font-black text-[#f43f5e] uppercase tracking-[0.4em]">REASONING ENGINE STATUS</p>
               </div>
             </div>
-            <button onClick={startAnalysis} className="px-16 py-6 bg-[#f43f5e] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#e11d48] transition-all min-w-[200px]">
-              {loading ? 'PROCESSING...' : 'STANDBY...'}
+            <button onClick={startAnalysis} disabled={loading} className="px-16 py-6 bg-[#f43f5e] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#e11d48] transition-all min-w-[200px]">
+              EXECUTE FINAL SYNTHESIS
             </button>
           </div>
           <div className="h-6 bg-slate-950 rounded-full overflow-hidden p-1.5 border border-white/5">

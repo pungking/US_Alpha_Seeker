@@ -46,10 +46,10 @@ const DeepQualityFilter: React.FC = () => {
               </div>
             </div>
             <div className="flex gap-4">
-              <button className="px-10 py-5 bg-[#a855f7] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#9333ea] transition-all min-w-[120px]">
-                {loading ? '...' : '...'}
+              <button onClick={startAnalysis} disabled={loading} className="px-10 py-5 bg-[#a855f7] text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl hover:bg-[#9333ea] transition-all min-w-[120px]">
+                RUN QUALITY SCAN
               </button>
-              <button onClick={startAnalysis} className="px-12 py-5 bg-slate-800 text-slate-500 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-white/5 transition-all">
+              <button className="px-12 py-5 bg-slate-800 text-slate-500 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-white/5 transition-all">
                 COMMIT VAULT
               </button>
             </div>
