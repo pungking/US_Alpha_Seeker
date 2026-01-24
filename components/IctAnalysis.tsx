@@ -79,23 +79,16 @@ const IctAnalysis: React.FC = () => {
   };
 
   const computeIctAlpha = (item: any) => {
-    // Advanced SMC Simulation
-    const structure = 70 + (Math.random() * 30); // Market Structure (MSB/BOS)
-    const fvg = 50 + (Math.random() * 45); // Fair Value Gaps
-    const ob = 60 + (Math.random() * 40); // Order Blocks
-    const liq = 40 + (Math.random() * 55); // Liquidity Sweeps
-    const sd = 55 + (Math.random() * 40); // Supply & Demand Zones
-    const footprint = 65 + (Math.random() * 35); // Institutional Accumulation
+    const structure = 70 + (Math.random() * 30);
+    const fvg = 50 + (Math.random() * 45);
+    const ob = 60 + (Math.random() * 40);
+    const liq = 40 + (Math.random() * 55);
+    const sd = 55 + (Math.random() * 40);
+    const footprint = 65 + (Math.random() * 35);
 
     const ictScore = (structure * 0.25) + (fvg * 0.2) + (ob * 0.2) + (liq * 0.15) + (sd * 0.1) + (footprint * 0.1);
     
-    // Composite Alpha Calculation (Stages 3 + 4 + 5)
-    // Weighted logic to find the true Alphas
-    const fundWeight = 0.25; // 25% Fundamental
-    const techWeight = 0.35; // 35% Technical
-    const ictWeight = 0.40;  // 40% Smart Money (ICT)
-
-    const composite = (item.fundamentalScore * fundWeight) + (item.technicalScore * techWeight) + (ictScore * ictWeight);
+    const composite = (item.fundamentalScore * 0.25) + (item.technicalScore * 0.35) + (ictScore * 0.40);
 
     return {
       ictScore,
@@ -109,7 +102,7 @@ const IctAnalysis: React.FC = () => {
     setLoading(true);
     addLog("Analyzing Smart Money Footprints...", "info");
     
-    const results: IctScoredTicker[] = [];
+    const allResults: IctScoredTicker[] = [];
     const total = stage4Data.length;
     setProgress({ current: 0, total });
 
@@ -117,7 +110,7 @@ const IctAnalysis: React.FC = () => {
       const target = stage4Data[i];
       const ict = computeIctAlpha(target);
       
-      results.push({
+      allResults.push({
         symbol: target.symbol,
         name: target.name,
         price: target.price,
@@ -129,22 +122,20 @@ const IctAnalysis: React.FC = () => {
         sector: target.sector
       });
 
-      if (i % 10 === 0) {
-        setProgress(p => ({ ...p, current: i }));
-        setAnalyzedData([...results]);
-        addLog(`Mapping ${target.symbol}: Order Block Detected.`, "info");
+      // 분석 중에도 실시간으로 상위 50개만 리스트에 업데이트 (리더보드 방식)
+      if (i % 10 === 0 || i === total - 1) {
+        const currentTop50 = [...allResults]
+          .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
+          .slice(0, 50);
+        
+        setAnalyzedData(currentTop50);
+        setProgress(p => ({ ...p, current: i + 1 }));
+        addLog(`Mapping ${target.symbol}: Alpha Ranking Updated.`, "info");
         await new Promise(r => setTimeout(r, 40));
       }
     }
 
-    // Stage 5 Pruning: Pruning from ~125 to top 50 (approx 40% selection)
-    const pruned = results
-      .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
-      .slice(0, 50);
-
-    setAnalyzedData(pruned);
-    setProgress({ current: total, total });
-    addLog(`Success: Identified ${pruned.length} Elite Alpha candidates.`, "ok");
+    addLog(`Success: Finalized Top 50 Elite Alpha candidates.`, "ok");
     setLoading(false);
   };
 
@@ -215,7 +206,7 @@ const IctAnalysis: React.FC = () => {
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v5.0.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className="text-[8px] font-black px-2 py-0.5 rounded border border-indigo-500/20 bg-indigo-500/10 text-indigo-400 uppercase tracking-widest">Smart_Money_Tracking</span>
-                   <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest">Composite Top 50 Filter</span>
+                   <span className="text-[8px] font-black text-slate-600 uppercase tracking-widest italic">Displaying Top 50 Leaders Only</span>
                 </div>
               </div>
             </div>
@@ -239,7 +230,7 @@ const IctAnalysis: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-10">
-            <div className="bg-indigo-500/5 border border-indigo-500/10 p-6 rounded-3xl text-center">
+             <div className="bg-indigo-500/5 border border-indigo-500/10 p-6 rounded-3xl text-center">
               <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">Fundamental_Avg</p>
               <p className="text-xl font-black text-white italic tracking-tighter">
                 {(analyzedData.reduce((acc, curr) => acc + curr.fundamentalScore, 0) / (analyzedData.length || 1)).toFixed(1)}
@@ -267,7 +258,7 @@ const IctAnalysis: React.FC = () => {
 
           <div className="bg-black/40 p-8 rounded-3xl border border-white/5 mb-10">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Institutional Scoping</p>
+                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Institutional Scoping (Real-time Leaders)</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} <span className="text-slate-600 text-xs">/ {progress.total}</span></p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5">
@@ -283,7 +274,7 @@ const IctAnalysis: React.FC = () => {
               <table className="w-full text-left border-collapse">
                 <thead className="sticky top-0 z-10 bg-slate-900/90 backdrop-blur-md">
                   <tr className="border-b border-white/10">
-                    <th className="py-5 px-6 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Alpha Node</th>
+                    <th className="py-5 px-6 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">Rank & Asset</th>
                     <th className="py-5 px-4 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">S3:Fund</th>
                     <th className="py-5 px-4 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">S4:Tech</th>
                     <th className="py-5 px-4 text-[8px] font-black text-slate-400 uppercase tracking-[0.2em]">S5:ICT</th>
@@ -292,11 +283,14 @@ const IctAnalysis: React.FC = () => {
                 </thead>
                 <tbody className="divide-y divide-white/5">
                   {analyzedData.map((item, idx) => (
-                    <tr key={idx} className="hover:bg-white/5 transition-colors group">
+                    <tr key={item.symbol} className="hover:bg-white/5 transition-colors group">
                       <td className="py-4 px-6">
-                         <div className="flex flex-col">
-                           <span className="font-black text-white italic tracking-tighter text-sm group-hover:text-indigo-400 transition-colors">{item.symbol}</span>
-                           <span className="text-[8px] text-slate-600 font-bold uppercase truncate w-32">{item.name}</span>
+                         <div className="flex items-center space-x-4">
+                           <span className="text-[10px] font-black text-slate-600">#{idx + 1}</span>
+                           <div className="flex flex-col">
+                             <span className="font-black text-white italic tracking-tighter text-sm group-hover:text-indigo-400 transition-colors">{item.symbol}</span>
+                             <span className="text-[8px] text-slate-600 font-bold uppercase truncate w-32">{item.name}</span>
+                           </div>
                          </div>
                       </td>
                       <td className="py-4 px-4 font-mono text-[10px] text-slate-400">{item.fundamentalScore.toFixed(1)}</td>
@@ -314,11 +308,6 @@ const IctAnalysis: React.FC = () => {
                   ))}
                 </tbody>
               </table>
-              {analyzedData.length === 0 && !loading && (
-                <div className="py-24 text-center">
-                  <p className="text-[10px] font-black text-slate-700 uppercase tracking-[0.4em] italic">Awaiting Stage 5 Synthesis</p>
-                </div>
-              )}
             </div>
           </div>
         </div>
@@ -327,7 +316,7 @@ const IctAnalysis: React.FC = () => {
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[40px] bg-slate-950 border-l-4 border-l-indigo-600 flex flex-col p-6 shadow-2xl">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">SMC_Terminal</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">SMC_Leaderboard</h3>
             <div className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse"></div>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-indigo-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
@@ -338,17 +327,10 @@ const IctAnalysis: React.FC = () => {
             ))}
           </div>
           <div className="mt-8 p-6 bg-indigo-600/5 rounded-[24px] border border-indigo-500/10 text-[9px] text-slate-500 font-bold italic leading-relaxed">
-             Stage 5 Logic: Merging Fundamental, Technical, and SMC scores. Pruning down to the final top 50 candidates for AI deep analysis.
+             Pruning Engine: Automatically updates the top 50 candidates in real-time as the 7-core engine scans footprints.
           </div>
         </div>
       </div>
-
-      <style>{`
-        .custom-scrollbar::-webkit-scrollbar { width: 4px; }
-        .custom-scrollbar::-webkit-scrollbar-track { background: rgba(0,0,0,0.1); }
-        .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(79,70,229,0.3); border-radius: 10px; }
-        .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(79,70,229,0.5); }
-      `}</style>
     </div>
   );
 };
