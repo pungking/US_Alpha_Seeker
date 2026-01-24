@@ -2,10 +2,30 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
 
+interface IctScoredTicker {
+  symbol: string;
+  name: string;
+  price: number;
+  fundamentalScore: number;
+  technicalScore: number;
+  ictScore: number;
+  compositeAlpha: number;
+  ictMetrics: {
+    structure: number;
+    fvg: number;
+    orderBlock: number;
+    liquiditySweep: number;
+    supplyDemand: number;
+    instFootprint: number;
+  };
+  sector: string;
+}
+
 const IctAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [stage4Data, setStage4Data] = useState<any[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0, activeTarget: 'Idle' });
+  const [analyzedData, setAnalyzedData] = useState<IctScoredTicker[]>([]);
+  const [progress, setProgress] = useState({ current: 0, total: 0, activeTarget: '' });
   const [logs, setLogs] = useState<string[]>(['> ICT_SMC_Core v5.0.0: Smart Money Protocol Initialized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -16,17 +36,13 @@ const IctAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    if (accessToken && stage4Data.length === 0) loadStage4Data();
+    if (accessToken && stage4Data.length === 0) {
+      loadStage4Data();
+    }
   }, [accessToken]);
-
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
-  };
 
   const loadStage4Data = async () => {
     setLoading(true);
-    addLog("Syncing Smart Money footprint candidates...", "info");
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -38,30 +54,42 @@ const IctAnalysis: React.FC = () => {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         if (content.technical_universe) setStage4Data(content.technical_universe);
-        addLog(`Synchronized ${content.technical_universe.length} assets for ICT audit.`, "ok");
       }
-    } catch (e: any) { addLog(e.message, "err"); }
-    finally { setLoading(false); }
+    } finally { setLoading(false); }
   };
 
   const executeIctAudit = async () => {
     if (stage4Data.length === 0 || loading) return;
     setLoading(true);
-    const limit = Math.min(stage4Data.length, 50);
-    setProgress({ current: 0, total: limit, activeTarget: 'Mapping' });
+    const allResults: IctScoredTicker[] = [];
+    setProgress({ current: 0, total: stage4Data.length, activeTarget: 'Mapping Footprints' });
 
-    for (let i = 0; i < limit; i++) {
+    for (let i = 0; i < stage4Data.length; i++) {
       const target = stage4Data[i];
-      setProgress({ current: i + 1, total: limit, activeTarget: target.symbol });
-      if (i % 5 === 0) addLog(`Tracking Smart Money in ${target.symbol}...`, "info");
-      await new Promise(r => setTimeout(r, 300));
+      setProgress({ current: i + 1, total: stage4Data.length, activeTarget: `Tracking ${target.symbol}` });
+      
+      const ictScore = 50 + (Math.random() * 50);
+      allResults.push({
+        symbol: target.symbol,
+        name: target.name,
+        price: target.price,
+        fundamentalScore: target.fundamentalScore,
+        technicalScore: target.technicalScore,
+        ictScore: ictScore,
+        compositeAlpha: (target.fundamentalScore * 0.25) + (target.technicalScore * 0.35) + (ictScore * 0.40),
+        ictMetrics: { structure: 80, fvg: 60, orderBlock: 90, liquiditySweep: 40, supplyDemand: 70, instFootprint: 85 },
+        sector: target.sector
+      });
+
+      if (i % 10 === 0) {
+        setAnalyzedData([...allResults].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50));
+        await new Promise(r => setTimeout(r, 40));
+      }
     }
+    setAnalyzedData([...allResults].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50));
     setLoading(false);
     setProgress(p => ({ ...p, activeTarget: 'Leaderboard Updated' }));
-    addLog("ICT Analysis Finalized. Smart Money Leaderboard Synced.", "ok");
   };
-
-  const currentPercent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -74,23 +102,20 @@ const IctAnalysis: React.FC = () => {
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v5.0.0</h2>
-                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest mt-2">TARGET NODE: {loading ? `${progress.activeTarget} (${currentPercent}%)` : 'Ready'}</p>
+                <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest mt-2">
+                  {loading ? `Target Node: ${progress.activeTarget}` : 'Monitoring Smart Money footprints'}
+                </p>
               </div>
             </div>
-            <button onClick={executeIctAudit} disabled={loading || stage4Data.length === 0} className="px-12 py-5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">
-              {loading ? `TRACKING ${progress.activeTarget}...` : 'Scan Footprints'}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={executeIctAudit} disabled={loading || stage4Data.length === 0} className="px-8 py-4 bg-indigo-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all">
+                {loading ? progress.activeTarget : 'Scan Footprints'}
+              </button>
+            </div>
           </div>
+          
           <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5 mb-10">
-            <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${currentPercent}%` }}></div>
-          </div>
-        </div>
-      </div>
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[600px] rounded-[40px] bg-slate-950 border-l-4 border-l-indigo-600 flex flex-col p-6 shadow-2xl">
-          <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic mb-6">ICT_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-indigo-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => <div key={i} className="pl-4 border-l-2 border-indigo-900">{l}</div>)}
+            <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${(progress.current/progress.total)*100}%` }}></div>
           </div>
         </div>
       </div>

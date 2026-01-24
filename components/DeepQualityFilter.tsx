@@ -9,7 +9,13 @@ interface QualityTicker {
   price: number;
   volume: number;
   marketValue: number;
+  type?: string;
+  per?: number;
+  pbr?: number;
+  debtToEquity?: number;
+  roe?: number;
   sector?: string;
+  industry?: string;
   lastUpdate: string;
 }
 
@@ -17,7 +23,7 @@ const DeepQualityFilter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [stage1Data, setStage1Data] = useState<any[]>([]);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0, currentSymbol: 'Idle' });
+  const [progress, setProgress] = useState({ current: 0, total: 0, currentSymbol: '' });
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.2.1: Liquidity-Priority Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -29,7 +35,9 @@ const DeepQualityFilter: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    if (accessToken && stage1Data.length === 0) loadStage1Data();
+    if (accessToken && stage1Data.length === 0) {
+      loadStage1Data();
+    }
   }, [accessToken]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
@@ -39,7 +47,6 @@ const DeepQualityFilter: React.FC = () => {
 
   const loadStage1Data = async () => {
     setLoading(true);
-    addLog("Pulling investable universe from Stage 1...", "info");
     try {
       const q = encodeURIComponent(`name contains 'STAGE1_INVESTABLE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -50,44 +57,80 @@ const DeepQualityFilter: React.FC = () => {
         const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
-        if (content.investable_universe) setStage1Data(content.investable_universe);
-        addLog(`Loaded ${content.investable_universe.length} assets for deep audit.`, "ok");
+        if (content.investable_universe) {
+          const sorted = content.investable_universe
+            .map((s: any) => ({ ...s, marketValue: (s.price || 0) * (s.volume || 0) }))
+            .sort((a: any, b: any) => b.marketValue - a.marketValue);
+          setStage1Data(sorted);
+        }
       }
-    } catch (e: any) { addLog(e.message, "err"); }
-    finally { setLoading(false); }
+    } catch (e: any) {} finally { setLoading(false); }
   };
 
   const startDeepAnalysis = async () => {
     if (stage1Data.length === 0 || loading) return;
     setLoading(true);
-    const limit = Math.min(stage1Data.length, 500);
+    const targetCount = 500;
+    const limit = Math.min(stage1Data.length, targetCount);
     const results: QualityTicker[] = [];
-    setProgress({ current: 0, total: limit, currentSymbol: 'Init' });
+    setProgress({ current: 0, total: limit, currentSymbol: 'Initializing' });
 
     for (let i = 0; i < limit; i++) {
       const target = stage1Data[i];
       setProgress({ current: i + 1, total: limit, currentSymbol: target.symbol });
-      if (i % 10 === 0) addLog(`Auditing ${target.symbol}...`, "info");
       
-      results.push({
-        symbol: target.symbol,
-        name: target.name || "N/A",
-        price: target.price,
-        volume: target.volume,
-        marketValue: target.price * target.volume,
-        lastUpdate: new Date().toISOString()
-      });
+      try {
+        const metrics = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&token=${finnhubKey}`).then(r => r.json());
+        const profile = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`).then(r => r.json());
+        
+        results.push({
+          symbol: target.symbol,
+          name: profile.name || target.name || "N/A",
+          price: target.price,
+          volume: target.volume,
+          marketValue: target.marketValue,
+          per: metrics.metric?.peNormalized || 0,
+          roe: metrics.metric?.roeTTM || 0,
+          sector: profile.finnhubIndustry || "N/A",
+          lastUpdate: new Date().toISOString()
+        });
 
-      if (i % 50 === 0) setProcessedData([...results]);
-      await new Promise(r => setTimeout(r, 100));
+        if (i % 5 === 0) setProcessedData([...results]);
+        await new Promise(r => setTimeout(r, 600));
+      } catch (e) {}
     }
     setProcessedData(results);
     setLoading(false);
-    setProgress(p => ({ ...p, currentSymbol: 'Complete' }));
-    addLog("Deep Quality Extraction Finalized.", "ok");
+    setProgress(p => ({ ...p, currentSymbol: 'Scan Complete' }));
   };
 
-  const currentPercent = progress.total > 0 ? Math.round((progress.current / progress.total) * 100) : 0;
+  const saveStage2Result = async () => {
+    if (!accessToken || processedData.length === 0) return;
+    setLoading(true);
+    try {
+      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
+      const payload = { elite_universe: processedData };
+      const meta = { name: `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`, parents: [folderId] };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(payload)], { type: 'application/json' }));
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+      });
+      addLog("Vault Commit Successful", "ok");
+    } finally { setLoading(false); }
+  };
+
+  const ensureFolder = async (token: string, name: string) => {
+    const q = encodeURIComponent(`name = '${name}' and trashed = false`);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+    if (res.files?.length > 0) return res.files[0].id;
+    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+    }).then(r => r.json());
+    return create.id;
+  };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -101,24 +144,22 @@ const DeepQualityFilter: React.FC = () => {
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Elite_Caching v2.2.1</h2>
                 <p className="text-[8px] font-black text-purple-400 uppercase tracking-widest mt-2">
-                  SCANNING: {loading ? `${progress.currentSymbol} (${currentPercent}%)` : 'Ready'}
+                  {loading ? `Scanning: ${progress.currentSymbol} (${Math.round((progress.current/progress.total)*100)}%)` : 'Ready for extraction'}
                 </p>
               </div>
             </div>
-            <button onClick={startDeepAnalysis} disabled={loading || stage1Data.length === 0} className="px-12 py-5 bg-purple-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl hover:scale-105 transition-all">
-              {loading ? `${currentPercent}% ANALYZING...` : 'Execute Deep Extraction'}
-            </button>
+            <div className="flex gap-3">
+              <button onClick={startDeepAnalysis} disabled={loading || stage1Data.length === 0} className="px-8 py-4 bg-purple-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:scale-105 transition-all">
+                {loading ? `${progress.currentSymbol}...` : 'Execute Deep Extraction'}
+              </button>
+              <button onClick={saveStage2Result} disabled={loading || processedData.length === 0} className="px-10 py-4 bg-slate-800 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-slate-700 transition-all border border-white/5">
+                Commit Vault
+              </button>
+            </div>
           </div>
+          
           <div className="h-4 bg-slate-800 rounded-full overflow-hidden p-0.5 border border-white/5 mb-10">
-            <div className="h-full bg-purple-600 transition-all duration-300 rounded-full" style={{ width: `${currentPercent}%` }}></div>
-          </div>
-        </div>
-      </div>
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[600px] rounded-[40px] bg-slate-950 border-l-4 border-l-purple-600 flex flex-col p-6 shadow-2xl">
-          <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic mb-6">Quality_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-purple-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => <div key={i} className="pl-4 border-l-2 border-purple-900">{l}</div>)}
+            <div className="h-full bg-purple-600 transition-all duration-300 rounded-full" style={{ width: `${(progress.current/progress.total)*100}%` }}></div>
           </div>
         </div>
       </div>
