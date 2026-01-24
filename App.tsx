@@ -18,6 +18,7 @@ const App: React.FC = () => {
   const [currentStage, setCurrentStage] = useState(0);
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
+  const [confidence, setConfidence] = useState(0);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
 
@@ -54,20 +55,26 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    setAiReport("> INITIALIZING SYSTEM SCAN...\n> COLLECTING NODE TELEMETRY...\n> ANALYZING IMPACT ON ALPHA DISCOVERY...");
+    setConfidence(0);
+    setAiReport("> INITIALIZING SYSTEM SCAN...\n> CHECKING API NODE INTEGRITY...\n> CALCULATING DATA RELIABILITY INDEX...");
     
     const report = await analyzePipelineStatus({
       currentStage,
       apiStatuses,
-      systemLoad: "BALANCED_LOAD"
+      systemLoad: "OPTIMIZED"
     });
     
+    // 신뢰도 계산 시뮬레이션
+    const connectedCount = apiStatuses.filter(s => s.isConnected).length;
+    const score = Math.floor((connectedCount / apiStatuses.length) * 100);
+    
     setAiReport(report);
+    setConfidence(score);
     setIsAiLoading(false);
   };
 
   return (
-    <div className="min-h-screen pb-10 p-3 md:p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
+    <div className="min-h-screen pb-10 p-3 md:p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden bg-slate-950">
       {/* Nexus Toolbar */}
       <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap">
         <div className="flex items-center space-x-2 mr-6 shrink-0">
@@ -99,31 +106,20 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* Unified API Row */}
+      {/* API Matrix & Market Pulse */}
       <div className="space-y-4">
         <div className="space-y-2">
           <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
-            <span className="mr-3">Nexus Node Status Matrix</span>
+            <span className="mr-3">Nexus Node Matrix</span>
             <div className="h-[1px] flex-1 bg-white/5"></div>
           </h2>
           <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
             {apiStatuses.map(status => (
-              <ApiStatusCard 
-                key={status.provider} 
-                status={status} 
-                isAuthConnected={isGdriveConnected} 
-              />
+              <ApiStatusCard key={status.provider} status={status} isAuthConnected={isGdriveConnected} />
             ))}
           </div>
         </div>
-
-        <div className="space-y-2">
-          <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
-            <span className="mr-3">Market Intelligence Terminal</span>
-            <div className="h-[1px] flex-1 bg-white/5"></div>
-          </h2>
-          <MarketTicker />
-        </div>
+        <MarketTicker />
       </div>
 
       <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
@@ -131,9 +127,9 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            className={`flex-shrink-0 px-5 py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
+            className={`flex-shrink-0 px-6 py-4 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
               currentStage === stage.id
-                ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10'
+                ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.4)] scale-105 z-10'
                 : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
             }`}
           >
@@ -142,93 +138,62 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      <main className="min-h-[450px]">
-        {currentStage === 0 && (
-          <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
-        )}
-        {currentStage === 1 && (
-          <PreliminaryFilter />
-        )}
-        {currentStage === 2 && (
-          <DeepQualityFilter />
-        )}
-        {currentStage === 3 && (
-          <FundamentalAnalysis />
-        )}
-        {currentStage === 4 && (
-          <TechnicalAnalysis />
-        )}
-        {currentStage === 5 && (
-          <IctAnalysis />
-        )}
-        {currentStage === 6 && (
-          <AlphaAnalysis />
-        )}
+      <main className="min-h-[500px]">
+        {currentStage === 0 && <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />}
+        {currentStage === 1 && <PreliminaryFilter />}
+        {currentStage === 2 && <DeepQualityFilter />}
+        {currentStage === 3 && <FundamentalAnalysis />}
+        {currentStage === 4 && <TechnicalAnalysis />}
+        {currentStage === 5 && <IctAnalysis />}
+        {currentStage === 6 && <AlphaAnalysis />}
       </main>
 
-      {/* AI Auditor Section 고도화 */}
-      <section className="glass-panel p-6 md:p-10 rounded-[40px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 p-10 opacity-[0.03] pointer-events-none">
-           <svg className="w-64 h-64 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
-        </div>
-
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6 relative z-10">
+      {/* AI Pipeline Auditor - 고도화 버전 */}
+      <section className="glass-panel p-8 md:p-12 rounded-[50px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden bg-slate-900/50">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-8">
           <div className="flex items-center space-x-6">
-             <div className="bg-emerald-500/10 p-4 rounded-3xl border border-emerald-500/20">
-                <svg className={`w-8 h-8 text-emerald-400 ${isAiLoading ? 'animate-spin' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+             <div className="bg-emerald-500/10 p-5 rounded-[28px] border border-emerald-500/20">
+                <svg className={`w-10 h-10 text-emerald-400 ${isAiLoading ? 'animate-spin' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
              </div>
              <div>
-                <h3 className="font-black text-white uppercase text-xl tracking-tighter italic">AI Pipeline Auditor</h3>
-                <div className="flex items-center space-x-2 mt-1">
-                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Alpha_Confidence_Shield</span>
-                   <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Model: Gemini_3_Flash_Diagnostics</p>
+                <h3 className="font-black text-white uppercase text-2xl tracking-tighter italic">AI_Pipeline_Auditor</h3>
+                <div className="flex items-center space-x-3 mt-2">
+                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">Data_Integrity_Guardian</span>
+                   <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest italic">Monitoring: Alpha Accuracy & Node Health</p>
                 </div>
              </div>
           </div>
-          <div className="flex gap-3 w-full lg:w-auto">
-             <div className="hidden md:flex flex-col items-end mr-4">
-                <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Audit Role</p>
-                <p className="text-[9px] font-bold text-slate-400 italic text-right max-w-[200px]">데이터 오염 방지 및 분석 신뢰도 무결성 검증</p>
-             </div>
-             <button 
-               onClick={runAiAnalysis}
-               disabled={isAiLoading}
-               className={`flex-1 lg:flex-none px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/20'}`}
-             >
-               {isAiLoading ? 'Synthesizing Report...' : 'Execute Operational Audit'}
-             </button>
-          </div>
+          <button 
+             onClick={runAiAnalysis}
+             disabled={isAiLoading}
+             className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isAiLoading ? 'bg-slate-800 text-slate-500' : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xl shadow-emerald-600/20 active:scale-95'}`}
+          >
+             {isAiLoading ? 'Scanning Node Sync...' : 'Execute Operational Audit'}
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative z-10">
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
            <div className="lg:col-span-3">
-              <div className="bg-black/60 p-8 rounded-[32px] border border-white/5 font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[180px] whitespace-pre-wrap shadow-inner overflow-y-auto max-h-[400px]">
-                {aiReport || "> CORE_SYSTEM_IDLE... \n> Awaiting manual audit trigger. \n> Auditor role: Verifying if API nodes are providing valid stock data for Stage " + currentStage + "."}
+              <div className="bg-black/80 p-8 rounded-[40px] border border-white/5 font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[220px] whitespace-pre-wrap shadow-inner overflow-y-auto max-h-[400px]">
+                {aiReport || "> CORE_AUDITOR_READY... \n> Waiting for telemetry signal. \n> Auditor 역할: 노드 무결성 검증을 통해 종목 분석의 신뢰도를 보증합니다."}
               </div>
            </div>
            
-           <div className="space-y-4">
-              <div className="bg-white/5 p-6 rounded-[24px] border border-white/5">
-                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-3">Impact Analysis</p>
-                 <div className="space-y-3">
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">Data Integrity</span>
-                       <span className="text-[9px] font-black text-emerald-500">NOMINAL</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">Alpha Bias</span>
-                       <span className="text-[9px] font-black text-blue-500">ZERO</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                       <span className="text-[9px] font-bold text-slate-400 uppercase">Node Sync</span>
-                       <span className="text-[9px] font-black text-amber-500">ACTIVE</span>
-                    </div>
+           <div className="space-y-6">
+              <div className="bg-white/5 p-8 rounded-[32px] border border-white/5 text-center">
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Alpha_Confidence_Index</p>
+                 <div className="relative inline-flex items-center justify-center">
+                    <svg className="w-32 h-32 transform -rotate-90">
+                       <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-800" />
+                       <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={364} strokeDashoffset={364 - (364 * confidence) / 100} className="text-emerald-500 transition-all duration-1000" />
+                    </svg>
+                    <span className="absolute text-2xl font-black text-white italic">{confidence}%</span>
                  </div>
               </div>
               <div className="p-6 bg-emerald-500/5 rounded-[24px] border border-emerald-500/10">
-                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-2 italic">Auditor Tip</p>
-                 <p className="text-[8px] text-slate-500 leading-relaxed font-bold uppercase">
-                   API 노드 중 하나라도 비활성화되면 6단계 Alpha 분석 시 데이터 결손으로 인해 Conviction 점수가 하향 조정될 수 있습니다.
+                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 italic">Analysis Impact</p>
+                 <p className="text-[8px] text-slate-400 leading-relaxed font-bold uppercase">
+                   현재 신뢰도 지수가 {confidence}%입니다. 지수가 낮을 경우, API 할당량 부족으로 인해 최종 단계의 Conviction 점수가 부정확할 수 있습니다.
                  </p>
               </div>
            </div>
