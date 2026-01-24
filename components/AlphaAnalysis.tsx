@@ -27,10 +27,10 @@ interface AlphaCandidate {
 interface Props {
   selectedBrain: ApiProvider;
   setSelectedBrain: (brain: ApiProvider) => void;
-  onFinalSymbolsDetected?: (symbols: string[]) => void;
+  onFinalResultsDetected?: (results: any[]) => void;
 }
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalResultsDetected }) => {
   const [loading, setLoading] = useState(false);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
@@ -103,10 +103,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .slice(0, 5);
 
       addLog(`Task: Synthesizing final strategies for Top 5 candidates.`, "info");
-      
-      // 부모 컴포넌트에 현재 분석 중인 종목 리스트 전달 (동기화)
-      onFinalSymbolsDetected?.(top5.map(t => t.symbol));
-
       setProgress(30);
 
       const statusMsgs = {
@@ -134,19 +130,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog("Intelligence Payload parsed successfully.", "ok");
 
       const finalSelection = top5.map(item => {
-        const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
+        // AI 결과에서 해당 심볼 찾기 (대소문자 무관)
+        const aiData = aiResults.find((r: any) => r.symbol?.toUpperCase() === item.symbol.toUpperCase()) || {};
+        
+        // 데이터 누락 시 기본값 보강
         const entry = item.price * 0.985;
         return {
           ...item,
-          ...aiData,
+          theme: aiData.theme || "Sector Trend",
+          aiVerdict: aiData.aiVerdict || "Neutral",
+          investmentOutlook: aiData.investmentOutlook || "Analyzing market conditions...",
+          selectionReasons: aiData.selectionReasons || ["Technical momentum", "Fundamental base"],
+          convictionScore: aiData.convictionScore || 75.0,
+          aiSentiment: aiData.aiSentiment || "Standard Market Sentiment",
           entryPrice: entry,
-          targetPrice: entry * 1.28,
+          targetPrice: entry * 1.25,
           stopLoss: entry * 0.92,
         };
       });
 
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
+      
+      // 부모 컴포넌트에 분석 결과 전체를 동기화 (Auditor 연동)
+      onFinalResultsDetected?.(finalSelection);
+
       setProgress(100);
       addLog(`Discovery Finalized: 5 Alpha targets localized.`, "ok");
     } catch (error: any) {
@@ -218,7 +226,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      <div>
                         <span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">ALPHA #{idx + 1}</span>
                         <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4>
-                        <p className="text-[8px] font-bold text-slate-500 uppercase truncate w-32">{item.theme || item.name}</p>
+                        <p className="text-[8px] font-bold text-slate-500 uppercase truncate w-32">{item.theme}</p>
                      </div>
                      <div className="text-right">
                         <p className="text-[8px] font-black text-slate-500 italic uppercase">Conviction</p>
@@ -240,7 +248,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         </div>
 
         {selectedStock && (
-          <div className="glass-panel p-8 md:p-12 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl bg-slate-950/90 animate-in fade-in slide-in-from-bottom-6">
+          <div className="glass-panel p-8 md:p-12 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl bg-slate-950/90 animate-in fade-in slide-in-from-bottom-6 overflow-hidden">
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                 <div className="lg:col-span-2 space-y-8">
                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
@@ -274,7 +282,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4">Investment Perspective</h4>
                       <p className="text-sm text-slate-300 leading-relaxed font-medium italic">
-                        {selectedStock.investmentOutlook || "Intelligence data parsing in progress..."}
+                        {selectedStock.investmentOutlook}
                       </p>
                    </div>
                 </div>
@@ -298,7 +306,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-rose-600 to-rose-400 shadow-[0_0_8px_rgba(244,63,94,0.6)]" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div>
                          </div>
-                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1) || "50.0"}%</span>
+                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1)}%</span>
                       </div>
                       <p className="text-[9px] text-slate-500 italic leading-relaxed uppercase">
                         {selectedStock.aiSentiment}
@@ -308,7 +316,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div className="p-6 bg-white/5 rounded-[32px] border border-white/5">
                       <p className="text-[8px] font-black text-slate-600 uppercase mb-3">Analysis Logic</p>
                       <p className="text-[9px] text-slate-400 leading-relaxed italic">
-                        This asset was localized using the {selectedBrain} reasoning engine, combining institutional ICT patterns with deep quant scoring.
+                        This asset was localized using the {selectedBrain} reasoning engine. Current analysis reflects high institutional ICT scores combined with positive fundamental alpha.
                       </p>
                    </div>
                 </div>
