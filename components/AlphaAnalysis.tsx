@@ -31,7 +31,7 @@ const AlphaAnalysis: React.FC = () => {
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.5.0: Dynamic Intelligence Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.5.1: Intelligence Link Stable.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -54,7 +54,7 @@ const AlphaAnalysis: React.FC = () => {
   const loadStage5Data = async () => {
     if (!accessToken) return;
     setLoading(true);
-    addLog("Handshaking with Stage 5 Cloud Vault...", "info");
+    addLog("Syncing with Stage 5 Cloud Vault...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
@@ -63,7 +63,7 @@ const AlphaAnalysis: React.FC = () => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Critical: Stage 5 input matrix missing. Pipeline halted.", "err");
+        addLog("Stage 5 input data not found. Check pipeline flow.", "err");
         setLoading(false);
         return;
       }
@@ -74,10 +74,10 @@ const AlphaAnalysis: React.FC = () => {
 
       if (content.ict_universe) {
         setElite50(content.ict_universe);
-        addLog(`Vault Synchronized: ${content.ict_universe.length} high-alpha candidates loaded.`, "ok");
+        addLog(`Successfully loaded ${content.ict_universe.length} high-alpha nodes.`, "ok");
       }
     } catch (e: any) {
-      addLog(`Sync Error: ${e.message}`, "err");
+      addLog(`Vault Access Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
     }
@@ -97,45 +97,45 @@ const AlphaAnalysis: React.FC = () => {
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 5);
 
-      addLog(`Task: Evaluating Top 5 Alpha candidates for strategy synthesis.`, "info");
+      addLog(`Evaluated Top 5 candidates for strategy synthesis.`, "info");
       setProgress(30);
 
       const statusMsgs = {
-        [ApiProvider.GEMINI]: "Synthesizing through Google Multi-Modal Reasoning Layer...",
-        [ApiProvider.CHATGPT]: "Accessing OpenAI Elite Inference Cluster (Org-vI8)...",
-        [ApiProvider.PERPLEXITY]: "Scanning Live Web Indices & Real-time Institutional Flows..."
+        [ApiProvider.GEMINI]: "Connecting to Google Cloud AI Cluster...",
+        [ApiProvider.CHATGPT]: "Handshaking with OpenAI Enterprise Layer...",
+        [ApiProvider.PERPLEXITY]: "Consulting Perplexity Real-time Search Indices..."
       };
 
       addLog(`[CONNECTING] ${statusMsgs[selectedBrain] || 'AI Handshake...'}`, "warn");
       
       const aiResults = await generateAlphaSynthesis(top5, selectedBrain);
       
-      if (!aiResults) {
-        addLog(`Link Failure: ${selectedBrain} API returned 0 payload. Check Entitlements.`, "err");
+      if (!aiResults || aiResults.length === 0) {
+        addLog(`Protocol Error: ${selectedBrain} returned null or invalid payload. Check API Key validity.`, "err");
         throw new Error("AI_HANDSHAKE_FAILED");
       }
 
       setProgress(85);
-      addLog("Intelligence Payload received. Validating JSON integrity...", "ok");
+      addLog("Intelligence Payload parsed successfully. Mapping final strategy...", "ok");
 
       const finalSelection = top5.map(item => {
         const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
-        const entry = item.price * 0.985;
+        const entry = item.price * 0.982;
         return {
           ...item,
           ...aiData,
           entryPrice: entry,
-          targetPrice: entry * 1.22,
-          stopLoss: entry * 0.94,
+          targetPrice: entry * 1.25,
+          stopLoss: entry * 0.93,
         };
       });
 
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
       setProgress(100);
-      addLog(`Discovery Finalized: 5 Institutional-Grade strategies deployed.`, "ok");
+      addLog(`Discovery Finalized: 5 Assets localized by ${selectedBrain}.`, "ok");
     } catch (error: any) {
-      addLog(`Core Stop: ${error.message}`, "err");
+      addLog(`Core Error: ${error.message}`, "err");
     } finally {
       setLoading(false);
     }
@@ -190,7 +190,7 @@ const AlphaAnalysis: React.FC = () => {
               disabled={loading || elite50.length === 0}
               className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
             >
-              {loading ? 'Synthesizing...' : 'Execute Strategy Brain'}
+              {loading ? 'Processing...' : 'Execute Strategy Brain'}
             </button>
           </div>
 
@@ -280,9 +280,6 @@ const AlphaAnalysis: React.FC = () => {
                    </div>
                    
                    <div className="p-8 bg-rose-500/10 rounded-[40px] border border-rose-500/20 shadow-xl relative overflow-hidden">
-                      <div className="absolute top-0 right-0 p-4 opacity-5">
-                         <svg className="w-20 h-20 text-white" fill="currentColor" viewBox="0 0 24 24"><path d="M13 10V3L4 14h7v7l9-11h-7z"/></svg>
-                      </div>
                       <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4">AI Sentiment Index</p>
                       <div className="flex items-center space-x-4 mb-4">
                          <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden">
@@ -319,12 +316,6 @@ const AlphaAnalysis: React.FC = () => {
                 {l}
               </div>
             ))}
-          </div>
-          <div className="mt-6 p-4 bg-slate-900/40 rounded-2xl border border-white/5">
-             <div className="flex justify-between items-center text-[8px] font-black uppercase tracking-widest text-slate-600">
-                <span>Processor_State</span>
-                <span className={loading ? 'text-rose-500' : 'text-slate-500'}>{loading ? 'In_Inference' : 'Standby'}</span>
-             </div>
           </div>
         </div>
       </div>
