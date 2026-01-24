@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
+import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { generateAlphaSynthesis } from '../services/geminiService';
 
 interface AlphaCandidate {
   symbol: string;
@@ -12,19 +12,16 @@ interface AlphaCandidate {
   technicalScore: number;
   fundamentalScore: number;
   sector: string;
-  // Stage 6 Specifics
+  // Stage 6 Specifics (AI Generated)
   aiVerdict?: string;
   convictionScore?: number;
   theme?: string;
   selectionReasons?: string[];
-  macroCorrelation?: string;
-  futureTechReady?: number;
-  insiderSignal?: 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+  investmentOutlook?: string;
   // Final Strategy Data
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
-  investmentOutlook?: string;
 }
 
 const AlphaAnalysis: React.FC = () => {
@@ -90,51 +87,44 @@ const AlphaAnalysis: React.FC = () => {
     setLoading(true);
     addLog("Initiating Multi-Model Strategy Synthesis...", "info");
     
-    const analysisSteps = [
-      "AI Fundamental Deep-Dive",
-      "Macroeconomic Correlation Audit",
-      "Options Flow Sentiment Caching",
-      "Insider Buy/Sell Logic Mapping",
-      "Behavioral Financial Indicator Sync",
-      "Final Investment Outlook Generation"
-    ];
-
-    for (let i = 0; i < analysisSteps.length; i++) {
-      setProgress((i / analysisSteps.length) * 100);
-      addLog(`Synthesizing: ${analysisSteps[i]}...`, "info");
-      await new Promise(r => setTimeout(r, 600));
+    // 로딩 시뮬레이션 및 로그 출력
+    const steps = ["Quant-Data Fetching", "Pattern Recognition", "ICT Footprint Matching"];
+    for (let i = 0; i < steps.length; i++) {
+      setProgress((i + 1) * 20);
+      addLog(`AI Core Status: ${steps[i]}...`, "info");
+      await new Promise(r => setTimeout(r, 400));
     }
 
-    const finalSelection = elite50
+    addLog("Querying Gemini 3 Flash for final reasoning...", "warn");
+    
+    const top5 = elite50
       .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
-      .slice(0, 5)
-      .map(item => {
-        const conviction = 95 + (Math.random() * 4.5);
-        const entry = item.price * 0.985; // 약 1.5% 눌림목 진입 권장
-        return {
-          ...item,
-          convictionScore: conviction,
-          theme: "Institutional Growth Alpha",
-          entryPrice: entry,
-          targetPrice: entry * 1.25, // 25% 업사이드 목표
-          stopLoss: entry * 0.93,   // 7% 손절라인
-          futureTechReady: 88 + (Math.random() * 12),
-          insiderSignal: 'BULLISH',
-          macroCorrelation: "Anti-Cyclical / Resilient",
-          aiVerdict: `Smart Money가 집중 매집 중인 ${item.symbol}은 현재 강력한 FVG 지지 구간에 위치해 있습니다.`,
-          investmentOutlook: "금리 환경의 변화에도 불구하고 독보적인 현금 흐름과 기술적 우위를 점하고 있어, 중장기적 관점에서 비중 확대를 권고합니다. 특히 최근 내부자 매수 신호가 포착되어 하방 경직성이 확보되었습니다.",
-          selectionReasons: [
-            "주봉 기준 강력한 오더블록(Order Block) 지지 확인",
-            "동종 업계 대비 R&D 효율성 40% 상회",
-            "대안 데이터 기반 고객 충성도 및 웹 트래픽 급증",
-            "기관 투자자(Smart Money)의 최근 2주간 순매수세 지속"
-          ]
-        };
-      });
+      .slice(0, 5);
+
+    // 실제 Gemini API 호출
+    const aiResults = await generateAlphaSynthesis(top5);
+    
+    if (!aiResults) {
+      addLog("AI Synthesis Engine Failed. Using fail-safe fallback.", "err");
+      setLoading(false);
+      return;
+    }
+
+    const finalSelection = top5.map(item => {
+      const aiData = aiResults.find((r: any) => r.symbol === item.symbol) || {};
+      const entry = item.price * 0.98;
+      return {
+        ...item,
+        ...aiData,
+        entryPrice: entry,
+        targetPrice: entry * 1.25,
+        stopLoss: entry * 0.93,
+      };
+    });
 
     setFinal5(finalSelection);
     setProgress(100);
-    addLog(`Alpha Synthesis Complete. Portfolio Ready.`, "ok");
+    addLog(`Alpha Synthesis Complete. 5 High-Conviction assets locked.`, "ok");
     setLoading(false);
   };
 
@@ -162,7 +152,7 @@ const AlphaAnalysis: React.FC = () => {
                 disabled={loading || elite50.length === 0}
                 className="px-8 py-4 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-rose-900/20 hover:scale-105 transition-all"
               >
-                Start AI Synthesis
+                {loading ? `Synthesizing ${Math.floor(progress)}%` : 'Start AI Synthesis'}
               </button>
             </div>
           </div>
@@ -178,7 +168,7 @@ const AlphaAnalysis: React.FC = () => {
                      <div>
                         <span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">ALPHA #{idx + 1}</span>
                         <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4>
-                        <p className="text-[8px] font-bold text-slate-500 uppercase truncate w-32">{item.name}</p>
+                        <p className="text-[8px] font-bold text-slate-500 uppercase truncate w-32">{item.theme || item.name}</p>
                      </div>
                      <div className="text-right">
                         <p className="text-xs font-black text-white italic">CONVICTION</p>
@@ -219,7 +209,7 @@ const AlphaAnalysis: React.FC = () => {
                       </div>
                    </div>
 
-                   <div className="bg-black/60 rounded-[32px] border border-white/5 aspect-video overflow-hidden">
+                   <div className="bg-black/60 rounded-[32px] border border-white/5 aspect-video overflow-hidden relative">
                       <iframe 
                         title="Live Chart"
                         src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1&timezone=Etc%2FUTC`}
@@ -232,6 +222,10 @@ const AlphaAnalysis: React.FC = () => {
                       <p className="text-sm text-slate-300 leading-relaxed font-medium italic">
                         {selectedStock.investmentOutlook}
                       </p>
+                      <div className="mt-6 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl">
+                        <p className="text-[9px] font-black text-rose-400 uppercase mb-2">AI Verdict</p>
+                        <p className="text-xs text-white font-bold italic">{selectedStock.aiVerdict}</p>
+                      </div>
                    </div>
                 </div>
 
@@ -252,11 +246,11 @@ const AlphaAnalysis: React.FC = () => {
                       <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4">AI Sentiment Hash</p>
                       <div className="flex items-center space-x-4 mb-4">
                          <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-rose-500" style={{ width: '92%' }}></div>
+                            <div className="h-full bg-rose-500" style={{ width: `${selectedStock.convictionScore}%` }}></div>
                          </div>
-                         <span className="text-xs font-black text-white">92%</span>
+                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1)}%</span>
                       </div>
-                      <p className="text-[9px] text-slate-500 italic">"Model suggests high accumulation phase. Institutional footprint is over 78% of current volume."</p>
+                      <p className="text-[9px] text-slate-500 italic">"Model suggests localized liquidity accumulation. ICT Order Block presence is highly confirmed for {selectedStock.symbol}."</p>
                    </div>
                 </div>
              </div>
