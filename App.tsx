@@ -18,22 +18,14 @@ const App: React.FC = () => {
   const [currentStage, setCurrentStage] = useState(0);
   const [aiReport, setAiReport] = useState<string | null>(null);
   const [isAiLoading, setIsAiLoading] = useState(false);
-  const [confidence, setConfidence] = useState(0);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
-  const [isProd, setIsProd] = useState(false);
 
   const refreshApiStatuses = useCallback(() => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
     
     setApiStatuses(() => {
-      const orderedConfigs = [
-        ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
-        ...API_CONFIGS.filter(c => c.category === 'Intelligence'),
-        ...API_CONFIGS.filter(c => c.category === 'Infrastructure')
-      ];
-
-      return orderedConfigs.map(config => {
+      return API_CONFIGS.map(config => {
         const isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : !!config.key;
         return {
           provider: config.provider,
@@ -47,90 +39,61 @@ const App: React.FC = () => {
   }, []);
 
   useEffect(() => {
-    setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
     refreshApiStatuses();
     const interval = setInterval(refreshApiStatuses, 5000);
     return () => clearInterval(interval);
   }, [refreshApiStatuses]);
 
-  const runAiAnalysis = async () => {
+  const runAiAudit = async () => {
     setIsAiLoading(true);
-    setConfidence(0);
-    setAiReport("> INITIALIZING SYSTEM SCAN...\n> CHECKING API NODE INTEGRITY...\n> CALCULATING DATA RELIABILITY INDEX...");
-    
     const report = await analyzePipelineStatus({
       currentStage,
       apiStatuses,
       systemLoad: "OPTIMIZED"
     });
-    
-    // 신뢰도 계산 시뮬레이션
-    const connectedCount = apiStatuses.filter(s => s.isConnected).length;
-    const score = Math.floor((connectedCount / apiStatuses.length) * 100);
-    
     setAiReport(report);
-    setConfidence(score);
     setIsAiLoading(false);
   };
 
   return (
-    <div className="min-h-screen pb-10 p-3 md:p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden bg-slate-950">
+    <div className="min-h-screen pb-10 p-3 md:p-6 space-y-8 max-w-[1600px] mx-auto overflow-x-hidden bg-[#030712] text-slate-200">
       {/* Nexus Toolbar */}
-      <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap">
-        <div className="flex items-center space-x-2 mr-6 shrink-0">
-          <div className={`w-1.5 h-1.5 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
-          <span>{isProd ? 'Production_Node' : 'Development_Node'}</span>
-        </div>
-        <div className="flex items-center space-x-2 mr-6 shrink-0">
-          <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
-          <span>Cloud_Vault: {isGdriveConnected ? 'Linked' : 'Disconnected'}</span>
+      <div className="flex items-center glass-panel px-4 py-3 rounded-xl border-white/5 text-[9px] font-black uppercase tracking-widest text-slate-500 whitespace-nowrap overflow-x-auto no-scrollbar">
+        <div className="flex items-center space-x-2 mr-8 shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-blue-500"></div>
+          <span>NEXUS NODE STATUS MATRIX</span>
         </div>
         <div className="flex items-center space-x-2 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
-          <span>Pipeline_State: Stage_{currentStage}</span>
+          <span>PIPELINE_STATE: STAGE_{currentStage}</span>
         </div>
-        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity">Nexus_Source</a>
       </div>
 
-      <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
-        <div>
-          <p className="text-blue-500 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic">US Alpha Seeker Infrastructure</p>
-          <h1 className="text-4xl md:text-5xl font-black tracking-tighter text-white italic uppercase">US_Alpha_Seeker</h1>
-        </div>
-        <div className="flex items-center space-x-3 glass-panel px-4 py-2.5 rounded-xl border-white/5">
-           <div className="text-right">
-             <p className="text-[7px] text-slate-500 font-black uppercase">Architect</p>
-             <p className="text-xs font-black text-white italic uppercase">InnocentBae</p>
-           </div>
-           <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black text-xs">IB</div>
-        </div>
-      </header>
-
-      {/* API Matrix & Market Pulse */}
+      {/* API Status Matrix */}
       <div className="space-y-4">
-        <div className="space-y-2">
-          <h2 className="text-[8px] font-black text-slate-600 uppercase tracking-[0.3em] italic flex items-center px-1">
-            <span className="mr-3">Nexus Node Matrix</span>
-            <div className="h-[1px] flex-1 bg-white/5"></div>
-          </h2>
-          <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
-            {apiStatuses.map(status => (
-              <ApiStatusCard key={status.provider} status={status} isAuthConnected={isGdriveConnected} />
-            ))}
-          </div>
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2">
+          {apiStatuses.map(status => (
+            <ApiStatusCard key={status.provider} status={status} isAuthConnected={isGdriveConnected} />
+          ))}
+        </div>
+        <div className="flex items-center space-x-3 px-1">
+           <span className="text-[9px] font-black text-slate-600 uppercase tracking-[0.3em] italic whitespace-nowrap">Market Intelligence Terminal</span>
+           <div className="h-[1px] flex-1 bg-white/5"></div>
         </div>
         <MarketTicker />
       </div>
 
-      <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
+      {/* Navigation Stage Selectors */}
+      <nav className="flex space-x-3 overflow-x-auto no-scrollbar py-2">
         {STAGES_FLOW.map((stage) => (
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            className={`flex-shrink-0 px-6 py-4 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
+            className={`flex-shrink-0 px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest transition-all border-2 ${
               currentStage === stage.id
-                ? 'bg-blue-600 text-white border-blue-400 shadow-[0_0_20px_rgba(37,99,235,0.4)] scale-105 z-10'
-                : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
+                ? 'bg-[#2563eb] text-white border-[#3b82f6] shadow-[0_0_25px_rgba(37,99,235,0.3)] scale-105 z-10'
+                : 'bg-slate-900/30 text-slate-500 border-white/5 hover:bg-slate-800/40'
             }`}
           >
             {stage.label}
@@ -138,6 +101,7 @@ const App: React.FC = () => {
         ))}
       </nav>
 
+      {/* Main Analysis Engine */}
       <main className="min-h-[500px]">
         {currentStage === 0 && <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />}
         {currentStage === 1 && <PreliminaryFilter />}
@@ -148,56 +112,44 @@ const App: React.FC = () => {
         {currentStage === 6 && <AlphaAnalysis />}
       </main>
 
-      {/* AI Pipeline Auditor - 고도화 버전 */}
-      <section className="glass-panel p-8 md:p-12 rounded-[50px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden bg-slate-900/50">
-        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-8">
-          <div className="flex items-center space-x-6">
-             <div className="bg-emerald-500/10 p-5 rounded-[28px] border border-emerald-500/20">
-                <svg className={`w-10 h-10 text-emerald-400 ${isAiLoading ? 'animate-spin' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 12a9 9 0 01-9 9m9-9a9 9 0 00-9-9m9 9H3m9 9a9 9 0 01-9-9m9 9c1.657 0 3-4.03 3-9s-1.343-9-3-9m0 18c-1.657 0-3-4.03-3-9s1.343-9 3-9m-9 9a9 9 0 019-9" /></svg>
-             </div>
-             <div>
-                <h3 className="font-black text-white uppercase text-2xl tracking-tighter italic">AI_Pipeline_Auditor</h3>
-                <div className="flex items-center space-x-3 mt-2">
-                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-1 rounded border border-emerald-500/20">Data_Integrity_Guardian</span>
-                   <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest italic">Monitoring: Alpha Accuracy & Node Health</p>
-                </div>
-             </div>
-          </div>
-          <button 
-             onClick={runAiAnalysis}
-             disabled={isAiLoading}
-             className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isAiLoading ? 'bg-slate-800 text-slate-500' : 'bg-emerald-600 text-white hover:bg-emerald-500 shadow-xl shadow-emerald-600/20 active:scale-95'}`}
-          >
-             {isAiLoading ? 'Scanning Node Sync...' : 'Execute Operational Audit'}
-          </button>
-        </div>
-
-        <div className="grid grid-cols-1 lg:grid-cols-4 gap-10">
-           <div className="lg:col-span-3">
-              <div className="bg-black/80 p-8 rounded-[40px] border border-white/5 font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[220px] whitespace-pre-wrap shadow-inner overflow-y-auto max-h-[400px]">
-                {aiReport || "> CORE_AUDITOR_READY... \n> Waiting for telemetry signal. \n> Auditor 역할: 노드 무결성 검증을 통해 종목 분석의 신뢰도를 보증합니다."}
+      {/* AI Pipeline Auditor - Scrolled Image Match */}
+      <section className="glass-panel p-10 md:p-14 rounded-[45px] border-t-4 border-t-[#10b981] bg-slate-900/40 relative shadow-2xl">
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center gap-10">
+           <div className="flex items-center space-x-8">
+              <div className="bg-[#10b981]/10 p-6 rounded-[30px] border border-[#10b981]/20">
+                 <svg className={`w-12 h-12 text-[#10b981] ${isAiLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+              </div>
+              <div className="space-y-3">
+                 <h3 className="font-black text-white uppercase text-3xl italic tracking-tighter">AI PIPELINE AUDITOR</h3>
+                 <div className="flex items-center space-x-4">
+                    <span className="text-[8px] font-black bg-[#10b981]/20 text-[#10b981] px-3 py-1 rounded border border-[#10b981]/30 tracking-widest uppercase">ALPHA_CONFIDENCE_SHIELD</span>
+                    <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Model: GEMINI_3_FLASH_DIAGNOSTICS</p>
+                 </div>
               </div>
            </div>
            
-           <div className="space-y-6">
-              <div className="bg-white/5 p-8 rounded-[32px] border border-white/5 text-center">
-                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Alpha_Confidence_Index</p>
-                 <div className="relative inline-flex items-center justify-center">
-                    <svg className="w-32 h-32 transform -rotate-90">
-                       <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="8" fill="transparent" className="text-slate-800" />
-                       <circle cx="64" cy="64" r="58" stroke="currentColor" strokeWidth="8" fill="transparent" strokeDasharray={364} strokeDashoffset={364 - (364 * confidence) / 100} className="text-emerald-500 transition-all duration-1000" />
-                    </svg>
-                    <span className="absolute text-2xl font-black text-white italic">{confidence}%</span>
-                 </div>
+           <div className="flex flex-col lg:items-end gap-6 w-full lg:w-auto">
+              <div className="text-right">
+                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AUDIT ROLE</p>
+                 <p className="text-[10px] text-[#10b981] font-black italic">데이터 오염 방지 및 분석 신뢰도 무결성 검증</p>
               </div>
-              <div className="p-6 bg-emerald-500/5 rounded-[24px] border border-emerald-500/10">
-                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 italic">Analysis Impact</p>
-                 <p className="text-[8px] text-slate-400 leading-relaxed font-bold uppercase">
-                   현재 신뢰도 지수가 {confidence}%입니다. 지수가 낮을 경우, API 할당량 부족으로 인해 최종 단계의 Conviction 점수가 부정확할 수 있습니다.
-                 </p>
-              </div>
+              <button 
+                onClick={runAiAudit} 
+                disabled={isAiLoading} 
+                className={`px-14 py-6 rounded-2xl text-[11px] font-black uppercase tracking-widest transition-all shadow-2xl ${
+                  isAiLoading ? 'bg-slate-800 text-slate-500' : 'bg-[#10b981] text-white hover:bg-[#059669] hover:scale-105 active:scale-95'
+                }`}
+              >
+                {isAiLoading ? 'AUDITING NODE...' : 'EXECUTE OPERATIONAL AUDIT'}
+              </button>
            </div>
         </div>
+
+        {aiReport && (
+          <div className="mt-12 bg-black/60 p-10 rounded-[40px] border border-white/5 font-mono text-xs md:text-sm text-[#10b981]/90 leading-relaxed min-h-[200px] whitespace-pre-wrap animate-in fade-in slide-in-from-bottom-4">
+            {aiReport}
+          </div>
+        )}
       </section>
     </div>
   );
