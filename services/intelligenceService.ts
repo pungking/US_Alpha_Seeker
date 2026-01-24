@@ -7,7 +7,7 @@ const OPENAI_ORG_ID = "org-vI8HiEH3t5pkhYmkdyvuGYAt";
 
 const ALPHA_SCHEMA_PROMPT = `
 당신은 전 세계 자산운용사의 0.1%에 속하는 퀀트 전략가입니다.
-반드시 다음 JSON 배열 형식을 엄격히 지켜 응답하십시오:
+반드시 다음 JSON 배열 형식을 엄격히 지켜 응답하십시오. 다른 설명은 절대 하지 마십시오:
 [
   {
     "symbol": "종목코드",
@@ -21,17 +21,32 @@ const ALPHA_SCHEMA_PROMPT = `
 ]
 `;
 
+/**
+ * 텍스트 내에서 JSON 배열을 정밀하게 추출합니다.
+ * 마크다운 태그, 서두 인사말 등을 모두 제거합니다.
+ */
 function sanitizeAndParseJson(text: string): any[] | null {
   try {
-    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    const match = cleanText.match(/\[[\s\S]*\]/);
-    if (match) {
-      const jsonCandidate = match[0].replace(/,\s*\]/g, ']');
-      return JSON.parse(jsonCandidate);
+    // 1. 기본적인 청소
+    let cleanText = text.trim();
+    
+    // 2. 마크다운 코드 블록 제거
+    cleanText = cleanText.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // 3. 최외곽 [ ] 찾기
+    const firstBracket = cleanText.indexOf('[');
+    const lastBracket = cleanText.lastIndexOf(']');
+    
+    if (firstBracket !== -1 && lastBracket !== -1) {
+      const jsonCandidate = cleanText.substring(firstBracket, lastBracket + 1);
+      // 4. 불필요한 쉼표나 줄바꿈 처리
+      const fixedJson = jsonCandidate.replace(/,\s*\]/g, ']');
+      return JSON.parse(fixedJson);
     }
+    
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON Parsing Failed", e);
+    console.error("Deep JSON Parse Failure. Raw input:", text.substring(0, 100));
     return null;
   }
 }
@@ -47,38 +62,39 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     데이터셋: ${JSON.stringify(candidates)}
     
     [필수 지침]
-    1. Perplexity 사용 시 최신 뉴스 데이터를 반영할 것.
+    1. 최신 실시간 시장 데이터를 반영할 것.
     2. 모든 응답은 한국어로 작성할 것.
-    3. 반드시 JSON 배열 형식만 출력할 것.
+    3. 반드시 순수한 JSON 배열 형식만 출력할 것. 다른 텍스트는 금지한다.
     ${ALPHA_SCHEMA_PROMPT}
   `;
 
   try {
-    // 1. Google Gemini (Pro -> Flash Auto Fallback)
+    // 1. Google Gemini (503/429 대응 강력한 Fallback)
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       try {
-        // First Attempt: Pro Model
         const response = await ai.models.generateContent({
           model: 'gemini-3-pro-preview',
           contents: prompt,
           config: {
-            thinkingConfig: { thinkingBudget: 16384 },
+            thinkingConfig: { thinkingBudget: 8192 }, // 부하를 줄이기 위해 예산 최적화
             responseMimeType: "application/json"
           }
         });
         const parsed = sanitizeAndParseJson(response.text || "");
         if (parsed) return { data: parsed };
+        throw new Error("PRO_EMPTY_OR_INVALID_JSON");
       } catch (proError: any) {
-        if (proError.message.includes("429") || proError.message.includes("limit: 0")) {
-          console.warn("Gemini Pro Quota Exceeded. Falling back to Flash...");
-          // Second Attempt: Flash Model (Higher Quota)
+        // 503(Overloaded) 또는 429(Quota) 발생 시 Flash 모델로 긴급 전환
+        const isTransient = proError.message.includes("503") || proError.message.includes("overloaded") || proError.message.includes("429");
+        if (isTransient) {
+          console.warn("Gemini Pro Node Overloaded. Switching to Flash Stability Node...");
           const flashRes = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt + " (Note: Perform deep reasoning despite being a light model)",
+            contents: prompt + "\n\n(IMPORTANT: Strict JSON output required)",
           });
           const parsedFlash = sanitizeAndParseJson(flashRes.text || "");
-          return parsedFlash ? { data: parsedFlash } : { data: null, error: "GEMINI_FLASH_PARSE_ERROR" };
+          return parsedFlash ? { data: parsedFlash } : { data: null, error: "GEMINI_NODE_SYNC_FAILED" };
         }
         throw proError;
       }
@@ -95,21 +111,23 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages: [{ role: "user", content: prompt }],
-          response_format: { type: "json_object" },
+          messages: [{ role: "system", content: "You are a professional quant. Output only JSON arrays." }, { role: "user", content: prompt }],
+          response_format: { type: "json_object" }, // GPT-4o의 JSON 모드 활용
           temperature: 0.1
         })
       });
       
-      if (res.status === 429) return { data: null, error: "OPENAI_QUOTA_EXCEEDED: 계정의 결제 잔액 혹은 무료 한도를 확인하십시오." };
-      if (!res.ok) return { data: null, error: `OPENAI_HTTP_${res.status}` };
-
+      if (res.status === 429) return { data: null, error: "OPENAI_BILLING_REQUIRED: API 결제 잔액을 충전하십시오." };
+      
       const data = await res.json();
-      const parsed = sanitizeAndParseJson(data.choices[0].message.content);
-      return parsed ? { data: parsed } : { data: null, error: "OPENAI_PARSE_ERROR" };
+      if (data.error) return { data: null, error: `OPENAI_API_ERR: ${data.error.message}` };
+      
+      const content = data.choices[0].message.content;
+      const parsed = sanitizeAndParseJson(content);
+      return parsed ? { data: parsed } : { data: null, error: "OPENAI_PAYLOAD_PARSE_ERR" };
     }
 
-    // 3. Perplexity (Model Fix)
+    // 3. Perplexity (Sonar - 고정 및 파싱 강화)
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
@@ -118,38 +136,45 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: 'sonar', // 'sonar-reasoning' 대신 최신 안정화 모델 사용
-          messages: [{ role: "user", content: prompt }],
+          model: 'sonar', 
+          messages: [
+            { role: "system", content: "Strict JSON Mode: Always start with [ and end with ]. No preamble." },
+            { role: "user", content: prompt }
+          ],
           temperature: 0.1
         })
       });
 
-      if (res.status === 400) return { data: null, error: "PERPLEXITY_MODEL_DEPRECATED: 모델명을 'sonar'로 조정했습니다. 다시 시도하십시오." };
-      if (res.status === 429) return { data: null, error: "PERPLEXITY_QUOTA_EXCEEDED: API 사용 한도 초과." };
       if (!res.ok) return { data: null, error: `PERPLEXITY_HTTP_${res.status}` };
 
       const data = await res.json();
-      const parsed = sanitizeAndParseJson(data.choices[0].message.content);
-      return parsed ? { data: parsed } : { data: null, error: "PERPLEXITY_PARSE_ERROR" };
+      const content = data.choices[0].message.content;
+      const parsed = sanitizeAndParseJson(content);
+      
+      if (!parsed) {
+        console.debug("Perplexity formatting error, retrying with raw cleanup...");
+        return { data: null, error: "PERPLEXITY_FORMAT_ERROR: 다시 시도하십시오." };
+      }
+      return { data: parsed };
     }
 
-    return { data: null, error: "PROVIDER_NOT_SUPPORTED" };
+    return { data: null, error: "NODE_UNSUPPORTED" };
   } catch (error: any) {
-    return { data: null, error: `CRITICAL_EXCEPTION: ${error.message.substring(0, 100)}` };
+    return { data: null, error: `CRITICAL_NODE_FAILURE: ${error.message.substring(0, 150)}` };
   }
 }
 
 export async function analyzePipelineStatus(data: any) {
   const config = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const apiKey = config?.key || process.env.API_KEY;
-  if (!apiKey) return "API_KEY_MISSING";
+  if (!apiKey) return "API_KEY_OFFLINE";
   
   const ai = new GoogleGenAI({ apiKey });
   try {
     const response = await ai.models.generateContent({
       model: 'gemini-3-flash-preview',
-      contents: `System Audit Request: ${JSON.stringify(data)}. Tone: Military-Quant. Language: Korean.`,
+      contents: `System Health Audit: ${JSON.stringify(data)}. Lang: KR.`,
     });
     return response.text;
-  } catch (e) { return "AUDIT_NODE_OFFLINE"; }
+  } catch (e) { return "AUDIT_OFFLINE"; }
 }
