@@ -37,24 +37,28 @@ export async function analyzePipelineStatus(data: {
 }
 
 /**
- * Stage 6: 종목별 맞춤형 AI 분석 생성
+ * Stage 6: 종목별 맞춤형 AI 분석 및 심층 전망 생성
  */
 export async function generateAlphaSynthesis(candidates: any[]) {
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
+  // 종목별 차별화를 위한 강력한 페르소나와 지침 부여
   const prompt = `
-    Analyze the following top 5 stock candidates for the US_Alpha_Seeker system.
-    For each stock, provide a professional, unique quantitative investment report in Korean.
+    당신은 세계 최고의 퀀트 헤지펀드 분석가입니다. 
+    다음 5개 종목에 대해 각각 '서로 완전히 다른' 독창적이고 심도 있는 투자 리포트를 작성하세요.
+    각 종목의 섹터(Sector), 티커 이름, 그리고 전달된 점수(Fundamental, Technical, ICT)의 차이를 분석에 반영해야 합니다.
+    모든 응답은 반드시 한국어로 작성하며, 전문적인 금융 용어를 사용하세요.
     
-    Candidates Data:
+    분석 대상 데이터:
     ${JSON.stringify(candidates, null, 2)}
     
-    Output for each stock must include:
-    1. aiVerdict: A one-sentence strong technical/ICT judgment.
-    2. investmentOutlook: A detailed paragraph about the long-term potential considering its scores.
-    3. selectionReasons: An array of 4 specific reasons for selection.
-    4. convictionScore: A score between 92.0 and 99.9.
-    5. theme: A 2-3 word investment theme (e.g., "AI Infrastructure Leader").
+    [응답 규칙]
+    1. aiVerdict: 기술적 관점에서의 강렬한 한 줄 요약.
+    2. investmentOutlook: 해당 종목의 점수와 산업군을 고려한 중장기 전망 (한 단락).
+    3. selectionReasons: 왜 이 종목이 선정되었는지 구체적인 이유 4가지 (배열).
+    4. convictionScore: 92.0~99.9 사이의 정교한 점수.
+    5. theme: "반도체 공급망 혁신", "성장성 가속화" 등 종목을 상징하는 2~3개 단어의 테마.
+    6. aiSentiment: 하단 대시보드에 표시될 종목별 '세력 수급 및 심리 상태'에 대한 짧은 코멘트.
   `;
 
   try {
@@ -76,9 +80,10 @@ export async function generateAlphaSynthesis(candidates: any[]) {
                 items: { type: Type.STRING }
               },
               convictionScore: { type: Type.NUMBER },
-              theme: { type: Type.STRING }
+              theme: { type: Type.STRING },
+              aiSentiment: { type: Type.STRING }
             },
-            required: ["symbol", "aiVerdict", "investmentOutlook", "selectionReasons", "convictionScore", "theme"]
+            required: ["symbol", "aiVerdict", "investmentOutlook", "selectionReasons", "convictionScore", "theme", "aiSentiment"]
           }
         }
       }

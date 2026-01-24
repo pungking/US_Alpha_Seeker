@@ -18,6 +18,7 @@ interface AlphaCandidate {
   theme?: string;
   selectionReasons?: string[];
   investmentOutlook?: string;
+  aiSentiment?: string;
   // Final Strategy Data
   entryPrice?: number;
   targetPrice?: number;
@@ -30,7 +31,7 @@ const AlphaAnalysis: React.FC = () => {
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.8.0: Final Investment Perspective Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.8.5: Dynamic Reasoning Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -87,7 +88,6 @@ const AlphaAnalysis: React.FC = () => {
     setLoading(true);
     addLog("Initiating Multi-Model Strategy Synthesis...", "info");
     
-    // 로딩 시뮬레이션 및 로그 출력
     const steps = ["Quant-Data Fetching", "Pattern Recognition", "ICT Footprint Matching"];
     for (let i = 0; i < steps.length; i++) {
       setProgress((i + 1) * 20);
@@ -101,7 +101,6 @@ const AlphaAnalysis: React.FC = () => {
       .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
       .slice(0, 5);
 
-    // 실제 Gemini API 호출
     const aiResults = await generateAlphaSynthesis(top5);
     
     if (!aiResults) {
@@ -111,7 +110,8 @@ const AlphaAnalysis: React.FC = () => {
     }
 
     const finalSelection = top5.map(item => {
-      const aiData = aiResults.find((r: any) => r.symbol === item.symbol) || {};
+      // 대소문자 구분 없이 티커 매칭
+      const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
       const entry = item.price * 0.98;
       return {
         ...item,
@@ -123,6 +123,15 @@ const AlphaAnalysis: React.FC = () => {
     });
 
     setFinal5(finalSelection);
+    
+    // 만약 이미 선택된 종목이 있다면, 업데이트된 데이터로 교체
+    if (selectedStock) {
+       const updated = finalSelection.find(s => s.symbol === selectedStock.symbol);
+       if (updated) setSelectedStock(updated);
+    } else {
+       setSelectedStock(finalSelection[0]); // 기본 첫번째 종목 선택
+    }
+
     setProgress(100);
     addLog(`Alpha Synthesis Complete. 5 High-Conviction assets locked.`, "ok");
     setLoading(false);
@@ -141,7 +150,7 @@ const AlphaAnalysis: React.FC = () => {
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Deep_Final</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.8</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.8.5</span>
                 </div>
               </div>
             </div>
@@ -181,6 +190,11 @@ const AlphaAnalysis: React.FC = () => {
                   </div>
                </div>
              ))}
+             {final5.length === 0 && (
+                <div className="col-span-full py-20 text-center opacity-20">
+                   <p className="text-[10px] font-black uppercase tracking-[0.5em]">Awaiting AI reasoning engine trigger...</p>
+                </div>
+             )}
           </div>
         </div>
 
@@ -220,11 +234,11 @@ const AlphaAnalysis: React.FC = () => {
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5">
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4">Investment Perspective</h4>
                       <p className="text-sm text-slate-300 leading-relaxed font-medium italic">
-                        {selectedStock.investmentOutlook}
+                        {selectedStock.investmentOutlook || "분석 데이터를 가져오는 중입니다..."}
                       </p>
                       <div className="mt-6 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl">
                         <p className="text-[9px] font-black text-rose-400 uppercase mb-2">AI Verdict</p>
-                        <p className="text-xs text-white font-bold italic">{selectedStock.aiVerdict}</p>
+                        <p className="text-xs text-white font-bold italic">{selectedStock.aiVerdict || "N/A"}</p>
                       </div>
                    </div>
                 </div>
@@ -238,7 +252,9 @@ const AlphaAnalysis: React.FC = () => {
                              <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0"></div>
                              <p className="text-[11px] font-bold text-slate-400 leading-tight uppercase">{reason}</p>
                           </div>
-                        ))}
+                        )) || (
+                          <p className="text-[10px] text-slate-600 italic">No specific reasons generated yet.</p>
+                        )}
                       </div>
                    </div>
                    
@@ -246,11 +262,13 @@ const AlphaAnalysis: React.FC = () => {
                       <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-4">AI Sentiment Hash</p>
                       <div className="flex items-center space-x-4 mb-4">
                          <div className="h-2 flex-1 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-rose-500" style={{ width: `${selectedStock.convictionScore}%` }}></div>
+                            <div className="h-full bg-rose-500" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div>
                          </div>
-                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1)}%</span>
+                         <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1) || "50.0"}%</span>
                       </div>
-                      <p className="text-[9px] text-slate-500 italic">"Model suggests localized liquidity accumulation. ICT Order Block presence is highly confirmed for {selectedStock.symbol}."</p>
+                      <p className="text-[9px] text-slate-500 italic leading-relaxed uppercase">
+                        {selectedStock.aiSentiment || "Analyzing real-time order block flow..."}
+                      </p>
                    </div>
                 </div>
              </div>
