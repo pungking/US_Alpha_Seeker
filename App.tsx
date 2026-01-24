@@ -21,7 +21,10 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
-  // 기본 엔진을 Perplexity(Sonar Pro)로 고정 (제미나이 429 에러 방지 및 실시간성 확보)
+  // 분석된 최종 종목들을 공유하기 위한 상태
+  const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
+  
+  // 엔진 선택 상태 (전역 관리)
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
   const refreshApiStatuses = useCallback(async () => {
@@ -72,21 +75,22 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [refreshApiStatuses]);
 
+  // 하단 Auditor 실행 함수
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
     const brainLabel = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Pro" : "Sonar Pro (PPLX)";
-    setAiReport(`> ${brainLabel.toUpperCase()} 노드 연결 중...\n> 실시간 시장 뉴스 데이터 스트리밍...\n> 시스템 무결성 및 테마 분석 통합 중...`);
     
-    // 현재 분석 중인 대표 종목 리스트 (예시 또는 저장된 상태에서 가져오기)
-    // 실제로는 각 단계별 컴포넌트에서 상태를 끌어올려 사용해야 함. 여기서는 시연을 위해 고정값 또는 유추.
-    const symbols = currentStage === 6 ? ["AAPL", "NVDA", "TSLA", "MSFT", "AMZN"] : undefined;
-
+    // 분석할 종목이 있는지 확인
+    const targetSymbols = finalSymbols.length > 0 ? finalSymbols : undefined;
+    
+    setAiReport(`> ${brainLabel.toUpperCase()} 전략 노드 활성화...\n> 대상 종목: ${targetSymbols?.join(", ") || "섹터 전체 스캐닝 중"}\n> 실시간 뉴스 및 매크로 데이터 분석 중...`);
+    
     try {
       const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
-        symbols,
-        systemLoad: "DYNAMIC_ANALYSIS_MODE"
+        symbols: targetSymbols,
+        systemLoad: "INTEGRATED_STRATEGY_MODE"
       }, selectedBrain);
       
       setAiReport(report);
@@ -185,7 +189,8 @@ const App: React.FC = () => {
         {currentStage === 6 && (
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
-            setSelectedBrain={setSelectedBrain} 
+            setSelectedBrain={setSelectedBrain}
+            onFinalSymbolsDetected={(symbols) => setFinalSymbols(symbols)}
           />
         )}
       </main>
@@ -221,7 +226,7 @@ const App: React.FC = () => {
         </div>
 
         <div className="bg-black/60 p-8 rounded-[32px] font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[120px] shadow-inner overflow-y-auto max-h-[400px] whitespace-pre-wrap">
-          {aiReport || `> 시스템 대기 중... \n> ${selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}를 통해 실시간 시황과 시스템 결합 분석 리포트를 생성할 준비가 되었습니다.`}
+          {aiReport || `> 시스템 대기 중... \n> [안내] Stage 6에서 최종 종목이 확정된 후 이 버튼을 누르면 실시간 시황과 결합된 상세 분석이 제공됩니다.`}
         </div>
       </section>
     </div>

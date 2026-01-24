@@ -27,9 +27,10 @@ interface AlphaCandidate {
 interface Props {
   selectedBrain: ApiProvider;
   setSelectedBrain: (brain: ApiProvider) => void;
+  onFinalSymbolsDetected?: (symbols: string[]) => void;
 }
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
   const [loading, setLoading] = useState(false);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
@@ -92,7 +93,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain }) => 
     
     setLoading(true);
     setProgress(0);
-    const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3" : "Sonar Pro";
+    const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Pro" : "Sonar Pro";
     addLog(`System: Allocating neural resources to ${brainName} Brain...`, "info");
     
     try {
@@ -102,10 +103,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain }) => 
         .slice(0, 5);
 
       addLog(`Task: Synthesizing final strategies for Top 5 candidates.`, "info");
+      
+      // 부모 컴포넌트에 현재 분석 중인 종목 리스트 전달 (동기화)
+      onFinalSymbolsDetected?.(top5.map(t => t.symbol));
+
       setProgress(30);
 
       const statusMsgs = {
-        [ApiProvider.GEMINI]: "Connecting to Google Gemini 3 Flash Node...",
+        [ApiProvider.GEMINI]: "Connecting to Google Gemini 3 Pro Node...",
         [ApiProvider.PERPLEXITY]: "Querying Perplexity Engine (Sonar Pro)..."
       };
 
@@ -115,9 +120,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain }) => 
       
       if (error) {
         addLog(`Link Failure: ${error}`, "err");
-        if (error.includes("QUOTA")) {
-          addLog("ACTION REQUIRED: 다른 모델(Sonar Pro)로 전환하여 실행해 보십시오.", "warn");
-        }
         setLoading(false);
         return;
       }
@@ -163,7 +165,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain }) => 
   };
 
   const brains = [
-    { provider: ApiProvider.GEMINI, label: 'Gemini 3 Flash', color: 'bg-indigo-600', icon: 'G' },
+    { provider: ApiProvider.GEMINI, label: 'Gemini 3 Pro', color: 'bg-indigo-600', icon: 'G' },
     { provider: ApiProvider.PERPLEXITY, label: 'Sonar Pro', color: 'bg-cyan-600', icon: 'P' }
   ];
 
@@ -179,7 +181,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain }) => 
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v7.9</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture • Gemini & Sonar Pro</p>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture • {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}</p>
               </div>
             </div>
             
