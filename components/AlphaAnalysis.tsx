@@ -1,19 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
-import { generateAlphaSynthesis } from '../services/geminiService';
-
-declare global {
-  // Fix: Defining AIStudio interface to match the global Window expectation and resolve type conflict
-  interface AIStudio {
-    hasSelectedApiKey(): Promise<boolean>;
-    openSelectKey(): Promise<void>;
-  }
-
-  interface Window {
-    aistudio?: AIStudio;
-  }
-}
+import { ApiProvider } from '../types';
+import { API_CONFIGS } from '../constants';
+import { generateAlphaSynthesis } from '../services/intelligenceService';
 
 interface AlphaCandidate {
   symbol: string;
@@ -24,14 +13,12 @@ interface AlphaCandidate {
   technicalScore: number;
   fundamentalScore: number;
   sector: string;
-  // Stage 6 Specifics (AI Generated)
   aiVerdict?: string;
   convictionScore?: number;
   theme?: string;
   selectionReasons?: string[];
   investmentOutlook?: string;
   aiSentiment?: string;
-  // Final Strategy Data
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
@@ -39,12 +26,12 @@ interface AlphaCandidate {
 
 const AlphaAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [hasValidApiKey, setHasValidApiKey] = useState<boolean>(true);
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.9.5: Reasoning Engine Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.0.0: Multi-Brain Protocol Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -54,34 +41,10 @@ const AlphaAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
-    checkApiKeyStatus();
     if (accessToken && elite50.length === 0) {
       loadStage5Data();
     }
   }, [accessToken]);
-
-  const checkApiKeyStatus = async () => {
-    // 1순위: 환경변수 주입 확인
-    if (process.env.API_KEY && process.env.API_KEY !== 'undefined') {
-      setHasValidApiKey(true);
-      return;
-    }
-    // 2순위: AI Studio 선택 확인
-    if (window.aistudio) {
-      const selected = await window.aistudio.hasSelectedApiKey();
-      setHasValidApiKey(selected);
-    }
-  };
-
-  const handleSelectKey = async () => {
-    if (window.aistudio) {
-      addLog("Redirecting to API Key Selection UI...", "info");
-      await window.aistudio.openSelectKey();
-      // Fix: Follow race condition rule - assume success after triggering openSelectKey and proceed
-      setHasValidApiKey(true);
-      addLog("Handshake Initiated: New Key provisioned.", "ok");
-    }
-  };
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -100,7 +63,7 @@ const AlphaAnalysis: React.FC = () => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Stage 5 input not found. Finalize Stage 5 first.", "err");
+        addLog("Stage 5 input not found. Execution blocked.", "err");
         setLoading(false);
         return;
       }
@@ -125,36 +88,28 @@ const AlphaAnalysis: React.FC = () => {
     
     setLoading(true);
     setProgress(0);
-    addLog("Initiating Multi-Model Strategy Synthesis...", "info");
+    addLog(`Booting Reasoning Brain: ${selectedBrain}...`, "info");
     
     try {
-      // 1. 데이터 시뮬레이션
-      const steps = ["Quant Mapping", "Pattern Matching", "Sentiment Hashing"];
-      for (let i = 0; i < steps.length; i++) {
-        const nextProgress = (i + 1) * 20;
-        setProgress(nextProgress);
-        addLog(`Processing: ${steps[i]}...`, "info");
-        await new Promise(r => setTimeout(r, 600));
-      }
-
-      // 2. AI 추론 가동 (80%)
-      setProgress(80);
-      addLog("[THINKING] Gemini 3 Pro reasoning engine analysis...", "warn");
-      
+      // Step 1: Data Preparation
+      setProgress(20);
       const top5 = [...elite50]
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 5);
 
-      // 3. 실제 API 호출 (90%)
-      setProgress(90);
-      const aiResults = await generateAlphaSynthesis(top5);
+      // Step 2: AI Thinking
+      setProgress(50);
+      addLog(`[CONNECTING] Handshake with ${selectedBrain} API...`, "warn");
+      
+      const aiResults = await generateAlphaSynthesis(top5, selectedBrain);
       
       if (!aiResults) {
-        // API 호출 실패 시 (404/401 등)
-        addLog("API Error: Gemini Pro model not found on current key. Paid GCP project key required.", "err");
-        setHasValidApiKey(false);
-        throw new Error("Entitlement_Missing: Paid Key Required.");
+        addLog(`${selectedBrain} Node connection timed out or Key Invalid.`, "err");
+        throw new Error("AI_HANDSHAKE_FAILED");
       }
+
+      setProgress(80);
+      addLog("Parsing intelligence payload and mapping strategy...", "info");
 
       const finalSelection = top5.map(item => {
         const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
@@ -171,13 +126,19 @@ const AlphaAnalysis: React.FC = () => {
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
       setProgress(100);
-      addLog(`Alpha Synthesis Successful. 5 High-Conviction assets localized.`, "ok");
+      addLog(`Success: Alpha Discovery finalized by ${selectedBrain}.`, "ok");
     } catch (error: any) {
-      addLog(`System Stop: ${error.message}`, "err");
+      addLog(`Synthesis Error: ${error.message}`, "err");
     } finally {
       setLoading(false);
     }
   };
+
+  const brains = [
+    { provider: ApiProvider.GEMINI, label: 'Gemini 3 Pro', color: 'bg-indigo-600', icon: 'G' },
+    { provider: ApiProvider.CHATGPT, label: 'ChatGPT-4o', color: 'bg-emerald-600', icon: 'C' },
+    { provider: ApiProvider.PERPLEXITY, label: 'Perplexity', color: 'bg-cyan-600', icon: 'P' }
+  ];
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -190,33 +151,31 @@ const AlphaAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-rose-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Deep_Final</h2>
-                <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.9.5</span>
-                </div>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v7.0</h2>
+                <p className="text-[8px] font-black text-rose-400 uppercase tracking-widest mt-1">Multi-Brain Intelligence Orchestration</p>
               </div>
             </div>
             
-            <div className="flex gap-3">
-              {!hasValidApiKey && (
-                <div className="flex items-center space-x-4 bg-slate-950/80 p-3 rounded-2xl border border-rose-500/30">
-                  <span className="text-[9px] font-black text-rose-500 uppercase">Paid Key Required</span>
-                  <button 
-                    onClick={handleSelectKey}
-                    className="px-6 py-3 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 animate-pulse"
-                  >
-                    Select Key
-                  </button>
-                </div>
-              )}
-              <button 
-                onClick={executeAlphaFinalization}
-                disabled={loading || elite50.length === 0}
-                className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
-              >
-                {loading ? (progress < 100 ? `Synthesizing ${Math.floor(progress)}%` : 'Reasoning...') : 'Start AI Synthesis'}
-              </button>
+            <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5">
+              {brains.map((brain) => (
+                <button
+                  key={brain.provider}
+                  onClick={() => setSelectedBrain(brain.provider)}
+                  className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase transition-all flex items-center space-x-2 ${selectedBrain === brain.provider ? brain.color + ' text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}
+                >
+                  <span className="w-3 h-3 rounded flex items-center justify-center bg-black/20 text-[7px]">{brain.icon}</span>
+                  <span>{brain.label}</span>
+                </button>
+              ))}
             </div>
+
+            <button 
+              onClick={executeAlphaFinalization}
+              disabled={loading || elite50.length === 0}
+              className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
+            >
+              Execute Synthesis
+            </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -245,7 +204,7 @@ const AlphaAnalysis: React.FC = () => {
              ))}
              {final5.length === 0 && (
                 <div className="col-span-full py-24 text-center opacity-20">
-                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Awaiting Reasoning Engine Core Trigger...</p>
+                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Select AI Brain and Execute Synthesis Engine...</p>
                 </div>
              )}
           </div>
@@ -269,10 +228,6 @@ const AlphaAnalysis: React.FC = () => {
                             <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Target</p>
                             <p className="text-lg font-black text-blue-400 font-mono">${selectedStock.targetPrice?.toFixed(2)}</p>
                          </div>
-                         <div className="text-center px-6 py-3 bg-white/5 rounded-2xl border border-white/5">
-                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Stop</p>
-                            <p className="text-lg font-black text-rose-500 font-mono">${selectedStock.stopLoss?.toFixed(2)}</p>
-                         </div>
                       </div>
                    </div>
 
@@ -289,10 +244,6 @@ const AlphaAnalysis: React.FC = () => {
                       <p className="text-sm text-slate-300 leading-relaxed font-medium italic">
                         {selectedStock.investmentOutlook || "분석 데이터를 가져오는 중입니다..."}
                       </p>
-                      <div className="mt-6 p-4 bg-rose-500/5 border border-rose-500/10 rounded-xl">
-                        <p className="text-[9px] font-black text-rose-400 uppercase mb-2">AI Verdict Summary</p>
-                        <p className="text-xs text-white font-bold italic">{selectedStock.aiVerdict || "N/A"}</p>
-                      </div>
                    </div>
                 </div>
 
@@ -305,9 +256,7 @@ const AlphaAnalysis: React.FC = () => {
                              <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 group-hover:scale-125 transition-transform"></div>
                              <p className="text-[11px] font-bold text-slate-400 leading-tight uppercase group-hover:text-white transition-colors">{reason}</p>
                           </div>
-                        )) || (
-                          <p className="text-[10px] text-slate-600 italic">No specific reasons generated yet.</p>
-                        )}
+                        ))}
                       </div>
                    </div>
                    
@@ -320,7 +269,7 @@ const AlphaAnalysis: React.FC = () => {
                          <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1) || "50.0"}%</span>
                       </div>
                       <p className="text-[9px] text-slate-500 italic leading-relaxed uppercase">
-                        {selectedStock.aiSentiment || "Analyzing real-time institutional order block flow patterns..."}
+                        {selectedStock.aiSentiment}
                       </p>
                    </div>
                 </div>
@@ -337,17 +286,10 @@ const AlphaAnalysis: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all hover:bg-white/5 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
-          </div>
-          <div className="mt-6 p-4 bg-slate-900/40 rounded-2xl border border-white/5">
-             <p className="text-[8px] font-black text-slate-600 uppercase mb-2">System Telemetry</p>
-             <div className="flex justify-between items-center text-[8px] font-mono">
-                <span className="text-slate-500">REASONING_CORE</span>
-                <span className="text-rose-500">STABLE</span>
-             </div>
           </div>
         </div>
       </div>
