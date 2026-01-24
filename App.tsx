@@ -8,6 +8,7 @@ import PreliminaryFilter from './components/PreliminaryFilter';
 import DeepQualityFilter from './components/DeepQualityFilter';
 import FundamentalAnalysis from './components/FundamentalAnalysis';
 import TechnicalAnalysis from './components/TechnicalAnalysis';
+import IctAnalysis from './components/IctAnalysis';
 import MarketTicker from './components/MarketTicker';
 import { analyzeCollectionSummary } from './services/geminiService';
 
@@ -150,7 +151,10 @@ const App: React.FC = () => {
         {currentStage === 4 && (
           <TechnicalAnalysis />
         )}
-        {currentStage > 4 && (
+        {currentStage === 5 && (
+          <IctAnalysis />
+        )}
+        {currentStage > 5 && (
           <div className="glass-panel p-16 md:p-24 rounded-[32px] border-dashed border-2 border-slate-800 flex flex-col items-center justify-center text-center opacity-30">
             <h2 className="text-xl md:text-2xl font-black text-slate-600 uppercase tracking-[0.3em]">Stage_Locked</h2>
             <p className="text-[8px] md:text-[9px] text-slate-500 mt-4 uppercase tracking-[0.2em]">Previous Matrix Finalization Required</p>

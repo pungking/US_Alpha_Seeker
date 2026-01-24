@@ -35,7 +35,8 @@ export const GOOGLE_DRIVE_TARGET = {
   stage1SubFolder: 'Stage1_Quality_Data',
   stage2SubFolder: 'Stage2_Deep_Quality',
   stage3SubFolder: 'Stage3_Fundamental_Data',
-  stage4SubFolder: 'Stage4_Technical_Data'
+  stage4SubFolder: 'Stage4_Technical_Data',
+  stage5SubFolder: 'Stage5_ICT_Data'
 };
 
 export const STAGES_FLOW = [
