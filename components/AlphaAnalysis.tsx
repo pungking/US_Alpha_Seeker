@@ -3,6 +3,22 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
 import { generateAlphaSynthesis } from '../services/geminiService';
 
+/**
+ * AI Studio API Key selection interface definition.
+ * Named AIStudio to match existing type expectations in the global environment.
+ */
+interface AIStudio {
+  hasSelectedApiKey(): Promise<boolean>;
+  openSelectKey(): Promise<void>;
+}
+
+declare global {
+  interface Window {
+    // Use the explicit AIStudio interface type to avoid conflicts with predefined global declarations
+    aistudio: AIStudio;
+  }
+}
+
 interface AlphaCandidate {
   symbol: string;
   name: string;
@@ -27,11 +43,12 @@ interface AlphaCandidate {
 
 const AlphaAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
+  const [hasApiKey, setHasApiKey] = useState<boolean>(true);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.9.0: Reasoning Engine Standby.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.9.5: Reasoning Engine Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -41,10 +58,26 @@ const AlphaAnalysis: React.FC = () => {
   }, [logs]);
 
   useEffect(() => {
+    checkApiKeyStatus();
     if (accessToken && elite50.length === 0) {
       loadStage5Data();
     }
   }, [accessToken]);
+
+  const checkApiKeyStatus = async () => {
+    if (window.aistudio) {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      setHasApiKey(selected);
+    }
+  };
+
+  const handleSelectKey = async () => {
+    if (window.aistudio) {
+      await window.aistudio.openSelectKey();
+      setHasApiKey(true);
+      addLog("API Key selected. Ready for synthesis.", "ok");
+    }
+  };
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -74,7 +107,7 @@ const AlphaAnalysis: React.FC = () => {
 
       if (content.ict_universe) {
         setElite50(content.ict_universe);
-        addLog(`Synchronized ${content.ict_universe.length} top candidates. Ready for AI Synthesis.`, "ok");
+        addLog(`Synchronized ${content.ict_universe.length} top candidates.`, "ok");
       }
     } catch (e: any) {
       addLog(`Sync Error: ${e.message}`, "err");
@@ -85,31 +118,47 @@ const AlphaAnalysis: React.FC = () => {
 
   const executeAlphaFinalization = async () => {
     if (elite50.length === 0 || loading) return;
+    
+    // API key check using pre-configured aistudio interface
+    if (window.aistudio) {
+      const selected = await window.aistudio.hasSelectedApiKey();
+      if (!selected) {
+        setHasApiKey(false);
+        addLog("Synthesis blocked: Paid API Key required for Gemini 3 Pro.", "err");
+        return;
+      }
+    }
+
     setLoading(true);
     setProgress(0);
     addLog("Initiating Multi-Model Strategy Synthesis...", "info");
     
-    // UI Feedback: 가상의 진행률 (60%까지)
-    const steps = ["Quant-Data Fetching", "Pattern Recognition", "ICT Footprint Matching"];
-    for (let i = 0; i < steps.length; i++) {
-      setProgress((i + 1) * 20);
-      addLog(`AI Core Status: ${steps[i]}...`, "info");
-      await new Promise(r => setTimeout(r, 600));
-    }
-
-    setProgress(80);
-    addLog("[THINKING] Gemini 3 Pro reasoning engine is analyzing top 5 candidates...", "warn");
-    addLog("This process involves deep market-context simulation. Please wait.", "info");
-    
-    const top5 = elite50
-      .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
-      .slice(0, 5);
-
     try {
-      // 실제 API 호출 (Gemini 3 Pro Thinking)
+      // 1. Mock data processing steps (0% -> 60%)
+      const steps = ["Quant-Data Fetching", "Pattern Recognition", "ICT Footprint Matching"];
+      for (let i = 0; i < steps.length; i++) {
+        const nextProgress = (i + 1) * 20;
+        setProgress(nextProgress);
+        addLog(`AI Core Status: ${steps[i]}...`, "info");
+        await new Promise(r => setTimeout(r, 600));
+      }
+
+      // 2. AI Reasoning Preparation (80%)
+      setProgress(80);
+      addLog("[THINKING] Gemini 3 Pro reasoning engine is analyzing candidates...", "warn");
+      
+      const top5 = [...elite50]
+        .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
+        .slice(0, 5);
+
+      if (top5.length === 0) throw new Error("No candidates found in Elite50.");
+
+      // 3. API Invocation (90%)
+      setProgress(90);
       const aiResults = await generateAlphaSynthesis(top5);
       
       if (!aiResults || !Array.isArray(aiResults)) {
+        if (!aiResults) addLog("Requested entity not found or API Error. Please re-select Key.", "err");
         throw new Error("Invalid or empty AI synthesis results.");
       }
 
@@ -130,8 +179,11 @@ const AlphaAnalysis: React.FC = () => {
       setProgress(100);
       addLog(`Alpha Synthesis Successful. 5 High-Conviction assets localized.`, "ok");
     } catch (error: any) {
-      addLog(`AI Synthesis Critical Fail: ${error.message}`, "err");
-      addLog("Retrying with fail-safe logic is recommended.", "warn");
+      addLog(`System Error: ${error.message}`, "err");
+      // Prompt for key selection if the requested project is not found
+      if (error.message.includes("not found")) {
+        setHasApiKey(false);
+      }
     } finally {
       setLoading(false);
     }
@@ -150,19 +202,31 @@ const AlphaAnalysis: React.FC = () => {
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Deep_Final</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.9.0</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.9.5</span>
                 </div>
               </div>
             </div>
             
             <div className="flex gap-3">
-              <button 
-                onClick={executeAlphaFinalization}
-                disabled={loading || elite50.length === 0}
-                className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105'}`}
-              >
-                {loading ? (progress < 100 ? `Synthesizing ${Math.floor(progress)}%` : 'Finalizing...') : 'Start AI Synthesis'}
-              </button>
+              {!hasApiKey ? (
+                <div className="flex items-center space-x-4 bg-slate-950/60 p-2 rounded-2xl border border-rose-500/20">
+                  <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noreferrer" className="text-[8px] font-bold text-slate-500 underline uppercase px-2">Billing Doc</a>
+                  <button 
+                    onClick={handleSelectKey}
+                    className="px-6 py-4 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-rose-500 transition-all"
+                  >
+                    Select Paid API Key
+                  </button>
+                </div>
+              ) : (
+                <button 
+                  onClick={executeAlphaFinalization}
+                  disabled={loading || elite50.length === 0}
+                  className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105'}`}
+                >
+                  {loading ? (progress < 100 ? `Synthesizing ${Math.floor(progress)}%` : 'Finalizing...') : 'Start AI Synthesis'}
+                </button>
+              )}
             </div>
           </div>
 

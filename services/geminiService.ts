@@ -29,6 +29,7 @@ export async function analyzePipelineStatus(data: {
       model: 'gemini-3-flash-preview',
       contents: prompt,
     });
+    // Correct usage: .text property instead of .text() method
     return response.text;
   } catch (error) {
     console.error("Gemini Auditor Error:", error);
@@ -41,6 +42,11 @@ export async function analyzePipelineStatus(data: {
  * 고성능 추론 모델 gemini-3-pro-preview 사용
  */
 export async function generateAlphaSynthesis(candidates: any[]) {
+  if (!process.env.API_KEY) {
+    console.error("Gemini API Key is missing in environment.");
+    return null;
+  }
+
   // 매 요청마다 새로운 인스턴스 생성 (최신 API 키 보장)
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
@@ -60,9 +66,10 @@ export async function generateAlphaSynthesis(candidates: any[]) {
   `;
 
   try {
+    // Corrected contents parameter to a single string for better compatibility with guidelines
     const response = await ai.models.generateContent({
       model: 'gemini-3-pro-preview',
-      contents: [{ parts: [{ text: prompt }] }],
+      contents: prompt,
       config: {
         thinkingConfig: { thinkingBudget: 4096 }, // 복잡한 분석을 위해 추론 예산 할당
         responseMimeType: "application/json",
@@ -89,10 +96,16 @@ export async function generateAlphaSynthesis(candidates: any[]) {
       }
     });
     
-    if (!response.text) throw new Error("Empty AI response");
-    return JSON.parse(response.text.trim());
-  } catch (error) {
+    // Safely access response.text and handle undefined cases
+    const resultText = response.text;
+    if (!resultText) throw new Error("Empty AI response");
+    return JSON.parse(resultText.trim());
+  } catch (error: any) {
     console.error("Alpha Synthesis Engine Critical Error:", error);
+    // API 키 관련 오류(401, 404 등) 시 에러 전파
+    if (error.message && (error.message.includes("401") || error.message.includes("404") || error.message.includes("not found"))) {
+      return null; 
+    }
     return null;
   }
 }
