@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 
@@ -14,7 +14,9 @@ interface MarketItem {
 const MarketTicker: React.FC = () => {
   const [data, setData] = useState<MarketItem[]>([]);
   const [isPaused, setIsPaused] = useState(false);
+  const [errorCount, setErrorCount] = useState(0);
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const retryTimeoutRef = useRef<number | null>(null);
 
   const tickers = [
     { s: 'SPY', l: 'S&P 500', i: true },
@@ -28,49 +30,68 @@ const MarketTicker: React.FC = () => {
 
   const getLatestTradingDate = () => {
     const d = new Date();
+    // Go back at least one day
     d.setDate(d.getDate() - 1);
+    // If Sunday, go back to Friday
     if (d.getDay() === 0) d.setDate(d.getDate() - 2);
+    // If Saturday, go back to Friday
     else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
     return d.toISOString().split('T')[0];
   };
 
-  useEffect(() => {
-    const fetchMarketData = async () => {
-      // 파이프라인 가동 중이면 쿼터 보호를 위해 중단
-      if (document.body.getAttribute('data-engine-running') === 'true') {
-        setIsPaused(true);
-        return;
-      }
-      setIsPaused(false);
+  const fetchMarketData = async () => {
+    // If the data gathering engine is running, pause ticker to save quota
+    if (document.body.getAttribute('data-engine-running') === 'true') {
+      setIsPaused(true);
+      return;
+    }
+    setIsPaused(false);
 
-      try {
-        const targetDate = getLatestTradingDate();
-        // 7번 호출 대신 '벌크' 1번으로 해결
-        const res = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`).then(r => r.json());
-        
-        if (res.results) {
-          const resultMap = new Map(res.results.map((r: any) => [r.T, r]));
-          const merged = tickers.map(t => {
-            const r: any = resultMap.get(t.s);
-            return {
-              symbol: t.s,
-              label: t.l,
-              price: r?.c || 0,
-              change: r?.o ? ((r.c - r.o) / r.o) * 100 : 0,
-              isIndex: t.i
-            };
-          });
-          setData(merged.filter(d => d.price > 0));
+    if (!polygonKey) return;
+
+    try {
+      const targetDate = getLatestTradingDate();
+      const response = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+      
+      if (response.status === 429) {
+        throw new Error("Throttled");
+      }
+
+      const res = await response.json();
+      
+      if (res.results && Array.isArray(res.results)) {
+        const resultMap = new Map(res.results.map((r: any) => [r.T, r]));
+        const merged = tickers.map(t => {
+          const r: any = resultMap.get(t.s);
+          return {
+            symbol: t.s,
+            label: t.l,
+            price: r?.c || 0,
+            change: r?.o ? ((r.c - r.o) / r.o) * 100 : 0,
+            isIndex: t.i
+          };
+        });
+        const validData = merged.filter(d => d.price > 0);
+        if (validData.length > 0) {
+          setData(validData);
+          setErrorCount(0); // Reset error count on success
         }
-      } catch (e) {
-        console.error("Market pulse fetch throttled or failed");
       }
-    };
+    } catch (e) {
+      console.warn("Market pulse fetch error:", e);
+      setErrorCount(prev => prev + 1);
+      // If failed, wait longer for the next attempt
+    }
+  };
 
+  useEffect(() => {
     fetchMarketData();
-    // 무료 티어 안전을 위해 3분(180000ms) 주기로 변경
-    const interval = setInterval(fetchMarketData, 180000); 
-    return () => clearInterval(interval);
+    // Safety interval: 5 minutes to stay well within free tier limits
+    const interval = setInterval(fetchMarketData, 300000); 
+    return () => {
+      clearInterval(interval);
+      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
+    };
   }, [polygonKey]);
 
   return (
@@ -97,12 +118,14 @@ const MarketTicker: React.FC = () => {
           </div>
         </div>
       )) : (
-        <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">Establishing Secure Connection...</div>
+        <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">
+          {errorCount > 2 ? 'API QUOTA EXCEEDED - WAITING' : 'Synchronizing Market Pulse...'}
+        </div>
       )}
       <div className="flex-1 h-[1px] bg-white/5 ml-4"></div>
       <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic ml-4 whitespace-nowrap">
-        <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : 'bg-emerald-500 animate-pulse'}`}></span>
-        <span>{isPaused ? 'Pulse_Paused_For_Sync' : 'Market_Pulse_Safe_Mode'}</span>
+        <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : errorCount > 0 ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`}></span>
+        <span>{isPaused ? 'Pulse_Paused_For_Sync' : errorCount > 0 ? 'Pulse_Connection_Retry' : 'Market_Pulse_Safe_Mode'}</span>
       </div>
     </div>
   );
