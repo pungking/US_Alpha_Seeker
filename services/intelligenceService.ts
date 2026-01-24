@@ -38,11 +38,13 @@ function sanitizeAndParseJson(text: string): any[] | null {
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 1500): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 2000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
-    if (retries > 0 && (error.message.includes("503") || error.message.includes("overloaded"))) {
+    // 429 (Quota) 혹은 503 (Overload) 에러 시 재시도
+    const isRetryable = error.message.includes("429") || error.message.includes("503") || error.message.includes("quota");
+    if (retries > 0 && isRetryable) {
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(fn, retries - 1, delay * 2);
     }
@@ -61,55 +63,26 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
-      const result = await fetchWithRetry(async () => {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: {
-            responseMimeType: "application/json",
-            responseSchema: ALPHA_SCHEMA
-          }
+      try {
+        const result = await fetchWithRetry(async () => {
+          const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: {
+              responseMimeType: "application/json",
+              responseSchema: ALPHA_SCHEMA
+            }
+          });
+          return response;
         });
-        return response;
-      });
-
-      const parsed = sanitizeAndParseJson(result.text || "");
-      return parsed ? { data: parsed } : { data: null, error: "GEMINI_PAYLOAD_PARSE_FAILED" };
-    }
-
-    if (provider === ApiProvider.CHATGPT) {
-      const res = await fetch('https://api.openai.com/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`
-          // 특정 Org ID를 강제하지 않음으로써 Admin Key의 범용성 확보
-        },
-        body: JSON.stringify({
-          model: 'gpt-4o',
-          messages: [
-            { role: "system", content: "You are a professional quant analyst. Always output strictly valid JSON arrays in Korean." },
-            { role: "user", content: prompt }
-          ],
-          response_format: { type: "json_object" },
-          temperature: 0.2
-        })
-      });
-
-      if (res.status === 429) {
-        return { data: null, error: "OPENAI_QUOTA_EXCEEDED: 결제 잔액이 부족하거나 사용량이 초과되었습니다. Gemini로 전환하여 실행하세요." };
+        const parsed = sanitizeAndParseJson(result.text || "");
+        return parsed ? { data: parsed } : { data: null, error: "GEMINI_PAYLOAD_PARSE_FAILED" };
+      } catch (geminiErr: any) {
+        if (geminiErr.message.includes("429") || geminiErr.message.includes("quota")) {
+          return { data: null, error: "GEMINI_QUOTA_EXCEEDED: 호출 한도가 초과되었습니다. 1분 후 다시 시도하거나 Perplexity를 사용하세요." };
+        }
+        throw geminiErr;
       }
-      
-      if (!res.ok) {
-        const errorData = await res.json().catch(() => ({}));
-        return { data: null, error: `OPENAI_API_ERROR: ${errorData.error?.message || res.statusText}` };
-      }
-
-      const data = await res.json();
-      const rawContent = data.choices[0].message.content;
-      // OpenAI json_object 모드는 객체로 감싸져 올 수 있으므로 추출 로직 강화
-      const parsed = sanitizeAndParseJson(rawContent);
-      return parsed ? { data: parsed } : { data: null, error: "OPENAI_PARSE_ERROR: 응답 형식이 유효하지 않습니다." };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
@@ -117,11 +90,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
-          model: 'sonar',
-          messages: [{ role: "system", content: "JSON ONLY." }, { role: "user", content: prompt }],
+          model: 'sonar-pro', // 최상위 모델 sonar-pro로 변경
+          messages: [
+            { role: "system", content: "You are a quant analyst. Return strictly valid JSON arrays in Korean." },
+            { role: "user", content: prompt }
+          ],
           temperature: 0.1
         })
       });
+      if (res.status === 429) return { data: null, error: "PERPLEXITY_QUOTA_EXCEEDED: Perplexity 할당량이 초과되었습니다." };
       if (!res.ok) return { data: null, error: `PERPLEXITY_ERROR: ${res.status}` };
       const data = await res.json();
       const parsed = sanitizeAndParseJson(data.choices[0].message.content);
@@ -130,7 +107,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     return { data: null, error: "PROVIDER_NOT_SUPPORTED" };
   } catch (error: any) {
-    return { data: null, error: `CRITICAL_NODE_FAILURE: ${error.message.substring(0, 80)}` };
+    return { data: null, error: `CRITICAL_NODE_FAILURE: ${error.message.substring(0, 100)}` };
   }
 }
 
@@ -145,5 +122,10 @@ export async function analyzePipelineStatus(data: any) {
       contents: `Audit this system state: ${JSON.stringify(data)}. Tone: Technical. Language: Korean.`,
     }));
     return response.text;
-  } catch (e) { return "AUDIT_NODE_OVERLOADED_RETRY_LATER"; }
+  } catch (e: any) { 
+    if (e.message.includes("429") || e.message.includes("quota")) {
+      return "AUDIT_QUOTA_EXCEEDED: 제미나이 호출 한도가 초과되었습니다. 잠시 대기 후 실행해 주세요.";
+    }
+    return "AUDIT_NODE_OVERLOADED_RETRY_LATER"; 
+  }
 }

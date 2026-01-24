@@ -7,8 +7,7 @@ export enum ApiProvider {
   TWELVE_DATA = 'Twelve Data',
   POLYGON = 'Polygon',
   GOOGLE_DRIVE = 'Google Drive',
-  GEMINI = 'Google Gemini',
-  CHATGPT = 'OpenAI ChatGPT'
+  GEMINI = 'Google Gemini'
 }
 
 export interface ApiStatus {

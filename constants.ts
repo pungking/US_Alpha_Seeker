@@ -20,7 +20,6 @@ export const API_CONFIGS: ApiConfig[] = [
   
   // Intelligence Node
   { provider: ApiProvider.GEMINI, key: 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc', category: 'Intelligence' },
-  { provider: ApiProvider.CHATGPT, key: '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', category: 'Intelligence' },
   { provider: ApiProvider.PERPLEXITY, key: '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', category: 'Intelligence' },
   
   // Infrastructure Node

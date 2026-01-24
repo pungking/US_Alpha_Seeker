@@ -31,7 +31,7 @@ const AlphaAnalysis: React.FC = () => {
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.6.0: Intelligence Bridge Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.8.0: Dual-Intelligence Core Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -88,7 +88,7 @@ const AlphaAnalysis: React.FC = () => {
     
     setLoading(true);
     setProgress(0);
-    const brainName = selectedBrain.split(' ').pop();
+    const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3" : "Sonar Pro";
     addLog(`System: Allocating neural resources to ${brainName} Brain...`, "info");
     
     try {
@@ -102,8 +102,7 @@ const AlphaAnalysis: React.FC = () => {
 
       const statusMsgs = {
         [ApiProvider.GEMINI]: "Connecting to Google Gemini 3 Flash Node...",
-        [ApiProvider.CHATGPT]: "Handshaking with OpenAI Admin Cluster...",
-        [ApiProvider.PERPLEXITY]: "Querying Perplexity Engine (sonar)..."
+        [ApiProvider.PERPLEXITY]: "Querying Perplexity Engine (Sonar Pro)..."
       };
 
       addLog(`[CONNECTING] ${statusMsgs[selectedBrain] || 'AI Handshake...'}`, "warn");
@@ -113,7 +112,7 @@ const AlphaAnalysis: React.FC = () => {
       if (error) {
         addLog(`Link Failure: ${error}`, "err");
         if (error.includes("QUOTA")) {
-          addLog("ACTION REQUIRED: OpenAI API 결제 정보를 확인하거나 Gemini 모델을 사용하십시오.", "warn");
+          addLog("ACTION REQUIRED: 다른 모델로 전환하거나 잠시 후 다시 시도하십시오.", "warn");
         }
         setLoading(false);
         return;
@@ -126,7 +125,7 @@ const AlphaAnalysis: React.FC = () => {
       }
 
       setProgress(85);
-      addLog("Intelligence Payload parsed successfully. Mapping final strategy...", "ok");
+      addLog("Intelligence Payload parsed successfully.", "ok");
 
       const finalSelection = top5.map(item => {
         const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
@@ -143,7 +142,7 @@ const AlphaAnalysis: React.FC = () => {
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
       setProgress(100);
-      addLog(`Discovery Finalized: 5 Alpha targets localized by ${selectedBrain}.`, "ok");
+      addLog(`Discovery Finalized: 5 Alpha targets localized.`, "ok");
     } catch (error: any) {
       addLog(`Core Shutdown: ${error.message.substring(0, 50)}`, "err");
     } finally {
@@ -154,7 +153,6 @@ const AlphaAnalysis: React.FC = () => {
   const getThemeColor = () => {
     switch (selectedBrain) {
       case ApiProvider.GEMINI: return 'border-t-indigo-500 shadow-indigo-900/10';
-      case ApiProvider.CHATGPT: return 'border-t-emerald-500 shadow-emerald-900/10';
       case ApiProvider.PERPLEXITY: return 'border-t-cyan-500 shadow-cyan-900/10';
       default: return 'border-t-rose-500';
     }
@@ -162,8 +160,7 @@ const AlphaAnalysis: React.FC = () => {
 
   const brains = [
     { provider: ApiProvider.GEMINI, label: 'Gemini 3 Flash', color: 'bg-indigo-600', icon: 'G' },
-    { provider: ApiProvider.CHATGPT, label: 'ChatGPT-4o', color: 'bg-emerald-600', icon: 'C' },
-    { provider: ApiProvider.PERPLEXITY, label: 'Perplexity', color: 'bg-cyan-600', icon: 'P' }
+    { provider: ApiProvider.PERPLEXITY, label: 'Sonar Pro', color: 'bg-cyan-600', icon: 'P' }
   ];
 
   return (
@@ -177,8 +174,8 @@ const AlphaAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v7.6</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture • Stage 6</p>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v7.8</h2>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture • Gemini & Sonar Pro</p>
               </div>
             </div>
             
@@ -187,7 +184,7 @@ const AlphaAnalysis: React.FC = () => {
                 <button
                   key={brain.provider}
                   onClick={() => setSelectedBrain(brain.provider)}
-                  className={`px-5 py-3 rounded-xl text-[9px] font-black uppercase transition-all flex items-center space-x-2 ${selectedBrain === brain.provider ? brain.color + ' text-white shadow-lg scale-105' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
+                  className={`px-6 py-3 rounded-xl text-[9px] font-black uppercase transition-all flex items-center space-x-2 ${selectedBrain === brain.provider ? brain.color + ' text-white shadow-lg scale-105' : 'text-slate-500 hover:text-white hover:bg-white/5'}`}
                 >
                   <span className="w-4 h-4 rounded-md flex items-center justify-center bg-black/20 text-[8px]">{brain.icon}</span>
                   <span>{brain.label}</span>
@@ -230,7 +227,7 @@ const AlphaAnalysis: React.FC = () => {
              ))}
              {final5.length === 0 && (
                 <div className="col-span-full py-24 text-center opacity-20">
-                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Select Multi-Brain Node and Initiate Alpha Protocol...</p>
+                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Select Intelligence Node and Initiate Alpha Protocol...</p>
                 </div>
              )}
           </div>
@@ -305,7 +302,7 @@ const AlphaAnalysis: React.FC = () => {
                    <div className="p-6 bg-white/5 rounded-[32px] border border-white/5">
                       <p className="text-[8px] font-black text-slate-600 uppercase mb-3">Analysis Logic</p>
                       <p className="text-[9px] text-slate-400 leading-relaxed italic">
-                        This asset was localized using the {selectedBrain} reasoning model, combining institutional ICT patterns with deep quant fundamental scoring.
+                        This asset was localized using the {selectedBrain} reasoning engine, combining institutional ICT patterns with deep quant scoring.
                       </p>
                    </div>
                 </div>
