@@ -21,67 +21,70 @@ const ALPHA_SCHEMA_PROMPT = `
 ]
 `;
 
-/**
- * 텍스트 내에서 JSON 배열 부분을 정밀하게 추출하고 정제하는 유틸리티
- */
 function sanitizeAndParseJson(text: string): any[] | null {
   try {
-    // 1. 마크다운 코드 블록 제거
     let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
-    
-    // 2. 정규표현식으로 [...] 형태의 배열만 추출
     const match = cleanText.match(/\[[\s\S]*\]/);
     if (match) {
-      // 3. 마지막 콤마(Trailing comma) 처리 및 파싱
       const jsonCandidate = match[0].replace(/,\s*\]/g, ']');
       return JSON.parse(jsonCandidate);
     }
-    
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("Critical: JSON Sanitize/Parse Failed", e);
-    console.debug("Raw Text content:", text.substring(0, 200) + "...");
+    console.error("JSON Parsing Failed", e);
     return null;
   }
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
-  // API 키 확보 우선순위: Constants -> Env
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = config?.key || (provider === ApiProvider.GEMINI ? process.env.API_KEY : null);
 
-  if (!apiKey) {
-    return { data: null, error: "API_KEY_MISSING_IN_CONFIG" };
-  }
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
-    다음 5개 미국 주식 종목에 대한 심층 퀀트 분석 및 실시간 시장 전망을 수행하라.
+    다음 5개 미국 주식 종목에 대한 심층 퀀트 분석을 수행하라.
     데이터셋: ${JSON.stringify(candidates)}
     
     [필수 지침]
-    1. Perplexity 사용 시 최신 뉴스 및 웹 검색 데이터를 반영할 것.
+    1. Perplexity 사용 시 최신 뉴스 데이터를 반영할 것.
     2. 모든 응답은 한국어로 작성할 것.
-    3. JSON 형식 외에 다른 부가 설명은 절대 하지 말 것.
+    3. 반드시 JSON 배열 형식만 출력할 것.
     ${ALPHA_SCHEMA_PROMPT}
   `;
 
   try {
-    // 1. Google Gemini (Paid Tier Pro)
+    // 1. Google Gemini (Pro -> Flash Auto Fallback)
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-        config: {
-          thinkingConfig: { thinkingBudget: 32768 }, // 최고 성능 추론 예산
-          responseMimeType: "application/json"
+      try {
+        // First Attempt: Pro Model
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: prompt,
+          config: {
+            thinkingConfig: { thinkingBudget: 16384 },
+            responseMimeType: "application/json"
+          }
+        });
+        const parsed = sanitizeAndParseJson(response.text || "");
+        if (parsed) return { data: parsed };
+      } catch (proError: any) {
+        if (proError.message.includes("429") || proError.message.includes("limit: 0")) {
+          console.warn("Gemini Pro Quota Exceeded. Falling back to Flash...");
+          // Second Attempt: Flash Model (Higher Quota)
+          const flashRes = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt + " (Note: Perform deep reasoning despite being a light model)",
+          });
+          const parsedFlash = sanitizeAndParseJson(flashRes.text || "");
+          return parsedFlash ? { data: parsedFlash } : { data: null, error: "GEMINI_FLASH_PARSE_ERROR" };
         }
-      });
-      const parsed = sanitizeAndParseJson(response.text || "");
-      return parsed ? { data: parsed } : { data: null, error: "GEMINI_JSON_PARSE_ERROR" };
+        throw proError;
+      }
     }
 
-    // 2. OpenAI ChatGPT (Paid Org Access)
+    // 2. OpenAI ChatGPT
     if (provider === ApiProvider.CHATGPT) {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -92,29 +95,21 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         },
         body: JSON.stringify({
           model: 'gpt-4o',
-          messages: [
-            { role: "system", content: "You are an expert quant trader. Always output data in a valid JSON array format." },
-            { role: "user", content: prompt }
-          ],
+          messages: [{ role: "user", content: prompt }],
           response_format: { type: "json_object" },
           temperature: 0.1
         })
       });
       
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return { data: null, error: `OPENAI_HTTP_${res.status}: ${errData.error?.message || 'Unknown'}` };
-      }
+      if (res.status === 429) return { data: null, error: "OPENAI_QUOTA_EXCEEDED: 계정의 결제 잔액 혹은 무료 한도를 확인하십시오." };
+      if (!res.ok) return { data: null, error: `OPENAI_HTTP_${res.status}` };
 
       const data = await res.json();
-      const content = data.choices[0].message.content;
-      // gpt-4o with json_object might return { "candidates": [...] }
-      const parsed = sanitizeAndParseJson(content);
-      if (parsed && !Array.isArray(parsed) && (parsed as any).candidates) return { data: (parsed as any).candidates };
-      return parsed ? { data: parsed } : { data: null, error: "OPENAI_JSON_PARSE_ERROR" };
+      const parsed = sanitizeAndParseJson(data.choices[0].message.content);
+      return parsed ? { data: parsed } : { data: null, error: "OPENAI_PARSE_ERROR" };
     }
 
-    // 3. Perplexity (Pro Search reasoning)
+    // 3. Perplexity (Model Fix)
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
@@ -123,35 +118,31 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           'Authorization': `Bearer ${apiKey}`
         },
         body: JSON.stringify({
-          model: 'sonar-reasoning',
-          messages: [
-            { role: "system", content: "You are a real-time market data expert. Always return data in a pure JSON array format only." },
-            { role: "user", content: prompt }
-          ],
+          model: 'sonar', // 'sonar-reasoning' 대신 최신 안정화 모델 사용
+          messages: [{ role: "user", content: prompt }],
           temperature: 0.1
         })
       });
 
-      if (!res.ok) {
-        const errData = await res.json().catch(() => ({}));
-        return { data: null, error: `PERPLEXITY_HTTP_${res.status}: ${errData.error?.message || 'Unknown'}` };
-      }
+      if (res.status === 400) return { data: null, error: "PERPLEXITY_MODEL_DEPRECATED: 모델명을 'sonar'로 조정했습니다. 다시 시도하십시오." };
+      if (res.status === 429) return { data: null, error: "PERPLEXITY_QUOTA_EXCEEDED: API 사용 한도 초과." };
+      if (!res.ok) return { data: null, error: `PERPLEXITY_HTTP_${res.status}` };
 
       const data = await res.json();
-      const content = data.choices[0].message.content;
-      const parsed = sanitizeAndParseJson(content);
-      return parsed ? { data: parsed } : { data: null, error: "PERPLEXITY_JSON_PARSE_ERROR" };
+      const parsed = sanitizeAndParseJson(data.choices[0].message.content);
+      return parsed ? { data: parsed } : { data: null, error: "PERPLEXITY_PARSE_ERROR" };
     }
 
-    return { data: null, error: "UNSUPPORTED_PROVIDER" };
+    return { data: null, error: "PROVIDER_NOT_SUPPORTED" };
   } catch (error: any) {
-    return { data: null, error: `RUNTIME_EXCEPTION: ${error.message}` };
+    return { data: null, error: `CRITICAL_EXCEPTION: ${error.message.substring(0, 100)}` };
   }
 }
 
 export async function analyzePipelineStatus(data: any) {
-  const apiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY;
-  if (!apiKey) return "API_KEY_UNAVAILABLE";
+  const config = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  const apiKey = config?.key || process.env.API_KEY;
+  if (!apiKey) return "API_KEY_MISSING";
   
   const ai = new GoogleGenAI({ apiKey });
   try {
