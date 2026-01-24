@@ -22,60 +22,66 @@ const ALPHA_SCHEMA_PROMPT = `
 `;
 
 /**
- * 텍스트 뭉치에서 JSON 배열 부분만 추출하는 유틸리티
+ * 텍스트 내에서 JSON 배열 부분을 정밀하게 추출하고 정제하는 유틸리티
  */
-function extractJsonArray(text: string): any[] | null {
+function sanitizeAndParseJson(text: string): any[] | null {
   try {
-    const match = text.match(/\[[\s\S]*\]/);
+    // 1. 마크다운 코드 블록 제거
+    let cleanText = text.replace(/```json/g, '').replace(/```/g, '').trim();
+    
+    // 2. 정규표현식으로 [...] 형태의 배열만 추출
+    const match = cleanText.match(/\[[\s\S]*\]/);
     if (match) {
-      return JSON.parse(match[0]);
+      // 3. 마지막 콤마(Trailing comma) 처리 및 파싱
+      const jsonCandidate = match[0].replace(/,\s*\]/g, ']');
+      return JSON.parse(jsonCandidate);
     }
-    return JSON.parse(text);
+    
+    return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON Extraction Failed:", e);
+    console.error("Critical: JSON Sanitize/Parse Failed", e);
+    console.debug("Raw Text content:", text.substring(0, 200) + "...");
     return null;
   }
 }
 
-export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider) {
-  // API 키 확보 (환경변수 최우선, 없을 시 constants의 설정값 사용)
-  const getApiKey = (p: ApiProvider) => {
-    if (p === ApiProvider.GEMINI && process.env.API_KEY) return process.env.API_KEY;
-    return API_CONFIGS.find(c => c.provider === p)?.key;
-  };
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
+  // API 키 확보 우선순위: Constants -> Env
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = config?.key || (provider === ApiProvider.GEMINI ? process.env.API_KEY : null);
 
-  const apiKey = getApiKey(provider);
   if (!apiKey) {
-    console.error(`[${provider}] API Key is missing in both environment and constants.`);
-    return null;
+    return { data: null, error: "API_KEY_MISSING_IN_CONFIG" };
   }
 
   const prompt = `
     다음 5개 미국 주식 종목에 대한 심층 퀀트 분석 및 실시간 시장 전망을 수행하라.
     데이터셋: ${JSON.stringify(candidates)}
     
-    [중요 지침]
-    1. Perplexity 사용 시 실시간 최신 뉴스 및 웹 데이터를 반드시 반영할 것.
+    [필수 지침]
+    1. Perplexity 사용 시 최신 뉴스 및 웹 검색 데이터를 반영할 것.
     2. 모든 응답은 한국어로 작성할 것.
+    3. JSON 형식 외에 다른 부가 설명은 절대 하지 말 것.
     ${ALPHA_SCHEMA_PROMPT}
   `;
 
   try {
-    // 1. Google Gemini
+    // 1. Google Gemini (Paid Tier Pro)
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const response = await ai.models.generateContent({
         model: 'gemini-3-pro-preview',
         contents: prompt,
         config: {
-          thinkingConfig: { thinkingBudget: 16384 },
+          thinkingConfig: { thinkingBudget: 32768 }, // 최고 성능 추론 예산
           responseMimeType: "application/json"
         }
       });
-      return extractJsonArray(response.text || "");
+      const parsed = sanitizeAndParseJson(response.text || "");
+      return parsed ? { data: parsed } : { data: null, error: "GEMINI_JSON_PARSE_ERROR" };
     }
 
-    // 2. OpenAI ChatGPT
+    // 2. OpenAI ChatGPT (Paid Org Access)
     if (provider === ApiProvider.CHATGPT) {
       const res = await fetch('https://api.openai.com/v1/chat/completions', {
         method: 'POST',
@@ -87,22 +93,28 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'gpt-4o',
           messages: [
-            { role: "system", content: "You are a professional financial analyst. Return only a valid JSON array." },
+            { role: "system", content: "You are an expert quant trader. Always output data in a valid JSON array format." },
             { role: "user", content: prompt }
           ],
           response_format: { type: "json_object" },
-          temperature: 0.2
+          temperature: 0.1
         })
       });
       
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { data: null, error: `OPENAI_HTTP_${res.status}: ${errData.error?.message || 'Unknown'}` };
+      }
+
       const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
-      
       const content = data.choices[0].message.content;
-      return extractJsonArray(content);
+      // gpt-4o with json_object might return { "candidates": [...] }
+      const parsed = sanitizeAndParseJson(content);
+      if (parsed && !Array.isArray(parsed) && (parsed as any).candidates) return { data: (parsed as any).candidates };
+      return parsed ? { data: parsed } : { data: null, error: "OPENAI_JSON_PARSE_ERROR" };
     }
 
-    // 3. Perplexity
+    // 3. Perplexity (Pro Search reasoning)
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
@@ -113,30 +125,33 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-reasoning',
           messages: [
-            { role: "system", content: "You are a real-time market data expert. Always return data in a PURE JSON array format. Do not use markdown backticks." },
+            { role: "system", content: "You are a real-time market data expert. Always return data in a pure JSON array format only." },
             { role: "user", content: prompt }
           ],
-          temperature: 0.2
+          temperature: 0.1
         })
       });
 
-      const data = await res.json();
-      if (data.error) throw new Error(data.error.message);
+      if (!res.ok) {
+        const errData = await res.json().catch(() => ({}));
+        return { data: null, error: `PERPLEXITY_HTTP_${res.status}: ${errData.error?.message || 'Unknown'}` };
+      }
 
+      const data = await res.json();
       const content = data.choices[0].message.content;
-      return extractJsonArray(content);
+      const parsed = sanitizeAndParseJson(content);
+      return parsed ? { data: parsed } : { data: null, error: "PERPLEXITY_JSON_PARSE_ERROR" };
     }
 
-    return null;
+    return { data: null, error: "UNSUPPORTED_PROVIDER" };
   } catch (error: any) {
-    console.error(`[${provider}] Critical System Error:`, error.message);
-    return null;
+    return { data: null, error: `RUNTIME_EXCEPTION: ${error.message}` };
   }
 }
 
 export async function analyzePipelineStatus(data: any) {
-  const apiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
-  if (!apiKey) return "API_KEY_OFFLINE";
+  const apiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY;
+  if (!apiKey) return "API_KEY_UNAVAILABLE";
   
   const ai = new GoogleGenAI({ apiKey });
   try {
@@ -145,5 +160,5 @@ export async function analyzePipelineStatus(data: any) {
       contents: `System Audit Request: ${JSON.stringify(data)}. Tone: Military-Quant. Language: Korean.`,
     });
     return response.text;
-  } catch (e) { return "AUDIT_FAILED"; }
+  } catch (e) { return "AUDIT_NODE_OFFLINE"; }
 }

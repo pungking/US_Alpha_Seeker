@@ -31,7 +31,7 @@ const AlphaAnalysis: React.FC = () => {
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.5.1: Intelligence Link Stable.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.5.2: Intelligence Bridge Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -48,13 +48,13 @@ const AlphaAnalysis: React.FC = () => {
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
+    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
   const loadStage5Data = async () => {
     if (!accessToken) return;
     setLoading(true);
-    addLog("Syncing with Stage 5 Cloud Vault...", "info");
+    addLog("Polling Stage 5 Cloud Repository...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
@@ -63,7 +63,7 @@ const AlphaAnalysis: React.FC = () => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Stage 5 input data not found. Check pipeline flow.", "err");
+        addLog("Source Matrix missing. Stage 5 output not detected.", "err");
         setLoading(false);
         return;
       }
@@ -74,10 +74,10 @@ const AlphaAnalysis: React.FC = () => {
 
       if (content.ict_universe) {
         setElite50(content.ict_universe);
-        addLog(`Successfully loaded ${content.ict_universe.length} high-alpha nodes.`, "ok");
+        addLog(`Synchronized ${content.ict_universe.length} high-alpha candidates.`, "ok");
       }
     } catch (e: any) {
-      addLog(`Vault Access Error: ${e.message}`, "err");
+      addLog(`Cloud Sync Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
     }
@@ -97,22 +97,27 @@ const AlphaAnalysis: React.FC = () => {
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 5);
 
-      addLog(`Evaluated Top 5 candidates for strategy synthesis.`, "info");
+      addLog(`Task: Synthesizing final strategies for Top 5 candidates.`, "info");
       setProgress(30);
 
       const statusMsgs = {
-        [ApiProvider.GEMINI]: "Connecting to Google Cloud AI Cluster...",
-        [ApiProvider.CHATGPT]: "Handshaking with OpenAI Enterprise Layer...",
-        [ApiProvider.PERPLEXITY]: "Consulting Perplexity Real-time Search Indices..."
+        [ApiProvider.GEMINI]: "Connecting to Google Cloud AI (gemini-3-pro)...",
+        [ApiProvider.CHATGPT]: "Handshaking with OpenAI Enterprise Cluster (gpt-4o)...",
+        [ApiProvider.PERPLEXITY]: "Querying Perplexity Reasoning Engine (sonar-reasoning)..."
       };
 
       addLog(`[CONNECTING] ${statusMsgs[selectedBrain] || 'AI Handshake...'}`, "warn");
       
-      const aiResults = await generateAlphaSynthesis(top5, selectedBrain);
+      const { data: aiResults, error } = await generateAlphaSynthesis(top5, selectedBrain);
       
+      if (error) {
+        addLog(`Link Critical Error: ${error}`, "err");
+        throw new Error(error);
+      }
+
       if (!aiResults || aiResults.length === 0) {
-        addLog(`Protocol Error: ${selectedBrain} returned null or invalid payload. Check API Key validity.`, "err");
-        throw new Error("AI_HANDSHAKE_FAILED");
+        addLog(`Protocol Failure: ${selectedBrain} returned empty payload.`, "err");
+        throw new Error("EMPTY_PAYLOAD");
       }
 
       setProgress(85);
@@ -120,22 +125,22 @@ const AlphaAnalysis: React.FC = () => {
 
       const finalSelection = top5.map(item => {
         const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
-        const entry = item.price * 0.982;
+        const entry = item.price * 0.985;
         return {
           ...item,
           ...aiData,
           entryPrice: entry,
-          targetPrice: entry * 1.25,
-          stopLoss: entry * 0.93,
+          targetPrice: entry * 1.28,
+          stopLoss: entry * 0.92,
         };
       });
 
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
       setProgress(100);
-      addLog(`Discovery Finalized: 5 Assets localized by ${selectedBrain}.`, "ok");
+      addLog(`Discovery Finalized: 5 Alpha targets localized by ${selectedBrain}.`, "ok");
     } catch (error: any) {
-      addLog(`Core Error: ${error.message}`, "err");
+      addLog(`Core Shutdown: ${error.message}`, "err");
     } finally {
       setLoading(false);
     }
@@ -190,7 +195,7 @@ const AlphaAnalysis: React.FC = () => {
               disabled={loading || elite50.length === 0}
               className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
             >
-              {loading ? 'Processing...' : 'Execute Strategy Brain'}
+              {loading ? 'Synthesizing...' : 'Execute Strategy Brain'}
             </button>
           </div>
 
