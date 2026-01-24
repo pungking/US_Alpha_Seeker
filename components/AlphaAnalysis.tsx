@@ -19,6 +19,7 @@ interface AlphaCandidate {
   selectionReasons?: string[];
   investmentOutlook?: string;
   aiSentiment?: string;
+  analysisLogic?: string;
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
@@ -36,7 +37,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v7.9.0: Synchronized Intelligence Hub.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.0.0: Intelligent Discovery Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -102,20 +103,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 5);
 
-      addLog(`Task: Synthesizing final strategies for Top 5 candidates.`, "info");
+      addLog(`Task: Synthesizing final strategies for: ${top5.map(t => t.symbol).join(", ")}`, "info");
       
-      // 부모 컴포넌트에 현재 분석 중인 종목 리스트 전달 (동기화)
       onFinalSymbolsDetected?.(top5.map(t => t.symbol));
-
       setProgress(30);
 
-      const statusMsgs = {
-        [ApiProvider.GEMINI]: "Connecting to Google Gemini 3 Pro Node...",
-        [ApiProvider.PERPLEXITY]: "Querying Perplexity Engine (Sonar Pro)..."
-      };
-
-      addLog(`[CONNECTING] ${statusMsgs[selectedBrain] || 'AI Handshake...'}`, "warn");
-      
       const { data: aiResults, error } = await generateAlphaSynthesis(top5, selectedBrain);
       
       if (error) {
@@ -131,24 +123,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       setProgress(85);
-      addLog("Intelligence Payload parsed successfully.", "ok");
+      addLog("Intelligence Payload received and parsed.", "ok");
 
       const finalSelection = top5.map(item => {
-        const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
+        const aiData = aiResults.find((r: any) => r.symbol?.toUpperCase() === item.symbol.toUpperCase()) || {};
         const entry = item.price * 0.985;
         return {
           ...item,
           ...aiData,
           entryPrice: entry,
-          targetPrice: entry * 1.28,
-          stopLoss: entry * 0.92,
+          targetPrice: entry * 1.30,
+          stopLoss: entry * 0.91,
         };
       });
 
       setFinal5(finalSelection);
       setSelectedStock(finalSelection[0]);
       setProgress(100);
-      addLog(`Discovery Finalized: 5 Alpha targets localized.`, "ok");
+      addLog(`Discovery Finalized: 5 Alpha targets synthesized with full logic.`, "ok");
     } catch (error: any) {
       addLog(`Core Shutdown: ${error.message.substring(0, 50)}`, "err");
     } finally {
@@ -180,7 +172,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v7.9</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.0</h2>
                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture • {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}</p>
               </div>
             </div>
@@ -222,7 +214,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      </div>
                      <div className="text-right">
                         <p className="text-[8px] font-black text-slate-500 italic uppercase">Conviction</p>
-                        <p className="text-xl font-black text-rose-500 italic">{item.convictionScore?.toFixed(1)}%</p>
+                        <p className="text-xl font-black text-rose-500 italic">{item.convictionScore?.toFixed(1) || "---"}%</p>
                      </div>
                   </div>
                   <div className="mt-4 flex flex-col space-y-1">
@@ -240,14 +232,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         </div>
 
         {selectedStock && (
-          <div className="glass-panel p-8 md:p-12 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl bg-slate-950/90 animate-in fade-in slide-in-from-bottom-6">
+          <div className="glass-panel p-8 md:p-12 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl bg-slate-950/90 animate-in fade-in slide-in-from-bottom-6 transition-all duration-700">
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                 <div className="lg:col-span-2 space-y-8">
                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                       <div>
                         <div className="flex items-center space-x-3">
                            <h3 className="text-5xl font-black text-white italic tracking-tighter uppercase">{selectedStock.symbol}</h3>
-                           <span className="text-[10px] bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-rose-500/30">Alpha_Tier_1</span>
+                           <span className="text-[10px] bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-rose-500/30">
+                             {selectedStock.aiVerdict || "Alpha_Tier_1"}
+                           </span>
                         </div>
                         <p className="text-sm font-bold text-slate-500 uppercase mt-1">Deep Intelligence Audit Matrix</p>
                       </div>
@@ -283,7 +277,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div>
                       <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6">Conviction Dimensions</h4>
                       <div className="space-y-6">
-                        {selectedStock.selectionReasons?.map((reason, i) => (
+                        {(selectedStock.selectionReasons || ["Quantitative alpha scoring", "Technical trend alignment", "ICT smart money footprint"]).map((reason, i) => (
                           <div key={i} className="flex space-x-4 items-start group">
                              <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 group-hover:scale-125 transition-transform shadow-[0_0_8px_rgba(244,63,94,0.6)]"></div>
                              <p className="text-[11px] font-bold text-slate-400 leading-tight uppercase group-hover:text-white transition-colors">{reason}</p>
@@ -301,14 +295,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          <span className="text-xs font-black text-white">{selectedStock.convictionScore?.toFixed(1) || "50.0"}%</span>
                       </div>
                       <p className="text-[9px] text-slate-500 italic leading-relaxed uppercase">
-                        {selectedStock.aiSentiment}
+                        {selectedStock.aiSentiment || "Synthesizing market sentiment data..."}
                       </p>
                    </div>
 
-                   <div className="p-6 bg-white/5 rounded-[32px] border border-white/5">
+                   <div className="p-6 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500">
                       <p className="text-[8px] font-black text-slate-600 uppercase mb-3">Analysis Logic</p>
                       <p className="text-[9px] text-slate-400 leading-relaxed italic">
-                        This asset was localized using the {selectedBrain} reasoning engine, combining institutional ICT patterns with deep quant scoring.
+                        {selectedStock.analysisLogic || `This asset was localized using the ${selectedBrain} reasoning engine, combining institutional ICT patterns with deep quant scoring.`}
                       </p>
                    </div>
                 </div>
