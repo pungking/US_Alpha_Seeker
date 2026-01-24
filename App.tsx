@@ -54,12 +54,12 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    setAiReport("시스템 텔레메트리 스캔 중... 실시간 노드 상태를 수집하고 있습니다.");
+    setAiReport("> INITIALIZING SYSTEM SCAN...\n> COLLECTING NODE TELEMETRY...\n> ANALYZING IMPACT ON ALPHA DISCOVERY...");
     
     const report = await analyzePipelineStatus({
       currentStage,
       apiStatuses,
-      systemLoad: "OPTIMIZED_LOAD"
+      systemLoad: "BALANCED_LOAD"
     });
     
     setAiReport(report);
@@ -166,28 +166,72 @@ const App: React.FC = () => {
         )}
       </main>
 
-      {/* AI Auditor Section */}
-      <section className="glass-panel p-5 md:p-8 rounded-[32px] border-t-4 border-t-emerald-600 shadow-2xl">
-        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
-          <div className="flex items-center space-x-4">
-             <div className="bg-emerald-500/10 p-2.5 rounded-xl">
-                <svg className={`w-5 h-5 text-emerald-400 ${isAiLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+      {/* AI Auditor Section 고도화 */}
+      <section className="glass-panel p-6 md:p-10 rounded-[40px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 p-10 opacity-[0.03] pointer-events-none">
+           <svg className="w-64 h-64 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
+        </div>
+
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6 relative z-10">
+          <div className="flex items-center space-x-6">
+             <div className="bg-emerald-500/10 p-4 rounded-3xl border border-emerald-500/20">
+                <svg className={`w-8 h-8 text-emerald-400 ${isAiLoading ? 'animate-spin' : 'animate-pulse'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
              </div>
              <div>
-                <h3 className="font-black text-white uppercase text-base md:text-lg tracking-tighter italic">AI Pipeline Auditor</h3>
-                <p className="text-[7px] md:text-[8px] text-slate-500 font-black uppercase tracking-widest">Model_Node: Gemini_3_Flash_Diagnostics</p>
+                <h3 className="font-black text-white uppercase text-xl tracking-tighter italic">AI Pipeline Auditor</h3>
+                <div className="flex items-center space-x-2 mt-1">
+                   <span className="text-[7px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">Alpha_Confidence_Shield</span>
+                   <p className="text-[7px] text-slate-500 font-black uppercase tracking-widest">Model: Gemini_3_Flash_Diagnostics</p>
+                </div>
              </div>
           </div>
-          <button 
-            onClick={runAiAnalysis}
-            disabled={isAiLoading}
-            className={`w-full md:w-auto px-7 py-3.5 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-lg shadow-emerald-600/20'}`}
-          >
-            {isAiLoading ? 'Generating Diagnostic...' : 'Run Operational Audit'}
-          </button>
+          <div className="flex gap-3 w-full lg:w-auto">
+             <div className="hidden md:flex flex-col items-end mr-4">
+                <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Audit Role</p>
+                <p className="text-[9px] font-bold text-slate-400 italic text-right max-w-[200px]">데이터 오염 방지 및 분석 신뢰도 무결성 검증</p>
+             </div>
+             <button 
+               onClick={runAiAnalysis}
+               disabled={isAiLoading}
+               className={`flex-1 lg:flex-none px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-xl shadow-emerald-600/20'}`}
+             >
+               {isAiLoading ? 'Synthesizing Report...' : 'Execute Operational Audit'}
+             </button>
+          </div>
         </div>
-        <div className="bg-slate-950/70 p-6 md:p-8 rounded-2xl border border-white/5 font-mono text-xs md:text-sm text-emerald-300/80 leading-relaxed min-h-[140px] whitespace-pre-wrap">
-          {aiReport || "> Awaiting Node Status Telemetry... \n> Click 'Run Operational Audit' to analyze system readiness."}
+
+        <div className="grid grid-cols-1 lg:grid-cols-4 gap-8 relative z-10">
+           <div className="lg:col-span-3">
+              <div className="bg-black/60 p-8 rounded-[32px] border border-white/5 font-mono text-xs md:text-sm text-emerald-300/90 leading-relaxed min-h-[180px] whitespace-pre-wrap shadow-inner overflow-y-auto max-h-[400px]">
+                {aiReport || "> CORE_SYSTEM_IDLE... \n> Awaiting manual audit trigger. \n> Auditor role: Verifying if API nodes are providing valid stock data for Stage " + currentStage + "."}
+              </div>
+           </div>
+           
+           <div className="space-y-4">
+              <div className="bg-white/5 p-6 rounded-[24px] border border-white/5">
+                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-3">Impact Analysis</p>
+                 <div className="space-y-3">
+                    <div className="flex justify-between items-center">
+                       <span className="text-[9px] font-bold text-slate-400 uppercase">Data Integrity</span>
+                       <span className="text-[9px] font-black text-emerald-500">NOMINAL</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                       <span className="text-[9px] font-bold text-slate-400 uppercase">Alpha Bias</span>
+                       <span className="text-[9px] font-black text-blue-500">ZERO</span>
+                    </div>
+                    <div className="flex justify-between items-center">
+                       <span className="text-[9px] font-bold text-slate-400 uppercase">Node Sync</span>
+                       <span className="text-[9px] font-black text-amber-500">ACTIVE</span>
+                    </div>
+                 </div>
+              </div>
+              <div className="p-6 bg-emerald-500/5 rounded-[24px] border border-emerald-500/10">
+                 <p className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-2 italic">Auditor Tip</p>
+                 <p className="text-[8px] text-slate-500 leading-relaxed font-bold uppercase">
+                   API 노드 중 하나라도 비활성화되면 6단계 Alpha 분석 시 데이터 결손으로 인해 Conviction 점수가 하향 조정될 수 있습니다.
+                 </p>
+              </div>
+           </div>
         </div>
       </section>
     </div>
