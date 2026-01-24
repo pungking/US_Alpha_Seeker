@@ -23,6 +23,20 @@
           50% { opacity: 0.5; }
         }
         .animate-pulse-soft { animation: pulse-soft 3s infinite; }
+
+        /* Markdown Styles */
+        .prose-report h1 { font-size: 1.5rem; font-weight: 900; color: #fff; margin-bottom: 1rem; border-left: 4px solid #10b981; padding-left: 1rem; text-transform: uppercase; font-style: italic; }
+        .prose-report h2 { font-size: 1.1rem; font-weight: 800; color: #10b981; margin-top: 1.5rem; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; }
+        .prose-report h3 { font-size: 0.9rem; font-weight: 700; color: #94a3b8; margin-top: 1rem; text-transform: uppercase; }
+        .prose-report p { font-size: 0.875rem; color: #cbd5e1; line-height: 1.7; margin-bottom: 1rem; }
+        .prose-report ul { list-style: none; padding-left: 0; margin-bottom: 1rem; }
+        .prose-report li { position: relative; padding-left: 1.25rem; font-size: 0.875rem; color: #cbd5e1; margin-bottom: 0.5rem; }
+        .prose-report li::before { content: '→'; position: absolute; left: 0; color: #10b981; font-weight: bold; }
+        .prose-report table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.75rem; background: rgba(0,0,0,0.3); border-radius: 12px; overflow: hidden; }
+        .prose-report th { background: rgba(16, 185, 129, 0.1); color: #10b981; padding: 0.75rem; text-align: left; font-weight: 900; text-transform: uppercase; }
+        .prose-report td { padding: 0.75rem; border-bottom: 1px solid rgba(255,255,255,0.05); color: #fff; }
+        .prose-report strong { color: #10b981; font-weight: 800; }
+        .prose-report blockquote { border-left: 2px solid #334155; padding-left: 1rem; font-style: italic; color: #64748b; margin: 1.5rem 0; }
     </style>
 <script type="importmap">
 {
@@ -31,7 +45,9 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "react/": "https://esm.sh/react@^19.2.3/",
     "@google/genai": "https://esm.sh/@google/genai@^1.38.0",
-    "recharts": "https://esm.sh/recharts@^3.7.0"
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "react-markdown": "https://esm.sh/react-markdown@^9.0.0",
+    "remark-gfm": "https://esm.sh/remark-gfm@^4.0.0"
   }
 }
 </script>

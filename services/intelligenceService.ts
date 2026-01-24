@@ -27,7 +27,6 @@ const ALPHA_SCHEMA = {
 function sanitizeAndParseJson(text: string): any[] | null {
   try {
     let cleanText = text.trim();
-    // Remove markdown code blocks if present
     cleanText = cleanText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
@@ -65,13 +64,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   const prompt = `Analyze these 5 US stocks: ${candidates.map(c => c.symbol).join(", ")}.
     For each stock, provide a professional quant/ICT analysis in Korean:
     1. symbol: String (EXACT ticker symbol)
-    2. aiVerdict: A short catchy phrase (e.g., "기술적 반등 강력", "추세 추종 매수")
+    2. aiVerdict: A short catchy phrase.
     3. investmentOutlook: Detailed 2-3 sentence investment perspective.
     4. selectionReasons: Array of 3 specific technical/fundamental reasons.
-    5. convictionScore: Number between 0 and 100 representing confidence.
-    6. theme: The primary market theme (e.g., "AI 인프라 확장", "금리 인하 수혜")
-    7. aiSentiment: Concise summary of AI's sentiment towards the stock.
-    8. analysisLogic: Professional explanation of the logic behind this specific selection.
+    5. convictionScore: Number between 0 and 100.
+    6. theme: The primary market theme.
+    7. aiSentiment: Concise summary of sentiment.
+    8. analysisLogic: Professional explanation of the logic.
 
     Return ONLY a valid JSON array matching the provided schema. No additional text.
     Dataset for context: ${JSON.stringify(candidates)}`;
@@ -79,27 +78,18 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
-      try {
-        const result = await fetchWithRetry(async () => {
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-            config: {
-              responseMimeType: "application/json",
-              responseSchema: ALPHA_SCHEMA
-            }
-          });
-          return response;
+      const result = await fetchWithRetry(async () => {
+        return await ai.models.generateContent({
+          model: 'gemini-3-pro-preview',
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            responseSchema: ALPHA_SCHEMA
+          }
         });
-        const parsed = sanitizeAndParseJson(result.text || "");
-        return parsed ? { data: parsed } : { data: null, error: "GEMINI_PARSE_ERROR" };
-      } catch (geminiErr: any) {
-        const msg = geminiErr.message?.toLowerCase() || "";
-        if (msg.includes("429") || msg.includes("quota")) {
-          return { data: null, error: "GEMINI_QUOTA_EXCEEDED" };
-        }
-        throw geminiErr;
-      }
+      });
+      const parsed = sanitizeAndParseJson(result.text || "");
+      return parsed ? { data: parsed } : { data: null, error: "GEMINI_PARSE_ERROR" };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
@@ -115,15 +105,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `PERPLEXITY_ERROR: ${res.status}` };
+      if (!res.ok) return { data: null, error: `PPLX_ERR_${res.status}` };
       const data = await res.json();
       const parsed = sanitizeAndParseJson(data.choices[0].message.content);
-      return parsed ? { data: parsed } : { data: null, error: "PERPLEXITY_PARSE_ERROR" };
+      return parsed ? { data: parsed } : { data: null, error: "PPLX_PARSE_ERROR" };
     }
 
-    return { data: null, error: "PROVIDER_NOT_SUPPORTED" };
+    return { data: null, error: "UNSUPPORTED_PROVIDER" };
   } catch (error: any) {
-    return { data: null, error: `CRITICAL_NODE_FAILURE: ${error.message.substring(0, 100)}` };
+    return { data: null, error: error.message };
   }
 }
 
@@ -133,21 +123,29 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
   
   if (!apiKey) return `통신 오류: ${provider} API 키가 누락되었습니다.`;
 
-  const prompt = provider === ApiProvider.PERPLEXITY
-    ? `미국 주식 시장 리서치 리포트를 한국어로 작성하십시오.
-       
-       [분석 컨텍스트]
-       - 현재 단계: Stage ${data.currentStage}
-       - 분석 대상 종목: ${data.symbols ? data.symbols.join(", ") : "전체 섹터"}
-       - 시스템 상태: ${JSON.stringify(data.apiStatuses.map((s:any) => s.provider + (s.isConnected ? ":Online" : ":Offline")))}
-       
-       [요청 사항]
-       1. 현재 실시간 시장 변동 요인과 투자 심리를 요약하십시오.
-       2. 분석 대상 종목의 최신 테마 연관성을 상세히 분석하십시오.
-       3. 거시 경제적 관점에서 현재의 기회를 평가하십시오.`
-    : `시스템 운영 및 시장 통합 진단 보고 (한국어): 
-       Stage ${data.currentStage}, Symbols: ${data.symbols?.join(", ") || "None"}. 
-       현재 시장 상황과 시스템 무결성을 보고하십시오.`;
+  const symbolsList = data.symbols ? data.symbols.join(", ") : "전체 섹터";
+  
+  const prompt = `당신은 월스트리트의 수석 전략가이자 퀀트 감사관입니다. 
+    현재 분석 대상 종목(${symbolsList})과 최신 시장 지표를 바탕으로 **최종 전략 보고서**를 한국어로 작성하십시오.
+    
+    [필수 포함 섹션 (Markdown 활용)]
+    # 1. Macro Outlook & Sentiment Analysis
+    - 현재 매크로(금리, 환율, 고용 등) 지표가 해당 종목들에 미치는 영향.
+    - 공포/탐욕 지수 및 시장 심리 요약.
+    
+    # 2. Sector Dynamics & Theme Audit
+    - ${symbolsList}이 속한 섹터의 자금 흐름(Smart Money Flow) 분석.
+    - 현재 주도 테마와 해당 종목의 정렬 상태.
+    
+    # 3. Ticker Deep-Dive Strategy
+    - 각 종목별 핵심 리스크와 기회 요인 표(Table)로 정리.
+    - 기술적 지지/저항 및 ICT 오더블록(Order Block) 구간 명시.
+    
+    # 4. Final Alpha Action Plan
+    - 통합 포트폴리오 비중 제안.
+    - 구체적인 진입/탈출 및 리스크 관리 가이드.
+
+    보고서는 전문적이고 권위 있는 어조로 작성하며, 표와 굵은 글씨를 활용하여 시인성을 높이십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -166,18 +164,16 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
-            { role: "system", content: "당신은 월스트리트 수석 애널리스트입니다. 실시간 시장 상황을 검색하여 한국어로 리포트를 제공합니다." },
+            { role: "system", content: "당신은 월스트리트 수석 애널리스트입니다. 실시간 시장 상황을 검색하여 구조화된 Markdown 리포트를 제공합니다." },
             { role: "user", content: prompt }
           ]
         })
       });
-      if (!res.ok) return `리포트 생성 실패: ${res.status}`;
       const resData = await res.json();
       return resData.choices[0].message.content;
     }
-
     return "지원되지 않는 분석 엔진입니다.";
   } catch (e: any) {
-    return `분석 오류: ${e.message.substring(0, 100)}`;
+    return `분석 오류: ${e.message}`;
   }
 }
