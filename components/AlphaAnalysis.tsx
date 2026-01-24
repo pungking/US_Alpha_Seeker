@@ -31,7 +31,7 @@ const AlphaAnalysis: React.FC = () => {
   const [final5, setFinal5] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.8.5: Dynamic Reasoning Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v6.9.0: Reasoning Engine Standby.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -74,7 +74,7 @@ const AlphaAnalysis: React.FC = () => {
 
       if (content.ict_universe) {
         setElite50(content.ict_universe);
-        addLog(`Synchronized ${content.ict_universe.length} top candidates for Conviction Audit.`, "ok");
+        addLog(`Synchronized ${content.ict_universe.length} top candidates. Ready for AI Synthesis.`, "ok");
       }
     } catch (e: any) {
       addLog(`Sync Error: ${e.message}`, "err");
@@ -86,55 +86,55 @@ const AlphaAnalysis: React.FC = () => {
   const executeAlphaFinalization = async () => {
     if (elite50.length === 0 || loading) return;
     setLoading(true);
+    setProgress(0);
     addLog("Initiating Multi-Model Strategy Synthesis...", "info");
     
+    // UI Feedback: 가상의 진행률 (60%까지)
     const steps = ["Quant-Data Fetching", "Pattern Recognition", "ICT Footprint Matching"];
     for (let i = 0; i < steps.length; i++) {
       setProgress((i + 1) * 20);
       addLog(`AI Core Status: ${steps[i]}...`, "info");
-      await new Promise(r => setTimeout(r, 400));
+      await new Promise(r => setTimeout(r, 600));
     }
 
-    addLog("Querying Gemini 3 Flash for final reasoning...", "warn");
+    setProgress(80);
+    addLog("[THINKING] Gemini 3 Pro reasoning engine is analyzing top 5 candidates...", "warn");
+    addLog("This process involves deep market-context simulation. Please wait.", "info");
     
     const top5 = elite50
       .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
       .slice(0, 5);
 
-    const aiResults = await generateAlphaSynthesis(top5);
-    
-    if (!aiResults) {
-      addLog("AI Synthesis Engine Failed. Using fail-safe fallback.", "err");
+    try {
+      // 실제 API 호출 (Gemini 3 Pro Thinking)
+      const aiResults = await generateAlphaSynthesis(top5);
+      
+      if (!aiResults || !Array.isArray(aiResults)) {
+        throw new Error("Invalid or empty AI synthesis results.");
+      }
+
+      const finalSelection = top5.map(item => {
+        const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
+        const entry = item.price * 0.98;
+        return {
+          ...item,
+          ...aiData,
+          entryPrice: entry,
+          targetPrice: entry * 1.25,
+          stopLoss: entry * 0.93,
+        };
+      });
+
+      setFinal5(finalSelection);
+      setSelectedStock(finalSelection[0]);
+      setProgress(100);
+      addLog(`Alpha Synthesis Successful. 5 High-Conviction assets localized.`, "ok");
+    } catch (error: any) {
+      addLog(`AI Synthesis Critical Fail: ${error.message}`, "err");
+      addLog("Retrying with fail-safe logic is recommended.", "warn");
+    } finally {
       setLoading(false);
-      return;
     }
-
-    const finalSelection = top5.map(item => {
-      // 대소문자 구분 없이 티커 매칭
-      const aiData = aiResults.find((r: any) => r.symbol.toUpperCase() === item.symbol.toUpperCase()) || {};
-      const entry = item.price * 0.98;
-      return {
-        ...item,
-        ...aiData,
-        entryPrice: entry,
-        targetPrice: entry * 1.25,
-        stopLoss: entry * 0.93,
-      };
-    });
-
-    setFinal5(finalSelection);
-    
-    // 만약 이미 선택된 종목이 있다면, 업데이트된 데이터로 교체
-    if (selectedStock) {
-       const updated = finalSelection.find(s => s.symbol === selectedStock.symbol);
-       if (updated) setSelectedStock(updated);
-    } else {
-       setSelectedStock(finalSelection[0]); // 기본 첫번째 종목 선택
-    }
-
-    setProgress(100);
-    addLog(`Alpha Synthesis Complete. 5 High-Conviction assets locked.`, "ok");
-    setLoading(false);
   };
 
   return (
@@ -145,12 +145,12 @@ const AlphaAnalysis: React.FC = () => {
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className="w-14 h-14 rounded-3xl bg-rose-600/10 flex items-center justify-center border border-rose-500/20">
-                 <svg className="w-6 h-6 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                 <svg className={`w-6 h-6 text-rose-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Deep_Final</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.8.5</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-rose-500/20 bg-rose-500/10 text-rose-400 uppercase tracking-widest italic">Trade Perspective v6.9.0</span>
                 </div>
               </div>
             </div>
@@ -159,9 +159,9 @@ const AlphaAnalysis: React.FC = () => {
               <button 
                 onClick={executeAlphaFinalization}
                 disabled={loading || elite50.length === 0}
-                className="px-8 py-4 bg-rose-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-rose-900/20 hover:scale-105 transition-all"
+                className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105'}`}
               >
-                {loading ? `Synthesizing ${Math.floor(progress)}%` : 'Start AI Synthesis'}
+                {loading ? (progress < 100 ? `Synthesizing ${Math.floor(progress)}%` : 'Finalizing...') : 'Start AI Synthesis'}
               </button>
             </div>
           </div>

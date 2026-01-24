@@ -38,34 +38,33 @@ export async function analyzePipelineStatus(data: {
 
 /**
  * Stage 6: 종목별 맞춤형 AI 분석 및 심층 전망 생성
+ * 고성능 추론 모델 gemini-3-pro-preview 사용
  */
 export async function generateAlphaSynthesis(candidates: any[]) {
+  // 매 요청마다 새로운 인스턴스 생성 (최신 API 키 보장)
   const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   
-  // 종목별 차별화를 위한 강력한 페르소나와 지침 부여
   const prompt = `
-    당신은 세계 최고의 퀀트 헤지펀드 분석가입니다. 
-    다음 5개 종목에 대해 각각 '서로 완전히 다른' 독창적이고 심도 있는 투자 리포트를 작성하세요.
-    각 종목의 섹터(Sector), 티커 이름, 그리고 전달된 점수(Fundamental, Technical, ICT)의 차이를 분석에 반영해야 합니다.
-    모든 응답은 반드시 한국어로 작성하며, 전문적인 금융 용어를 사용하세요.
+    당신은 세계 최고의 퀀트 헤지펀드 시니어 분석가입니다. 
+    제시된 5개 종목에 대해 각각 독립적이고 깊이 있는 투자 분석 리포트를 작성하십시오.
+    종목별 섹터 특징, 현재 가격, 그리고 제공된 펀더멘탈/테크니컬/ICT 점수를 종합적으로 추론해야 합니다.
     
-    분석 대상 데이터:
+    데이터셋:
     ${JSON.stringify(candidates, null, 2)}
     
-    [응답 규칙]
-    1. aiVerdict: 기술적 관점에서의 강렬한 한 줄 요약.
-    2. investmentOutlook: 해당 종목의 점수와 산업군을 고려한 중장기 전망 (한 단락).
-    3. selectionReasons: 왜 이 종목이 선정되었는지 구체적인 이유 4가지 (배열).
-    4. convictionScore: 92.0~99.9 사이의 정교한 점수.
-    5. theme: "반도체 공급망 혁신", "성장성 가속화" 등 종목을 상징하는 2~3개 단어의 테마.
-    6. aiSentiment: 하단 대시보드에 표시될 종목별 '세력 수급 및 심리 상태'에 대한 짧은 코멘트.
+    [분석 지침]
+    1. 각 종목에 대해 '서로 다른' 구체적인 근거를 제시할 것.
+    2. 전문적인 금융 용어를 사용하되 한국어로 친절하게 설명할 것.
+    3. 'aiSentiment'는 시장의 심리와 세력의 수급 현황을 요약할 것.
+    4. 'selectionReasons'는 4가지의 명확하고 차별화된 이유를 포함할 것.
   `;
 
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
+      model: 'gemini-3-pro-preview',
+      contents: [{ parts: [{ text: prompt }] }],
       config: {
+        thinkingConfig: { thinkingBudget: 4096 }, // 복잡한 분석을 위해 추론 예산 할당
         responseMimeType: "application/json",
         responseSchema: {
           type: Type.ARRAY,
@@ -73,15 +72,16 @@ export async function generateAlphaSynthesis(candidates: any[]) {
             type: Type.OBJECT,
             properties: {
               symbol: { type: Type.STRING },
-              aiVerdict: { type: Type.STRING },
-              investmentOutlook: { type: Type.STRING },
+              aiVerdict: { type: Type.STRING, description: "강렬한 한 줄 판단" },
+              investmentOutlook: { type: Type.STRING, description: "상세 투자 전망" },
               selectionReasons: {
                 type: Type.ARRAY,
-                items: { type: Type.STRING }
+                items: { type: Type.STRING },
+                description: "4가지 선정 이유"
               },
-              convictionScore: { type: Type.NUMBER },
-              theme: { type: Type.STRING },
-              aiSentiment: { type: Type.STRING }
+              convictionScore: { type: Type.NUMBER, description: "92.0~99.9 사이의 확신 점수" },
+              theme: { type: Type.STRING, description: "종목을 상징하는 짧은 테마명" },
+              aiSentiment: { type: Type.STRING, description: "세력 및 수급 심리 상태" }
             },
             required: ["symbol", "aiVerdict", "investmentOutlook", "selectionReasons", "convictionScore", "theme", "aiSentiment"]
           }
@@ -89,9 +89,10 @@ export async function generateAlphaSynthesis(candidates: any[]) {
       }
     });
     
-    return JSON.parse(response.text);
+    if (!response.text) throw new Error("Empty AI response");
+    return JSON.parse(response.text.trim());
   } catch (error) {
-    console.error("Alpha Synthesis Error:", error);
+    console.error("Alpha Synthesis Engine Critical Error:", error);
     return null;
   }
 }
