@@ -18,7 +18,10 @@ import { analyzePipelineStatus } from './services/intelligenceService';
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
-  const [auditReports, setAuditReports] = useState<{ [key in ApiProvider]?: string }>({});
+  const [auditReports, setAuditReports] = useState<{ [key in ApiProvider]?: string }>(() => {
+    const cached = sessionStorage.getItem('auditReports');
+    return cached ? JSON.parse(cached) : {};
+  });
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
@@ -27,6 +30,10 @@ const App: React.FC = () => {
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   
   const [isAutoPilotActive, setIsAutoPilotActive] = useState(false);
+
+  useEffect(() => {
+    sessionStorage.setItem('auditReports', JSON.stringify(auditReports));
+  }, [auditReports]);
 
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
@@ -79,10 +86,11 @@ const App: React.FC = () => {
   const runAiAnalysis = async (symbolsToUse?: string[]) => {
     setIsAiLoading(true);
     try {
+      const targetSymbols = symbolsToUse || (finalSymbols.length > 0 ? finalSymbols : null);
       const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
-        symbols: symbolsToUse || (finalSymbols.length > 0 ? finalSymbols : null),
+        symbols: targetSymbols,
       }, auditBrain);
       setAuditReports(prev => ({ ...prev, [auditBrain]: report }));
     } catch (err: any) {
@@ -95,15 +103,17 @@ const App: React.FC = () => {
   const handleStageComplete = useCallback((symbols?: string[]) => {
     if (isAutoPilotActive) {
       if (currentStage < 6) {
-        // 인덱싱 시간을 위해 4초 대기 후 전환
         setTimeout(() => setCurrentStage(prev => prev + 1), 4000);
       } else {
         if (symbols && symbols.length > 0) setFinalSymbols(symbols);
         runAiAnalysis(symbols);
         setIsAutoPilotActive(false);
       }
+    } else {
+      // 수동 모드일 때도 마지막으로 감지된 심볼 보관
+      if (symbols && symbols.length > 0) setFinalSymbols(symbols);
     }
-  }, [isAutoPilotActive, currentStage, runAiAnalysis]);
+  }, [isAutoPilotActive, currentStage, runAiAnalysis, finalSymbols]);
 
   const startAutoPilot = () => {
     setIsAutoPilotActive(true);

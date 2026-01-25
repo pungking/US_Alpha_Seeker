@@ -26,7 +26,10 @@ interface Props {
 
 const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
-  const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
+  const [processedData, setProcessedData] = useState<QualityTicker[]>(() => {
+    const cached = sessionStorage.getItem('stage2_processedData');
+    return cached ? JSON.parse(cached) : [];
+  });
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.3.1: Protocol Handshake Initiated.']);
   
@@ -37,6 +40,11 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // 세션 캐싱
+  useEffect(() => {
+    sessionStorage.setItem('stage2_processedData', JSON.stringify(processedData));
+  }, [processedData]);
 
   useEffect(() => {
     if (autoStart && !loading && processedData.length === 0) {

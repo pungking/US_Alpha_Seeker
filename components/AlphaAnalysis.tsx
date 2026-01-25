@@ -40,10 +40,16 @@ interface Props {
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
-  const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
+  const [elite50, setElite50] = useState<AlphaCandidate[]>(() => {
+    const cached = sessionStorage.getItem('stage6_elite50');
+    return cached ? JSON.parse(cached) : [];
+  });
   
-  // 브레인별 결과 캐시
-  const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
+  const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>(() => {
+    const cached = sessionStorage.getItem('stage6_resultsCache');
+    return cached ? JSON.parse(cached) : {};
+  });
+  
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.5: Macro-Quant Fusion Protocol Online.']);
@@ -55,12 +61,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // 세션 캐싱 업데이트
+  useEffect(() => {
+    sessionStorage.setItem('stage6_elite50', JSON.stringify(elite50));
+  }, [elite50]);
+
+  useEffect(() => {
+    sessionStorage.setItem('stage6_resultsCache', JSON.stringify(resultsCache));
+  }, [resultsCache]);
+
   // 마운트 시 데이터 로드
   useEffect(() => {
-    if (accessToken) {
+    if (accessToken && elite50.length === 0) {
       loadStage5Data();
-      restoreLatestAnalysis();
     }
+    restoreLatestAnalysis();
   }, [accessToken]);
 
   // 오토파일럿 트리거
@@ -70,11 +85,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, elite50]);
 
-  // 선택된 브레인 변경 시 캐시 적용
   useEffect(() => {
     const currentResults = resultsCache[selectedBrain];
     if (currentResults && currentResults.length > 0) {
       setSelectedStock(currentResults[0]);
+      onFinalSymbolsDetected?.(currentResults.map(t => t.symbol));
     } else {
       setSelectedStock(null);
     }
@@ -93,7 +108,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }).then(r => r.json());
 
       if (res.files && res.files.length > 0) {
-        addLog("Syncing prior analysis nodes from Cloud Vault...", "info");
+        addLog("Syncing prior analysis from Cloud Vault...", "info");
         for (const file of res.files) {
           const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -102,7 +117,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (content.alpha_universe) {
             const brain = file.name.includes('Gemini') ? ApiProvider.GEMINI : ApiProvider.PERPLEXITY;
             setResultsCache(prev => ({ ...prev, [brain]: content.alpha_universe }));
-            addLog(`Restored ${brain} analysis cache from ${file.name}`, "ok");
           }
         }
       }
@@ -117,7 +131,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
       let file = null;
-      // 인덱싱 대기 재시도
       for (let i = 0; i < 5; i++) {
         const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -130,7 +143,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       if (!file) {
-        addLog("Stage 5 data not found. Please ensure Stage 5 is complete.", "err");
+        addLog("Stage 5 data not found. Flow halted.", "err");
         setLoading(false);
         return;
       }
@@ -164,15 +177,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
-      // GEMINI 429 에러 시 퍼플리시티 폴백
-      if (response.error && currentProvider === ApiProvider.GEMINI) {
-        const errStr = JSON.stringify(response.error);
-        if (errStr.includes("429") || errStr.includes("quota")) {
-          addLog("Gemini Quota Exceeded. Engaging Sonar Fallback Protocol...", "warn");
-          currentProvider = ApiProvider.PERPLEXITY;
-          setSelectedBrain(ApiProvider.PERPLEXITY);
-          response = await generateAlphaSynthesis(topCandidates, currentProvider);
-        }
+      // 429 Quota 에러 시 퍼플리시티 폴백
+      const errorStr = JSON.stringify(response.error || "").toLowerCase();
+      if (response.error && (errorStr.includes("429") || errorStr.includes("quota") || errorStr.includes("exhausted"))) {
+        addLog("Gemini Quota Exceeded (429). Engaging Sonar Fallback...", "warn");
+        currentProvider = ApiProvider.PERPLEXITY;
+        setSelectedBrain(ApiProvider.PERPLEXITY);
+        response = await generateAlphaSynthesis(topCandidates, currentProvider);
       }
 
       if (response.error) {

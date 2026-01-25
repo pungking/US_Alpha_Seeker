@@ -104,7 +104,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `PPLX_HTTP_${res.status}` };
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        return { data: null, error: errJson.error || `PPLX_HTTP_${res.status}` };
+      }
       const data = await res.json();
       const parsed = sanitizeAndParseJson(data.choices?.[0]?.message?.content || "");
       return parsed ? { data: parsed } : { data: null, error: "JSON_PARSE_ERROR" };
@@ -126,7 +129,7 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const response = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview', // 요약/감사용은 가벼운 flash 모델 사용
+        model: 'gemini-3-flash-preview', 
         contents: prompt,
       }));
       return response.text;
