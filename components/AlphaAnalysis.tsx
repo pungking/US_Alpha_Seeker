@@ -28,7 +28,7 @@ interface AlphaCandidate {
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
-  // 차트 분석 관련 필드 추가
+  // 차트 패턴 분석 관련 필드 추가
   chartPattern?: string;
   supportLevel?: number;
   resistanceLevel?: number;
@@ -45,6 +45,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [loading, setLoading] = useState(false);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   
+  // 각 브레인별로 분석 결과를 저장하기 위한 캐시 상태
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
@@ -63,6 +64,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [accessToken]);
 
+  // 탭이 바뀔 때, 해당 탭의 캐시가 있다면 첫 번째 종목을 선택해줌
   useEffect(() => {
     const currentResults = resultsCache[selectedBrain];
     if (currentResults && currentResults.length > 0) {
@@ -138,10 +140,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     setLoading(true);
     setProgress(0);
+    // 현재 실행하는 브레인의 기존 결과만 일단 비움
     setSelectedStock(null);
     
     const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Flash" : "Sonar Pro";
-    addLog(`Protocol: Initiating Chart-Pattern Synthesis with ${brainName}...`, "info");
+    addLog(`Protocol: Initiating Technical Chart Analysis with ${brainName}...`, "info");
     
     try {
       setProgress(10);
@@ -149,7 +152,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 12);
 
-      addLog(`Deep Scan: Analyzing Technical Setups (Fibonacci, Patterns, R/R)...`, "info");
+      addLog(`Pattern Scanning: Fibonacci, Flags, and R/R Analysis...`, "info");
       setProgress(25);
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -179,6 +182,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .filter(x => x !== null)
         .sort((a: any, b: any) => (b.convictionScore || 0) - (a.convictionScore || 0)) as AlphaCandidate[];
 
+      // 현재 선택된 브레인 캐시에 저장
       setResultsCache(prev => ({
         ...prev,
         [selectedBrain]: mergedFinal
@@ -189,6 +193,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       }
 
+      // Google Drive 저장 로직
       if (accessToken) {
         addLog("Phase 3: Committing Alpha Synthesis to Cloud Vault...", "info");
         const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
@@ -202,7 +207,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated with Chart Analysis.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated with Technical Setup.`, "ok");
     } catch (error: any) {
       addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
@@ -255,7 +260,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               disabled={loading || elite50.length === 0}
               className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
             >
-              {loading ? 'Processing...' : 'Execute Alpha Engine'}
+              {loading ? 'Sieving...' : 'Execute Alpha Engine'}
             </button>
           </div>
 
@@ -281,14 +286,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {item.marketCapClass || 'UNCERTAIN'} CAP
                      </span>
                      <span className="text-[7px] px-2 py-0.5 rounded-full font-black border border-white/10 bg-white/5 text-slate-400 uppercase tracking-wider truncate max-w-[120px]">
-                        {item.chartPattern || item.sectorTheme || item.sector}
+                        {item.chartPattern || 'Scanning Patterns...'}
                      </span>
                   </div>
                   
                   <div className="flex justify-between items-end">
                      <div className="flex flex-col space-y-1">
                         <div className="flex items-center space-x-2">
-                           <span className="text-[7px] text-slate-500 font-black uppercase">R/R</span>
+                           <span className="text-[7px] text-slate-500 font-black uppercase">R/R Ratio</span>
                            <span className="text-[10px] text-blue-400 font-black tracking-tighter">{item.riskRewardRatio || '---'}</span>
                         </div>
                      </div>
@@ -327,8 +332,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                       <div className="flex gap-4">
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
-                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Pattern</p>
-                            <p className="text-sm font-black text-emerald-400 uppercase tracking-tighter">{selectedStock.chartPattern || 'N/A'}</p>
+                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Detected Pattern</p>
+                            <p className="text-sm font-black text-emerald-400 uppercase tracking-tighter">{selectedStock.chartPattern || 'Searching...'}</p>
                          </div>
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
                             <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Risk/Reward</p>
@@ -347,7 +352,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          <p className="text-xl font-mono font-black text-white">${selectedStock.resistanceLevel?.toFixed(2) || selectedStock.targetPrice?.toFixed(2)}</p>
                       </div>
                       <div className="p-6 bg-rose-500/5 rounded-2xl border border-rose-500/10">
-                         <p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-widest">Hard Stop</p>
+                         <p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-widest">Hard Stop Loss</p>
                          <p className="text-xl font-mono font-black text-white">${selectedStock.stopLoss?.toFixed(2)}</p>
                       </div>
                    </div>
@@ -362,8 +367,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                    <div className="p-10 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Strategic Technical Outlook</h4>
-                        <span className="text-[8px] font-black text-slate-600 uppercase">Sector Focus: {selectedStock.sectorTheme}</span>
+                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Technical Analysis Perspective</h4>
+                        <span className="text-[8px] font-black text-slate-600 uppercase">Sector Theme: {selectedStock.sectorTheme}</span>
                       </div>
                       <div className="prose-report text-sm text-slate-300 leading-relaxed font-medium italic">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -375,7 +380,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                 <div className="space-y-8 pt-4">
                    <div>
-                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6">Conviction Dimensions</h4>
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6">Technical Conviction</h4>
                       <div className="space-y-6">
                         {(selectedStock.selectionReasons || []).map((reason, i) => (
                           <div key={i} className="flex space-x-4 items-start group">
@@ -387,7 +392,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                    
                    <div className="p-10 bg-rose-500/10 rounded-[40px] border border-rose-500/20 shadow-xl relative overflow-hidden">
-                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-6">AI Sentiment Index</p>
+                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-6">AI Confidence Index</p>
                       <div className="flex items-center space-x-6 mb-6">
                          <div className="h-3 flex-1 bg-slate-800 rounded-full overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-rose-600 to-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.6)]" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div>
@@ -400,7 +405,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
 
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500">
-                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Neural Pattern Synthesis Logic</p>
+                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Neural Pattern Synthesis</p>
                       <p className="text-xs text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
                         {selectedStock.analysisLogic}
                       </p>
