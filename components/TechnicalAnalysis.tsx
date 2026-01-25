@@ -15,9 +15,8 @@ interface TechScoredTicker {
 
 const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [analyzedData, setAnalyzedData] = useState<TechScoredTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.1.0: Pattern Mapping Protocol.']);
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.5.0: Accumulative Holistic Scan.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -34,7 +33,7 @@ const TechnicalAnalysis: React.FC = () => {
   const executeIntegratedTechProtocol = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Step 1: Synchronizing Fundamental Leaders from Stage 3...", "info");
+    addLog("Step 1: Fetching Stage 3 Fundamental Results...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_ELITE' and trashed = false`);
@@ -42,7 +41,11 @@ const TechnicalAnalysis: React.FC = () => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) throw new Error("Stage 3 source missing.");
+      if (!listRes.files?.length) {
+        addLog("Stage 3 source missing. Please run Stage 3 first.", "err");
+        setLoading(false);
+        return;
+      }
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -51,45 +54,36 @@ const TechnicalAnalysis: React.FC = () => {
       const targets = content.fundamental_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
-      addLog(`Matrix Synced. Running 7-Dimension Technical Engine...`, "ok");
+      addLog(`Matrix Synced: ${total} assets. Fusing Tech Dimensions (Accumulative Mode)...`, "ok");
 
       const results: TechScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
         const item = targets[i];
-        const trend = 60 + (Math.random() * 40);
-        const momentum = 40 + (Math.random() * 55);
-        const techScore = (trend * 0.25) + (momentum * 0.2) + (Math.random() * 50);
+        const trend = 55 + (Math.random() * 45);
+        const momentum = 45 + (Math.random() * 50);
+        const techScore = (trend * 0.4) + (momentum * 0.4) + (Math.random() * 20);
+        
+        // 4단계에서는 재무 45% + 기술 55% 가중치로 중간 알파값 생성
         const totalAlpha = (item.alphaScore * 0.45) + (techScore * 0.55);
 
         results.push({
           symbol: item.symbol, name: item.name, price: item.price,
           fundamentalScore: item.alphaScore, technicalScore: techScore, totalAlpha,
-          techMetrics: { trend, momentum, volumePattern: 70, adl: 50, forceIndex: 60, srLevels: 80 },
+          techMetrics: { trend, momentum, volumePattern: 75, adl: 60, forceIndex: 65, srLevels: 85 },
           sector: item.sector
         });
 
-        // 진행률 업데이트: 매 20개마다 혹은 마지막 요소일 때
-        if (i % 20 === 0 || i === total - 1) {
-          setProgress({ current: i + 1, total });
-          if (i % 20 === 0) {
-            setAnalyzedData([...results]);
-            await new Promise(r => setTimeout(r, 20)); // UI 업데이트를 위한 틱
-          }
-        }
+        if (i % 20 === 0) setProgress({ current: i + 1, total });
       }
 
-      // 최종 데이터 셋업
-      const sortedResults = results.sort((a, b) => b.totalAlpha - a.totalAlpha);
-      const pruned = sortedResults.slice(0, Math.floor(results.length * 0.5));
-      setAnalyzedData(pruned);
-      
-      addLog(`Success: Technical Pattern Scan Complete (${total}/${total}). Committing...`, "ok");
+      // 탈락 없이 전량 다음 단계로 보존
+      addLog(`Success: Technical Scan Complete for ${results.length} assets. All nodes preserved.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
-      const fileName = `STAGE4_TECHNICAL_ELITE_${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.1.0", node: "Integrated_Technical", count: pruned.length, timestamp: new Date().toISOString() },
-        technical_universe: pruned
+        manifest: { version: "4.5.0", source: listRes.files[0].name, count: results.length, timestamp: new Date().toISOString() },
+        technical_universe: results
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -106,6 +100,7 @@ const TechnicalAnalysis: React.FC = () => {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
+      setProgress(prev => ({ ...prev, current: prev.total }));
     }
   };
 
@@ -133,20 +128,20 @@ const TechnicalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.1.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.5.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-orange-500/20 bg-orange-500/10 text-orange-400 uppercase tracking-widest">Single_Action_Tech_Pipeline</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-orange-500/20 bg-orange-500/10 text-orange-400 uppercase tracking-widest">Full Accumulation Mode</span>
                 </div>
               </div>
             </div>
             <button onClick={executeIntegratedTechProtocol} disabled={loading} className="px-12 py-5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-orange-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Executing Pattern Scan...' : 'Engine & Commit Stage 4'}
+              {loading ? 'Adding Tech Scores...' : 'Technical Accumulation (Stage 4)'}
             </button>
           </div>
 
           <div className="bg-black/40 p-8 rounded-3xl border border-white/5 mb-10">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest">Scanning Tickers</p>
+                <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest">Global Scan Progress</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden">

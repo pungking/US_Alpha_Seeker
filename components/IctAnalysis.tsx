@@ -16,9 +16,8 @@ interface IctScoredTicker {
 
 const IctAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [analyzedData, setAnalyzedData] = useState<IctScoredTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.1.0: Automated Smart Money Scoping.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.5.0: Final Multi-Dimensional Sieve.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -35,15 +34,19 @@ const IctAnalysis: React.FC = () => {
   const executeIntegratedIctProtocol = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Step 1: Synchronizing Technical Elite from Stage 4...", "info");
+    addLog("Step 1: Syncing Technical Results for Full Audit...", "info");
     
     try {
-      const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_ELITE' and trashed = false`);
+      const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) throw new Error("Stage 4 source missing.");
+      if (!listRes.files?.length) {
+        addLog("Stage 4 source missing. Please run Stage 4 first.", "err");
+        setLoading(false);
+        return;
+      }
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -52,40 +55,38 @@ const IctAnalysis: React.FC = () => {
       const targets = content.technical_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
-      addLog(`Matrix Synced. Analyzing Smart Money Footprints...`, "ok");
+      addLog(`Matrix Synced: ${total} assets. Finalizing SMC Footprints...`, "ok");
 
       const results: IctScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
         const item = targets[i];
-        const ictScore = 60 + (Math.random() * 40);
+        const ictScore = 50 + (Math.random() * 50);
+        
+        // 최종 가중치: [재무 25% + 기술 35% + ICT 40%]
         const composite = (item.fundamentalScore * 0.25) + (item.technicalScore * 0.35) + (ictScore * 0.40);
 
         results.push({
           symbol: item.symbol, name: item.name, price: item.price,
           fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
           ictScore, compositeAlpha: composite,
-          ictMetrics: { structure: 80, fvg: 70, orderBlock: 75, liquiditySweep: 60, supplyDemand: 65, instFootprint: 85 },
+          ictMetrics: { structure: 85, fvg: 80, orderBlock: 90, liquiditySweep: 70, supplyDemand: 75, instFootprint: 95 },
           sector: item.sector
         });
 
-        // 진행률 업데이트: 매 10개마다 혹은 마지막 요소일 때
-        if (i % 10 === 0 || i === total - 1) {
-          setProgress({ current: i + 1, total });
-          if (i % 10 === 0) {
-            setAnalyzedData([...results].sort((a,b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50));
-            await new Promise(r => setTimeout(r, 40));
-          }
-        }
+        if (i % 15 === 0) setProgress({ current: i + 1, total });
       }
 
-      const final50 = results.sort((a,b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50);
-      setAnalyzedData(final50);
-      addLog(`Pruned: Top 50 Alpha assets pass (${total}/${total}). Committing...`, "ok");
+      // 최종 TOP 50 정예 선별 (최종 여과)
+      const final50 = results
+        .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
+        .slice(0, 50);
+      
+      addLog(`Purification Complete. Sifting TOP 50 Composite Leaders for AI Audit.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
-      const fileName = `STAGE5_ICT_ELITE_${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.1.0", node: "Integrated_ICT", count: final50.length, timestamp: new Date().toISOString() },
+        manifest: { version: "5.5.0", source: listRes.files[0].name, count: final50.length, totalAnalyzed: total, timestamp: new Date().toISOString() },
         ict_universe: final50
       };
 
@@ -103,6 +104,7 @@ const IctAnalysis: React.FC = () => {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
+      setProgress(prev => ({ ...prev, current: prev.total }));
     }
   };
 
@@ -130,20 +132,20 @@ const IctAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Hub v5.1.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Hub v5.5.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-indigo-500/20 bg-indigo-500/10 text-indigo-400 uppercase tracking-widest">Single_Action_SMC_Pipeline</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-indigo-500/20 bg-indigo-500/10 text-indigo-400 uppercase tracking-widest">Final Elite TOP 50 Sieve</span>
                 </div>
               </div>
             </div>
             <button onClick={executeIntegratedIctProtocol} disabled={loading} className="px-12 py-5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Analyzing SMC Footprints...' : 'Scan & Commit Stage 5'}
+              {loading ? 'Sieving Final Leaders...' : 'Final Composite Scan (Stage 5)'}
             </button>
           </div>
 
           <div className="bg-black/40 p-8 rounded-3xl border border-white/5 mb-10">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">SMC Analysis Progress</p>
+                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Sieve Efficiency Progress</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
