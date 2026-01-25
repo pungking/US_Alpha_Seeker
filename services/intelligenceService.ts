@@ -43,18 +43,16 @@ function sanitizeAndParseJson(text: string): any[] | null {
 /**
  * Enhanced fetch with Exponential Backoff for 429 Quota errors
  */
-async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 10000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
     const errorMsg = error.message?.toLowerCase() || "";
-    // 429, 503, Quota Exceeded 에러 체크
     const isQuotaError = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
     
     if (retries > 0 && isQuotaError) {
-      console.warn(`[AI_RETRY] Quota hit. Waiting ${delay/1000}s. Retries left: ${retries}`);
+      console.warn(`[AI_RETRY] Quota reached. Cooling down for ${delay/1000}s...`);
       await new Promise(resolve => setTimeout(resolve, delay));
-      // 지수 백오프: 다음 재시도는 대기 시간을 2배로 늘림
       return fetchWithRetry(fn, retries - 1, delay * 2);
     }
     throw error;
@@ -68,8 +66,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `Analyze these 5 US stocks: ${candidates.map(c => c.symbol).join(", ")}.
-    Provide professional quantitative and ICT (Inner Circle Trader) analysis in Korean.
-    Return ONLY a valid JSON array matching the required schema.
+    For each stock, provide a professional quantitative and ICT (Inner Circle Trader) analysis in Korean.
+    Return ONLY a valid JSON array matching the required schema. No conversational text.
     Dataset for context: ${JSON.stringify(candidates)}`;
 
   try {
@@ -96,7 +94,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "You are a world-class hedge fund quant analyst. Strictly return ONLY a JSON array." },
+            { role: "system", content: "You are a world-class hedge fund quant analyst. Strictly return ONLY a JSON array in Korean." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -111,7 +109,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     return { data: null, error: "UNSUPPORTED_PROVIDER" };
   } catch (error: any) {
     if (error.message?.includes("429")) {
-      return { data: null, error: "할당량 초과(429): 잠시 후 다시 시도하거나 Sonar Pro 엔진을 사용하세요." };
+      return { data: null, error: "할당량 초과: 약 30초 대기 후 재시도하십시오. (Gemini Free Tier Limit)" };
     }
     return { data: null, error: error.message };
   }
@@ -124,7 +122,7 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
   if (!apiKey) return `통신 오류: ${provider} API 키가 누락되었습니다.`;
 
   const symbolsList = data.symbols ? data.symbols.join(", ") : "전체 섹터";
-  const prompt = `월스트리트 수석 전략가로서 현재 분석 대상(${symbolsList})에 대한 마크다운 리포트를 작성하십시오. 한국어로 작성하며 표와 굵은 글씨를 활용하십시오.`;
+  const prompt = `월스트리트 수석 전략가로서 현재 분석 대상(${symbolsList})에 대한 마크다운 리포트를 한국어로 작성하십시오. 표와 굵은 글씨를 활용하여 시인성을 높이십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {

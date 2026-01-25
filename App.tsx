@@ -157,22 +157,35 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
-        {currentStage === 0 && <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />}
-        {currentStage === 1 && <PreliminaryFilter />}
-        {currentStage === 2 && <DeepQualityFilter />}
-        {currentStage === 3 && <FundamentalAnalysis />}
-        {currentStage === 4 && <TechnicalAnalysis />}
-        {currentStage === 5 && <IctAnalysis />}
-        {currentStage === 6 && (
+        {/* Keep-Alive Rendering Logic to prevent Data Loss on Tab Switch */}
+        <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
+          <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
+        </div>
+        <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
+          <PreliminaryFilter />
+        </div>
+        <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
+          <DeepQualityFilter />
+        </div>
+        <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
+          <FundamentalAnalysis />
+        </div>
+        <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
+          <TechnicalAnalysis />
+        </div>
+        <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
+          <IctAnalysis />
+        </div>
+        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
             setSelectedBrain={setSelectedBrain}
             onFinalSymbolsDetected={(symbols) => setFinalSymbols(symbols)}
           />
-        )}
+        </div>
       </main>
 
-      {/* AI ALPHA AUDITOR: Re-engineered for Insight & Clarity */}
+      {/* AI ALPHA AUDITOR Section */}
       <section className="glass-panel p-8 md:p-12 rounded-[48px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20">
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
