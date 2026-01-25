@@ -38,16 +38,30 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Auto-Pilot 트리거 감지
   useEffect(() => {
-    if (autoStart && !loading) {
-      executeIntegratedScan();
+    if (autoStart && !loading && processedData.length === 0) {
+      // 드라이브 인덱싱 동기화를 위한 의도적 지연 후 실행
+      setTimeout(() => executeIntegratedScan(), 2000);
     }
   }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
+  };
+
+  const findFileWithRetry = async (query: string, retries = 3): Promise<any> => {
+    for (let i = 0; i < retries; i++) {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&pageSize=1`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }).then(r => r.json());
+      if (res.files && res.files.length > 0) return res.files[0];
+      if (i < retries - 1) {
+        addLog(`Vault indexing... retrying in 3s (${i + 1}/${retries})`, "warn");
+        await new Promise(r => setTimeout(r, 3000));
+      }
+    }
+    return null;
   };
 
   const executeIntegratedScan = async () => {
@@ -57,19 +71,19 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      const file = await findFileWithRetry(q);
 
-      if (!listRes.files?.length) {
+      if (!file) {
         addLog("Stage 1 input missing. Verify Stage 1 'Commit' is complete.", "err");
         setLoading(false);
+        // 자동화 모드에서 멈추지 않도록 콜백 호출 (단 데이터 없음 경고)
+        if (autoStart) onComplete?.();
         return;
       }
 
-      addLog(`Found target: ${listRes.files[0].name}. Synchronizing nodes...`, "ok");
+      addLog(`Found target: ${file.name}. Synchronizing nodes...`, "ok");
 
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
@@ -93,7 +107,6 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
           ]);
 
           const metrics = finRes.metric || {};
-          
           results.push({
             symbol: target.symbol,
             name: profRes.name || target.name || "N/A",
@@ -108,7 +121,7 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
           await new Promise(r => setTimeout(r, 800));
         } catch (e) {
           addLog(`Node Skip: ${target.symbol} latency issues.`, "warn");
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
 

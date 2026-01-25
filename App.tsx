@@ -23,10 +23,9 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
-  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   
-  // Nexus Auto-Pilot 상태
   const [isAutoPilotActive, setIsAutoPilotActive] = useState(false);
 
   const refreshApiStatuses = useCallback(async () => {
@@ -77,13 +76,13 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [refreshApiStatuses]);
 
-  const runAiAnalysis = async () => {
+  const runAiAnalysis = async (symbolsToUse?: string[]) => {
     setIsAiLoading(true);
     try {
       const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
-        symbols: finalSymbols.length > 0 ? finalSymbols : null,
+        symbols: symbolsToUse || (finalSymbols.length > 0 ? finalSymbols : null),
       }, auditBrain);
       setAuditReports(prev => ({ ...prev, [auditBrain]: report }));
     } catch (err: any) {
@@ -93,28 +92,27 @@ const App: React.FC = () => {
     }
   };
 
-  const handleStageComplete = useCallback(() => {
+  const handleStageComplete = useCallback((symbols?: string[]) => {
     if (isAutoPilotActive) {
       if (currentStage < 6) {
-        setTimeout(() => setCurrentStage(prev => prev + 1), 1500);
+        // 드라이브 인덱싱 지연을 위해 2초 대기 후 다음 단계로
+        setTimeout(() => setCurrentStage(prev => prev + 1), 2000);
       } else {
-        // 모든 스테이지 완료 시 자동 감사 실행
-        runAiAnalysis();
+        // 모든 스테이지 완료
+        if (symbols && symbols.length > 0) setFinalSymbols(symbols);
+        runAiAnalysis(symbols);
         setIsAutoPilotActive(false);
       }
     }
-  }, [isAutoPilotActive, currentStage]);
+  }, [isAutoPilotActive, currentStage, runAiAnalysis]);
 
   const startAutoPilot = () => {
     setIsAutoPilotActive(true);
     setCurrentStage(0);
   };
 
-  const currentReport = auditReports[auditBrain] || null;
-
   return (
     <div className="min-h-screen pb-10 p-3 md:p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
-      {/* Nexus Toolbar */}
       <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap relative">
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
@@ -129,7 +127,6 @@ const App: React.FC = () => {
           <span>Pipeline_State: Stage_{currentStage}</span>
         </div>
 
-        {/* Auto Pilot Controller */}
         <div className="ml-auto flex items-center space-x-4 shrink-0">
           <button 
             onClick={startAutoPilot}
@@ -157,7 +154,6 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* API Matrix & Ticker Row */}
       <div className="space-y-4">
         <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
           {apiStatuses.map(status => (
@@ -182,55 +178,15 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
-        {currentStage === 0 && (
-          <UniverseGathering 
-            onAuthSuccess={(status) => setIsGdriveConnected(status)} 
-            onComplete={handleStageComplete} 
-            autoStart={isAutoPilotActive} 
-          />
-        )}
-        {currentStage === 1 && (
-          <PreliminaryFilter 
-            onComplete={handleStageComplete} 
-            autoStart={isAutoPilotActive} 
-          />
-        )}
-        {currentStage === 2 && (
-          <DeepQualityFilter 
-            onComplete={handleStageComplete} 
-            autoStart={isAutoPilotActive} 
-          />
-        )}
-        {currentStage === 3 && (
-          <FundamentalAnalysis 
-            onComplete={handleStageComplete} 
-            autoStart={isAutoPilotActive} 
-          />
-        )}
-        {currentStage === 4 && (
-          <TechnicalAnalysis 
-            onComplete={handleStageComplete} 
-            autoStart={isAutoPilotActive} 
-          />
-        )}
-        {currentStage === 5 && (
-          <IctAnalysis 
-            onComplete={handleStageComplete} 
-            autoStart={isAutoPilotActive} 
-          />
-        )}
-        {currentStage === 6 && (
-          <AlphaAnalysis 
-            selectedBrain={selectedBrain} 
-            setSelectedBrain={setSelectedBrain}
-            onFinalSymbolsDetected={(symbols) => setFinalSymbols(symbols)}
-            onComplete={handleStageComplete}
-            autoStart={isAutoPilotActive}
-          />
-        )}
+        {currentStage === 0 && <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} onComplete={() => handleStageComplete()} autoStart={isAutoPilotActive} />}
+        {currentStage === 1 && <PreliminaryFilter onComplete={() => handleStageComplete()} autoStart={isAutoPilotActive} />}
+        {currentStage === 2 && <DeepQualityFilter onComplete={() => handleStageComplete()} autoStart={isAutoPilotActive} />}
+        {currentStage === 3 && <FundamentalAnalysis onComplete={() => handleStageComplete()} autoStart={isAutoPilotActive} />}
+        {currentStage === 4 && <TechnicalAnalysis onComplete={() => handleStageComplete()} autoStart={isAutoPilotActive} />}
+        {currentStage === 5 && <IctAnalysis onComplete={() => handleStageComplete()} autoStart={isAutoPilotActive} />}
+        {currentStage === 6 && <AlphaAnalysis selectedBrain={selectedBrain} setSelectedBrain={setSelectedBrain} onFinalSymbolsDetected={(symbols) => { setFinalSymbols(symbols); if(isAutoPilotActive) handleStageComplete(symbols); }} autoStart={isAutoPilotActive} />}
       </main>
 
-      {/* AI ALPHA AUDITOR Section */}
       <section className="glass-panel p-8 md:p-12 rounded-[48px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20">
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
@@ -246,35 +202,18 @@ const App: React.FC = () => {
                 <div className="flex items-center space-x-3 mt-3">
                    <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">Alpha_Insight_Node_Active</span>
                    <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-4">
-                      <button 
-                        onClick={() => setAuditBrain(ApiProvider.GEMINI)}
-                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                      >Gemini</button>
-                      <button 
-                        onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)}
-                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                      >Sonar</button>
+                      <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Gemini</button>
+                      <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Sonar</button>
                    </div>
                 </div>
              </div>
           </div>
           
           <div className="flex gap-4">
-             {currentReport && (
-               <button 
-                 onClick={() => { navigator.clipboard.writeText(currentReport!); alert('보고서가 복사되었습니다.'); }}
-                 className="px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all"
-               >
-                 Copy Report
-               </button>
+             {auditReports[auditBrain] && (
+               <button onClick={() => { navigator.clipboard.writeText(auditReports[auditBrain]!); alert('복사되었습니다.'); }} className="px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all">Copy Report</button>
              )}
-             <button 
-                onClick={runAiAnalysis}
-                disabled={isAiLoading}
-                className={`px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30 active:scale-95'}`}
-              >
-                {isAiLoading ? 'Generating Intelligence...' : 'Execute Strategic Audit'}
-              </button>
+             <button onClick={() => runAiAnalysis()} disabled={isAiLoading} className={`px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30 active:scale-95'}`}>{isAiLoading ? 'Generating Intelligence...' : 'Execute Strategic Audit'}</button>
           </div>
         </div>
 
@@ -284,26 +223,16 @@ const App: React.FC = () => {
               <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
               <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Synthesizing High-Frequency Market Data...</p>
             </div>
-          ) : currentReport ? (
+          ) : auditReports[auditBrain] ? (
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
-               <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                 {currentReport}
-               </ReactMarkdown>
+               <ReactMarkdown remarkPlugins={[remarkGfm]}>{auditReports[auditBrain]!}</ReactMarkdown>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">
               <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic">
-                Awaiting Alpha Protocol Signal... <br/>
-                <span className="text-[8px] mt-2 block">Stage 6 Data must be synthesized before audit.</span>
-              </p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic">Awaiting Alpha Protocol Signal... <br/><span className="text-[8px] mt-2 block">Stage 6 Data must be synthesized before audit.</span></p>
             </div>
           )}
-        </div>
-
-        <div className="mt-8 flex justify-between items-center px-4 opacity-40">
-           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">InnocentBae Systems • Integrated Neural Strategy Node</p>
-           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.5_Audit_Matrix</p>
         </div>
       </section>
     </div>
