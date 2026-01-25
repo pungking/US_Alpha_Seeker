@@ -18,14 +18,20 @@ import { analyzePipelineStatus } from './services/intelligenceService';
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
-  // 각 제공자별 리포트를 개별 저장하기 위해 객체 타입으로 변경
   const [auditReports, setAuditReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
+  
+  // 6단계 실행 엔진과 감사 보고서 엔진 상태
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+
+  // 6단계 엔진이 바뀌면 감사 엔진도 기본적으로 따라가도록 설정 (사용자 편의성)
+  useEffect(() => {
+    setAuditBrain(selectedBrain);
+  }, [selectedBrain]);
 
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
@@ -77,7 +83,6 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    
     try {
       const report = await analyzePipelineStatus({
         currentStage,
@@ -85,7 +90,6 @@ const App: React.FC = () => {
         symbols: finalSymbols.length > 0 ? finalSymbols : null,
       }, auditBrain);
       
-      // 현재 선택된 auditBrain 키에 리포트 저장
       setAuditReports(prev => ({
         ...prev,
         [auditBrain]: report
@@ -100,7 +104,6 @@ const App: React.FC = () => {
     }
   };
 
-  // 현재 선택된 auditBrain에 해당하는 리포트 추출
   const currentReport = auditReports[auditBrain] || null;
 
   const copyReport = () => {
@@ -112,7 +115,6 @@ const App: React.FC = () => {
 
   return (
     <div className="min-h-screen pb-10 p-3 md:p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
-      {/* Nexus Toolbar */}
       <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap">
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
@@ -143,7 +145,6 @@ const App: React.FC = () => {
         </div>
       </header>
 
-      {/* API Matrix & Ticker Row */}
       <div className="space-y-4">
         <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
           {apiStatuses.map(status => (
@@ -195,7 +196,6 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* AI ALPHA AUDITOR Section */}
       <section className="glass-panel p-8 md:p-12 rounded-[48px] border-t-4 border-t-emerald-600 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20">
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
@@ -268,7 +268,7 @@ const App: React.FC = () => {
 
         <div className="mt-8 flex justify-between items-center px-4 opacity-40">
            <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">InnocentBae Systems • Integrated Neural Strategy Node</p>
-           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.5_Audit_Matrix</p>
+           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.6_Audit_Matrix</p>
         </div>
       </section>
     </div>
