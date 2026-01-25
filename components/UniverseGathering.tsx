@@ -11,6 +11,8 @@ declare global {
 
 interface Props {
   onAuthSuccess?: (status: boolean) => void;
+  onComplete?: () => void;
+  autoStart?: boolean;
 }
 
 interface MasterTicker {
@@ -23,7 +25,7 @@ interface MasterTicker {
   type?: string; 
 }
 
-const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
+const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, onComplete, autoStart }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -47,6 +49,24 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [logs, setLogs] = useState<string[]>(['> Engine v1.9.6: High-Frequency Equity Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
+
+  // GitHub Actions용 환경변수 체크 및 자동 인증
+  useEffect(() => {
+    const envToken = process.env.GDRIVE_ACCESS_TOKEN;
+    if (envToken && !accessToken) {
+      setAccessToken(envToken);
+      sessionStorage.setItem('gdrive_access_token', envToken);
+      onAuthSuccess?.(true);
+      addLog("Headless Auth Node Detected. Credentials linked automatically.", "ok");
+    }
+  }, []);
+
+  // AutoStart 감지
+  useEffect(() => {
+    if (autoStart && !isEngineRunning && cooldown === 0) {
+      startEngine();
+    }
+  }, [autoStart]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -75,7 +95,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const startEngine = async () => {
     if (isEngineRunning || cooldown > 0) return;
     
-    if (!clientId) {
+    if (!clientId && !process.env.GDRIVE_ACCESS_TOKEN) {
       addLog("Missing Client ID. Open ⚙ Config.", "err");
       setShowConfig(true);
       return;
@@ -83,6 +103,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
     document.body.setAttribute('data-engine-running', 'true');
     let token = accessToken;
+    
     if (!token) {
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
@@ -97,10 +118,27 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             }
           },
         });
-        client.requestAccessToken({ prompt: 'consent' });
+        client.requestAccessToken({ prompt: 'none' }); // 무인 연동 시도
       } catch (e: any) {
-        addLog(`Auth Error: ${e.message}`, "err");
-        document.body.removeAttribute('data-engine-running');
+        // none 실패 시 consent 요청 (사용자 있을 때만)
+        if (!autoStart) {
+          const client = window.google.accounts.oauth2.initTokenClient({
+            client_id: clientId.trim(),
+            scope: 'https://www.googleapis.com/auth/drive.file',
+            callback: (res: any) => {
+              if (res.access_token) {
+                setAccessToken(res.access_token);
+                sessionStorage.setItem('gdrive_access_token', res.access_token);
+                onAuthSuccess?.(true);
+                runAggregatedPipeline(res.access_token);
+              }
+            },
+          });
+          client.requestAccessToken({ prompt: 'consent' });
+        } else {
+          addLog(`Headless Fail: ${e.message}`, "err");
+          document.body.removeAttribute('data-engine-running');
+        }
       }
       return;
     }
@@ -144,14 +182,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       }
 
       setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
-
       await new Promise(r => setTimeout(r, 2000));
 
       const targetDate = getLatestTradingDate();
       addLog(`Step 2: Merging Price Aggregates (${targetDate})...`, "info");
       
       const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-      
       if (polyRes.status === 429) {
         addLog("API QUOTA EXCEEDED (429). Initiating 60s cooldown.", "err");
         setCooldown(60);
@@ -160,7 +196,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       }
 
       const polyData = await polyRes.json();
-
       if (polyData.results) {
         let matchCount = 0;
         polyData.results.forEach((r: any) => {
@@ -182,7 +217,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       setRegistry(new Map(newRegistry));
       setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-      // Drive Sync
       const masterData = Array.from(newRegistry.values());
       const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.6.json`;
       const payload = {
@@ -195,6 +229,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         await uploadFile(token, folderId, fileName, payload);
         setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
         addLog("System: Cloud Vault Sync Complete.", "ok");
+        onComplete?.(); // 다음 단계 트리거
       }
 
     } catch (e: any) {
