@@ -19,7 +19,12 @@ interface QualityTicker {
   lastUpdate: string;
 }
 
-const DeepQualityFilter: React.FC = () => {
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -33,6 +38,13 @@ const DeepQualityFilter: React.FC = () => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // Auto-Pilot 트리거 감지
+  useEffect(() => {
+    if (autoStart && !loading) {
+      executeIntegratedScan();
+    }
+  }, [autoStart]);
+
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
@@ -44,7 +56,6 @@ const DeepQualityFilter: React.FC = () => {
     addLog("Step 1: Locating Purified Universe from Stage 1 Vault...", "info");
     
     try {
-      // 파일 이름 불일치 수정: 'STAGE1_PURIFIED_UNIVERSE'를 검색하도록 변경
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -62,7 +73,6 @@ const DeepQualityFilter: React.FC = () => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // PreliminaryFilter에서 investable_universe 키로 데이터를 보냄
       const equities = (content.investable_universe || [])
         .map((s: any) => ({ ...s, marketValue: (s.price || 0) * (s.volume || 0) }))
         .sort((a: any, b: any) => b.marketValue - a.marketValue);
@@ -77,7 +87,6 @@ const DeepQualityFilter: React.FC = () => {
         setProgress(prev => ({ ...prev, current: i + 1 }));
         
         try {
-          // Finnhub API 호출 시 Throttling 방지를 위해 개별 에러 헨들링 강화
           const [finRes, profRes] = await Promise.all([
             fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`).then(r => r.json()),
             fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`).then(r => r.json())
@@ -96,9 +105,6 @@ const DeepQualityFilter: React.FC = () => {
           });
 
           if (i % 5 === 0) setProcessedData([...results]);
-          
-          // API Rate Limit (30 calls/sec for Pro, much less for Free)
-          // 800ms delay to be safe
           await new Promise(r => setTimeout(r, 800));
         } catch (e) {
           addLog(`Node Skip: ${target.symbol} latency issues.`, "warn");
@@ -126,6 +132,7 @@ const DeepQualityFilter: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {

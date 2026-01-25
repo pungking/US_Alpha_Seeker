@@ -14,7 +14,12 @@ interface IctScoredTicker {
   sector: string;
 }
 
-const IctAnalysis: React.FC = () => {
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const IctAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.5.0: Final Multi-Dimensional Sieve.']);
@@ -25,6 +30,13 @@ const IctAnalysis: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Auto-Pilot 트리거 감지
+  useEffect(() => {
+    if (autoStart && !loading) {
+      executeIntegratedIctProtocol();
+    }
+  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -61,8 +73,6 @@ const IctAnalysis: React.FC = () => {
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         const ictScore = 50 + (Math.random() * 50);
-        
-        // 최종 가중치: [재무 25% + 기술 35% + ICT 40%]
         const composite = (item.fundamentalScore * 0.25) + (item.technicalScore * 0.35) + (ictScore * 0.40);
 
         results.push({
@@ -76,7 +86,6 @@ const IctAnalysis: React.FC = () => {
         if (i % 15 === 0) setProgress({ current: i + 1, total });
       }
 
-      // 최종 TOP 50 정예 선별 (최종 여과)
       const final50 = results
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 50);
@@ -100,6 +109,7 @@ const IctAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {

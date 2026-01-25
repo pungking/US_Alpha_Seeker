@@ -34,13 +34,14 @@ interface Props {
   selectedBrain: ApiProvider;
   setSelectedBrain: (brain: ApiProvider) => void;
   onFinalSymbolsDetected?: (symbols: string[]) => void;
+  onComplete?: () => void;
+  autoStart?: boolean;
 }
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   
-  // 각 브레인별로 분석 결과를 저장하기 위한 캐시 상태
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
@@ -59,7 +60,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [accessToken]);
 
-  // 탭이 바뀔 때, 해당 탭의 캐시가 있다면 첫 번째 종목을 선택해줌
+  // Auto-Pilot 트리거 감지
+  useEffect(() => {
+    if (autoStart && !loading && elite50.length > 0 && !resultsCache[selectedBrain]) {
+      executeAlphaFinalization();
+    }
+  }, [autoStart, elite50]);
+
   useEffect(() => {
     const currentResults = resultsCache[selectedBrain];
     if (currentResults && currentResults.length > 0) {
@@ -135,7 +142,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     setLoading(true);
     setProgress(0);
-    // 현재 실행하는 브레인의 기존 결과만 일단 비움
     setSelectedStock(null);
     
     const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Flash" : "Sonar Pro";
@@ -177,7 +183,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .filter(x => x !== null)
         .sort((a: any, b: any) => (b.convictionScore || 0) - (a.convictionScore || 0)) as AlphaCandidate[];
 
-      // 현재 선택된 브레인 캐시에 저장
       setResultsCache(prev => ({
         ...prev,
         [selectedBrain]: mergedFinal
@@ -188,7 +193,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       }
 
-      // Google Drive 저장 로직
       if (accessToken) {
         addLog("Phase 3: Committing Alpha Synthesis to Cloud Vault...", "info");
         const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
@@ -202,7 +206,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated and stored.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated. Full cycle complete.`, "ok");
+      if (onComplete) onComplete();
     } catch (error: any) {
       addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {

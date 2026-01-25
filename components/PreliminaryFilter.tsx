@@ -21,7 +21,12 @@ interface AiProposal {
   reasoning: string;
 }
 
-const PreliminaryFilter: React.FC = () => {
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
@@ -49,12 +54,18 @@ const PreliminaryFilter: React.FC = () => {
     }
   }, [minPrice, minVolume, rawUniverse]);
 
+  // Auto-Pilot 트리거 감지
+  useEffect(() => {
+    if (autoStart && !loading && rawUniverse.length === 0) {
+      syncAndAnalyzeMarket();
+    }
+  }, [autoStart]);
+
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
-  // 재시도 로직이 포함된 AI 호출 함수
   const callAiWithRetry = async (ai: any, prompt: string, retries = 3, delay = 5000): Promise<string> => {
     try {
       const response = await ai.models.generateContent({
@@ -130,31 +141,21 @@ const PreliminaryFilter: React.FC = () => {
       setMinVolume(aiData.suggestedVolume);
       
       addLog(`AI Strategy Finalized: [${aiData.regime}]`, "ok");
+      
+      // Auto-Pilot인 경우 분석 후 바로 커밋 실행
+      if (autoStart) {
+        setTimeout(commitPurification, 1000);
+      }
     } catch (e: any) {
       const errorMsg = e.message?.includes("429") ? "API 할당량 초과 (잠시 후 다시 시도)" : e.message;
       setAiError(errorMsg);
       addLog(`AI Node Warning: ${errorMsg}`, "warn");
-      // 에러 시에도 기본 필터는 유지
       setMinPrice(2.0);
       setMinVolume(500000);
+      if (autoStart) setTimeout(commitPurification, 1000);
     } finally {
       setLoading(false);
       setIsAnalyzing(false);
-    }
-  };
-
-  const handleManualChange = (type: 'price' | 'volume', val: number) => {
-    setIsManual(true);
-    if (type === 'price') setMinPrice(val);
-    else setMinVolume(val);
-  };
-
-  const resetToAi = () => {
-    if (aiProposal) {
-      setMinPrice(aiProposal.suggestedPrice);
-      setMinVolume(aiProposal.suggestedVolume);
-      setIsManual(false);
-      addLog("Reverted to AI Baseline.", "info");
     }
   };
 
@@ -183,10 +184,26 @@ const PreliminaryFilter: React.FC = () => {
       });
 
       addLog(`Purification Success: ${filtered.length} assets committed.`, "ok");
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Vault Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleManualChange = (type: 'price' | 'volume', val: number) => {
+    setIsManual(true);
+    if (type === 'price') setMinPrice(val);
+    else setMinVolume(val);
+  };
+
+  const resetToAi = () => {
+    if (aiProposal) {
+      setMinPrice(aiProposal.suggestedPrice);
+      setMinVolume(aiProposal.suggestedVolume);
+      setIsManual(false);
+      addLog("Reverted to AI Baseline.", "info");
     }
   };
 

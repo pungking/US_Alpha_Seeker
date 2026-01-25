@@ -11,6 +11,8 @@ declare global {
 
 interface Props {
   onAuthSuccess?: (status: boolean) => void;
+  onComplete?: () => void;
+  autoStart?: boolean;
 }
 
 interface MasterTicker {
@@ -23,7 +25,7 @@ interface MasterTicker {
   type?: string; 
 }
 
-const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
+const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, onComplete, autoStart }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -47,6 +49,24 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [logs, setLogs] = useState<string[]>(['> Engine v1.9.6: High-Frequency Equity Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
+
+  // GitHub 자동화 환경(GDRIVE_ACCESS_TOKEN 환경변수 존재 시) 자동 인증
+  useEffect(() => {
+    const envToken = process.env.GDRIVE_ACCESS_TOKEN;
+    if (envToken && !accessToken) {
+      addLog("Nexus Auto-Auth: Environment token detected. Linking headless node.", "ok");
+      setAccessToken(envToken);
+      sessionStorage.setItem('gdrive_access_token', envToken);
+      onAuthSuccess?.(true);
+    }
+  }, []);
+
+  // Auto-Pilot 트리거 감지
+  useEffect(() => {
+    if (autoStart && !isEngineRunning && cooldown === 0) {
+      startEngine();
+    }
+  }, [autoStart]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -75,7 +95,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const startEngine = async () => {
     if (isEngineRunning || cooldown > 0) return;
     
-    if (!clientId) {
+    if (!clientId && !process.env.GDRIVE_ACCESS_TOKEN) {
       addLog("Missing Client ID. Open ⚙ Config.", "err");
       setShowConfig(true);
       return;
@@ -194,7 +214,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       if (folderId) {
         await uploadFile(token, folderId, fileName, payload);
         setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
-        addLog("System: Cloud Vault Sync Complete.", "ok");
+        addLog("System: Cloud Vault Sync Complete. Triggering next stage.", "ok");
+        if (onComplete) onComplete();
       }
 
     } catch (e: any) {

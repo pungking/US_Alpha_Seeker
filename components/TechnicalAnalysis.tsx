@@ -13,7 +13,12 @@ interface TechScoredTicker {
   sector: string;
 }
 
-const TechnicalAnalysis: React.FC = () => {
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.5.0: Accumulative Holistic Scan.']);
@@ -24,6 +29,13 @@ const TechnicalAnalysis: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Auto-Pilot 트리거 감지
+  useEffect(() => {
+    if (autoStart && !loading) {
+      executeIntegratedTechProtocol();
+    }
+  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -62,8 +74,6 @@ const TechnicalAnalysis: React.FC = () => {
         const trend = 55 + (Math.random() * 45);
         const momentum = 45 + (Math.random() * 50);
         const techScore = (trend * 0.4) + (momentum * 0.4) + (Math.random() * 20);
-        
-        // 4단계에서는 재무 45% + 기술 55% 가중치로 중간 알파값 생성
         const totalAlpha = (item.alphaScore * 0.45) + (techScore * 0.55);
 
         results.push({
@@ -76,7 +86,6 @@ const TechnicalAnalysis: React.FC = () => {
         if (i % 20 === 0) setProgress({ current: i + 1, total });
       }
 
-      // 탈락 없이 전량 다음 단계로 보존
       addLog(`Success: Technical Scan Complete for ${results.length} assets. All nodes preserved.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
@@ -96,6 +105,7 @@ const TechnicalAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
