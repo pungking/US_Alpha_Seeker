@@ -18,14 +18,9 @@ const ALPHA_SCHEMA = {
       expectedReturn: { type: Type.STRING, description: "Target return e.g. +20%" },
       theme: { type: Type.STRING, description: "Market narrative" },
       aiSentiment: { type: Type.STRING, description: "Sentiment report in Korean" },
-      analysisLogic: { type: Type.STRING, description: "Neural logic in Korean" },
-      // 차트 분석 전용 필드 추가
-      chartPattern: { type: Type.STRING, description: "Detected technical pattern (e.g. Fibonacci 0.618 Support, Cup and Handle, Bull Flag, Double Bottom)" },
-      supportLevel: { type: Type.NUMBER, description: "Strongest technical support or entry price level" },
-      resistanceLevel: { type: Type.NUMBER, description: "Major resistance or target price level" },
-      riskRewardRatio: { type: Type.STRING, description: "Calculated Risk-to-Reward ratio (e.g. 1:3.2)" }
+      analysisLogic: { type: Type.STRING, description: "Neural logic in Korean" }
     },
-    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "riskRewardRatio"]
+    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic"]
   }
 };
 
@@ -76,19 +71,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
-  // 차트 패턴 분석 지침이 강화된 프롬프트
-  const prompt = `당신은 전설적인 월가 퀀트 헤지펀드 매니저이자 최고의 차트 분석 대가입니다. [오늘 날짜: ${today}]
+  // 프롬프트 가이드라인 강화
+  const prompt = `당신은 전설적인 월가 퀀트 헤지펀드 매니저입니다. [오늘 날짜: ${today}]
 엄선된 12개 후보 종목: ${JSON.stringify(candidates.map(c => ({s: c.symbol, p: c.price, score: c.compositeAlpha})))}.
 
 이 중 시장 주도력이 가장 강력한 6개 종목을 최종 선정하여 정밀 분석 보고서를 작성하세요.
-**특히 다음 차트 분석 기법을 반드시 적용하십시오:**
-1. 패턴 탐색: 피보나치 되돌림(0.382/0.618 지지), 불플래그/베어플래그, 헤드앤숄더, 컵앤핸들, 이중 바닥 등.
-2. 타점 분석: 차트상의 유의미한 지지선(Support)을 매수 진입가로, 저항선(Resistance)을 돌파 또는 목표가로 설정.
-3. 리스크 관리: 진입가 대비 손익비(Risk/Reward Ratio)를 구체적으로 계산하여 포함.
-
 반드시 아래 형식을 엄수하여 JSON 배열만 응답하십시오. 다른 설명이나 텍스트는 절대 금지합니다.
 
 JSON Schema Rule:
+- 각 객체는 symbol, aiVerdict, marketCapClass('LARGE'/'MID'/'SMALL'), sectorTheme, investmentOutlook, selectionReasons(배열), convictionScore(숫자), expectedReturn, theme, aiSentiment, analysisLogic을 포함해야 합니다.
 - 모든 텍스트 설명은 한국어로 작성하며, 날짜 기준은 반드시 오늘(${today})이어야 합니다.`;
 
   try {
@@ -110,7 +101,7 @@ JSON Schema Rule:
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: `당신은 ${today} 기준 차트 패턴(피보나치, 컵앤핸들 등)과 손익비를 정밀하게 분석하는 금융 AI입니다. JSON 배열 하나만 출력하십시오.` },
+            { role: "system", content: `당신은 ${today} 기준의 한국어 금융 분석 리포트를 작성하는 AI 에이전트입니다. 반드시 JSON 코드 블록 하나만 출력하며, 텍스트 설명이나 인사는 생략하십시오.` },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -146,8 +137,8 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
 
 미션:
 1. 보고서 최상단에 "전략 감사 보고서 - ${today}"를 명시하십시오.
-2. 6단계에서 도출된 기술적 차트 패턴(피보나치, 컵앤핸들 등)의 신뢰도를 시장의 매크로 상황과 대조하여 비판적으로 검토하십시오.
-3. 손익비(R/R)가 충분히 확보된 구간인지 확인하고 보수적인 관점을 제시하십시오.
+2. 현재 실시간 VIX, 국채 금리, 달러 인덱스 상황을 가정하여 위 종목들의 선정 타당성을 비판적으로 검토하십시오.
+3. 6단계 분석 엔진이 도출한 결과와 논리적 일관성을 유지하되, 보수적인 리스크 관리 관점을 추가하십시오.
 4. 모든 내용은 한국어 마크다운으로 전문적이고 권위 있게 작성하십시오.`;
 
   try {
