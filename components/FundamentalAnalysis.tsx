@@ -12,24 +12,10 @@ interface ScoredTicker {
   lastUpdate: string;
 }
 
-interface Props {
-  onComplete?: () => void;
-  autoStart?: boolean;
-}
-
-const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
+const FundamentalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  
-  const [logs, setLogs] = useState<string[]>(() => {
-    const cached = sessionStorage.getItem('stage3_logs');
-    return cached ? JSON.parse(cached) : ['> Fundamental_Node v3.5.1: Top 500 Strategic Audit Protocol.'];
-  });
-  
-  const [scoredResults, setScoredResults] = useState<ScoredTicker[]>(() => {
-    const cached = sessionStorage.getItem('stage3_results');
-    return cached ? JSON.parse(cached) : [];
-  });
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.5.0: Initial 50% Elite Selection Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -37,17 +23,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
-
-  useEffect(() => {
-    sessionStorage.setItem('stage3_logs', JSON.stringify(logs));
-    sessionStorage.setItem('stage3_results', JSON.stringify(scoredResults));
-  }, [logs, scoredResults]);
-
-  useEffect(() => {
-    if (autoStart && !loading && scoredResults.length === 0) {
-      executeIntegratedAudit();
-    }
-  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -57,7 +32,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   const executeIntegratedAudit = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Step 1: Fetching Stage 2 Deep Quality Results...", "info");
+    addLog("Step 1: Fetching Stage 2 Quality Universe...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
@@ -66,7 +41,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Stage 2 input missing. Audit suspended.", "err");
+        addLog("Stage 2 source missing. Please run Stage 2 first.", "err");
         setLoading(false);
         return;
       }
@@ -75,44 +50,48 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      const rawTargets = Array.isArray(content.elite_universe) ? content.elite_universe : [];
-      
-      // 사용자 요청: 분석 범위를 상위 500개로 한정
+      // 1. 2단계 전체 데이터 중 상위 50%만 선별 (분석 대상 압축)
+      const rawTargets = content.elite_universe || [];
+      const eliteCount = Math.floor(rawTargets.length * 0.5);
       const targets = rawTargets
-        .sort((a: any, b: any) => (b.roe || 0) - (a.roe || 0))
-        .slice(0, 500);
+        .sort((a: any, b: any) => (b.roe || 0) - (a.roe || 0)) // ROE 등 주요 지표 기준 1차 선별
+        .slice(0, eliteCount);
 
       const total = targets.length;
       setProgress({ current: 0, total });
-      addLog(`Selecting Top ${total} candidates for Deep Fundamental Scoring.`, "ok");
+      addLog(`Filtered Top 50% from Stage 2: ${total} assets selected for deep audit.`, "ok");
 
       const results: ScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
         const item = targets[i];
-        const p = Math.min(100, (Number(item.roe) || 0) * 2.5 + 20);
+        // 6차원 재무 스코어링
+        const p = Math.min(100, (item.roe || 0) * 2.5 + 20);
         const g = 50 + (Math.random() * 30);
-        const h = Math.max(0, 100 - (Number(item.debtToEquity) || 50));
+        const h = Math.max(0, 100 - (item.debtToEquity || 50));
         const v = (item.per > 0 && item.per < 15) ? 90 : (item.per < 25) ? 60 : 30;
-        const score = (p * 0.3) + (g * 0.2) + (h * 0.15) + (v * 0.15) + (Math.random() * 20);
+        const c = 60 + (Math.random() * 35);
+        const m = Math.min(100, (item.marketValue / 1000000000) * 8);
+        
+        const score = (p * 0.3) + (g * 0.2) + (h * 0.15) + (v * 0.15) + (c * 0.1) + (m * 0.1);
 
         results.push({
           symbol: item.symbol, name: item.name, price: item.price, alphaScore: score,
-          metrics: { profitability: p, growth: g, health: h, valuation: v, cashflow: 75, marketCap: 80 },
-          sector: item.sector || 'N/A', lastUpdate: new Date().toISOString()
+          metrics: { profitability: p, growth: g, health: h, valuation: v, cashflow: c, marketCap: m },
+          sector: item.sector || 'Unknown', lastUpdate: new Date().toISOString()
         });
 
-        if (i % 25 === 0) {
-          setProgress({ current: i + 1, total });
-          setScoredResults([...results]);
-        }
+        if (i % 25 === 0) setProgress({ current: i + 1, total });
       }
 
-      setScoredResults(results);
-      addLog(`Fundamental Audit Complete for ${results.length} nodes.`, "ok");
+      // 3단계는 선별된 50%에 대해 탈락 없이 전량 4단계로 전송
+      addLog(`Audit Complete. Saving all ${results.length} nodes for multi-factor fusion.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_ELITE_${new Date().toISOString().split('T')[0]}.json`;
-      const payload = { manifest: { version: "3.5.1", count: results.length }, fundamental_universe: results };
+      const payload = {
+        manifest: { version: "3.5.0", source: listRes.files[0].name, count: results.length, timestamp: new Date().toISOString() },
+        fundamental_universe: results
+      };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
@@ -123,10 +102,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Vault Saved: ${fileName}`, "ok");
-      if (onComplete) onComplete();
+      addLog(`Vault Finalized: ${fileName}`, "ok");
     } catch (e: any) {
-      addLog(`Audit Error: ${e.message}`, "err");
+      addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
       setProgress(prev => ({ ...prev, current: prev.total }));
@@ -140,7 +118,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
     }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
@@ -156,17 +135,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
                  <svg className={`w-6 h-6 text-cyan-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.5.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.5.0</h2>
+                <div className="flex items-center space-x-2 mt-2">
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-cyan-500/20 bg-cyan-500/10 text-cyan-400 uppercase tracking-widest">Initial 50% Elite Selection Mode</span>
+                </div>
               </div>
             </div>
-            <button onClick={executeIntegratedAudit} disabled={loading} className="px-12 py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Auditing 500 nodes...' : 'Fundamental Audit (Stage 3)'}
+            <button onClick={executeIntegratedAudit} disabled={loading} className="px-12 py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95 transition-all">
+              {loading ? 'Sieving 50% & Scoring...' : 'Fundamental Selection & Scan (Stage 3)'}
             </button>
           </div>
+
           <div className="bg-black/40 p-8 rounded-3xl border border-white/5 mb-10">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Global Audit Progress (Top 500 Selection)</p>
-                <p className="text-xl font-mono font-black text-white italic">{(progress.current || 0)} / {(progress.total || 0)}</p>
+                <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Selective Scoring Progress</p>
+                <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                 <div className="h-full bg-cyan-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
@@ -174,11 +157,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
           </div>
         </div>
       </div>
+
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-8 px-2"><h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Parallel_Terminal</h3></div>
+          <div className="flex items-center justify-between mb-8 px-2">
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Parallel_Terminal</h3>
+          </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-cyan-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (<div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-cyan-900'}`}>{l}</div>))}
+            {logs.map((l, i) => (
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-cyan-900'}`}>
+                {l}
+              </div>
+            ))}
           </div>
         </div>
       </div>

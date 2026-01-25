@@ -13,25 +13,10 @@ interface TechScoredTicker {
   sector: string;
 }
 
-interface Props {
-  onComplete?: () => void;
-  autoStart?: boolean;
-}
-
-const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
+const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState(() => {
-    const cached = sessionStorage.getItem('stage4_progress');
-    return cached ? JSON.parse(cached) : { current: 0, total: 0 };
-  });
-  const [logs, setLogs] = useState<string[]>(() => {
-    const cached = sessionStorage.getItem('stage4_logs');
-    return cached ? JSON.parse(cached) : ['> Technical_Engine v4.5.0: Accumulative Holistic Scan.'];
-  });
-  const [results, setResults] = useState<TechScoredTicker[]>(() => {
-    const cached = sessionStorage.getItem('stage4_results');
-    return cached ? JSON.parse(cached) : [];
-  });
+  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.5.0: Accumulative Holistic Scan.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -39,18 +24,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
-
-  useEffect(() => {
-    sessionStorage.setItem('stage4_logs', JSON.stringify(logs));
-    sessionStorage.setItem('stage4_progress', JSON.stringify(progress));
-    sessionStorage.setItem('stage4_results', JSON.stringify(results));
-  }, [logs, progress, results]);
-
-  useEffect(() => {
-    if (autoStart && !loading && results.length === 0) {
-      executeIntegratedTechProtocol();
-    }
-  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -81,17 +54,19 @@ const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
       const targets = content.fundamental_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
-      addLog(`Matrix Synced: ${total} assets. Fusing Tech Dimensions...`, "ok");
+      addLog(`Matrix Synced: ${total} assets. Fusing Tech Dimensions (Accumulative Mode)...`, "ok");
 
-      const tempResults: TechScoredTicker[] = [];
+      const results: TechScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         const trend = 55 + (Math.random() * 45);
         const momentum = 45 + (Math.random() * 50);
         const techScore = (trend * 0.4) + (momentum * 0.4) + (Math.random() * 20);
+        
+        // 4단계에서는 재무 45% + 기술 55% 가중치로 중간 알파값 생성
         const totalAlpha = (item.alphaScore * 0.45) + (techScore * 0.55);
 
-        tempResults.push({
+        results.push({
           symbol: item.symbol, name: item.name, price: item.price,
           fundamentalScore: item.alphaScore, technicalScore: techScore, totalAlpha,
           techMetrics: { trend, momentum, volumePattern: 75, adl: 60, forceIndex: 65, srLevels: 85 },
@@ -101,14 +76,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
         if (i % 20 === 0) setProgress({ current: i + 1, total });
       }
 
-      setResults(tempResults);
-      addLog(`Success: Technical Scan Complete for ${tempResults.length} assets.`, "ok");
+      // 탈락 없이 전량 다음 단계로 보존
+      addLog(`Success: Technical Scan Complete for ${results.length} assets. All nodes preserved.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.5.0", source: listRes.files[0].name, count: tempResults.length, timestamp: new Date().toISOString() },
-        technical_universe: tempResults
+        manifest: { version: "4.5.0", source: listRes.files[0].name, count: results.length, timestamp: new Date().toISOString() },
+        technical_universe: results
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -121,7 +96,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
-      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
@@ -155,12 +129,16 @@ const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.5.0</h2>
+                <div className="flex items-center space-x-2 mt-2">
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-orange-500/20 bg-orange-500/10 text-orange-400 uppercase tracking-widest">Full Accumulation Mode</span>
+                </div>
               </div>
             </div>
             <button onClick={executeIntegratedTechProtocol} disabled={loading} className="px-12 py-5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-orange-900/20 hover:scale-105 active:scale-95 transition-all">
               {loading ? 'Adding Tech Scores...' : 'Technical Accumulation (Stage 4)'}
             </button>
           </div>
+
           <div className="bg-black/40 p-8 rounded-3xl border border-white/5 mb-10">
               <div className="flex justify-between items-center mb-6">
                 <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest">Global Scan Progress</p>
@@ -172,11 +150,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
           </div>
         </div>
       </div>
+
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[40px] bg-slate-950 border-l-4 border-l-orange-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-8 px-2"><h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Technical_Terminal</h3></div>
+          <div className="flex items-center justify-between mb-8 px-2">
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Technical_Terminal</h3>
+          </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-orange-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (<div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-orange-900'}`}>{l}</div>))}
+            {logs.map((l, i) => (
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-orange-900'}`}>
+                {l}
+              </div>
+            ))}
           </div>
         </div>
       </div>
