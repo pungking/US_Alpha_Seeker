@@ -18,25 +18,25 @@ const ALPHA_SCHEMA = {
       expectedReturn: { type: Type.STRING, description: "Target return e.g. +20%" },
       theme: { type: Type.STRING, description: "Market narrative" },
       aiSentiment: { type: Type.STRING, description: "Sentiment report in Korean" },
-      analysisLogic: { type: Type.STRING, description: "Neural logic in Korean" }
+      analysisLogic: { type: Type.STRING, description: "Neural logic in Korean" },
+      // 차트 분석 관련 필드 추가
+      chartPattern: { type: Type.STRING, description: "Detected pattern (e.g., Cup and Handle, Bull Flag, Fibonacci Support)" },
+      supportLevel: { type: Type.NUMBER, description: "Strong support price" },
+      resistanceLevel: { type: Type.NUMBER, description: "Next major resistance price" },
+      riskRewardRatio: { type: Type.STRING, description: "Risk to Reward ratio (e.g., 1:3)" }
     },
-    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic"]
+    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "riskRewardRatio"]
   }
 };
 
-/**
- * AI의 응답 텍스트에서 순수 JSON 배열만 추출하는 강화된 파서
- */
 function sanitizeAndParseJson(text: string): any[] | null {
   if (!text) return null;
   try {
-    // 1. 마크다운 코드 블록 제거 및 제어 문자 청소
     let cleanText = text.trim()
       .replace(/```json/g, "")
       .replace(/```/g, "")
-      .replace(/[\u0000-\u001F\u007F-\u009F]/g, ""); // 제어 문자 제거
+      .replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
 
-    // 2. 가장 바깥쪽 [ ] 찾기
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
 
@@ -44,11 +44,9 @@ function sanitizeAndParseJson(text: string): any[] | null {
       const jsonCandidate = cleanText.substring(firstBracket, lastBracket + 1);
       return JSON.parse(jsonCandidate);
     }
-    
-    // 3. 바로 파싱 시도 (단순 배열일 경우)
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text.substring(0, 100));
+    console.error("JSON_PARSE_CRITICAL_FAILURE:", e);
     return null;
   }
 }
@@ -71,16 +69,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
-  // 프롬프트 가이드라인 강화
-  const prompt = `당신은 전설적인 월가 퀀트 헤지펀드 매니저입니다. [오늘 날짜: ${today}]
-엄선된 12개 후보 종목: ${JSON.stringify(candidates.map(c => ({s: c.symbol, p: c.price, score: c.compositeAlpha})))}.
+  const prompt = `당신은 전설적인 차트 아티스트이자 퀀트 매니저입니다. [오늘 날짜: ${today}]
+엄선된 12개 후보: ${JSON.stringify(candidates.map(c => ({s: c.symbol, p: c.price, tech: c.technicalScore, ict: c.ictScore})))}.
 
-이 중 시장 주도력이 가장 강력한 6개 종목을 최종 선정하여 정밀 분석 보고서를 작성하세요.
-반드시 아래 형식을 엄수하여 JSON 배열만 응답하십시오. 다른 설명이나 텍스트는 절대 금지합니다.
+위 데이터를 기반으로 가장 유망한 6개 종목을 선정하고, 다음 기술적 지표를 반드시 분석에 포함하십시오:
+1. 차트 패턴: 피보나치 되돌림(0.382/0.618), 컵앤핸들, 불플래그, 헤드앤숄더, 이중바닥 등.
+2. 타점 분석: 강력한 지지가격(Support), 돌파 저항가격(Resistance), 진입가 대비 손익비(Risk/Reward).
 
-JSON Schema Rule:
-- 각 객체는 symbol, aiVerdict, marketCapClass('LARGE'/'MID'/'SMALL'), sectorTheme, investmentOutlook, selectionReasons(배열), convictionScore(숫자), expectedReturn, theme, aiSentiment, analysisLogic을 포함해야 합니다.
-- 모든 텍스트 설명은 한국어로 작성하며, 날짜 기준은 반드시 오늘(${today})이어야 합니다.`;
+응답은 반드시 JSON 배열만 출력하며, 모든 설명은 한국어로 작성하십시오. 기준일은 ${today}입니다.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -101,7 +97,7 @@ JSON Schema Rule:
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: `당신은 ${today} 기준의 한국어 금융 분석 리포트를 작성하는 AI 에이전트입니다. 반드시 JSON 코드 블록 하나만 출력하며, 텍스트 설명이나 인사는 생략하십시오.` },
+            { role: "system", content: `당신은 ${today} 기준 차트 패턴과 손익비를 분석하는 금융 AI입니다. JSON 배열만 출력하십시오.` },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -109,14 +105,12 @@ JSON Schema Rule:
       });
       if (!res.ok) return { data: null, error: `HTTP_${res.status}`, code: res.status };
       const data = await res.json();
-      const rawResponse = data.choices?.[0]?.message?.content;
-      const parsed = sanitizeAndParseJson(rawResponse);
+      const parsed = sanitizeAndParseJson(data.choices?.[0]?.message?.content);
       return parsed ? { data: parsed } : { data: null, error: "PARSE_ERROR" };
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) {
-    const isQuota = error.message?.includes("429") || error.message?.includes("quota");
-    return { data: null, error: error.message, code: isQuota ? 429 : 500 };
+    return { data: null, error: error.message };
   }
 }
 
@@ -127,19 +121,9 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
-  const prompt = `[분석 요청 시점: ${today}]
-당신은 US_Alpha_Seeker 시스템의 최종 감사관(Chief Auditor)입니다.
-
-현재 파이프라인 데이터:
-- 현재 스테이지: ${data.currentStage}
-- 최종 선정 종목: ${data.symbols ? data.symbols.join(", ") : "스캐닝 중"}
-- 분석 엔진 정보: ${provider} (이 리포트를 작성 중인 감사 엔진)
-
-미션:
-1. 보고서 최상단에 "전략 감사 보고서 - ${today}"를 명시하십시오.
-2. 현재 실시간 VIX, 국채 금리, 달러 인덱스 상황을 가정하여 위 종목들의 선정 타당성을 비판적으로 검토하십시오.
-3. 6단계 분석 엔진이 도출한 결과와 논리적 일관성을 유지하되, 보수적인 리스크 관리 관점을 추가하십시오.
-4. 모든 내용은 한국어 마크다운으로 전문적이고 권위 있게 작성하십시오.`;
+  const prompt = `[전략 감사 보고서 - ${today}]
+당신은 최종 감사관입니다. 6단계에서 도출된 종목들의 차트 패턴과 손익비가 현재 시장의 매크로(VIX, 금리) 상황에서 유효한지 검토하십시오.
+모든 내용은 한국어 마크다운으로 작성하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -155,15 +139,11 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: 'sonar-pro', 
-          messages: [
-            { role: "system", content: `당신은 ${today} 기준의 시장 상황을 분석하여 6단계 결과를 교차 검증하는 수석 전략 감사관입니다.` },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.2
+          messages: [{ role: "system", content: `당신은 수석 감사관입니다.` }, { role: "user", content: prompt }]
         })
       });
       const result = await res.json();
       return result.choices?.[0]?.message?.content || "보고서 생성 실패";
     }
-  } catch (e: any) { return `감사 보고서 생성 중 오류 발생: ${e.message}`; }
+  } catch (e: any) { return `감사 오류: ${e.message}`; }
 }
