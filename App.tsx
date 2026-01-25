@@ -24,6 +24,7 @@ const App: React.FC = () => {
   const [isProd, setIsProd] = useState(false);
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
@@ -82,7 +83,7 @@ const App: React.FC = () => {
         currentStage,
         apiStatuses,
         symbols: finalSymbols.length > 0 ? finalSymbols : null,
-      }, selectedBrain);
+      }, auditBrain);
       
       setAiReport(report);
     } catch (err: any) {
@@ -157,7 +158,6 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
-        {/* Keep-Alive Rendering Logic to prevent Data Loss on Tab Switch */}
         <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
           <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
         </div>
@@ -200,9 +200,16 @@ const App: React.FC = () => {
                 <h3 className="font-black text-white uppercase text-2xl tracking-tighter italic leading-none">AI Alpha Auditor Matrix</h3>
                 <div className="flex items-center space-x-3 mt-3">
                    <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">Alpha_Insight_Node_Active</span>
-                   <span className="text-[8px] text-slate-500 font-black uppercase tracking-widest italic border-l border-white/10 pl-3">
-                     Engine: {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
-                   </span>
+                   <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-4">
+                      <button 
+                        onClick={() => setAuditBrain(ApiProvider.GEMINI)}
+                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                      >Gemini</button>
+                      <button 
+                        onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)}
+                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                      >Sonar</button>
+                   </div>
                 </div>
              </div>
           </div>

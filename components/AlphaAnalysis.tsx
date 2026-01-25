@@ -38,7 +38,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [finalCandidates, setFinalCandidates] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.0: Neural Matrix Synced.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.1: Neural Matrix Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -103,14 +103,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     try {
       setProgress(10);
+      // AI에게 상위 12개를 전달하여 그 중 6개를 고르게 함 (안목의 차별화)
       const topCandidates = [...elite50]
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
-        .slice(0, 6);
+        .slice(0, 12);
 
-      addLog(`Selection: Localized Top ${topCandidates.length} Quant Leaders.`, "ok");
-      addLog(`AI Task: Synthesizing deep qualitative logic...`, "info");
-      
-      onFinalSymbolsDetected?.(topCandidates.map(t => t.symbol));
+      addLog(`Selection: Pushing Top ${topCandidates.length} Candidates to AI Brain for selective pruning...`, "info");
       setProgress(25);
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -123,30 +121,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setProgress(85);
 
-      const mergedFinal = topCandidates.map(item => {
-        const aiData = aiResults?.find((r: any) => r.symbol?.toUpperCase() === item.symbol.toUpperCase());
+      // AI가 선정한 결과물만 최종 리스트에 매핑
+      const mergedFinal = (aiResults || []).map(aiData => {
+        const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
+        if (!item) return null;
+
         const entry = item.price * 0.985;
-        
         return {
           ...item,
-          aiVerdict: aiData?.aiVerdict || "ALPHA_PROTOCOL_CONFIRMED",
-          investmentOutlook: aiData?.investmentOutlook || "투자 분석 중 데이터 병합 오류가 발생했습니다.",
-          selectionReasons: aiData?.selectionReasons || ["Quantitative alpha scoring highest", "Technical momentum alignment"],
-          convictionScore: aiData?.convictionScore || item.compositeAlpha || 85.0,
-          expectedReturn: aiData?.expectedReturn || "+15% ~ +25%",
-          theme: aiData?.theme || "Sector Outperformer",
-          aiSentiment: aiData?.aiSentiment || "Positive institutional flow detected.",
-          analysisLogic: aiData?.analysisLogic || "Neural synthesis logic derived from ICT footprints.",
+          ...aiData,
           entryPrice: entry,
           targetPrice: entry * 1.30,
           stopLoss: entry * 0.91,
         };
-      });
+      }).filter(x => x !== null) as AlphaCandidate[];
 
       setFinalCandidates(mergedFinal);
       setSelectedStock(mergedFinal[0]);
+      onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} strategic reports finalized.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} strategic selections confirmed by ${brainName}.`, "ok");
     } catch (error: any) {
       addLog(`Critical Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
@@ -173,7 +167,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.1</h2>
                 <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Enterprise Neural Architecture</p>
               </div>
             </div>
