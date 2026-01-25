@@ -16,6 +16,8 @@ interface AlphaCandidate {
   fundamentalScore: number;
   sector: string;
   aiVerdict?: string;
+  marketCapClass?: 'LARGE' | 'MID' | 'SMALL';
+  sectorTheme?: string;
   convictionScore?: number;
   expectedReturn?: string;
   theme?: string;
@@ -40,7 +42,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [finalCandidates, setFinalCandidates] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.4: Strategic Intelligence Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.5: Macro-Quant Fusion Protocol Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -101,7 +103,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setSelectedStock(null);
     
     const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Pro" : "Sonar Pro";
-    addLog(`System: Allocating neural priority to ${brainName} Brain...`, "info");
+    addLog(`Protocol: Initiating Macro-Quant Synthesis with ${brainName}...`, "info");
     
     try {
       setProgress(10);
@@ -109,7 +111,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 12);
 
-      addLog(`Analysis: Deep scanning top 12 leaders for priority selection...`, "info");
+      addLog(`Deep Scan: Analyzing 12 finalists against Macro/VIX/Sector Rotation...`, "info");
       setProgress(25);
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -122,7 +124,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setProgress(85);
 
-      // AI 결과를 convictionScore 기준 내림차순 정렬하여 순위 유지
       const mergedFinal = (aiResults || [])
         .map(aiData => {
           const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
@@ -146,7 +147,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       }
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} priority selections finalized by ${brainName}.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated and ordered by conviction.`, "ok");
     } catch (error: any) {
       addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
@@ -154,27 +155,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  const getThemeColor = () => {
-    switch (selectedBrain) {
-      case ApiProvider.GEMINI: return 'border-t-indigo-500 shadow-indigo-900/10';
-      case ApiProvider.PERPLEXITY: return 'border-t-cyan-500 shadow-cyan-900/10';
-      default: return 'border-t-rose-500';
-    }
+  const getCapColor = (cap?: string) => {
+    if (cap === 'LARGE') return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    if (cap === 'MID') return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+    return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
   };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative overflow-hidden transition-all duration-500 ${getThemeColor()}`}>
+        <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative overflow-hidden transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500 shadow-indigo-900/10' : 'border-t-cyan-500 shadow-cyan-900/10'}`}>
           
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-14 h-14 rounded-3xl bg-white/5 flex items-center justify-center border border-white/10 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                 <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.4</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Ordered Conviction Matrix</p>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.5</h2>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Holistic Strategy Synthesis</p>
               </div>
             </div>
             
@@ -199,7 +198,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               disabled={loading || elite50.length === 0}
               className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
             >
-              {loading ? 'Prioritizing...' : 'Execute Strategy Brain'}
+              {loading ? 'Processing...' : 'Execute Alpha Engine'}
             </button>
           </div>
 
@@ -210,25 +209,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  onClick={() => setSelectedStock(item)}
                  className={`glass-panel p-6 rounded-[32px] border-l-4 transition-all group relative overflow-hidden cursor-pointer ${selectedStock?.symbol === item.symbol ? 'border-l-rose-500 bg-rose-500/10 scale-[1.02]' : 'border-l-white/10 bg-slate-900/40 hover:bg-white/5'}`}
                >
-                  <div className="flex justify-between items-start mb-4">
+                  <div className="flex justify-between items-start mb-2">
                      <div>
                         <span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">PRIORITY #{idx + 1}</span>
                         <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4>
                      </div>
                      <div className="text-right">
-                        <p className="text-[8px] font-black text-slate-500 italic uppercase">Conviction</p>
-                        <p className="text-xl font-black text-rose-500 italic">{(item.convictionScore || 0).toFixed(1)}%</p>
+                        <p className="text-[19px] font-black text-rose-500 italic">{(item.convictionScore || 0).toFixed(1)}%</p>
                      </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-2 mb-4">
+                     <span className={`text-[7px] px-2 py-0.5 rounded-full font-black border uppercase tracking-wider ${getCapColor(item.marketCapClass)}`}>
+                        {item.marketCapClass || 'UNCERTAIN'} CAP
+                     </span>
+                     <span className="text-[7px] px-2 py-0.5 rounded-full font-black border border-white/10 bg-white/5 text-slate-400 uppercase tracking-wider truncate max-w-[120px]">
+                        {item.sectorTheme || item.sector}
+                     </span>
                   </div>
                   
                   <div className="flex justify-between items-end">
                      <div className="flex flex-col space-y-1">
                         <div className="flex items-center space-x-2">
-                           <span className="text-[7px] text-slate-500 font-black uppercase">Confidence</span>
-                           <span className="text-[10px] text-emerald-400 font-black tracking-tighter">ELITE</span>
-                        </div>
-                        <div className="flex items-center space-x-2">
-                           <span className="text-[7px] text-slate-500 font-black uppercase">Exp. Return</span>
+                           <span className="text-[7px] text-slate-500 font-black uppercase">Return</span>
                            <span className="text-[10px] text-blue-400 font-black tracking-tighter">{item.expectedReturn}</span>
                         </div>
                      </div>
@@ -240,7 +243,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              ))}
              {!loading && finalCandidates.length === 0 && (
                 <div className="col-span-full py-24 text-center opacity-20">
-                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Awaiting Alpha Signal Fusion...</p>
+                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Awaiting Signal Analysis...</p>
                 </div>
              )}
           </div>
@@ -252,13 +255,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 <div className="lg:col-span-2 space-y-8">
                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
                       <div>
-                        <div className="flex items-center space-x-3">
+                        <div className="flex items-center space-x-4">
                            <h3 className="text-5xl font-black text-white italic tracking-tighter uppercase">{selectedStock.symbol}</h3>
-                           <span className="text-[10px] bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-rose-500/30">
-                             {selectedStock.aiVerdict}
-                           </span>
+                           <div className="flex flex-col">
+                              <span className={`text-[8px] font-black border px-2 py-0.5 rounded-full mb-1 w-fit ${getCapColor(selectedStock.marketCapClass)}`}>
+                                 {selectedStock.marketCapClass} CAPITALIZATION
+                              </span>
+                              <span className="text-[8px] bg-rose-500 text-white px-2 py-0.5 rounded-full font-black uppercase tracking-widest border border-rose-500/30 w-fit">
+                                {selectedStock.aiVerdict}
+                              </span>
+                           </div>
                         </div>
-                        <p className="text-sm font-bold text-slate-500 uppercase mt-1">{selectedStock.name}</p>
+                        <p className="text-sm font-bold text-slate-500 uppercase mt-2">{selectedStock.name} — <span className="text-rose-500/80">{selectedStock.sectorTheme}</span></p>
                       </div>
                       <div className="flex gap-4">
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
@@ -281,7 +289,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
 
                    <div className="p-10 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
-                      <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4">Investment Perspective</h4>
+                      <div className="flex items-center justify-between mb-4">
+                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Investment Perspective</h4>
+                        <span className="text-[8px] font-black text-slate-600 uppercase">Sector Focus: {selectedStock.sectorTheme}</span>
+                      </div>
                       <div className="prose-report text-sm text-slate-300 leading-relaxed font-medium italic">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
                           {selectedStock.investmentOutlook || ""}
@@ -317,7 +328,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
 
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500">
-                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Neural Analysis Logic</p>
+                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Macro-Quant Synthesis Logic</p>
                       <p className="text-xs text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
                         {selectedStock.analysisLogic}
                       </p>
