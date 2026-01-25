@@ -8,17 +8,18 @@ const ALPHA_SCHEMA = {
   items: {
     type: Type.OBJECT,
     properties: {
-      symbol: { type: Type.STRING },
-      aiVerdict: { type: Type.STRING },
-      investmentOutlook: { type: Type.STRING },
+      symbol: { type: Type.STRING, description: "The stock ticker symbol" },
+      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ALPHA_TIER_1'" },
+      investmentOutlook: { type: Type.STRING, description: "Deep qualitative investment outlook in Korean (at least 2-3 sentences)" },
       selectionReasons: {
         type: Type.ARRAY,
-        items: { type: Type.STRING }
+        items: { type: Type.STRING },
+        description: "3-4 specific technical or fundamental reasons in Korean"
       },
-      convictionScore: { type: Type.NUMBER },
-      theme: { type: Type.STRING },
-      aiSentiment: { type: Type.STRING },
-      analysisLogic: { type: Type.STRING }
+      convictionScore: { type: Type.NUMBER, description: "Numerical conviction score from 0 to 100" },
+      theme: { type: Type.STRING, description: "Current market theme or narrative for this stock" },
+      aiSentiment: { type: Type.STRING, description: "Brief sentiment summary in Korean" },
+      analysisLogic: { type: Type.STRING, description: "Internal logic for this selection in Korean" }
     },
     required: ["symbol", "aiVerdict", "investmentOutlook", "selectionReasons", "convictionScore", "theme", "aiSentiment", "analysisLogic"]
   }
@@ -27,6 +28,7 @@ const ALPHA_SCHEMA = {
 function sanitizeAndParseJson(text: string): any[] | null {
   try {
     let cleanText = text.trim();
+    // Remove markdown code blocks if present
     cleanText = cleanText.replace(/^```json\n?/, '').replace(/\n?```$/, '').trim();
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
@@ -40,20 +42,14 @@ function sanitizeAndParseJson(text: string): any[] | null {
   }
 }
 
-/**
- * Enhanced fetch with Exponential Backoff for 429 Quota errors
- */
-async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 10000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
     const errorMsg = error.message?.toLowerCase() || "";
-    const isQuotaError = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("exhausted");
-    
-    if (retries > 0 && isQuotaError) {
-      console.warn(`[AI_RETRY] Quota reached. Cooling down for ${delay/1000}s...`);
+    if (retries > 0 && (errorMsg.includes("429") || errorMsg.includes("quota"))) {
       await new Promise(resolve => setTimeout(resolve, delay));
-      return fetchWithRetry(fn, retries - 1, delay * 2);
+      return fetchWithRetry(fn, retries - 1, delay * 1.5);
     }
     throw error;
   }
@@ -65,10 +61,23 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `Analyze these 5 US stocks: ${candidates.map(c => c.symbol).join(", ")}.
-    For each stock, provide a professional quantitative and ICT (Inner Circle Trader) analysis in Korean.
-    Return ONLY a valid JSON array matching the required schema. No conversational text.
-    Dataset for context: ${JSON.stringify(candidates)}`;
+  // AI에게 전달할 데이터 최적화
+  const contextData = candidates.map(c => ({
+    symbol: c.symbol,
+    price: c.price,
+    compositeAlpha: c.compositeAlpha,
+    sector: c.sector
+  }));
+
+  const prompt = `당신은 월스트리트 헤지펀드의 수석 퀀트 분석가입니다. 
+분석 대상 종목: ${candidates.map(c => c.symbol).join(", ")}
+데이터 컨텍스트: ${JSON.stringify(contextData)}
+
+각 종목에 대해 다음 지침을 엄격히 준수하여 한국어 분석을 수행하십시오:
+1. 투자 전망(investmentOutlook)은 해당 종목의 미래 가치를 최소 2문장 이상의 전문적인 한국어로 서술하십시오.
+2. 선정 이유(selectionReasons)는 퀀트 점수, ICT(FVG, OrderBlock), 기술적 지표를 기반으로 3개 이상의 구체적인 항목을 제공하십시오.
+3. 모든 텍스트는 한국어로 작성하되, 전문 금융 용어는 유지하십시오.
+4. 반드시 유효한 JSON 배열 형식으로만 응답하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -94,13 +103,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "You are a world-class hedge fund quant analyst. Strictly return ONLY a JSON array in Korean." },
+            { role: "system", content: "You are a world-class financial analyst. Output ONLY a JSON array in Korean based on the provided schema." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `PPLX_ERR_${res.status}` };
       const data = await res.json();
       const parsed = sanitizeAndParseJson(data.choices[0].message.content);
       return parsed ? { data: parsed } : { data: null, error: "PPLX_PARSE_ERROR" };
@@ -108,9 +116,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     return { data: null, error: "UNSUPPORTED_PROVIDER" };
   } catch (error: any) {
-    if (error.message?.includes("429")) {
-      return { data: null, error: "할당량 초과: 약 30초 대기 후 재시도하십시오. (Gemini Free Tier Limit)" };
-    }
     return { data: null, error: error.message };
   }
 }
@@ -119,35 +124,21 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   
-  if (!apiKey) return `통신 오류: ${provider} API 키가 누락되었습니다.`;
+  if (!apiKey) return "API key missing.";
 
-  const symbolsList = data.symbols ? data.symbols.join(", ") : "전체 섹터";
-  const prompt = `월스트리트 수석 전략가로서 현재 분석 대상(${symbolsList})에 대한 마크다운 리포트를 한국어로 작성하십시오. 표와 굵은 글씨를 활용하여 시인성을 높이십시오.`;
+  const prompt = `US_Alpha_Seeker 시스템 상태 진단:
+스테이지: ${data.currentStage}
+분석 종목: ${data.symbols ? data.symbols.join(", ") : "전체"}
+이 데이터를 기반으로 현재 시장 상황과 전략적 제언을 마크다운 형식의 한글 리포트로 작성하십시오.`;
 
   try {
-    if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey });
-      const response = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-      }));
-      return response.text;
-    }
-
-    if (provider === ApiProvider.PERPLEXITY) {
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: 'sonar-pro',
-          messages: [{ role: "user", content: prompt }]
-        })
-      });
-      const resData = await res.json();
-      return resData.choices[0].message.content;
-    }
-    return "지원되지 않는 분석 엔진입니다.";
+    const ai = new GoogleGenAI({ apiKey });
+    const response = await ai.models.generateContent({
+      model: 'gemini-3-pro-preview',
+      contents: prompt,
+    });
+    return response.text;
   } catch (e: any) {
-    return `분석 지연: ${e.message.includes("429") ? "할당량 대기 중..." : e.message}`;
+    return `Audit failed: ${e.message}`;
   }
 }
