@@ -18,6 +18,7 @@ import { analyzePipelineStatus } from './services/intelligenceService';
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
+  // 각 제공자별 리포트를 개별 저장하기 위해 객체 타입으로 변경
   const [auditReports, setAuditReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
@@ -25,9 +26,6 @@ const App: React.FC = () => {
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
-  
-  // Auto-Pilot 상태
-  const [autoPilot, setAutoPilot] = useState(false);
 
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
@@ -79,37 +77,43 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
+    
     try {
       const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
         symbols: finalSymbols.length > 0 ? finalSymbols : null,
       }, auditBrain);
-      setAuditReports(prev => ({ ...prev, [auditBrain]: report }));
+      
+      // 현재 선택된 auditBrain 키에 리포트 저장
+      setAuditReports(prev => ({
+        ...prev,
+        [auditBrain]: report
+      }));
     } catch (err: any) {
-      setAuditReports(prev => ({ ...prev, [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
+      setAuditReports(prev => ({
+        ...prev,
+        [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}`
+      }));
     } finally {
       setIsAiLoading(false);
     }
   };
 
-  const handleStageComplete = (next: number) => {
-    if (autoPilot && next <= 6) {
-      setCurrentStage(next);
-    }
-  };
+  // 현재 선택된 auditBrain에 해당하는 리포트 추출
+  const currentReport = auditReports[auditBrain] || null;
 
-  const toggleAutoPilot = () => {
-    setAutoPilot(!autoPilot);
-    if (!autoPilot) {
-      setCurrentStage(0); // 0단계부터 다시 시작
+  const copyReport = () => {
+    if (currentReport) {
+      navigator.clipboard.writeText(currentReport);
+      alert('전략 보고서가 클립보드에 복사되었습니다.');
     }
   };
 
   return (
     <div className="min-h-screen pb-10 p-3 md:p-6 space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
       {/* Nexus Toolbar */}
-      <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap relative">
+      <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap">
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
           <span>{isProd ? 'Production_Node' : 'Development_Node'}</span>
@@ -122,17 +126,7 @@ const App: React.FC = () => {
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
           <span>Pipeline_State: Stage_{currentStage}</span>
         </div>
-
-        {/* Auto Pilot Button */}
-        <button 
-          onClick={toggleAutoPilot}
-          className={`ml-auto flex items-center space-x-2 px-4 py-1.5 rounded-lg border transition-all ${autoPilot ? 'bg-amber-500/10 border-amber-500/50 text-amber-400 shadow-[0_0_15px_rgba(245,158,11,0.2)]' : 'bg-slate-800 border-white/5 text-slate-500'}`}
-        >
-          <div className={`w-1.5 h-1.5 rounded-full ${autoPilot ? 'bg-amber-400 animate-ping' : 'bg-slate-600'}`}></div>
-          <span className="font-black">Nexus_Auto_Pilot: {autoPilot ? 'ENGAGED' : 'IDLE'}</span>
-        </button>
-
-        <a href={GITHUB_REPO} className="ml-4 opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
@@ -149,6 +143,7 @@ const App: React.FC = () => {
         </div>
       </header>
 
+      {/* API Matrix & Ticker Row */}
       <div className="space-y-4">
         <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
           {apiStatuses.map(status => (
@@ -162,7 +157,7 @@ const App: React.FC = () => {
         {STAGES_FLOW.map((stage) => (
           <button
             key={stage.id}
-            onClick={() => { setAutoPilot(false); setCurrentStage(stage.id); }}
+            onClick={() => setCurrentStage(stage.id)}
             className={`flex-shrink-0 px-5 py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
               currentStage === stage.id ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
             }`}
@@ -173,13 +168,31 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
-        {currentStage === 0 && <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} onComplete={() => handleStageComplete(1)} autoStart={autoPilot} />}
-        {currentStage === 1 && <PreliminaryFilter onComplete={() => handleStageComplete(2)} autoStart={autoPilot} />}
-        {currentStage === 2 && <DeepQualityFilter onComplete={() => handleStageComplete(3)} autoStart={autoPilot} />}
-        {currentStage === 3 && <FundamentalAnalysis onComplete={() => handleStageComplete(4)} autoStart={autoPilot} />}
-        {currentStage === 4 && <TechnicalAnalysis onComplete={() => handleStageComplete(5)} autoStart={autoPilot} />}
-        {currentStage === 5 && <IctAnalysis onComplete={() => handleStageComplete(6)} autoStart={autoPilot} />}
-        {currentStage === 6 && <AlphaAnalysis selectedBrain={selectedBrain} setSelectedBrain={setSelectedBrain} onFinalSymbolsDetected={(symbols) => setFinalSymbols(symbols)} onComplete={() => { if(autoPilot) runAiAnalysis(); setAutoPilot(false); }} autoStart={autoPilot} />}
+        <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
+          <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
+        </div>
+        <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
+          <PreliminaryFilter />
+        </div>
+        <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
+          <DeepQualityFilter />
+        </div>
+        <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
+          <FundamentalAnalysis />
+        </div>
+        <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
+          <TechnicalAnalysis />
+        </div>
+        <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
+          <IctAnalysis />
+        </div>
+        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
+          <AlphaAnalysis 
+            selectedBrain={selectedBrain} 
+            setSelectedBrain={setSelectedBrain}
+            onFinalSymbolsDetected={(symbols) => setFinalSymbols(symbols)}
+          />
+        </div>
       </main>
 
       {/* AI ALPHA AUDITOR Section */}
@@ -212,9 +225,9 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex gap-4">
-             {auditReports[auditBrain] && (
+             {currentReport && (
                <button 
-                 onClick={() => { navigator.clipboard.writeText(auditReports[auditBrain]!); alert('복사되었습니다.'); }}
+                 onClick={copyReport}
                  className="px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all"
                >
                  Copy Report
@@ -236,10 +249,10 @@ const App: React.FC = () => {
               <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
               <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Synthesizing High-Frequency Market Data...</p>
             </div>
-          ) : auditReports[auditBrain] ? (
+          ) : currentReport ? (
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                 {auditReports[auditBrain]!}
+                 {currentReport}
                </ReactMarkdown>
             </div>
           ) : (
@@ -251,6 +264,11 @@ const App: React.FC = () => {
               </p>
             </div>
           )}
+        </div>
+
+        <div className="mt-8 flex justify-between items-center px-4 opacity-40">
+           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">InnocentBae Systems • Integrated Neural Strategy Node</p>
+           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.5_Audit_Matrix</p>
         </div>
       </section>
     </div>
