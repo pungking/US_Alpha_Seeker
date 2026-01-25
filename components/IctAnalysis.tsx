@@ -68,16 +68,19 @@ const IctAnalysis: React.FC = () => {
           sector: item.sector
         });
 
-        if (i % 10 === 0) {
-          setAnalyzedData([...results].sort((a,b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50));
-          setProgress(p => ({ ...p, current: i + 1 }));
-          await new Promise(r => setTimeout(r, 40));
+        // 진행률 업데이트: 매 10개마다 혹은 마지막 요소일 때
+        if (i % 10 === 0 || i === total - 1) {
+          setProgress({ current: i + 1, total });
+          if (i % 10 === 0) {
+            setAnalyzedData([...results].sort((a,b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50));
+            await new Promise(r => setTimeout(r, 40));
+          }
         }
       }
 
       const final50 = results.sort((a,b) => b.compositeAlpha - a.compositeAlpha).slice(0, 50);
       setAnalyzedData(final50);
-      addLog(`Pruned: Top 50 Alpha assets pass. Committing...`, "ok");
+      addLog(`Pruned: Top 50 Alpha assets pass (${total}/${total}). Committing...`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_${new Date().toISOString().split('T')[0]}.json`;

@@ -68,16 +68,22 @@ const TechnicalAnalysis: React.FC = () => {
           sector: item.sector
         });
 
-        if (i % 20 === 0) {
-          setProgress(p => ({ ...p, current: i }));
-          setAnalyzedData([...results]);
-          await new Promise(r => setTimeout(r, 40));
+        // 진행률 업데이트: 매 20개마다 혹은 마지막 요소일 때
+        if (i % 20 === 0 || i === total - 1) {
+          setProgress({ current: i + 1, total });
+          if (i % 20 === 0) {
+            setAnalyzedData([...results]);
+            await new Promise(r => setTimeout(r, 20)); // UI 업데이트를 위한 틱
+          }
         }
       }
 
-      const pruned = results.sort((a, b) => b.totalAlpha - a.totalAlpha).slice(0, Math.floor(results.length * 0.5));
+      // 최종 데이터 셋업
+      const sortedResults = results.sort((a, b) => b.totalAlpha - a.totalAlpha);
+      const pruned = sortedResults.slice(0, Math.floor(results.length * 0.5));
       setAnalyzedData(pruned);
-      addLog(`Success: Technical Pattern Scan Complete. Committing...`, "ok");
+      
+      addLog(`Success: Technical Pattern Scan Complete (${total}/${total}). Committing...`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_ELITE_${new Date().toISOString().split('T')[0]}.json`;
