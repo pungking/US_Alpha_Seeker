@@ -23,7 +23,7 @@ const DeepQualityFilter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.3.0: Automated Elite Scan Protocol.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.3.1: Protocol Handshake Initiated.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -41,27 +41,35 @@ const DeepQualityFilter: React.FC = () => {
   const executeIntegratedScan = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Step 1: Synchronizing Investable Universe from Stage 1...", "info");
+    addLog("Step 1: Locating Purified Universe from Stage 1 Vault...", "info");
     
     try {
-      const q = encodeURIComponent(`name contains 'STAGE1_INVESTABLE_UNIVERSE' and trashed = false`);
+      // 파일 이름 불일치 수정: 'STAGE1_PURIFIED_UNIVERSE'를 검색하도록 변경
+      const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) throw new Error("Stage 1 input missing.");
+      if (!listRes.files?.length) {
+        addLog("Stage 1 input missing. Verify Stage 1 'Commit' is complete.", "err");
+        setLoading(false);
+        return;
+      }
+
+      addLog(`Found target: ${listRes.files[0].name}. Synchronizing nodes...`, "ok");
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
+      // PreliminaryFilter에서 investable_universe 키로 데이터를 보냄
       const equities = (content.investable_universe || [])
         .map((s: any) => ({ ...s, marketValue: (s.price || 0) * (s.volume || 0) }))
         .sort((a: any, b: any) => b.marketValue - a.marketValue);
       
       const limit = Math.min(equities.length, 500);
       setProgress({ current: 0, total: limit });
-      addLog(`Matrix Synced. Scanning Top ${limit} Elite assets...`, "ok");
+      addLog(`Matrix Synced. Scanning Top ${limit} Elite assets for Fundamentals...`, "info");
 
       const results: QualityTicker[] = [];
       for (let i = 0; i < limit; i++) {
@@ -69,8 +77,12 @@ const DeepQualityFilter: React.FC = () => {
         setProgress(prev => ({ ...prev, current: i + 1 }));
         
         try {
-          const finRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`).then(r => r.json());
-          const profRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`).then(r => r.json());
+          // Finnhub API 호출 시 Throttling 방지를 위해 개별 에러 헨들링 강화
+          const [finRes, profRes] = await Promise.all([
+            fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`).then(r => r.json()),
+            fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`).then(r => r.json())
+          ]);
+
           const metrics = finRes.metric || {};
           
           results.push({
@@ -83,22 +95,24 @@ const DeepQualityFilter: React.FC = () => {
             industry: profRes.finnhubIndustry || "N/A", lastUpdate: new Date().toISOString()
           });
 
-          if (i % 10 === 0) setProcessedData([...results]);
-          await new Promise(r => setTimeout(r, 600));
+          if (i % 5 === 0) setProcessedData([...results]);
+          
+          // API Rate Limit (30 calls/sec for Pro, much less for Free)
+          // 800ms delay to be safe
+          await new Promise(r => setTimeout(r, 800));
         } catch (e) {
-          addLog(`Retry: ${target.symbol} link throttled.`, "warn");
-          await new Promise(r => setTimeout(r, 1500));
+          addLog(`Node Skip: ${target.symbol} latency issues.`, "warn");
+          await new Promise(r => setTimeout(r, 2000));
         }
       }
 
       setProcessedData(results);
-      addLog(`Scan Complete. Committing ${results.length} nodes to Vault...`, "ok");
+      addLog(`Scan Complete. Committing ${results.length} nodes to Quality Vault...`, "ok");
 
-      // 커밋
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "2.3.0", node: "Integrated_Extraction", count: results.length, timestamp: new Date().toISOString() },
+        manifest: { version: "2.3.1", node: "Deep_Quality_Scan", count: results.length, timestamp: new Date().toISOString() },
         elite_universe: results
       };
 
@@ -143,13 +157,13 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-purple-500 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Elite_Scanner v2.3.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Elite_Scanner v2.3.1</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-purple-400 uppercase tracking-widest">Single_Action_Vault_Commit</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-purple-400 uppercase tracking-widest">Cross-Stage Synchronization</span>
                 </div>
               </div>
             </div>
-            <button onClick={executeIntegratedScan} disabled={loading} className="px-12 py-5 bg-purple-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all disabled:opacity-50 shadow-xl">
+            <button onClick={executeIntegratedScan} disabled={loading} className="px-12 py-5 bg-purple-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-purple-900/20">
               {loading ? 'Analyzing & Uploading...' : 'Scan & Commit Vault'}
             </button>
           </div>
@@ -159,8 +173,8 @@ const DeepQualityFilter: React.FC = () => {
                 <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Extraction Progress</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-purple-600 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+              <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5">
+                <div className="h-full bg-gradient-to-r from-purple-700 to-purple-400 transition-all duration-300 rounded-full" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
               </div>
           </div>
         </div>
@@ -173,7 +187,7 @@ const DeepQualityFilter: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-purple-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-purple-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : l.includes('[ERR]') ? 'border-red-500 text-red-400 bg-red-500/5' : 'border-purple-900'}`}>
                 {l}
               </div>
             ))}
