@@ -38,10 +38,11 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // 컴포넌트 마운트 시 자동 시작 로직 (Stage 1 결과물을 찾을 때까지 대기)
   useEffect(() => {
-    if (autoStart && !loading && processedData.length === 0) {
-      // 드라이브 인덱싱 동기화를 위한 의도적 지연 후 실행
-      setTimeout(() => executeIntegratedScan(), 2000);
+    if (autoStart && !loading) {
+      addLog("Auto-Pilot Engaged: Preparing Stage 2 Initialization...", "info");
+      executeIntegratedScan();
     }
   }, [autoStart]);
 
@@ -50,50 +51,60 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
-  const findFileWithRetry = async (query: string, retries = 3): Promise<any> => {
+  const findStage1FileWithRetry = async (retries = 5, delay = 4000): Promise<any> => {
+    const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
     for (let i = 0; i < retries; i++) {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
-      if (res.files && res.files.length > 0) return res.files[0];
-      if (i < retries - 1) {
-        addLog(`Vault indexing... retrying in 3s (${i + 1}/${retries})`, "warn");
-        await new Promise(r => setTimeout(r, 3000));
+      try {
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        }).then(r => r.json());
+        
+        if (res.files && res.files.length > 0) {
+          return res.files[0];
+        }
+        addLog(`Waiting for Stage 1 Vault Indexing... (Attempt ${i + 1}/${retries})`, "warn");
+        await new Promise(r => setTimeout(r, delay));
+      } catch (e) {
+        console.error("Drive Search Error:", e);
       }
     }
     return null;
   };
 
   const executeIntegratedScan = async () => {
-    if (!accessToken || loading) return;
+    if (!accessToken || loading) {
+      if (!accessToken) addLog("Access Token Missing. Please Re-Auth.", "err");
+      return;
+    }
+    
     setLoading(true);
-    addLog("Step 1: Locating Purified Universe from Stage 1 Vault...", "info");
+    addLog("Step 1: Synchronizing with Stage 1 Purified Matrix...", "info");
     
     try {
-      const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
-      const file = await findFileWithRetry(q);
+      const file = await findStage1FileWithRetry();
 
       if (!file) {
-        addLog("Stage 1 input missing. Verify Stage 1 'Commit' is complete.", "err");
+        addLog("CRITICAL: Stage 1 data not found after multiple retries. Flow Stalled.", "err");
         setLoading(false);
-        // 자동화 모드에서 멈추지 않도록 콜백 호출 (단 데이터 없음 경고)
-        if (autoStart) onComplete?.();
         return;
       }
 
-      addLog(`Found target: ${file.name}. Synchronizing nodes...`, "ok");
+      addLog(`Matrix Detected: ${file.name}. Commencing Data Extraction...`, "ok");
 
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      });
+      
+      if (!response.ok) throw new Error("Failed to fetch Stage 1 file content.");
+      const content = await response.json();
 
       const equities = (content.investable_universe || [])
         .map((s: any) => ({ ...s, marketValue: (s.price || 0) * (s.volume || 0) }))
         .sort((a: any, b: any) => b.marketValue - a.marketValue);
       
-      const limit = Math.min(equities.length, 500);
+      const limit = Math.min(equities.length, 300); // 속도를 위해 한도 조절
       setProgress({ current: 0, total: limit });
-      addLog(`Matrix Synced. Scanning Top ${limit} Elite assets for Fundamentals...`, "info");
+      addLog(`Scanning Top ${limit} High-Value Nodes for Fundamentals...`, "info");
 
       const results: QualityTicker[] = [];
       for (let i = 0; i < limit; i++) {
@@ -118,15 +129,16 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
           });
 
           if (i % 5 === 0) setProcessedData([...results]);
-          await new Promise(r => setTimeout(r, 800));
+          // API 레이트 제한 준수
+          await new Promise(r => setTimeout(r, 600));
         } catch (e) {
-          addLog(`Node Skip: ${target.symbol} latency issues.`, "warn");
-          await new Promise(r => setTimeout(r, 1500));
+          addLog(`Node Latency: Skipping ${target.symbol}.`, "warn");
+          await new Promise(r => setTimeout(r, 1000));
         }
       }
 
       setProcessedData(results);
-      addLog(`Scan Complete. Committing ${results.length} nodes to Quality Vault...`, "ok");
+      addLog(`Scan Protocol Complete. Syncing to Stage 2 Vault...`, "info");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
@@ -140,14 +152,19 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
+      if (!uploadRes.ok) throw new Error("Stage 2 Vault Commit Failed.");
+
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      
+      // 다음 단계로 전환 신호 발송
       if (onComplete) onComplete();
+
     } catch (e: any) {
-      addLog(`Integrated Error: ${e.message}`, "err");
+      addLog(`Integrated Protocol Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
     }
@@ -179,7 +196,9 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Elite_Scanner v2.3.1</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-purple-400 uppercase tracking-widest">Cross-Stage Synchronization</span>
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-purple-400 uppercase tracking-widest italic animate-pulse">
+                     {loading ? 'Synthesizing Universal Data...' : 'Cross-Stage Synchronization Active'}
+                   </span>
                 </div>
               </div>
             </div>
