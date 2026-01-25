@@ -1,5 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { ApiProvider } from '../types';
 import { API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis } from '../services/intelligenceService';
@@ -38,7 +40,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [finalCandidates, setFinalCandidates] = useState<AlphaCandidate[]>([]);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.3: Professional Analysis Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.4: Strategic Intelligence Protocol Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -81,7 +83,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       if (content.ict_universe) {
         setElite50(content.ict_universe);
-        addLog(`Vault Linked: ${content.ict_universe.length} high-alpha assets retrieved.`, "ok");
+        addLog(`Vault Linked: ${content.ict_universe.length} candidates retrieved.`, "ok");
       }
     } catch (e: any) {
       addLog(`Sync Error: ${e.message}`, "err");
@@ -99,7 +101,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setSelectedStock(null);
     
     const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Pro" : "Sonar Pro";
-    addLog(`System: Allocating deep neural bandwidth to ${brainName}...`, "info");
+    addLog(`System: Allocating neural priority to ${brainName} Brain...`, "info");
     
     try {
       setProgress(10);
@@ -107,7 +109,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 12);
 
-      addLog(`Analysis: Deep scanning top 12 institutional leaders...`, "info");
+      addLog(`Analysis: Deep scanning top 12 leaders for priority selection...`, "info");
       setProgress(25);
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -120,28 +122,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setProgress(85);
 
-      // AI 데이터 복원 및 매핑 로직 강화
-      const mergedFinal = (aiResults || []).map(aiData => {
-        const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
-        if (!item) return null;
+      // AI 결과를 convictionScore 기준 내림차순 정렬하여 순위 유지
+      const mergedFinal = (aiResults || [])
+        .map(aiData => {
+          const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
+          if (!item) return null;
 
-        const entry = item.price * 0.985;
-        // 첨부1 처럼 모든 상세 정보를 복원
-        return {
-          ...item,
-          aiVerdict: aiData.aiVerdict || "STRONG_BUY",
-          investmentOutlook: aiData.investmentOutlook || "정성적 투자 전망 분석 중...",
-          selectionReasons: aiData.selectionReasons || ["기관 수급 패턴 정렬", "ICT 오더블럭 지지 확인"],
-          convictionScore: aiData.convictionScore || item.compositeAlpha || 85.0,
-          expectedReturn: aiData.expectedReturn || "+25.0%",
-          theme: aiData.theme || "Institutional Core",
-          aiSentiment: aiData.aiSentiment || "Positive institutional flow detected.",
-          analysisLogic: aiData.analysisLogic || "Neural matrix synthesis logic active.",
-          entryPrice: entry,
-          targetPrice: entry * 1.30,
-          stopLoss: entry * 0.91,
-        };
-      }).filter(x => x !== null) as AlphaCandidate[];
+          const entry = item.price * 0.985;
+          return {
+            ...item,
+            ...aiData,
+            entryPrice: entry,
+            targetPrice: entry * 1.30,
+            stopLoss: entry * 0.91,
+          };
+        })
+        .filter(x => x !== null)
+        .sort((a: any, b: any) => (b.convictionScore || 0) - (a.convictionScore || 0)) as AlphaCandidate[];
 
       setFinalCandidates(mergedFinal);
       if (mergedFinal.length > 0) {
@@ -149,9 +146,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       }
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} strategic selections confirmed. Analysis finalized.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} priority selections finalized by ${brainName}.`, "ok");
     } catch (error: any) {
-      addLog(`Critical Node Failure: ${error.message.substring(0, 80)}`, "err");
+      addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
       setLoading(false);
     }
@@ -176,8 +173,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.3</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Hedge Fund Intelligence Hub</p>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.4</h2>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Ordered Conviction Matrix</p>
               </div>
             </div>
             
@@ -202,7 +199,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               disabled={loading || elite50.length === 0}
               className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
             >
-              {loading ? 'Synthesizing Alpha...' : 'Execute Strategy Brain'}
+              {loading ? 'Prioritizing...' : 'Execute Strategy Brain'}
             </button>
           </div>
 
@@ -215,12 +212,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                >
                   <div className="flex justify-between items-start mb-4">
                      <div>
-                        <span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">ALPHA #{idx + 1}</span>
+                        <span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">PRIORITY #{idx + 1}</span>
                         <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4>
                      </div>
                      <div className="text-right">
                         <p className="text-[8px] font-black text-slate-500 italic uppercase">Conviction</p>
-                        <p className="text-xl font-black text-rose-500 italic">{(item.convictionScore || item.compositeAlpha || 0).toFixed(1)}%</p>
+                        <p className="text-xl font-black text-rose-500 italic">{(item.convictionScore || 0).toFixed(1)}%</p>
                      </div>
                   </div>
                   
@@ -228,7 +225,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      <div className="flex flex-col space-y-1">
                         <div className="flex items-center space-x-2">
                            <span className="text-[7px] text-slate-500 font-black uppercase">Confidence</span>
-                           <span className="text-[10px] text-emerald-400 font-black tracking-tighter">HIGH</span>
+                           <span className="text-[10px] text-emerald-400 font-black tracking-tighter">ELITE</span>
                         </div>
                         <div className="flex items-center space-x-2">
                            <span className="text-[7px] text-slate-500 font-black uppercase">Exp. Return</span>
@@ -243,7 +240,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              ))}
              {!loading && finalCandidates.length === 0 && (
                 <div className="col-span-full py-24 text-center opacity-20">
-                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Awaiting Neural Synchronization Signal...</p>
+                   <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Awaiting Alpha Signal Fusion...</p>
                 </div>
              )}
           </div>
@@ -258,15 +255,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="flex items-center space-x-3">
                            <h3 className="text-5xl font-black text-white italic tracking-tighter uppercase">{selectedStock.symbol}</h3>
                            <span className="text-[10px] bg-rose-500/20 text-rose-400 px-3 py-1 rounded-full font-black uppercase tracking-widest border border-rose-500/30">
-                             {selectedStock.aiVerdict || "ALPHA_PROTOCOL_CONFIRMED"}
+                             {selectedStock.aiVerdict}
                            </span>
                         </div>
                         <p className="text-sm font-bold text-slate-500 uppercase mt-1">{selectedStock.name}</p>
                       </div>
                       <div className="flex gap-4">
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
-                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Confidence</p>
-                            <p className="text-2xl font-black text-emerald-400 font-mono">{(selectedStock.convictionScore || selectedStock.compositeAlpha || 85.0).toFixed(1)}%</p>
+                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Conviction</p>
+                            <p className="text-2xl font-black text-emerald-400 font-mono">{(selectedStock.convictionScore || 0).toFixed(1)}%</p>
                          </div>
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
                             <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Exp. Return</p>
@@ -285,9 +282,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                    <div className="p-10 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4">Investment Perspective</h4>
-                      <p className="text-sm text-slate-300 leading-relaxed font-medium italic">
-                        {selectedStock.investmentOutlook}
-                      </p>
+                      <div className="prose-report text-sm text-slate-300 leading-relaxed font-medium italic">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                          {selectedStock.investmentOutlook || ""}
+                        </ReactMarkdown>
+                      </div>
                    </div>
                 </div>
 
