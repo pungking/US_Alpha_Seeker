@@ -39,7 +39,7 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
   
   const [logs, setLogs] = useState<string[]>(() => {
     const cached = sessionStorage.getItem('stage1_logs');
-    return cached ? JSON.parse(cached) : ['> Filter_Node v2.0.1: Macro-Liquidity Protocol Online.'];
+    return cached ? JSON.parse(cached) : ['> Filter_Node v2.0.2: Macro-Liquidity Protocol Online.'];
   });
   
   const [minPrice, setMinPrice] = useState(() => parseFloat(sessionStorage.getItem('stage1_minPrice') || '2.0'));
@@ -61,25 +61,17 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
 
   useEffect(() => {
     sessionStorage.setItem('stage1_logs', JSON.stringify(logs));
-  }, [logs]);
-  useEffect(() => {
     sessionStorage.setItem('stage1_minPrice', minPrice.toString());
-  }, [minPrice]);
-  useEffect(() => {
     sessionStorage.setItem('stage1_minVolume', minVolume.toString());
-  }, [minVolume]);
-  useEffect(() => {
     sessionStorage.setItem('stage1_aiProposal', JSON.stringify(aiProposal));
-  }, [aiProposal]);
-  useEffect(() => {
     if (rawUniverse.length > 0) {
       sessionStorage.setItem('stage1_rawUniverse', JSON.stringify(rawUniverse));
     }
-  }, [rawUniverse]);
+  }, [logs, minPrice, minVolume, aiProposal, rawUniverse]);
 
   useEffect(() => {
     if (rawUniverse.length > 0) {
-      const count = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume).length;
+      const count = rawUniverse.filter(s => (s.price || 0) >= minPrice && (s.volume || 0) >= minVolume).length;
       setFilteredCount(count);
     }
   }, [minPrice, minVolume, rawUniverse]);
@@ -95,14 +87,27 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
+  const sanitizeJson = (text: string) => {
+    try {
+      let clean = text.trim();
+      if (clean.includes("```json")) clean = clean.split("```json")[1].split("```")[0];
+      else if (clean.includes("```")) clean = clean.split("```")[1].split("```")[0];
+      return JSON.parse(clean);
+    } catch (e) {
+      return null;
+    }
+  };
+
   const findFileWithRetry = async (query: string, retries = 5): Promise<any> => {
     for (let i = 0; i < retries; i++) {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
-      if (res.files && res.files.length > 0) return res.files[0];
-      addLog(`Vault indexing... retrying in 3s (${i + 1}/${retries})`, "warn");
-      await new Promise(r => setTimeout(r, 3000));
+      try {
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&pageSize=1`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        }).then(r => r.json());
+        if (res.files && res.files.length > 0) return res.files[0];
+      } catch (e) {}
+      addLog(`Vault lookup... retrying (${i + 1}/${retries})`, "warn");
+      await new Promise(r => setTimeout(r, 4000));
     }
     return null;
   };
@@ -121,58 +126,53 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
       const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
       const file = await findFileWithRetry(q);
 
-      if (!file) throw new Error("Stage 0 Data not found. Verify Stage 0 is complete.");
+      if (!file) throw new Error("Stage 0 Data not found. Verify Stage 0 is finalized.");
 
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+      const response = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      });
+      const content = await response.json();
 
       const data = content.universe || [];
       setRawUniverse(data);
-      addLog(`Matrix Synced: ${data.length} assets. Requesting AI Strategic Analysis...`, "ok");
+      addLog(`Matrix Synced: ${data.length} assets. Prompting AI Strategist...`, "ok");
 
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
       const volumes = data.map((s: any) => s.volume).filter((v: any) => v > 0).sort((a: any, b: any) => a - b);
       
       const statsSummary = {
         total: data.length,
-        p50Price: prices[Math.floor(prices.length * 0.50)],
-        p50Volume: volumes[Math.floor(volumes.length * 0.5)],
-        p80Volume: volumes[Math.floor(volumes.length * 0.8)]
+        p50Price: prices[Math.floor(prices.length * 0.50)] || 0,
+        p50Volume: volumes[Math.floor(volumes.length * 0.5)] || 0,
+        p80Volume: volumes[Math.floor(volumes.length * 0.8)] || 0
       };
 
-      const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || geminiConfig?.key || "" });
-      
-      const prompt = `US Stock Market Liquidity: ${JSON.stringify(statsSummary)}. Recommend suggestedPrice and suggestedVolume. Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string" }`;
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "" });
+      const prompt = `Recommend filtering for US stocks: ${JSON.stringify(statsSummary)}. Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string" }`;
 
-      try {
-        const response = await ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: { responseMimeType: "application/json" }
-        });
-        const aiData: AiProposal = JSON.parse(response.text || "{}");
+      const aiRes = await ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: "application/json" }
+      });
+
+      const aiData = sanitizeJson(aiRes.text);
+      if (aiData) {
         setAiProposal(aiData);
         setMinPrice(aiData.suggestedPrice || 2.0);
         setMinVolume(aiData.suggestedVolume || 500000);
-        addLog(`AI Strategy Finalized: [${aiData.regime || 'Standard'}]`, "ok");
-      } catch (aiErr) {
-        addLog("AI Node Timeout. Applying Safety Baseline Protocol.", "warn");
-        setMinPrice(2.0);
-        setMinVolume(500000);
+        addLog(`AI Strategy: [${aiData.regime || 'Mapping'}] complete.`, "ok");
+      } else {
+        throw new Error("AI Output Malformed");
       }
     } catch (e: any) {
-      addLog(`Sync Failure: ${e.message}`, "err");
+      addLog(`Protocol Warning: ${e.message}. Using safety defaults.`, "warn");
+      setMinPrice(2.0);
+      setMinVolume(500000);
     } finally {
       setLoading(false);
       setIsAnalyzing(false);
     }
-  };
-
-  const handleManualChange = (type: 'price' | 'volume', val: number) => {
-    if (type === 'price') setMinPrice(val);
-    else setMinVolume(val);
   };
 
   const commitPurification = async () => {
@@ -181,12 +181,12 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     addLog(`Phase 2: Purifying Universe... (P: $${minPrice}, V: ${minVolume})`, "info");
 
     try {
-      const filtered = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
+      const filtered = rawUniverse.filter(s => (s.price || 0) >= minPrice && (s.volume || 0) >= minVolume);
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       
       const payload = {
-        manifest: { version: "2.0.1", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
+        manifest: { version: "2.0.2", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
         investable_universe: filtered
       };
 
@@ -199,7 +199,7 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Purification Success: ${filtered.length} assets committed.`, "ok");
+      addLog(`Success: ${filtered.length} assets committed.`, "ok");
       if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Vault Error: ${e.message}`, "err");
@@ -232,7 +232,7 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
                 <svg className={`w-6 h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.0.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.0.2</h2>
               </div>
             </div>
             <div className="flex gap-4">
@@ -249,16 +249,26 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
             <div className="bg-black/40 p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all relative">
               <div className="flex justify-between items-center mb-8">
                  <div><p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Price Floor Matrix</p><p className="text-2xl font-black text-white italic tracking-tighter">${minPrice.toFixed(2)}</p></div>
-                 <div className="text-right"><p className="text-[7px] font-black text-slate-500 uppercase mb-1">AI Recommendation</p><p className={`text-xs font-black italic ${isAnalyzing ? 'animate-pulse text-emerald-500/40' : 'text-emerald-500/80'}`}>{isAnalyzing ? 'Thinking...' : aiProposal ? `$${aiProposal.suggestedPrice.toFixed(2)}` : aiError ? 'ERROR' : '$---'}</p></div>
+                 <div className="text-right">
+                    <p className="text-[7px] font-black text-slate-500 uppercase mb-1">AI Recommendation</p>
+                    <p className={`text-xs font-black italic ${isAnalyzing ? 'animate-pulse text-emerald-500/40' : 'text-emerald-500/80'}`}>
+                      {isAnalyzing ? 'Thinking...' : aiProposal?.suggestedPrice ? `$${aiProposal.suggestedPrice.toFixed(2)}` : aiError ? 'ERROR' : '$---'}
+                    </p>
+                 </div>
               </div>
-              <input type="range" min="1.0" max="10.0" step="0.1" value={minPrice} onChange={(e) => handleManualChange('price', parseFloat(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+              <input type="range" min="1.0" max="10.0" step="0.1" value={minPrice} onChange={(e) => setMinPrice(parseFloat(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
             </div>
             <div className="bg-black/40 p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all relative">
               <div className="flex justify-between items-center mb-8">
                  <div><p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Volume Threshold</p><p className="text-2xl font-black text-white italic tracking-tighter">{(minVolume/1000).toFixed(0)}k</p></div>
-                 <div className="text-right"><p className="text-[7px] font-black text-slate-500 uppercase mb-1">AI Recommendation</p><p className={`text-xs font-black italic ${isAnalyzing ? 'animate-pulse text-emerald-500/40' : 'text-emerald-500/80'}`}>{isAnalyzing ? 'Thinking...' : aiProposal ? `${(aiProposal.suggestedVolume/1000).toFixed(0)}k` : aiError ? 'ERROR' : '---'}</p></div>
+                 <div className="text-right">
+                    <p className="text-[7px] font-black text-slate-500 uppercase mb-1">AI Recommendation</p>
+                    <p className={`text-xs font-black italic ${isAnalyzing ? 'animate-pulse text-emerald-500/40' : 'text-emerald-500/80'}`}>
+                      {isAnalyzing ? 'Thinking...' : aiProposal?.suggestedVolume ? `${(aiProposal.suggestedVolume/1000).toFixed(0)}k` : aiError ? 'ERROR' : '---'}
+                    </p>
+                 </div>
               </div>
-              <input type="range" min="50000" max="2000000" step="10000" value={minVolume} onChange={(e) => handleManualChange('volume', parseInt(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
+              <input type="range" min="50000" max="2000000" step="10000" value={minVolume} onChange={(e) => setMinVolume(parseInt(e.target.value))} className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" />
             </div>
           </div>
 
