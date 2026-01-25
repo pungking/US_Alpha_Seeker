@@ -24,11 +24,11 @@ const ALPHA_SCHEMA = {
       theme: { type: Type.STRING, description: "Current market narrative" },
       aiSentiment: { 
         type: Type.STRING, 
-        description: "Detailed unique sentiment report. Analyze institutional flow specifically for THIS symbol in Korean. NO REPEATING TEXT." 
+        description: "Detailed unique sentiment report for THIS symbol in Korean." 
       },
       analysisLogic: { 
         type: Type.STRING, 
-        description: "Unique neural synthesis logic explaining why THIS stock was prioritized in Korean. NO STATIC TEXT." 
+        description: "Unique neural synthesis logic explaining why THIS stock was prioritized in Korean." 
       }
     },
     required: ["symbol", "aiVerdict", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic"]
@@ -43,10 +43,12 @@ function sanitizeAndParseJson(text: string): any[] | null {
   try {
     let cleanText = text.trim();
     
-    // 1. 마크다운 코드 블록 제거
-    cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "").trim();
-    
-    // 2. 가장 바깥쪽 대괄호([ ]) 구간 추출 (배열 형태 우선)
+    // 1. 마크다운 코드 블록 제거 및 보이지 않는 제어 문자 제거
+    cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
+    // JSON 파싱을 방해하는 줄바꿈/탭 문자 정규화 (문자열 내부 제외)
+    cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+
+    // 2. 가장 바깥쪽 대괄호([ ]) 구간 추출
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     
@@ -55,11 +57,11 @@ function sanitizeAndParseJson(text: string): any[] | null {
       return JSON.parse(jsonCandidate);
     }
     
-    // 3. 배열이 없는 경우 일반 파싱 시도
+    // 3. 배열이 없는 경우 직접 시도
     const directParse = JSON.parse(cleanText);
     return Array.isArray(directParse) ? directParse : [directParse];
   } catch (e) {
-    console.error("[Alpha_Logic] Failed to parse AI Response. raw text snippet:", text.substring(0, 100));
+    console.error("[Alpha_Logic] Critical Parse Error. text preview:", text.substring(0, 150));
     return null;
   }
 }
@@ -69,10 +71,10 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 5, delay = 12000
     return await fn();
   } catch (error: any) {
     const errorMsg = error.message?.toLowerCase() || "";
-    const isRetryable = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("limit") || errorMsg.includes("exhausted") || errorMsg.includes("overloaded");
+    const isRetryable = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("limit") || errorMsg.includes("overloaded");
     
     if (retries > 0 && isRetryable) {
-      console.warn(`[Alpha_Seeker] Quota hit. Retrying in ${delay/1000}s... (${retries} left)`);
+      console.warn(`[Alpha_Seeker] API Limit hit. Retrying in ${delay/1000}s...`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(fn, retries - 1, delay * 1.5);
     }
@@ -94,16 +96,32 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     sector: c.sector
   }));
 
+  // Perplexity가 구조를 알 수 있도록 스키마 설명을 포함한 프롬프트 구성
+  const schemaInstruction = `
+  응답은 반드시 아래 키를 가진 JSON 배열(Array) 형태여야 합니다:
+  - symbol: 티커명
+  - aiVerdict: 'STRONG_BUY' 등 한 단어 판단
+  - investmentOutlook: 한글 마크다운 기반의 상세 투자 전망 (4문장 이상, 중요 단어 볼드처리)
+  - selectionReasons: [한글 이유1, 이유2, 이유3] (가격대 수치 포함 필수)
+  - convictionScore: 0~100 사이 숫자 (높을수록 순위 상승)
+  - expectedReturn: 예상 수익률 (예: '+28.5%')
+  - theme: 주도 테마명
+  - aiSentiment: 이 종목만의 고유한 수급/심리 분석 (한글)
+  - analysisLogic: 이 종목이 선정된 개별적 신경망 논리 (한글)
+  
+  주의: 모든 문자열 내부의 큰따옴표(")는 반드시 백슬래시(\")로 이스케이프하거나 작은따옴표(')를 사용하십시오.
+  `;
+
   const prompt = `당신은 월스트리트 수석 퀀트 전략가입니다. 
-제시된 12개 후보 중 가장 승산이 높은 6개 종목을 엄선하여 리포트를 작성하십시오.
+다음 12개 후보 중 가장 유망한 6개 종목을 엄선하여 리포트를 작성하십시오.
 
-데이터 컨텍스트: ${JSON.stringify(contextData)}
+데이터: ${JSON.stringify(contextData)}
 
-필독 지침:
-1. **우선순위(Conviction Score)** 내림차순으로 6개를 선정하십시오.
-2. **Investment Perspective**: 마크다운을 사용하십시오. 핵심 촉매제는 **볼드** 처리하십시오. 종목의 고유한 경제적 해자와 실적 가속화 요인을 전문적으로 기술하십시오.
-3. **Sentiment & Logic**: 모든 종목에 동일한 문구를 반복하지 마십시오. 각 종목의 13F 기관 매집(예: 블랙록 가세), 옵션 흐름, ICT 오더블럭(예: $150 지지) 등 '구체적인 수치와 고유 근거'를 개별적으로 작성해야 합니다.
-4. 반드시 유효한 JSON 배열 형식으로만 응답하십시오. 다른 설명은 생략하십시오.`;
+지침:
+${schemaInstruction}
+1. **convictionScore**가 높은 순서대로 6개를 선정하십시오.
+2. 모든 종목의 내용(Sentiment, Logic)은 서로 다르고 구체적이어야 합니다.
+3. 오직 JSON 배열만 출력하십시오. 부연 설명은 절대 금지합니다.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -132,7 +150,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "당신은 세계 최고의 금융 분석가입니다. 반드시 한국어로 된 정교한 JSON 배열만 응답하십시오. 서론과 결론은 절대 생략하십시오." },
+            { role: "system", content: "당신은 한국어로 정교한 금융 리포트를 작성하는 JSON 생성 봇입니다. 서론과 결론 없이 순수 JSON 배열만 출력하십시오." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -140,13 +158,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       });
 
       if (!res.ok) {
-        const errText = await res.text();
-        return { data: null, error: `PPLX_HTTP_ERROR_${res.status}: ${errText.substring(0, 50)}` };
+        return { data: null, error: `PPLX_HTTP_${res.status}` };
       }
 
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
-      if (!content) return { data: null, error: "PPLX_EMPTY_RESPONSE" };
+      if (!content) return { data: null, error: "PPLX_EMPTY" };
 
       const parsed = sanitizeAndParseJson(content);
       return parsed ? { data: parsed } : { data: null, error: "PPLX_PARSE_ERROR" };
@@ -187,18 +204,15 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "당신은 월스트리트 전략가입니다. 전문적인 한국어 마크다운 리포트를 작성하십시오." },
+            { role: "system", content: "금융 전략가로서 전문적인 한국어 마크다운 리포트를 작성하십시오." },
             { role: "user", content: prompt }
           ]
         })
       });
-      
-      if (!res.ok) return `감사 보고서 생성 실패 (HTTP ${res.status})`;
-      
       const result = await res.json();
-      return result.choices?.[0]?.message?.content || "보고서 응답이 비어있습니다.";
+      return result.choices?.[0]?.message?.content || "보고서 생성 실패";
     }
   } catch (e: any) {
-    return `보고서 노드 지연: API 쿼터 또는 네트워크 이슈가 감지되었습니다. (이유: ${e.message})`;
+    return `보고서 노드 지연: ${e.message}`;
   }
 }
