@@ -14,7 +14,13 @@ interface IctScoredTicker {
   sector: string;
 }
 
-const IctAnalysis: React.FC = () => {
+// Add Props interface to match other analysis components
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const IctAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.5.0: Final Multi-Dimensional Sieve.']);
@@ -25,6 +31,13 @@ const IctAnalysis: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Handle auto-start for automation if enabled
+  useEffect(() => {
+    if (autoStart && !loading && progress.current === 0) {
+      executeIntegratedIctProtocol();
+    }
+  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -100,6 +113,8 @@ const IctAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      // Trigger completion callback to proceed in pipeline
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {

@@ -12,10 +12,24 @@ interface ScoredTicker {
   lastUpdate: string;
 }
 
-const FundamentalAnalysis: React.FC = () => {
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const FundamentalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.5.0: Initial 50% Elite Selection Active.']);
+  
+  const [logs, setLogs] = useState<string[]>(() => {
+    const cached = sessionStorage.getItem('stage3_logs');
+    return cached ? JSON.parse(cached) : ['> Fundamental_Node v3.5.0: Initial 50% Elite Selection Active.'];
+  });
+  
+  const [scoredResults, setScoredResults] = useState<ScoredTicker[]>(() => {
+    const cached = sessionStorage.getItem('stage3_results');
+    return cached ? JSON.parse(cached) : [];
+  });
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -23,6 +37,21 @@ const FundamentalAnalysis: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // 세션 캐싱 업데이트
+  useEffect(() => {
+    sessionStorage.setItem('stage3_logs', JSON.stringify(logs));
+  }, [logs]);
+  useEffect(() => {
+    sessionStorage.setItem('stage3_results', JSON.stringify(scoredResults));
+  }, [scoredResults]);
+
+  // 오토파일럿
+  useEffect(() => {
+    if (autoStart && !loading && scoredResults.length === 0) {
+      executeIntegratedAudit();
+    }
+  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -50,11 +79,10 @@ const FundamentalAnalysis: React.FC = () => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // 1. 2단계 전체 데이터 중 상위 50%만 선별 (분석 대상 압축)
       const rawTargets = content.elite_universe || [];
       const eliteCount = Math.floor(rawTargets.length * 0.5);
       const targets = rawTargets
-        .sort((a: any, b: any) => (b.roe || 0) - (a.roe || 0)) // ROE 등 주요 지표 기준 1차 선별
+        .sort((a: any, b: any) => (b.roe || 0) - (a.roe || 0))
         .slice(0, eliteCount);
 
       const total = targets.length;
@@ -64,7 +92,6 @@ const FundamentalAnalysis: React.FC = () => {
       const results: ScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
         const item = targets[i];
-        // 6차원 재무 스코어링
         const p = Math.min(100, (item.roe || 0) * 2.5 + 20);
         const g = 50 + (Math.random() * 30);
         const h = Math.max(0, 100 - (item.debtToEquity || 50));
@@ -83,7 +110,7 @@ const FundamentalAnalysis: React.FC = () => {
         if (i % 25 === 0) setProgress({ current: i + 1, total });
       }
 
-      // 3단계는 선별된 50%에 대해 탈락 없이 전량 4단계로 전송
+      setScoredResults(results);
       addLog(`Audit Complete. Saving all ${results.length} nodes for multi-factor fusion.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
@@ -103,6 +130,7 @@ const FundamentalAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {

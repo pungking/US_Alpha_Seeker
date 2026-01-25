@@ -11,6 +11,8 @@ declare global {
 
 interface Props {
   onAuthSuccess?: (status: boolean) => void;
+  onComplete?: () => void;
+  autoStart?: boolean;
 }
 
 interface MasterTicker {
@@ -23,7 +25,7 @@ interface MasterTicker {
   type?: string; 
 }
 
-const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
+const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, onComplete, autoStart }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -33,18 +35,36 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
 
-  const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
+  // 데이터 보존을 위한 세션 캐싱 초기화
+  const [registry, setRegistry] = useState<Map<string, MasterTicker>>(() => {
+    const cached = sessionStorage.getItem('stage0_registry');
+    if (cached) {
+      try {
+        const parsed = JSON.parse(cached);
+        return new Map(Object.entries(parsed));
+      } catch (e) { return new Map(); }
+    }
+    return new Map();
+  });
+  
   const [searchTerm, setSearchTerm] = useState('');
   
-  const [stats, setStats] = useState({
-    found: 0,
-    synced: 0,
-    target: 10000,
-    elapsed: 0,
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
+  const [stats, setStats] = useState(() => {
+    const cached = sessionStorage.getItem('stage0_stats');
+    return cached ? JSON.parse(cached) : {
+      found: 0,
+      synced: 0,
+      target: 10000,
+      elapsed: 0,
+      phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
+    };
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.6: High-Frequency Equity Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(() => {
+    const cached = sessionStorage.getItem('stage0_logs');
+    return cached ? JSON.parse(cached) : ['> Engine v1.9.6: High-Frequency Equity Protocol Active.'];
+  });
+  
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -52,12 +72,35 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // 세션 스토리지 업데이트
+  useEffect(() => {
+    sessionStorage.setItem('stage0_logs', JSON.stringify(logs));
+  }, [logs]);
+
+  useEffect(() => {
+    sessionStorage.setItem('stage0_stats', JSON.stringify(stats));
+  }, [stats]);
+
+  useEffect(() => {
+    if (registry.size > 0) {
+      const obj = Object.fromEntries(registry);
+      sessionStorage.setItem('stage0_registry', JSON.stringify(obj));
+    }
+  }, [registry]);
+
   useEffect(() => {
     if (cooldown > 0) {
       const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
       return () => clearTimeout(timer);
     }
   }, [cooldown]);
+
+  // 오토파일럿 트리거 (이미 완료되었거나 진행 중이면 무시)
+  useEffect(() => {
+    if (autoStart && !isEngineRunning && stats.phase !== 'Finalized' && cooldown === 0) {
+      startEngine();
+    }
+  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -144,7 +187,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       }
 
       setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
-
       await new Promise(r => setTimeout(r, 2000));
 
       const targetDate = getLatestTradingDate();
@@ -160,7 +202,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       }
 
       const polyData = await polyRes.json();
-
       if (polyData.results) {
         let matchCount = 0;
         polyData.results.forEach((r: any) => {
@@ -182,7 +223,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       setRegistry(new Map(newRegistry));
       setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-      // Drive Sync
       const masterData = Array.from(newRegistry.values());
       const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.6.json`;
       const payload = {
@@ -195,6 +235,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         await uploadFile(token, folderId, fileName, payload);
         setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
         addLog("System: Cloud Vault Sync Complete.", "ok");
+        if (onComplete) onComplete();
       }
 
     } catch (e: any) {
@@ -277,7 +318,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             <button 
               onClick={startEngine} 
               disabled={isEngineRunning || cooldown > 0}
-              className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
+              className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105 active:scale-95'}`}
             >
               {isEngineRunning ? 'Synthesizing Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
@@ -333,13 +374,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[680px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
+        <div className="glass-panel h-[720px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : 'border-blue-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : 'border-blue-900'}`}>
                 {l}
               </div>
             ))}

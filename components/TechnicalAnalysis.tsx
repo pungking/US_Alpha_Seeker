@@ -13,7 +13,13 @@ interface TechScoredTicker {
   sector: string;
 }
 
-const TechnicalAnalysis: React.FC = () => {
+// Add Props interface to match other analysis components
+interface Props {
+  onComplete?: () => void;
+  autoStart?: boolean;
+}
+
+const TechnicalAnalysis: React.FC<Props> = ({ onComplete, autoStart }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.5.0: Accumulative Holistic Scan.']);
@@ -24,6 +30,13 @@ const TechnicalAnalysis: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Handle auto-start for automation if enabled
+  useEffect(() => {
+    if (autoStart && !loading && progress.current === 0) {
+      executeIntegratedTechProtocol();
+    }
+  }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -96,6 +109,8 @@ const TechnicalAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      // Trigger completion callback to proceed in pipeline
+      if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
