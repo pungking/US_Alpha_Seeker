@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider } from '../types';
@@ -50,6 +50,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return cached ? JSON.parse(cached) : {};
   });
   
+  const [isRestored, setIsRestored] = useState(false);
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.5: Macro-Quant Fusion Protocol Online.']);
@@ -61,24 +62,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // 세션 캐싱 업데이트
   useEffect(() => {
     sessionStorage.setItem('stage6_elite50', JSON.stringify(elite50));
-  }, [elite50]);
-
-  useEffect(() => {
     sessionStorage.setItem('stage6_resultsCache', JSON.stringify(resultsCache));
-  }, [resultsCache]);
+  }, [elite50, resultsCache]);
 
-  // 마운트 시 데이터 로드
   useEffect(() => {
     if (accessToken && elite50.length === 0) {
       loadStage5Data();
     }
-    restoreLatestAnalysis();
+    if (!resultsCache[selectedBrain]) {
+        restoreLatestAnalysis();
+    }
   }, [accessToken]);
 
-  // 오토파일럿 트리거
   useEffect(() => {
     if (autoStart && !loading && elite50.length > 0 && !resultsCache[selectedBrain]) {
       executeAlphaFinalization();
@@ -88,10 +85,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
     const currentResults = resultsCache[selectedBrain];
     if (currentResults && currentResults.length > 0) {
-      setSelectedStock(currentResults[0]);
+      if (!selectedStock) setSelectedStock(currentResults[0]);
       onFinalSymbolsDetected?.(currentResults.map(t => t.symbol));
-    } else {
-      setSelectedStock(null);
     }
   }, [selectedBrain, resultsCache]);
 
@@ -101,14 +96,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const restoreLatestAnalysis = async () => {
+    if (!accessToken) return;
     const q = encodeURIComponent(`name contains 'STAGE6_ALPHA_FINAL' and trashed = false`);
     try {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=2`, {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=5`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
       if (res.files && res.files.length > 0) {
-        addLog("Syncing prior analysis from Cloud Vault...", "info");
+        addLog("Syncing prior cloud analysis for review...", "info");
         for (const file of res.files) {
           const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -117,6 +113,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (content.alpha_universe) {
             const brain = file.name.includes('Gemini') ? ApiProvider.GEMINI : ApiProvider.PERPLEXITY;
             setResultsCache(prev => ({ ...prev, [brain]: content.alpha_universe }));
+            setIsRestored(true);
           }
         }
       }
@@ -126,35 +123,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const loadStage5Data = async () => {
     if (!accessToken) return;
     setLoading(true);
-    addLog("Step 1: Synchronizing with Stage 5 Vault...", "info");
+    addLog("Step 1: Synchronizing Pipeline Matrix (Stage 5)...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-      let file = null;
-      for (let i = 0; i < 5; i++) {
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).then(r => r.json());
-        if (res.files?.length > 0) {
-          file = res.files[0];
-          break;
-        }
-        await new Promise(r => setTimeout(r, 3000));
-      }
-
-      if (!file) {
-        addLog("Stage 5 data not found. Flow halted.", "err");
-        setLoading(false);
-        return;
-      }
-
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (content.ict_universe) {
-        setElite50(content.ict_universe);
-        addLog(`Vault Linked: ${content.ict_universe.length} assets retrieved.`, "ok");
+      if (res.files?.length > 0) {
+        const file = res.files[0];
+        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        }).then(r => r.json());
+
+        if (content.ict_universe) {
+          setElite50(content.ict_universe);
+          addLog(`Pipeline Link Stable: ${content.ict_universe.length} candidates ready for AI Synthesis.`, "ok");
+        }
+      } else {
+        addLog("Pipeline Gap: Stage 5 data not found. Automatic engine disabled.", "warn");
       }
     } catch (e: any) {
       addLog(`Sync Failure: ${e.message}`, "err");
@@ -164,11 +152,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const executeAlphaFinalization = async () => {
-    if (elite50.length === 0 || loading) return;
+    if (elite50.length === 0 || loading) {
+        addLog("Execution Aborted: Missing required Stage 5 pipeline data.", "err");
+        return;
+    }
     
     setLoading(true);
+    setIsRestored(false);
     setProgress(10);
-    setSelectedStock(null);
     
     let currentProvider = selectedBrain;
     addLog(`Protocol Phase 2: Synthesis via ${currentProvider}...`, "info");
@@ -177,47 +168,45 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
-      // 429 Quota 에러 시 퍼플리시티 폴백
       const errorStr = JSON.stringify(response.error || "").toLowerCase();
-      if (response.error && (errorStr.includes("429") || errorStr.includes("quota") || errorStr.includes("exhausted"))) {
-        addLog("Gemini Quota Exceeded (429). Engaging Sonar Fallback...", "warn");
+      if (response.error && (errorStr.includes("429") || errorStr.includes("quota"))) {
+        addLog("Gemini Quota Exceeded. Engaging Sonar Fallback...", "warn");
         currentProvider = ApiProvider.PERPLEXITY;
         setSelectedBrain(ApiProvider.PERPLEXITY);
         response = await generateAlphaSynthesis(topCandidates, currentProvider);
       }
 
-      if (response.error) {
-        addLog(`Neural Failure: ${JSON.stringify(response.error)}`, "err");
-        setLoading(false);
-        return;
+      if (response.data) {
+        const aiResults = response.data;
+        const mergedFinal = aiResults.map(aiData => {
+          const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
+          if (!item) return null;
+          const entry = item.price * 0.985;
+          return { 
+            ...item, 
+            ...aiData, 
+            entryPrice: aiData.entryPrice || entry, 
+            targetPrice: aiData.targetPrice || entry * 1.30, 
+            stopLoss: aiData.stopLoss || entry * 0.91 
+          };
+        }).filter(x => x !== null) as AlphaCandidate[];
+
+        setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
+        setSelectedStock(mergedFinal[0]);
+        onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
+
+        if (accessToken) {
+          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+          const fileName = `STAGE6_ALPHA_FINAL_${currentProvider}_${new Date().toISOString().split('T')[0]}.json`;
+          await uploadFile(accessToken, folderId, fileName, { manifest: { brain: currentProvider, session: new Date().getTime() }, alpha_universe: mergedFinal });
+        }
+        addLog(`Alpha Protocol Success: ${mergedFinal.length} strategies synthesized.`, "ok");
       }
-
-      const aiResults = response.data || [];
-      const mergedFinal = aiResults.map(aiData => {
-        const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
-        if (!item) return null;
-        const entry = item.price * 0.985;
-        return { ...item, ...aiData, entryPrice: entry, targetPrice: entry * 1.30, stopLoss: entry * 0.91 };
-      }).filter(x => x !== null) as AlphaCandidate[];
-
-      setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
-      setSelectedStock(mergedFinal[0]);
-      onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
-
-      if (accessToken) {
-        const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-        const fileName = `STAGE6_ALPHA_FINAL_${currentProvider}_${new Date().toISOString().split('T')[0]}.json`;
-        await uploadFile(accessToken, folderId, fileName, { manifest: { brain: currentProvider, count: mergedFinal.length }, alpha_universe: mergedFinal });
-        addLog(`Vault Finalized: ${fileName}`, "ok");
-      }
-
-      setProgress(100);
-      addLog(`Alpha Protocol Success. Analysis via ${currentProvider} complete.`, "ok");
-      if (onComplete) onComplete();
     } catch (error: any) {
       addLog(`Fatal Node Error: ${error.message}`, "err");
     } finally {
       setLoading(false);
+      setProgress(100);
     }
   };
 
@@ -244,38 +233,86 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     });
   };
 
+  const candidates = resultsCache[selectedBrain] || [];
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative overflow-hidden transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500 shadow-indigo-900/10' : 'border-t-cyan-500 shadow-cyan-900/10'}`}>
+        <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden transition-all duration-500">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-14 h-14 rounded-3xl bg-white/5 flex items-center justify-center border border-white/10 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.5</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Holistic Strategy Synthesis</p>
+                <h2 className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none">ALPHA_DISCOVERY V8.2.5</h2>
+                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Holistic Strategy Synthesis</p>
               </div>
             </div>
             
-            <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5">
-              <button onClick={() => setSelectedBrain(ApiProvider.GEMINI)} className={`px-6 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${selectedBrain === ApiProvider.GEMINI ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Gemini</button>
-              <button onClick={() => setSelectedBrain(ApiProvider.PERPLEXITY)} className={`px-6 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${selectedBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Sonar</button>
+            <div className="flex items-center space-x-4">
+               {isRestored && !loading && (
+                 <span className="text-[8px] font-black px-2 py-1 bg-amber-500/10 text-amber-500 border border-amber-500/20 rounded uppercase tracking-widest">Vault_Restored</span>
+               )}
+               <div className="flex bg-black/40 p-1 rounded-2xl border border-white/5">
+                <button onClick={() => setSelectedBrain(ApiProvider.GEMINI)} className={`px-5 py-2 rounded-xl text-[8px] font-black uppercase transition-all ${selectedBrain === ApiProvider.GEMINI ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Gemini 3 Pro</button>
+                <button onClick={() => setSelectedBrain(ApiProvider.PERPLEXITY)} className={`px-5 py-2 rounded-xl text-[8px] font-black uppercase transition-all ${selectedBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Sonar Pro</button>
+              </div>
+              <button onClick={executeAlphaFinalization} disabled={loading || elite50.length === 0} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:scale-105 active:scale-95'}`}>
+                {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
+              </button>
             </div>
-
-            <button onClick={executeAlphaFinalization} disabled={loading || elite50.length === 0} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:scale-105 active:scale-95'}`}>
-              {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
-            </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-[160px]">
-             {(resultsCache[selectedBrain] || []).map((item, idx) => (
-               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[32px] border-l-4 transition-all group cursor-pointer ${selectedStock?.symbol === item.symbol ? 'border-l-rose-500 bg-rose-500/10 scale-[1.02]' : 'border-l-white/10 hover:bg-white/5'}`}>
-                  <div className="flex justify-between items-start mb-2">
-                     <div><span className="text-[10px] font-black text-rose-500/60 tracking-[0.4em]">PRIORITY #{idx + 1}</span><h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4></div>
-                     <div className="text-right"><p className="text-[19px] font-black text-rose-500 italic">{(item.convictionScore || 0).toFixed(1)}%</p></div>
+          {!loading && candidates.length === 0 && elite50.length === 0 && (
+            <div className="flex flex-col items-center justify-center py-20 bg-black/20 rounded-[32px] border border-white/5 border-dashed">
+                <p className="text-[10px] font-black text-slate-600 uppercase tracking-[0.6em] mb-4">Awaiting Pipeline Signal</p>
+                <p className="text-[8px] text-slate-700 italic">Stage 5 data must be finalized before engine execution.</p>
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+             {candidates.map((item, idx) => (
+               <div 
+                key={item.symbol} 
+                onClick={() => setSelectedStock(item)} 
+                className={`glass-panel p-8 rounded-[40px] border-l-4 transition-all group cursor-pointer relative overflow-hidden flex flex-col justify-between h-[240px] ${
+                    selectedStock?.symbol === item.symbol 
+                    ? idx === 0 ? 'border-l-rose-500 bg-rose-950/20 shadow-[inset_0_0_40px_rgba(244,63,94,0.1)]' : 'border-l-indigo-500 bg-indigo-950/20'
+                    : 'border-l-white/10 hover:bg-white/5'
+                }`}
+               >
+                  <div className="flex justify-between items-start relative z-10">
+                     <div>
+                        <span className={`text-[8px] font-black tracking-[0.4em] uppercase ${idx === 0 ? 'text-rose-500' : 'text-slate-500'}`}>PRIORITY #{idx + 1}</span>
+                        <h4 className="text-5xl font-black text-white italic tracking-tighter uppercase leading-tight mt-2">{item.symbol}</h4>
+                     </div>
+                     <div className="text-right">
+                        <p className={`text-3xl font-black italic ${idx === 0 ? 'text-rose-500' : 'text-indigo-400'}`}>{item.convictionScore?.toFixed(1)}%</p>
+                     </div>
                   </div>
+
+                  <div className="flex flex-wrap gap-2 mt-4 relative z-10">
+                    <span className={`px-3 py-1 rounded-full text-[7px] font-black uppercase border ${item.marketCapClass === 'LARGE' ? 'bg-blue-600/10 text-blue-400 border-blue-500/20' : 'bg-amber-600/10 text-amber-400 border-amber-500/20'}`}>
+                        {item.marketCapClass || 'MID CAP'}
+                    </span>
+                    <span className="px-3 py-1 rounded-full text-[7px] font-black uppercase bg-slate-800 text-slate-400 border border-white/5 truncate max-w-[140px]">
+                        {item.sectorTheme || item.sector}
+                    </span>
+                  </div>
+
+                  <div className="flex justify-between items-end mt-8 relative z-10 border-t border-white/5 pt-4">
+                     <div className="flex flex-col">
+                        <span className="text-[7px] font-black text-slate-600 uppercase mb-1">Target Return</span>
+                        <span className="text-lg font-black text-blue-400 font-mono">{item.expectedReturn || '+--%'}</span>
+                     </div>
+                     <div className="text-right flex flex-col">
+                        <span className="text-[7px] font-black text-slate-600 uppercase mb-1">Mkt Price</span>
+                        <span className="text-lg font-black text-white font-mono">${item.price.toFixed(2)}</span>
+                     </div>
+                  </div>
+
+                  {idx === 0 && <div className="absolute -bottom-10 -right-10 w-40 h-40 bg-rose-500/10 blur-[60px] pointer-events-none"></div>}
                </div>
              ))}
           </div>
@@ -286,24 +323,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              <div className="grid grid-cols-1 lg:grid-cols-3 gap-12">
                 <div className="lg:col-span-2 space-y-8">
                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center gap-6">
-                      <div><h3 className="text-5xl font-black text-white italic tracking-tighter uppercase">{selectedStock.symbol}</h3><p className="text-sm font-bold text-slate-500 uppercase mt-2">{selectedStock.name} — <span className="text-rose-500/80">{selectedStock.sectorTheme}</span></p></div>
+                      <div><h3 className="text-6xl font-black text-white italic tracking-tighter uppercase leading-none">{selectedStock.symbol}</h3><p className="text-sm font-bold text-slate-500 uppercase mt-4 tracking-widest">{selectedStock.name} — <span className="text-rose-500/80">{selectedStock.sectorTheme}</span></p></div>
                       <div className="flex gap-4">
-                         <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5"><p className="text-[8px] font-black text-slate-500 uppercase mb-1">Conviction</p><p className="text-2xl font-black text-emerald-400 font-mono">{(selectedStock.convictionScore || 0).toFixed(1)}%</p></div>
-                         <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5"><p className="text-[8px] font-black text-slate-500 uppercase mb-1">Exp. Return</p><p className="text-2xl font-black text-blue-400 font-mono">{selectedStock.expectedReturn}</p></div>
+                         <div className="text-center px-10 py-5 bg-white/5 rounded-3xl border border-white/5"><p className="text-[8px] font-black text-slate-600 uppercase mb-2 tracking-widest">Alpha Conviction</p><p className="text-3xl font-black text-emerald-400 font-mono">{selectedStock.convictionScore?.toFixed(1)}%</p></div>
+                         <div className="text-center px-10 py-5 bg-white/5 rounded-3xl border border-white/5"><p className="text-[8px] font-black text-slate-600 uppercase mb-2 tracking-widest">Exp. Return</p><p className="text-3xl font-black text-blue-400 font-mono">{selectedStock.expectedReturn}</p></div>
                       </div>
                    </div>
-                   <div className="grid grid-cols-3 gap-4">
-                      <div className="p-6 bg-emerald-500/5 rounded-2xl border border-emerald-500/10"><p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-widest">Entry Zone</p><p className="text-xl font-mono font-black text-white">${selectedStock.entryPrice?.toFixed(2)}</p></div>
-                      <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10"><p className="text-[8px] font-black text-blue-500 uppercase mb-1 tracking-widest">Alpha Target</p><p className="text-xl font-mono font-black text-white">${selectedStock.targetPrice?.toFixed(2)}</p></div>
-                      <div className="p-6 bg-rose-500/5 rounded-2xl border border-rose-500/10"><p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-widest">Hard Stop</p><p className="text-xl font-mono font-black text-white">${selectedStock.stopLoss?.toFixed(2)}</p></div>
+                   <div className="grid grid-cols-3 gap-6">
+                      <div className="p-8 bg-emerald-500/5 rounded-3xl border border-emerald-500/10 text-center"><p className="text-[8px] font-black text-emerald-500 uppercase mb-3 tracking-[0.3em]">Neural Entry</p><p className="text-2xl font-mono font-black text-white italic">${selectedStock.entryPrice?.toFixed(2)}</p></div>
+                      <div className="p-8 bg-blue-500/5 rounded-3xl border border-blue-500/10 text-center"><p className="text-[8px] font-black text-blue-500 uppercase mb-3 tracking-[0.3em]">Alpha Target</p><p className="text-2xl font-mono font-black text-white italic">${selectedStock.targetPrice?.toFixed(2)}</p></div>
+                      <div className="p-8 bg-rose-500/5 rounded-3xl border border-rose-500/10 text-center"><p className="text-[8px] font-black text-rose-500 uppercase mb-3 tracking-[0.3em]">Hard Stop</p><p className="text-2xl font-mono font-black text-white italic">${selectedStock.stopLoss?.toFixed(2)}</p></div>
                    </div>
-                   <div className="bg-black/60 rounded-[32px] border border-white/5 aspect-video overflow-hidden relative shadow-inner"><iframe title="Live Chart" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1&timezone=Etc%2FUTC`} className="w-full h-full border-none"></iframe></div>
-                   <div className="p-10 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500"><div className="flex items-center justify-between mb-4"><h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Investment Perspective</h4><span className="text-[8px] font-black text-slate-600 uppercase">Focus: {selectedStock.sectorTheme}</span></div><div className="prose-report text-sm text-slate-300 leading-relaxed font-medium italic"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedStock.investmentOutlook || ""}</ReactMarkdown></div></div>
+                   <div className="bg-black/60 rounded-[40px] border border-white/5 aspect-video overflow-hidden relative shadow-inner"><iframe title="Live Chart" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1&timezone=Etc%2FUTC`} className="w-full h-full border-none"></iframe></div>
+                   <div className="p-12 bg-white/5 rounded-[40px] border border-white/10 group hover:border-rose-500/30 transition-all duration-500">
+                        <div className="flex items-center justify-between mb-8"><h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Investment Perspective</h4><span className="text-[8px] font-black text-slate-600 uppercase">Focus: {selectedStock.theme || 'Macro Synthesis'}</span></div>
+                        <div className="prose-report text-base text-slate-300 leading-relaxed font-medium italic"><ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedStock.investmentOutlook || ""}</ReactMarkdown></div>
+                    </div>
                 </div>
                 <div className="space-y-8 pt-4">
-                   <div><h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6">Conviction Dimensions</h4><div className="space-y-6">{(selectedStock.selectionReasons || []).map((reason, i) => (<div key={i} className="flex space-x-4 items-start group"><div className="w-2.5 h-2.5 rounded-full bg-rose-500 mt-1 shrink-0 group-hover:scale-125 transition-transform shadow-[0_0_10px_rgba(244,63,94,0.6)]"></div><p className="text-xs font-bold text-slate-400 leading-tight uppercase group-hover:text-white transition-colors tracking-tight">{reason}</p></div>))}</div></div>
-                   <div className="p-10 bg-rose-500/10 rounded-[40px] border border-rose-500/20 shadow-xl relative overflow-hidden"><p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-6">AI Sentiment Index</p><div className="flex items-center space-x-6 mb-6"><div className="h-3 flex-1 bg-slate-800 rounded-full overflow-hidden"><div className="h-full bg-gradient-to-r from-rose-600 to-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.6)]" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div></div><span className="text-lg font-black text-white">{(selectedStock.convictionScore || 50.0).toFixed(1)}%</span></div><p className="text-[10px] text-slate-400 italic leading-relaxed uppercase">{selectedStock.aiSentiment}</p></div>
-                   <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500"><p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Macro-Quant Synthesis Logic</p><p className="text-xs text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">{selectedStock.analysisLogic}</p></div>
+                   <div><h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-8">Strategic Dimensions</h4><div className="space-y-8">{(selectedStock.selectionReasons || []).map((reason, i) => (<div key={i} className="flex space-x-5 items-start group p-4 rounded-2xl hover:bg-white/5 transition-all border border-transparent hover:border-white/5"><div className="w-3 h-3 rounded-full bg-rose-500 mt-1 shrink-0 group-hover:scale-125 transition-transform shadow-[0_0_15px_rgba(244,63,94,0.8)]"></div><p className="text-[13px] font-black text-slate-400 leading-tight uppercase group-hover:text-white transition-colors tracking-tighter italic">{reason}</p></div>))}</div></div>
+                   <div className="p-12 bg-rose-500/10 rounded-[48px] border border-rose-500/20 shadow-xl relative overflow-hidden group">
+                        <p className="text-[10px] font-black text-rose-500 uppercase tracking-[0.3em] mb-8">AI Sentiment Index</p>
+                        <div className="flex items-center space-x-6 mb-8">
+                            <div className="h-4 flex-1 bg-black/60 rounded-full overflow-hidden p-1 border border-white/5">
+                                <div className="h-full bg-gradient-to-r from-rose-700 to-rose-400 rounded-full shadow-[0_0_20px_rgba(244,63,94,0.4)] group-hover:scale-x-105 transition-transform origin-left" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div>
+                            </div>
+                            <span className="text-2xl font-black text-white italic tracking-tighter">{(selectedStock.convictionScore || 50.0).toFixed(1)}%</span>
+                        </div>
+                        <p className="text-[11px] text-slate-400 italic leading-relaxed uppercase font-bold tracking-tight">{selectedStock.aiSentiment}</p>
+                   </div>
+                   <div className="p-10 bg-white/5 rounded-[40px] border border-white/5 border-l-8 border-l-rose-500"><p className="text-[10px] font-black text-slate-600 uppercase mb-6 tracking-widest">Neural Fusion Matrix</p><p className="text-xs text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter font-bold">{selectedStock.analysisLogic}</p></div>
                 </div>
              </div>
           </div>
