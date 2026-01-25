@@ -59,7 +59,6 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // 세션 스토리지 업데이트
   useEffect(() => {
     sessionStorage.setItem('stage1_logs', JSON.stringify(logs));
   }, [logs]);
@@ -85,7 +84,6 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     }
   }, [minPrice, minVolume, rawUniverse]);
 
-  // 오토파일럿 트리거
   useEffect(() => {
     if (autoStart && !loading && rawUniverse.length === 0) {
       syncAndAnalyzeMarket();
@@ -97,6 +95,18 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
+  const findFileWithRetry = async (query: string, retries = 5): Promise<any> => {
+    for (let i = 0; i < retries; i++) {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${query}&orderBy=createdTime desc&pageSize=1`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }).then(r => r.json());
+      if (res.files && res.files.length > 0) return res.files[0];
+      addLog(`Vault indexing... retrying in 3s (${i + 1}/${retries})`, "warn");
+      await new Promise(r => setTimeout(r, 3000));
+    }
+    return null;
+  };
+
   const syncAndAnalyzeMarket = async () => {
     if (!accessToken) {
       addLog("Cloud link required. Check Auth Status.", "warn");
@@ -105,18 +115,15 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     setLoading(true);
     setIsAnalyzing(true);
     setAiError(null);
-    setAiProposal(null);
     addLog("Phase 1: Retrieving Global Universe Matrix...", "info");
 
     try {
       const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      const file = await findFileWithRetry(q);
 
-      if (!listRes.files?.length) throw new Error("Stage 0 Data not found.");
+      if (!file) throw new Error("Stage 0 Data not found. Verify Stage 0 is complete.");
 
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
@@ -129,39 +136,34 @@ const PreliminaryFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
       
       const statsSummary = {
         total: data.length,
-        p25Price: prices[Math.floor(prices.length * 0.25)],
         p50Price: prices[Math.floor(prices.length * 0.50)],
-        p75Price: prices[Math.floor(prices.length * 0.75)],
         p50Volume: volumes[Math.floor(volumes.length * 0.5)],
-        p80Volume: volumes[Math.floor(volumes.length * 0.8)],
-        pennyCount: data.filter((s:any) => s.price < 1).length
+        p80Volume: volumes[Math.floor(volumes.length * 0.8)]
       };
 
       const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || geminiConfig?.key || "" });
       
-      const prompt = `미국 주식 시장 유동성 분석: ${JSON.stringify(statsSummary)}. 
-      위 데이터를 기반으로 잡주를 걸러내고 기관 수급이 원활한 종목만 남기기 위한 최적의 suggestedPrice($1.5~$5)와 suggestedVolume(100k~1.5M)을 제안하세요.
-      반드시 JSON 형식으로만 응답하세요: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string" }`;
+      const prompt = `US Stock Market Liquidity: ${JSON.stringify(statsSummary)}. Recommend suggestedPrice and suggestedVolume. Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string" }`;
 
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-      
-      const aiData: AiProposal = JSON.parse(response.text || "{}");
-      setAiProposal(aiData);
-      setMinPrice(aiData.suggestedPrice);
-      setMinVolume(aiData.suggestedVolume);
-      
-      addLog(`AI Strategy Finalized: [${aiData.regime}]`, "ok");
+      try {
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { responseMimeType: "application/json" }
+        });
+        const aiData: AiProposal = JSON.parse(response.text || "{}");
+        setAiProposal(aiData);
+        setMinPrice(aiData.suggestedPrice || 2.0);
+        setMinVolume(aiData.suggestedVolume || 500000);
+        addLog(`AI Strategy Finalized: [${aiData.regime || 'Standard'}]`, "ok");
+      } catch (aiErr) {
+        addLog("AI Node Timeout. Applying Safety Baseline Protocol.", "warn");
+        setMinPrice(2.0);
+        setMinVolume(500000);
+      }
     } catch (e: any) {
-      const errorMsg = e.message?.includes("429") ? "API 할당량 초과" : e.message;
-      setAiError(errorMsg);
-      addLog(`AI Node Warning: ${errorMsg}`, "warn");
-      setMinPrice(2.0);
-      setMinVolume(500000);
+      addLog(`Sync Failure: ${e.message}`, "err");
     } finally {
       setLoading(false);
       setIsAnalyzing(false);

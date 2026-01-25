@@ -30,8 +30,14 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     const cached = sessionStorage.getItem('stage2_processedData');
     return cached ? JSON.parse(cached) : [];
   });
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.3.1: Protocol Handshake Initiated.']);
+  const [progress, setProgress] = useState(() => {
+    const cached = sessionStorage.getItem('stage2_progress');
+    return cached ? JSON.parse(cached) : { current: 0, total: 0 };
+  });
+  const [logs, setLogs] = useState<string[]>(() => {
+    const cached = sessionStorage.getItem('stage2_logs');
+    return cached ? JSON.parse(cached) : ['> Quality_Node v2.3.1: Protocol Handshake Initiated.'];
+  });
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -41,10 +47,11 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // 세션 캐싱
   useEffect(() => {
     sessionStorage.setItem('stage2_processedData', JSON.stringify(processedData));
-  }, [processedData]);
+    sessionStorage.setItem('stage2_logs', JSON.stringify(logs));
+    sessionStorage.setItem('stage2_progress', JSON.stringify(progress));
+  }, [processedData, logs, progress]);
 
   useEffect(() => {
     if (autoStart && !loading && processedData.length === 0) {
@@ -93,14 +100,15 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
         .map((s: any) => ({ ...s, marketValue: (s.price || 0) * (s.volume || 0) }))
         .sort((a: any, b: any) => b.marketValue - a.marketValue);
       
-      const limit = Math.min(equities.length, 300);
+      // 스캔 한도를 300에서 600으로 확장
+      const limit = Math.min(equities.length, 600);
       setProgress({ current: 0, total: limit });
       addLog(`Scanning Top ${limit} nodes for deep quality metrics...`, "info");
 
       const results: QualityTicker[] = [];
       for (let i = 0; i < limit; i++) {
         const target = equities[i];
-        setProgress(prev => ({ ...prev, current: i + 1 }));
+        setProgress({ current: i + 1, total: limit });
         
         try {
           const [finRes, profRes] = await Promise.all([
@@ -123,7 +131,7 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
           await new Promise(r => setTimeout(r, 800));
         } catch (e) {
           addLog(`Node Skip: ${target.symbol} latency issues.`, "warn");
-          await new Promise(r => setTimeout(r, 2000));
+          await new Promise(r => setTimeout(r, 1500));
         }
       }
 
@@ -184,7 +192,7 @@ const DeepQualityFilter: React.FC<Props> = ({ onComplete, autoStart }) => {
           </div>
           <div className="bg-black/40 p-8 rounded-3xl border border-white/5">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Progress</p>
+                <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Progress (Scan Limit: 600)</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden p-0.5">
