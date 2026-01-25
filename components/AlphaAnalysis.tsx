@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider } from '../types';
-import { API_CONFIGS } from '../constants';
+import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from '../constants';
 import { generateAlphaSynthesis } from '../services/intelligenceService';
 
 interface AlphaCandidate {
@@ -60,6 +60,30 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
+  };
+
+  const ensureFolder = async (token: string, name: string) => {
+    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json());
+    if (res.files?.length > 0) return res.files[0].id;
+    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+    }).then(r => r.json());
+    return create.id;
+  };
+
+  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
+    const meta = { name, parents: [folderId], mimeType: 'application/json' };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
+    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+    });
   };
 
   const loadStage5Data = async () => {
@@ -122,7 +146,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         return;
       }
 
-      setProgress(85);
+      setProgress(70);
 
       const mergedFinal = (aiResults || [])
         .map(aiData => {
@@ -146,8 +170,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       }
+
+      // Google Drive 저장 로직 추가
+      if (accessToken) {
+        addLog("Phase 3: Committing Alpha Synthesis to Cloud Vault...", "info");
+        const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+        const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
+        const payload = {
+          manifest: { version: "8.2.5", brain: brainName, count: mergedFinal.length, timestamp: new Date().toISOString() },
+          alpha_universe: mergedFinal
+        };
+        await uploadFile(accessToken, folderId, fileName, payload);
+        addLog(`Vault Finalized: ${fileName}`, "ok");
+      }
+
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated and ordered by conviction.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated and stored.`, "ok");
     } catch (error: any) {
       addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
@@ -277,6 +315,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Exp. Return</p>
                             <p className="text-2xl font-black text-blue-400 font-mono">{selectedStock.expectedReturn}</p>
                          </div>
+                      </div>
+                   </div>
+
+                   {/* Execution Levels 섹션 복구 */}
+                   <div className="grid grid-cols-3 gap-4">
+                      <div className="p-6 bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
+                         <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-widest">Entry Zone</p>
+                         <p className="text-xl font-mono font-black text-white">${selectedStock.entryPrice?.toFixed(2)}</p>
+                      </div>
+                      <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10">
+                         <p className="text-[8px] font-black text-blue-500 uppercase mb-1 tracking-widest">Alpha Target</p>
+                         <p className="text-xl font-mono font-black text-white">${selectedStock.targetPrice?.toFixed(2)}</p>
+                      </div>
+                      <div className="p-6 bg-rose-500/5 rounded-2xl border border-rose-500/10">
+                         <p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-widest">Hard Stop</p>
+                         <p className="text-xl font-mono font-black text-white">${selectedStock.stopLoss?.toFixed(2)}</p>
                       </div>
                    </div>
 
