@@ -39,7 +39,9 @@ interface Props {
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
   const [loading, setLoading] = useState(false);
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
-  const [finalCandidates, setFinalCandidates] = useState<AlphaCandidate[]>([]);
+  
+  // 각 브레인별로 분석 결과를 저장하기 위한 캐시 상태
+  const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [progress, setProgress] = useState(0);
   const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.2.5: Macro-Quant Fusion Protocol Online.']);
@@ -56,6 +58,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       loadStage5Data();
     }
   }, [accessToken]);
+
+  // 탭이 바뀔 때, 해당 탭의 캐시가 있다면 첫 번째 종목을 선택해줌
+  useEffect(() => {
+    const currentResults = resultsCache[selectedBrain];
+    if (currentResults && currentResults.length > 0) {
+      setSelectedStock(currentResults[0]);
+    } else {
+      setSelectedStock(null);
+    }
+  }, [selectedBrain, resultsCache]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -123,10 +135,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     setLoading(true);
     setProgress(0);
-    setFinalCandidates([]); 
+    // 현재 실행하는 브레인의 기존 결과만 일단 비움
     setSelectedStock(null);
     
-    const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Pro" : "Sonar Pro";
+    const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Flash" : "Sonar Pro";
     addLog(`Protocol: Initiating Macro-Quant Synthesis with ${brainName}...`, "info");
     
     try {
@@ -165,17 +177,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .filter(x => x !== null)
         .sort((a: any, b: any) => (b.convictionScore || 0) - (a.convictionScore || 0)) as AlphaCandidate[];
 
-      setFinalCandidates(mergedFinal);
+      // 현재 선택된 브레인 캐시에 저장
+      setResultsCache(prev => ({
+        ...prev,
+        [selectedBrain]: mergedFinal
+      }));
+
       if (mergedFinal.length > 0) {
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol));
       }
 
-      // Google Drive 저장 로직 추가
+      // Google Drive 저장 로직
       if (accessToken) {
         addLog("Phase 3: Committing Alpha Synthesis to Cloud Vault...", "info");
         const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-        const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
+        const fileName = `STAGE6_ALPHA_FINAL_${selectedBrain}_${new Date().toISOString().split('T')[0]}.json`;
         const payload = {
           manifest: { version: "8.2.5", brain: brainName, count: mergedFinal.length, timestamp: new Date().toISOString() },
           alpha_universe: mergedFinal
@@ -199,6 +216,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
   };
 
+  const currentFinalCandidates = resultsCache[selectedBrain] || [];
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -217,7 +236,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             
             <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5">
               {[
-                { p: ApiProvider.GEMINI, l: 'Gemini 3 Pro', c: 'bg-indigo-600', i: 'G' },
+                { p: ApiProvider.GEMINI, l: 'Gemini 3 Flash', c: 'bg-indigo-600', i: 'G' },
                 { p: ApiProvider.PERPLEXITY, l: 'Sonar Pro', c: 'bg-cyan-600', i: 'P' }
               ].map((brain) => (
                 <button
@@ -241,7 +260,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-[160px]">
-             {finalCandidates.map((item, idx) => (
+             {currentFinalCandidates.map((item, idx) => (
                <div 
                  key={item.symbol} 
                  onClick={() => setSelectedStock(item)}
@@ -279,7 +298,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   </div>
                </div>
              ))}
-             {!loading && finalCandidates.length === 0 && (
+             {!loading && currentFinalCandidates.length === 0 && (
                 <div className="col-span-full py-24 text-center opacity-20">
                    <p className="text-[10px] font-black uppercase tracking-[0.6em] animate-pulse">Awaiting Signal Analysis...</p>
                 </div>
@@ -318,7 +337,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                    </div>
 
-                   {/* Execution Levels 섹션 복구 */}
                    <div className="grid grid-cols-3 gap-4">
                       <div className="p-6 bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
                          <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-widest">Entry Zone</p>

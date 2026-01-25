@@ -18,6 +18,7 @@ import { analyzePipelineStatus } from './services/intelligenceService';
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
+  // 각 제공자별 리포트를 개별 저장하기 위해 객체 타입으로 변경
   const [auditReports, setAuditReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
@@ -84,14 +85,22 @@ const App: React.FC = () => {
         symbols: finalSymbols.length > 0 ? finalSymbols : null,
       }, auditBrain);
       
-      setAuditReports(prev => ({ ...prev, [auditBrain]: report }));
+      // 현재 선택된 auditBrain 키에 리포트 저장
+      setAuditReports(prev => ({
+        ...prev,
+        [auditBrain]: report
+      }));
     } catch (err: any) {
-      setAuditReports(prev => ({ ...prev, [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
+      setAuditReports(prev => ({
+        ...prev,
+        [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}`
+      }));
     } finally {
       setIsAiLoading(false);
     }
   };
 
+  // 현재 선택된 auditBrain에 해당하는 리포트 추출
   const currentReport = auditReports[auditBrain] || null;
 
   const copyReport = () => {
@@ -204,11 +213,11 @@ const App: React.FC = () => {
                    <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-4">
                       <button 
                         onClick={() => setAuditBrain(ApiProvider.GEMINI)}
-                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
                       >Gemini</button>
                       <button 
                         onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)}
-                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
                       >Sonar</button>
                    </div>
                 </div>
@@ -259,7 +268,7 @@ const App: React.FC = () => {
 
         <div className="mt-8 flex justify-between items-center px-4 opacity-40">
            <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">InnocentBae Systems • Integrated Neural Strategy Node</p>
-           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.0_Audit_Ready</p>
+           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.5_Audit_Matrix</p>
         </div>
       </section>
     </div>

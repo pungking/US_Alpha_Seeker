@@ -8,12 +8,12 @@ const getApiKey = () => {
   return process.env.API_KEY || config?.key || "";
 };
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 2500): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 5000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
     const errorMsg = error.message?.toLowerCase() || "";
-    const isRetryable = errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("quota") || errorMsg.includes("overloaded");
+    const isRetryable = errorMsg.includes("429") || errorMsg.includes("503") || errorMsg.includes("quota") || errorMsg.includes("overloaded") || errorMsg.includes("exhausted");
     
     if (retries > 0 && isRetryable) {
       await new Promise(resolve => setTimeout(resolve, delay));
@@ -36,15 +36,16 @@ export async function analyzePipelineStatus(data: {
   const prompt = `System Stage ${data.currentStage}, Active Nodes: ${activeNodes}. System Load: ${data.systemLoad}. Provide a deep diagnostic audit in Korean.`;
 
   try {
+    // Pro 모델 대신 프리 티어 할당량이 넉넉한 Flash 모델 사용
     const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Pro로 변경
+      model: 'gemini-3-flash-preview',
       contents: prompt,
     }));
     return response.text;
   } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
     if (msg.includes("429") || msg.includes("quota")) {
-      return "AUDIT_QUOTA_EXCEEDED: 제미나이 프로 호출 한도가 초과되었습니다. 잠시 대기 후 시도하십시오.";
+      return "AUDIT_QUOTA_EXCEEDED: 제미나이 호출 한도가 초과되었습니다. 잠시 대기 후 시도하십시오.";
     }
     return `AUDIT_NODE_FAILURE: ${error.message.substring(0, 50)}`;
   }
@@ -59,7 +60,7 @@ export async function generateAlphaSynthesis(candidates: any[]) {
 
   try {
     const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-pro-preview', // Pro로 변경
+      model: 'gemini-3-flash-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",

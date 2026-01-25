@@ -63,15 +63,15 @@ function sanitizeAndParseJson(text: string): any[] | null {
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 5, delay = 12000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 5, delay = 10000): Promise<any> {
   try {
     return await fn();
   } catch (error: any) {
     const errorMsg = error.message?.toLowerCase() || "";
-    const isRetryable = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("limit") || errorMsg.includes("overloaded");
+    const isRetryable = errorMsg.includes("429") || errorMsg.includes("quota") || errorMsg.includes("limit") || errorMsg.includes("overloaded") || errorMsg.includes("exhausted");
     
     if (retries > 0 && isRetryable) {
-      console.warn(`[Alpha_Seeker] API Limit hit. Retrying in ${delay/1000}s...`);
+      console.warn(`[Alpha_Seeker] API Limit hit. Retrying in ${delay/1000}s... (Retries left: ${retries})`);
       await new Promise(resolve => setTimeout(resolve, delay));
       return fetchWithRetry(fn, retries - 1, delay * 1.5);
     }
@@ -128,8 +128,7 @@ ${schemaInstruction}
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const result = await fetchWithRetry(async () => {
-        // 프리 티어에서 Pro 모델 할당량 문제(limit: 0) 회피를 위해 Flash 모델 사용 고려 (또는 Pro-Preview 명시)
-        // 사용자가 보고서는 된다고 한 것으로 보아 Flash는 정상 작동 중임.
+        // 프리 티어에서 Pro 모델 할당량 문제 회피를 위해 Flash 모델 사용
         return await ai.models.generateContent({
           model: 'gemini-3-flash-preview', 
           contents: prompt,
@@ -192,6 +191,7 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const response = await fetchWithRetry(async () => {
+        // 프리 티어 안정성을 위해 Flash 모델 사용
         return await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
