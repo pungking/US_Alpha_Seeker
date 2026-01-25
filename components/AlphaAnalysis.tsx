@@ -28,6 +28,11 @@ interface AlphaCandidate {
   entryPrice?: number;
   targetPrice?: number;
   stopLoss?: number;
+  // 차트 패턴 분석 관련 필드 추가
+  chartPattern?: string;
+  supportLevel?: number;
+  resistanceLevel?: number;
+  riskRewardRatio?: string;
 }
 
 interface Props {
@@ -139,7 +144,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setSelectedStock(null);
     
     const brainName = selectedBrain === ApiProvider.GEMINI ? "Gemini 3 Flash" : "Sonar Pro";
-    addLog(`Protocol: Initiating Macro-Quant Synthesis with ${brainName}...`, "info");
+    addLog(`Protocol: Initiating Technical Chart Analysis with ${brainName}...`, "info");
     
     try {
       setProgress(10);
@@ -147,7 +152,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 12);
 
-      addLog(`Deep Scan: Analyzing 12 finalists against Macro/VIX/Sector Rotation...`, "info");
+      addLog(`Pattern Scanning: Fibonacci, Flags, and R/R Analysis...`, "info");
       setProgress(25);
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -165,12 +170,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
           if (!item) return null;
 
-          const entry = item.price * 0.985;
+          const entry = aiData.supportLevel || item.price * 0.985;
           return {
             ...item,
             ...aiData,
             entryPrice: entry,
-            targetPrice: entry * 1.30,
+            targetPrice: aiData.resistanceLevel || entry * 1.30,
             stopLoss: entry * 0.91,
           };
         })
@@ -202,7 +207,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated and stored.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated with Technical Setup.`, "ok");
     } catch (error: any) {
       addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
@@ -230,7 +235,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               </div>
               <div>
                 <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.5</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Holistic Strategy Synthesis</p>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Technical Chart & R/R Synthesis</p>
               </div>
             </div>
             
@@ -255,7 +260,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               disabled={loading || elite50.length === 0}
               className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white shadow-rose-900/20 hover:scale-105 active:scale-95'}`}
             >
-              {loading ? 'Processing...' : 'Execute Alpha Engine'}
+              {loading ? 'Sieving...' : 'Execute Alpha Engine'}
             </button>
           </div>
 
@@ -272,7 +277,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-tight">{item.symbol}</h4>
                      </div>
                      <div className="text-right">
-                        <p className="text-[19px] font-black text-rose-500 italic">{(item.convictionScore || 0).toFixed(1)}%</p>
+                        <p className="text-[19px] font-black text-rose-500 italic">{(item.convictionScore || 0).toFixed(0)}%</p>
                      </div>
                   </div>
 
@@ -281,15 +286,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {item.marketCapClass || 'UNCERTAIN'} CAP
                      </span>
                      <span className="text-[7px] px-2 py-0.5 rounded-full font-black border border-white/10 bg-white/5 text-slate-400 uppercase tracking-wider truncate max-w-[120px]">
-                        {item.sectorTheme || item.sector}
+                        {item.chartPattern || 'Scanning Patterns...'}
                      </span>
                   </div>
                   
                   <div className="flex justify-between items-end">
                      <div className="flex flex-col space-y-1">
                         <div className="flex items-center space-x-2">
-                           <span className="text-[7px] text-slate-500 font-black uppercase">Return</span>
-                           <span className="text-[10px] text-blue-400 font-black tracking-tighter">{item.expectedReturn}</span>
+                           <span className="text-[7px] text-slate-500 font-black uppercase">R/R Ratio</span>
+                           <span className="text-[10px] text-blue-400 font-black tracking-tighter">{item.riskRewardRatio || '---'}</span>
                         </div>
                      </div>
                      <div className="text-right">
@@ -327,27 +332,27 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                       <div className="flex gap-4">
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
-                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Conviction</p>
-                            <p className="text-2xl font-black text-emerald-400 font-mono">{(selectedStock.convictionScore || 0).toFixed(1)}%</p>
+                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Detected Pattern</p>
+                            <p className="text-sm font-black text-emerald-400 uppercase tracking-tighter">{selectedStock.chartPattern || 'Searching...'}</p>
                          </div>
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
-                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Exp. Return</p>
-                            <p className="text-2xl font-black text-blue-400 font-mono">{selectedStock.expectedReturn}</p>
+                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Risk/Reward</p>
+                            <p className="text-2xl font-black text-blue-400 font-mono">{selectedStock.riskRewardRatio || '1:??'}</p>
                          </div>
                       </div>
                    </div>
 
                    <div className="grid grid-cols-3 gap-4">
                       <div className="p-6 bg-emerald-500/5 rounded-2xl border border-emerald-500/10">
-                         <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-widest">Entry Zone</p>
-                         <p className="text-xl font-mono font-black text-white">${selectedStock.entryPrice?.toFixed(2)}</p>
+                         <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-widest">Support (Entry)</p>
+                         <p className="text-xl font-mono font-black text-white">${selectedStock.supportLevel?.toFixed(2) || selectedStock.entryPrice?.toFixed(2)}</p>
                       </div>
                       <div className="p-6 bg-blue-500/5 rounded-2xl border border-blue-500/10">
-                         <p className="text-[8px] font-black text-blue-500 uppercase mb-1 tracking-widest">Alpha Target</p>
-                         <p className="text-xl font-mono font-black text-white">${selectedStock.targetPrice?.toFixed(2)}</p>
+                         <p className="text-[8px] font-black text-blue-500 uppercase mb-1 tracking-widest">Resistance (Target)</p>
+                         <p className="text-xl font-mono font-black text-white">${selectedStock.resistanceLevel?.toFixed(2) || selectedStock.targetPrice?.toFixed(2)}</p>
                       </div>
                       <div className="p-6 bg-rose-500/5 rounded-2xl border border-rose-500/10">
-                         <p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-widest">Hard Stop</p>
+                         <p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-widest">Hard Stop Loss</p>
                          <p className="text-xl font-mono font-black text-white">${selectedStock.stopLoss?.toFixed(2)}</p>
                       </div>
                    </div>
@@ -362,8 +367,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                    <div className="p-10 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Investment Perspective</h4>
-                        <span className="text-[8px] font-black text-slate-600 uppercase">Sector Focus: {selectedStock.sectorTheme}</span>
+                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Technical Analysis Perspective</h4>
+                        <span className="text-[8px] font-black text-slate-600 uppercase">Sector Theme: {selectedStock.sectorTheme}</span>
                       </div>
                       <div className="prose-report text-sm text-slate-300 leading-relaxed font-medium italic">
                         <ReactMarkdown remarkPlugins={[remarkGfm]}>
@@ -375,7 +380,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                 <div className="space-y-8 pt-4">
                    <div>
-                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6">Conviction Dimensions</h4>
+                      <h4 className="text-[10px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6">Technical Conviction</h4>
                       <div className="space-y-6">
                         {(selectedStock.selectionReasons || []).map((reason, i) => (
                           <div key={i} className="flex space-x-4 items-start group">
@@ -387,12 +392,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                    
                    <div className="p-10 bg-rose-500/10 rounded-[40px] border border-rose-500/20 shadow-xl relative overflow-hidden">
-                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-6">AI Sentiment Index</p>
+                      <p className="text-[10px] font-black text-rose-500 uppercase tracking-widest mb-6">AI Confidence Index</p>
                       <div className="flex items-center space-x-6 mb-6">
                          <div className="h-3 flex-1 bg-slate-800 rounded-full overflow-hidden">
                             <div className="h-full bg-gradient-to-r from-rose-600 to-rose-400 shadow-[0_0_12px_rgba(244,63,94,0.6)]" style={{ width: `${selectedStock.convictionScore || 50}%` }}></div>
                          </div>
-                         <span className="text-lg font-black text-white">{(selectedStock.convictionScore || 50.0).toFixed(1)}%</span>
+                         <span className="text-lg font-black text-white">{(selectedStock.convictionScore || 50.0).toFixed(0)}%</span>
                       </div>
                       <p className="text-[10px] text-slate-400 italic leading-relaxed uppercase">
                         {selectedStock.aiSentiment}
@@ -400,7 +405,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
 
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500">
-                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Macro-Quant Synthesis Logic</p>
+                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Neural Pattern Synthesis</p>
                       <p className="text-xs text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
                         {selectedStock.analysisLogic}
                       </p>
