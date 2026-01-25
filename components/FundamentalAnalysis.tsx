@@ -69,10 +69,12 @@ const FundamentalAnalysis: React.FC = () => {
           sector: item.sector || 'Unknown', lastUpdate: new Date().toISOString()
         });
 
-        if (i % 25 === 0) {
-          setProgress(p => ({ ...p, current: i }));
-          setAnalyzedData([...results]);
-          await new Promise(r => setTimeout(r, 40));
+        if (i % 25 === 0 || i === total - 1) {
+          setProgress({ current: i + 1, total });
+          if (i % 25 === 0) {
+            setAnalyzedData([...results]);
+            await new Promise(r => setTimeout(r, 20));
+          }
         }
       }
 
