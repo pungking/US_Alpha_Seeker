@@ -149,7 +149,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .sort((a, b) => b.compositeAlpha - a.compositeAlpha)
         .slice(0, 12);
 
-      addLog(`Pattern Analysis: Fibonacci, Flags, and R/R Ratio Scan...`, "info");
+      addLog(`Deep Scan: Analyzing Technical Setups (Fibonacci, Patterns, R/R)...`, "info");
       setProgress(25);
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -202,7 +202,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       setProgress(100);
-      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated with Technical Setup.`, "ok");
+      addLog(`Protocol Alpha: ${mergedFinal.length} candidates validated with Chart Analysis.`, "ok");
     } catch (error: any) {
       addLog(`Node Failure: ${error.message.substring(0, 80)}`, "err");
     } finally {
@@ -281,14 +281,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {item.marketCapClass || 'UNCERTAIN'} CAP
                      </span>
                      <span className="text-[7px] px-2 py-0.5 rounded-full font-black border border-white/10 bg-white/5 text-slate-400 uppercase tracking-wider truncate max-w-[120px]">
-                        {item.chartPattern || 'Scanning Pattern...'}
+                        {item.chartPattern || item.sectorTheme || item.sector}
                      </span>
                   </div>
                   
                   <div className="flex justify-between items-end">
                      <div className="flex flex-col space-y-1">
                         <div className="flex items-center space-x-2">
-                           <span className="text-[7px] text-slate-500 font-black uppercase">R/R Ratio</span>
+                           <span className="text-[7px] text-slate-500 font-black uppercase">R/R</span>
                            <span className="text-[10px] text-blue-400 font-black tracking-tighter">{item.riskRewardRatio || '---'}</span>
                         </div>
                      </div>
@@ -327,7 +327,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                       <div className="flex gap-4">
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
-                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Detected Pattern</p>
+                            <p className="text-[8px] font-black text-slate-500 uppercase mb-1">Pattern</p>
                             <p className="text-sm font-black text-emerald-400 uppercase tracking-tighter">{selectedStock.chartPattern || 'N/A'}</p>
                          </div>
                          <div className="text-center px-8 py-4 bg-white/5 rounded-2xl border border-white/5">
@@ -362,7 +362,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                    <div className="p-10 bg-white/5 rounded-[32px] border border-white/5 group hover:border-rose-500/30 transition-all duration-500">
                       <div className="flex items-center justify-between mb-4">
-                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Strategic Chart Perspective</h4>
+                        <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em]">Strategic Technical Outlook</h4>
                         <span className="text-[8px] font-black text-slate-600 uppercase">Sector Focus: {selectedStock.sectorTheme}</span>
                       </div>
                       <div className="prose-report text-sm text-slate-300 leading-relaxed font-medium italic">
@@ -400,7 +400,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
 
                    <div className="p-8 bg-white/5 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500">
-                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Neural Chart Analysis Logic</p>
+                      <p className="text-[9px] font-black text-slate-600 uppercase mb-4 tracking-widest">Neural Pattern Synthesis Logic</p>
                       <p className="text-xs text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
                         {selectedStock.analysisLogic}
                       </p>
