@@ -18,7 +18,7 @@ import { analyzePipelineStatus } from './services/intelligenceService';
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
-  const [aiReport, setAiReport] = useState<string | null>(null);
+  const [auditReports, setAuditReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
@@ -76,7 +76,6 @@ const App: React.FC = () => {
 
   const runAiAnalysis = async () => {
     setIsAiLoading(true);
-    setAiReport(null);
     
     try {
       const report = await analyzePipelineStatus({
@@ -85,17 +84,19 @@ const App: React.FC = () => {
         symbols: finalSymbols.length > 0 ? finalSymbols : null,
       }, auditBrain);
       
-      setAiReport(report);
+      setAuditReports(prev => ({ ...prev, [auditBrain]: report }));
     } catch (err: any) {
-      setAiReport(`### CRITICAL_NODE_ERROR\n> ${err.message}`);
+      setAuditReports(prev => ({ ...prev, [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
     }
   };
 
+  const currentReport = auditReports[auditBrain] || null;
+
   const copyReport = () => {
-    if (aiReport) {
-      navigator.clipboard.writeText(aiReport);
+    if (currentReport) {
+      navigator.clipboard.writeText(currentReport);
       alert('전략 보고서가 클립보드에 복사되었습니다.');
     }
   };
@@ -215,7 +216,7 @@ const App: React.FC = () => {
           </div>
           
           <div className="flex gap-4">
-             {aiReport && (
+             {currentReport && (
                <button 
                  onClick={copyReport}
                  className="px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all"
@@ -239,10 +240,10 @@ const App: React.FC = () => {
               <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
               <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Synthesizing High-Frequency Market Data...</p>
             </div>
-          ) : aiReport ? (
+          ) : currentReport ? (
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
                <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                 {aiReport}
+                 {currentReport}
                </ReactMarkdown>
             </div>
           ) : (

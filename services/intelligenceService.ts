@@ -128,8 +128,10 @@ ${schemaInstruction}
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const result = await fetchWithRetry(async () => {
+        // 프리 티어에서 Pro 모델 할당량 문제(limit: 0) 회피를 위해 Flash 모델 사용 고려 (또는 Pro-Preview 명시)
+        // 사용자가 보고서는 된다고 한 것으로 보아 Flash는 정상 작동 중임.
         return await ai.models.generateContent({
-          model: 'gemini-3-pro-preview',
+          model: 'gemini-3-flash-preview', 
           contents: prompt,
           config: {
             responseMimeType: "application/json",
