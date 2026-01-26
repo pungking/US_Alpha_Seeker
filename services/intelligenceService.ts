@@ -32,33 +32,28 @@ const ALPHA_SCHEMA = {
 const BACKTEST_SCHEMA = {
   type: Type.OBJECT,
   properties: {
-    simulationPeriod: { type: Type.STRING, description: "Exact date range used e.g. '2023.01.01 ~ 2025.01.01'" },
     equityCurve: {
       type: Type.ARRAY,
-      minItems: 12,
-      maxItems: 12,
       items: {
         type: Type.OBJECT,
         properties: {
-          period: { type: Type.STRING, description: "Timeline label (e.g. '23.01', '23.03'...)" },
-          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number" }
-        },
-        required: ["period", "value"]
+          period: { type: Type.STRING, description: "Timeline (e.g. Month 1)" },
+          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number only" }
+        }
       }
     },
     metrics: {
       type: Type.OBJECT,
       properties: {
-        winRate: { type: Type.STRING, description: "Win probability e.g. '68.5%'" },
-        profitFactor: { type: Type.STRING, description: "Profit factor e.g. '2.45'" },
-        maxDrawdown: { type: Type.STRING, description: "Max drawdown e.g. '-12.4%'" },
-        sharpeRatio: { type: Type.STRING, description: "Sharpe ratio e.g. '1.8'" }
-      },
-      required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
+        winRate: { type: Type.STRING, description: "Historical win probability" },
+        profitFactor: { type: Type.STRING, description: "Profit over loss ratio" },
+        maxDrawdown: { type: Type.STRING, description: "Max drawdown percentage" },
+        sharpeRatio: { type: Type.STRING, description: "Risk-adjusted return ratio" }
+      }
     },
-    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis in Korean" }
+    historicalContext: { type: Type.STRING, description: "Backtest analysis summary in Korean" }
   },
-  required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
+  required: ["equityCurve", "metrics", "historicalContext"]
 };
 
 function sanitizeAndParseJson(text: string): any | null {
@@ -67,12 +62,10 @@ function sanitizeAndParseJson(text: string): any | null {
     let cleanText = text.trim();
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
     cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-    
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
-    
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
       return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
     }
@@ -81,7 +74,7 @@ function sanitizeAndParseJson(text: string): any | null {
     }
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text);
+    console.error("JSON_PARSE_CRITICAL_FAILURE:", e);
     return null;
   }
 }
@@ -114,8 +107,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 - investmentOutlook (상세 마크다운), aiSentiment, analysisLogic, chartPattern
 - supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
-주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
-한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
+한국어로 응답하고 오직 JSON 배열만 출력하세요.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -141,7 +133,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
+      if (!res.ok) return { data: null, error: `HTTP_${res.status}` };
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
       return { data: sanitizeAndParseJson(content) };
@@ -155,27 +147,11 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  // [Fix] 날짜 범위 명시적 계산 (최근 2년)
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setFullYear(endDate.getFullYear() - 2);
-  const periodStr = `${startDate.toISOString().split('T')[0]} ~ ${endDate.toISOString().split('T')[0]}`;
-
-  const prompt = `[퀀트 백테스트 시뮬레이션 요청]
-대상: ${stock.symbol}
-설정 기간: ${periodStr} (정확히 최근 24개월)
-전략: 진입가 ${stock.supportLevel} / 목표가 ${stock.resistanceLevel} 기준 스윙 트레이딩
-
-위 기간 동안 해당 종목의 역사적 변동성(Volatility)과 베타(Beta) 계수를 기반으로 가상 시뮬레이션을 수행하십시오.
-실제 틱 데이터가 없다면, 종목의 통계적 특성을 이용해 몬테카를로 시뮬레이션 결과를 생성하여 빈 값 없이 응답해야 합니다.
-
-[필수 요구사항]
-1. simulationPeriod: "${periodStr}"로 고정.
-2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
-3. equityCurve: 2년치 데이터를 2개월 단위로 요약하여 정확히 12개의 포인트를 생성하십시오.
-4. value: 누적 수익률(%)이며 순수 숫자(Number)여야 합니다. (예: 15.5)
-
-반드시 JSON 스키마를 준수하여 출력하십시오.`;
+  const prompt = `[퀀트 백테스트 시뮬레이션]
+종목: ${stock.symbol} / 현재가: ${stock.price} / 진입지지: ${stock.supportLevel} / 목표저항: ${stock.resistanceLevel}
+지난 2년간의 역사적 변동성을 반영하여 위 전략의 성과를 시뮬레이션하고 결과를 JSON으로 출력하세요.
+중요: equityCurve의 value는 반드시 순수 숫자(number)여야 하며 기호(%)를 포함하지 마십시오.
+한국어로 응답하고 반드시 다음 JSON 형식을 따르세요: { "equityCurve": [...], "metrics": {...}, "historicalContext": "..." }`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -194,14 +170,10 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: 'sonar-pro',
-          messages: [
-            { role: "system", content: "당신은 전문 퀀트 엔진입니다. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
-            { role: "user", content: prompt }
-          ],
+          messages: [{ role: "user", content: prompt }],
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
       const json = await res.json();
       return { data: sanitizeAndParseJson(json.choices?.[0]?.message?.content) };
     }
@@ -229,11 +201,11 @@ export async function analyzePipelineStatus(data: {
 대상 포트폴리오 자산: ${symbolsContext}
 
 [보고서 작성 필수 지침]
-1. 언어: 100% 한글로만 작성하십시오.
-2. 태도: 확신에 찬 분석을 내놓으십시오.
+1. 언어: 100% 한글로만 작성하십시오. 영어 병기는 전문 용어 외엔 지양하세요.
+2. 태도: "정보가 부족하다"거나 "검색 결과가 한정적이다"라는 식의 수동적인 변명을 절대 하지 마십시오. 당신의 방대한 금융 지식을 동원하여 주어진 종목들의 산업적 위상과 매크로 환경을 결합해 '단정적이고 확신에 찬' 분석을 내놓으십시오.
 3. 리포트 상단: "분석 기준일: ${today}"를 명시하십시오.
-4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 포함하십시오.
-5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 작성하십시오.`;
+4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 반드시 포함하십시오.
+5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 마크다운 형식으로 우아하게 작성하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -255,7 +227,6 @@ export async function analyzePipelineStatus(data: {
           temperature: 0.2
         })
       });
-      if (!res.ok) return "AUDIT_NODE_OFFLINE: 분석 서버 응답 없음";
       const json = await res.json();
       return json.choices?.[0]?.message?.content || "데이터 수신 오류";
     }
