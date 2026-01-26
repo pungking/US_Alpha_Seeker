@@ -56,7 +56,7 @@ const BACKTEST_SCHEMA = {
       },
       required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
     },
-    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis in Korean" }
+    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean" }
   },
   required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
 };
@@ -174,6 +174,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
 3. equityCurve: 2년치 데이터를 2개월 단위로 요약하여 정확히 12개의 포인트를 생성하십시오.
 4. value: 누적 수익률(%)이며 순수 숫자(Number)여야 합니다. (예: 15.5)
+5. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. 승률과 손익비가 시사하는 전략의 안정성, 최대 낙폭(MDD)을 통해 본 리스크, 그리고 향후 6개월간 예상되는 시나리오를 포함해야 합니다.
 
 반드시 JSON 스키마를 준수하여 출력하십시오.`;
 
