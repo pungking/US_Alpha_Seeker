@@ -86,15 +86,28 @@ function sanitizeAndParseJson(text: string): any | null {
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000): Promise<any> {
+// [UPDATED] Robust Retry Logic including 503 and Overloaded checks
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 4000): Promise<any> {
   try { return await fn(); } catch (error: any) {
-    const msg = error.message?.toLowerCase() || "";
-    if (msg === 'load failed' || msg === 'failed to fetch') {
+    // Capture the entire error object string if possible to catch nested codes
+    const msg = (error.message || JSON.stringify(error)).toLowerCase();
+    
+    if (msg.includes('load failed') || msg.includes('failed to fetch')) {
       throw new Error("CORS/Network Error. Browser blocked the request.");
     }
-    if (retries > 0 && (msg.includes("429") || msg.includes("quota") || msg.includes("limit") || msg.includes("exhausted"))) {
+
+    // Check for various overload/limit indicators including 503
+    if (retries > 0 && (
+        msg.includes("429") || 
+        msg.includes("503") || 
+        msg.includes("quota") || 
+        msg.includes("limit") || 
+        msg.includes("exhausted") || 
+        msg.includes("overloaded") || 
+        msg.includes("unavailable")
+    )) {
       await new Promise(r => setTimeout(r, delay));
-      return fetchWithRetry(fn, retries - 1, delay * 2);
+      return fetchWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
     }
     throw error;
   }
@@ -134,28 +147,33 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Reverted to v9.9.8 Direct Fetch with robust headers (referrerPolicy & Accept)
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json' 
-        },
-        referrerPolicy: 'no-referrer', 
-        body: JSON.stringify({
-          model: 'sonar-pro', 
-          messages: [
-            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.1
-        })
+      // v9.9.8 Specification: Direct Fetch with Headers
+      const res = await fetchWithRetry(async () => {
+          const r = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json' 
+            },
+            referrerPolicy: 'no-referrer', 
+            body: JSON.stringify({
+              model: 'sonar-pro', 
+              messages: [
+                { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                { role: "user", content: prompt }
+              ],
+              temperature: 0.1
+            })
+          });
+          
+          if (!r.ok) {
+             const errText = await r.text();
+             throw new Error(`HTTP_${r.status}: ${errText}`);
+          }
+          return r;
       });
 
-      if (!res.ok) {
-        return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
-      }
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
       return { data: sanitizeAndParseJson(content) };
@@ -203,27 +221,33 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Reverted to v9.9.8 Direct Fetch with robust headers (referrerPolicy & Accept)
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json'
-        },
-        referrerPolicy: 'no-referrer',
-        body: JSON.stringify({
-          model: 'sonar-pro',
-          messages: [
-            { role: "system", content: "당신은 전문 퀀트 엔진입니다. 종합 분석(historicalContext) 작성 시 반드시 Markdown 문법을 사용하여 가독성을 높이십시오. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.1
-        })
+      // v9.9.8 Specification: Direct Fetch with Headers
+      const res = await fetchWithRetry(async () => {
+          const r = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json'
+            },
+            referrerPolicy: 'no-referrer',
+            body: JSON.stringify({
+              model: 'sonar-pro',
+              messages: [
+                { role: "system", content: "당신은 전문 퀀트 엔진입니다. 종합 분석(historicalContext) 작성 시 반드시 Markdown 문법을 사용하여 가독성을 높이십시오. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
+                { role: "user", content: prompt }
+              ],
+              temperature: 0.1
+            })
+          });
+
+          if (!r.ok) {
+             const errText = await r.text();
+             throw new Error(`HTTP_${r.status}: ${errText}`);
+          }
+          return r;
       });
-      if (!res.ok) {
-        return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
-      }
+
       const json = await res.json();
       return { data: sanitizeAndParseJson(json.choices?.[0]?.message?.content) };
     }
@@ -269,22 +293,29 @@ export async function analyzePipelineStatus(data: {
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Reverted to v9.9.8 Direct Fetch with robust headers (referrerPolicy & Accept)
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json' 
-        },
-        referrerPolicy: 'no-referrer',
-        body: JSON.stringify({
-          model: 'sonar-pro',
-          messages: [{ role: "user", content: prompt }],
-          temperature: 0.2
-        })
-      });
-      if (!res.ok) return "AUDIT_NODE_OFFLINE: 분석 서버 응답 없음";
+       // v9.9.8 Specification: Direct Fetch with Headers
+       const res = await fetchWithRetry(async () => {
+          const r = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json' 
+            },
+            referrerPolicy: 'no-referrer',
+            body: JSON.stringify({
+              model: 'sonar-pro',
+              messages: [{ role: "user", content: prompt }],
+              temperature: 0.2
+            })
+          });
+          if (!r.ok) {
+             const errText = await r.text();
+             throw new Error(`HTTP_${r.status}: ${errText}`);
+          }
+          return r;
+       });
+       
       const json = await res.json();
       return json.choices?.[0]?.message?.content || "데이터 수신 오류";
     }
