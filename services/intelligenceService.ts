@@ -64,12 +64,16 @@ function sanitizeAndParseJson(text: string): any | null {
   if (!text) return null;
   try {
     let cleanText = text.trim();
+    // 마크다운 코드 블록 제거
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
+    // 유효하지 않은 제어 문자 제거
     cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+    
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
+    
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
       return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
     }
@@ -78,7 +82,7 @@ function sanitizeAndParseJson(text: string): any | null {
     }
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON_PARSE_CRITICAL_FAILURE:", e);
+    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text);
     return null;
   }
 }
@@ -112,7 +116,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 - supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
-한국어로 응답하고 오직 JSON 배열만 출력하세요.`;
+한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -138,7 +142,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `HTTP_${res.status}` };
+      if (!res.ok) return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
       return { data: sanitizeAndParseJson(content) };
@@ -161,7 +165,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 2. period 필드는 'Month 01', 'Month 02' 처럼 순차적인 라벨을 반드시 포함하십시오.
 3. value는 절대 N/A나 NaN이어서는 안 되며, 기호(%) 없이 순수 숫자(number)여야 합니다.
 4. 모든 수익률은 누적(Cumulative) 수익률로 계산하십시오.
-5. 한국어로 응답하고 반드시 제공된 JSON 스키마를 준수하십시오.`;
+5. 한국어로 응답하고 반드시 제공된 JSON 스키마를 준수하십시오. 코드블록 없이 순수 JSON만 반환하세요.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -180,10 +184,14 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: 'sonar-pro',
-          messages: [{ role: "user", content: prompt }],
+          messages: [
+            { role: "system", content: "당신은 퀀트 백테스트 시뮬레이터입니다. 오직 JSON 형식으로만 답변하십시오." },
+            { role: "user", content: prompt }
+          ],
           temperature: 0.1
         })
       });
+      if (!res.ok) return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
       const json = await res.json();
       return { data: sanitizeAndParseJson(json.choices?.[0]?.message?.content) };
     }
@@ -237,6 +245,7 @@ export async function analyzePipelineStatus(data: {
           temperature: 0.2
         })
       });
+      if (!res.ok) return "AUDIT_NODE_OFFLINE: 분석 서버 응답 없음";
       const json = await res.json();
       return json.choices?.[0]?.message?.content || "데이터 수신 오류";
     }
