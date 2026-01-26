@@ -12,7 +12,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ACCUMULATE'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Professional perspective in 300+ characters Korean Markdown" },
+      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown format (Use headers #, bold **, lists -)" },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean" },
       convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
       expectedReturn: { type: Type.STRING, description: "Target return e.g. +25.0%" },
@@ -56,7 +56,7 @@ const BACKTEST_SCHEMA = {
       },
       required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
     },
-    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean" }
+    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean Markdown format" }
   },
   required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
 };
@@ -89,7 +89,6 @@ function sanitizeAndParseJson(text: string): any | null {
 async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000): Promise<any> {
   try { return await fn(); } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
-    // Handle typical fetch errors for client-side AI calls
     if (msg === 'load failed' || msg === 'failed to fetch') {
       throw new Error("CORS/Network Error. Browser blocked the request.");
     }
@@ -115,7 +114,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn
-- investmentOutlook (상세 마크다운), aiSentiment, analysisLogic, chartPattern
+- investmentOutlook (상세 Markdown: # 헤더, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic, chartPattern
 - supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
@@ -137,9 +136,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}` 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
         },
-        // Removed 'mode: cors' to rely on default behavior or browser extensions
+        referrerPolicy: 'no-referrer', 
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
@@ -182,7 +182,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
 3. equityCurve: 2년치 데이터를 2개월 단위로 요약하여 정확히 12개의 포인트를 생성하십시오.
 4. value: 누적 수익률(%)이며 순수 숫자(Number)여야 합니다. (예: 15.5)
-5. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. 승률과 손익비가 시사하는 전략의 안정성, 최대 낙폭(MDD)을 통해 본 리스크, 그리고 향후 6개월간 예상되는 시나리오를 포함해야 합니다.
+5. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. # 헤더, **강조**, - 리스트 등 Markdown 문법을 사용하여 가독성을 극대화하십시오.
 
 반드시 JSON 스키마를 준수하여 출력하십시오.`;
 
@@ -202,9 +202,10 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}` 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json'
         },
-        // Removed 'mode: cors'
+        referrerPolicy: 'no-referrer',
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
