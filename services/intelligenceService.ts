@@ -105,7 +105,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn
 - investmentOutlook (상세 마크다운), aiSentiment, analysisLogic, chartPattern
-- supportLevel (진입가), resistanceLevel (목표가), stopLoss (손절가), riskRewardRatio.
+- supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 한국어로 응답하고 오직 JSON 배열만 출력하세요.`;
 
@@ -127,7 +127,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "당신은 월가 퀀트입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록이나 설명 없이 순수 JSON 배열만 반환하세요." },
+            { role: "system", content: "당신은 월가 퀀트입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -191,23 +191,20 @@ export async function analyzePipelineStatus(data: {
   if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const symbolsContext = data.recommendedData ? `추천 종목 포트폴리오(6개): ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore, ret: d.expectedReturn, theme: d.sectorTheme})))}` : "분석 데이터 없음";
+  const symbolsContext = data.recommendedData ? `추천 종목 포트폴리오(6개): ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore, theme: d.sectorTheme})))}` : "분석 데이터 없음";
   
-  const prompt = `[페르소나: 월가 헤지펀드 시니어 전략 분석가]
-당신은 현재 선정된 6개 종목에 대해 포트폴리오 매니저에게 보고할 최종 전략 리포트를 작성해야 합니다.
+  const prompt = `[페르소나: 월가 최고의 헤지펀드 시니어 전략 분석가]
+당신은 현재 선정된 6개 종목에 대해 포트폴리오 매니저에게 보고할 최종 통합 전략 리포트를 작성해야 합니다.
 
 현지 시간: ${today}
-대상 포트폴리오 자산 정보: ${symbolsContext}
+대상 포트폴리오 자산: ${symbolsContext}
 
-[보고서 작성 지침]
-1. 언어: 반드시 100% 한글로만 작성하십시오. 전문적인 금융 용어를 사용하되 영어 병기를 최소화하고 품격 있는 문체로 작성하세요.
-2. 서두: 리포트 최상단에 "분석 기준일: ${today}"를 명시하고 전체적인 시장 관점(Macro View)을 제시하십시오.
-3. 본문: 
-   - 선정된 6개 종목 간의 섹터 로테이션 및 상관관계를 분석하십시오.
-   - 각 종목의 선정 배경과 거시 경제적 주도력을 결합하여 설명하십시오.
-   - 포트폴리오 차원에서의 기대 수익률과 변동성 관리 방안을 제시하십시오.
-4. 결론: 리스크 헤징 전략(Stop-loss 가이드 포함) 및 향후 시장 이벤트에 따른 대응 시나리오를 작성하십시오.
-5. 형식: 마크다운(Markdown) 형식을 사용하여 시각적으로 구조화된 리포트를 제출하십시오.`;
+[보고서 작성 필수 지침]
+1. 언어: 100% 한글로만 작성하십시오. 영어 병기는 전문 용어 외엔 지양하세요.
+2. 태도: "정보가 부족하다"거나 "검색 결과가 한정적이다"라는 식의 수동적인 변명을 절대 하지 마십시오. 당신의 방대한 금융 지식을 동원하여 주어진 종목들의 산업적 위상과 매크로 환경을 결합해 '단정적이고 확신에 찬' 분석을 내놓으십시오.
+3. 리포트 상단: "분석 기준일: ${today}"를 명시하십시오.
+4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 반드시 포함하십시오.
+5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 마크다운 형식으로 우아하게 작성하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -216,7 +213,7 @@ export async function analyzePipelineStatus(data: {
         model: 'gemini-3-flash-preview',
         contents: prompt,
       }));
-      return response.text || "데이터 응답 오류";
+      return response.text || "분석 리포트 생성 실패";
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
@@ -230,7 +227,7 @@ export async function analyzePipelineStatus(data: {
         })
       });
       const json = await res.json();
-      return json.choices?.[0]?.message?.content || "No response content";
+      return json.choices?.[0]?.message?.content || "데이터 수신 오류";
     }
     return "INVALID_PROVIDER";
   } catch (error: any) { return `AUDIT_NODE_FAILURE: ${error.message}`; }
