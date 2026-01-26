@@ -25,7 +25,6 @@ const App: React.FC = () => {
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
   
-  // [CHANGED] Default to Perplexity (Sonar Pro) as requested
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
