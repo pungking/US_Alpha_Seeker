@@ -25,13 +25,14 @@ const DeepQualityFilter: React.FC = () => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Free Tier Optimized');
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Smart Burst Mode');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.5.0: Free-Tier Safe Mode Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.6.1: Hybrid Protocol Verified.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -40,9 +41,12 @@ const DeepQualityFilter: React.FC = () => {
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Free Tier Limits: Finnhub ~60/min, FMP ~250/day. 
-  // Batch 2 per 2000ms = ~60 calls/min (Safe)
-  const BATCH_SIZE = 2; 
+  // [SMART BURST STRATEGY]
+  // Finnhub Free Limit: 60 reqs/min.
+  // Batch 4 every ~4.5s = ~53 reqs/min.
+  // Maximizes throughput while keeping a safe buffer from the 60 limit.
+  const BATCH_SIZE = 4; 
+  const BURST_DELAY = 4500;
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -83,7 +87,7 @@ const DeepQualityFilter: React.FC = () => {
 
             // Check Limits
             if (ratioRes.status === 429 || profileRes.status === 429) {
-                setFmpDepleted(true); // Switch to Finnhub Only mode
+                setFmpDepleted(true); // Switch to Finnhub Only mode permanently for this session
                 throw new Error("FMP_LIMIT");
             }
 
@@ -114,9 +118,8 @@ const DeepQualityFilter: React.FC = () => {
                 }
             }
           } catch (e: any) {
-             if (e.message !== "FMP_LIMIT") {
-                 // Regular network error, just continue
-             }
+             if (e.message === "FMP_LIMIT") throw e; // Rethrow limit error to handle switching
+             // Other errors (network, 404) -> just continue to fallback
           }
       }
 
@@ -125,8 +128,8 @@ const DeepQualityFilter: React.FC = () => {
           try {
             const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
             if (fhRes.status === 429) {
-                // If Finnhub also limits, we really just have to skip or wait.
-                // For this implementation, we skip to keep the loop moving.
+                // Return null to indicate rate limit hit for this item, but catch block handles batch logic
+                throw new Error("FINNHUB_LIMIT");
             } else if (fhRes.ok) {
                 const data = await fhRes.json();
                 metrics = {
@@ -137,7 +140,9 @@ const DeepQualityFilter: React.FC = () => {
                 };
                 metricsSource = "Finnhub";
             }
-          } catch(e) {}
+          } catch(e: any) {
+              if (e.message === "FINNHUB_LIMIT") throw e;
+          }
       }
 
       // Profile Backup (Polygon)
@@ -177,6 +182,7 @@ const DeepQualityFilter: React.FC = () => {
       };
 
     } catch (e: any) {
+      if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e;
       return null;
     }
   };
@@ -197,7 +203,12 @@ const DeepQualityFilter: React.FC = () => {
     
     try {
         setActiveBrain("Gemini 3 Flash");
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
+        const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+        const apiKey = process.env.API_KEY || geminiConfig?.key || "";
+        
+        if (!apiKey) throw new Error("API Key Missing");
+
+        const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
@@ -208,8 +219,8 @@ const DeepQualityFilter: React.FC = () => {
             setAiAnalysis(result.insight);
             addLog(`AI Insight: ${result.insight}`, "ok");
         }
-    } catch (e) {
-        addLog("AI Analysis Skipped (Speed Mode)", "warn");
+    } catch (e: any) {
+        addLog(`AI Analysis Failed: ${e.message}`, "warn");
     }
   };
 
@@ -218,6 +229,7 @@ const DeepQualityFilter: React.FC = () => {
     setLoading(true);
     setProcessedData([]);
     setAiAnalysis(null);
+    setSourceStats({ fmp: 0, finnhub: 0, polygon: 0 });
     setFmpDepleted(false);
     setActiveBrain('Processing');
     addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
@@ -241,10 +253,10 @@ const DeepQualityFilter: React.FC = () => {
       let targets = content.investable_universe || [];
       const totalCandidates = targets.length;
       
-      addLog(`Target Locked: ${totalCandidates} Candidates. Free-Tier Safe Mode Initiated...`, "ok");
+      addLog(`Target Locked: ${totalCandidates} Candidates. Engaging Smart Burst (4x) Engine...`, "ok");
       
       setProgress({ current: 0, total: totalCandidates });
-      setNetworkStatus("Active: FMP/Finnhub Hybrid");
+      setNetworkStatus("Active: Smart Burst Hybrid");
 
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
@@ -254,28 +266,53 @@ const DeepQualityFilter: React.FC = () => {
           
           try {
               // Update status based on FMP availability
-              setNetworkStatus(fmpDepleted ? "Mode: Finnhub Only (FMP Depleted)" : "Mode: FMP Priority Hybrid");
+              setNetworkStatus(fmpDepleted ? "Mode: Burst (Finnhub Only)" : "Mode: Burst (Hybrid FMP/FH)");
 
               const promises = batch.map((t: any) => fetchTickerData(t));
               const results = await Promise.all(promises);
               
+              let batchSuccessCount = 0;
               results.forEach(r => {
                   if (r && r.symbol) {
                       validResults.push(r);
-                      // [RESTORED] Log every find for user feedback
-                      addLog(`[${r.symbol}] Acquired via ${r.source.split('/')[0].replace('M:','')}`, "info");
+                      batchSuccessCount++;
+                      
+                      // Count Statistics
+                      setSourceStats(prev => {
+                          const src = r.source || "";
+                          return {
+                              fmp: src.includes("M:FMP") ? prev.fmp + 1 : prev.fmp,
+                              finnhub: src.includes("M:Finnhub") ? prev.finnhub + 1 : prev.finnhub,
+                              polygon: src.includes("P:Polygon") ? prev.polygon + 1 : prev.polygon
+                          };
+                      });
                   }
               });
+              
+              if (batchSuccessCount > 0) {
+                  addLog(`Burst: Processed ${batch.length}, Found ${batchSuccessCount} valid.`, "info");
+              }
 
               currentIndex += BATCH_SIZE;
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
               
-              // [CRITICAL] 2000ms delay for Free Tier safety (~60 calls/min)
-              await new Promise(r => setTimeout(r, 2000));
+              // [CRITICAL] Smart Delay to respect 60 req/min
+              await new Promise(r => setTimeout(r, BURST_DELAY));
 
           } catch (e: any) {
-              addLog(`Batch Error: ${e.message}`, "err");
-              currentIndex += BATCH_SIZE;
+              if (e.message === "FMP_LIMIT") {
+                  addLog(`FMP Quota Depleted. Switching to Finnhub Only...`, "warn");
+                  setFmpDepleted(true); // Switch mode permanently for this run
+                  // Do NOT increment index, retry this batch with Finnhub immediately
+                  await new Promise(r => setTimeout(r, 1000)); // Short breath
+              } else if (e.message === "FINNHUB_LIMIT") {
+                  addLog(`Finnhub Limit Hit. Cooling down for 10s...`, "warn");
+                  await new Promise(r => setTimeout(r, 10000)); // 10s cooldown
+                  // Retry same batch
+              } else {
+                  addLog(`Batch Error: ${e.message}`, "err");
+                  currentIndex += BATCH_SIZE;
+              }
           }
       }
 
@@ -296,7 +333,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.5.0", strategy: "Free_Tier_Safe_Mode", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.6.1", strategy: "Smart_Burst_Hybrid", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -346,11 +383,11 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.5.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.6.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Free Tier Safe Mode Ready'}
+                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Smart Burst Engine Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
                             fmpDepleted
@@ -361,12 +398,21 @@ const DeepQualityFilter: React.FC = () => {
                         </span>
                    </div>
                    
+                   {/* Data Source Stats */}
+                   {loading && (
+                       <div className="flex items-center space-x-2 mt-1">
+                           <span className="text-[8px] font-bold text-slate-500 uppercase">Live Source:</span>
+                           <span className="text-[8px] font-mono text-emerald-400">FMP({sourceStats.fmp})</span>
+                           <span className="text-[8px] font-mono text-blue-400">FH({sourceStats.finnhub})</span>
+                       </div>
+                   )}
+                   
                    {/* FMP Depleted Warning */}
                    {fmpDepleted && (
                        <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1">
                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
                            <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
-                               FMP DAILY LIMIT REACHED - USING FINNHUB ONLY
+                               FMP LIMIT REACHED - FAILOVER TO FINNHUB
                            </span>
                        </div>
                    )}
@@ -374,7 +420,7 @@ const DeepQualityFilter: React.FC = () => {
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="px-12 py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Safe Scanning...' : 'Execute Free-Tier Scan'}
+              {loading ? 'Executing Burst...' : 'Start Smart Burst Scan'}
             </button>
           </div>
 
@@ -388,7 +434,7 @@ const DeepQualityFilter: React.FC = () => {
                   <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                 </div>
                 <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   {fmpDepleted ? 'Mode: FAILOVER PROTECTION (Finnhub Only)' : 'Mode: HYBRID SAFE SCAN'} • Target: Top {TARGET_SELECTION_COUNT}
+                   {fmpDepleted ? 'Mode: FAILOVER PROTECTION (Finnhub Only)' : 'Mode: SMART BURST HYBRID'} • Target: Top {TARGET_SELECTION_COUNT}
                 </p>
               </div>
 
