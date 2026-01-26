@@ -20,7 +20,7 @@ const IctAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.9.0: Fixed 250-Pipeline Initialized.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.9.1: Visual Pacing Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -147,8 +147,8 @@ const IctAnalysis: React.FC = () => {
              setActiveBrain("Algo-Heuristic");
              // 거래대금과 모멘텀 기반 추정
              ictScore = 50 + (Math.random() * 40);
-             // UI Smoothing
-             if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
+             // [UI Smoothing] 너무 빨리 지나가지 않도록 딜레이 추가 (사용자 확인용)
+             await new Promise(r => setTimeout(r, 20));
         }
         
         // 최종 가중치: [재무 25% + 기술 35% + ICT 40%]
@@ -176,7 +176,7 @@ const IctAnalysis: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.9.0", source: listRes.files[0].name, count: finalSurvivors.length, totalAnalyzed: total, timestamp: new Date().toISOString() },
+        manifest: { version: "5.9.1", source: listRes.files[0].name, count: finalSurvivors.length, totalAnalyzed: total, timestamp: new Date().toISOString() },
         ict_universe: finalSurvivors
       };
 
@@ -223,7 +223,7 @@ const IctAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Hub v5.9.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Hub v5.9.1</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Institutional Scan Ready'}
