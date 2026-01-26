@@ -32,6 +32,7 @@ interface AlphaCandidate {
 }
 
 interface BacktestResult {
+  simulationPeriod?: string;
   equityCurve: { period: string; value: number }[];
   metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; };
   historicalContext: string;
@@ -50,7 +51,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.2.0: Crash-Proof Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.3.0: Simulation Core Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -166,7 +167,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       });
 
-      // 2. Metrics 객체가 없을 경우를 대비한 기본값 주입 (이게 없으면 렌더링 시 흰/검은 화면 뜸)
+      // 2. Metrics 객체가 없을 경우를 대비한 기본값 주입
       const safeMetrics = data.metrics || {
         winRate: "N/A",
         profitFactor: "N/A",
@@ -176,16 +177,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       // 3. Context 기본값
       const safeContext = data.historicalContext || "Analysis data unavailable.";
+      const safePeriod = data.simulationPeriod || "Last 24 Months";
 
       setBacktestData(prev => ({ 
         ...prev, 
         [stock.symbol]: { 
+          simulationPeriod: safePeriod,
           equityCurve: curve,
           metrics: safeMetrics,
           historicalContext: safeContext
         } 
       }));
-      addLog(`Backtest Confirmed: Simulation integrity verified.`, "ok");
+      addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
       addLog(`Quant Error: ${e.message}`, "err");
       // 에러 발생 시 해당 종목 데이터 초기화하여 꼬임 방지
@@ -198,7 +201,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   // 차트 데이터가 완벽히 깨끗한지(NaN이 없는지) 최종 확인하는 가드
-  // 배열이 있고, 길이가 2 이상이어야 차트가 그려짐
   const isChartReady = useMemo(() => {
     return !!currentBacktest?.equityCurve && 
            currentBacktest.equityCurve.length > 1 && 
@@ -215,7 +217,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.2.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.3.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -335,7 +337,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                 <div className="pt-10 border-t border-white/10">
                    <div className="flex justify-between items-center mb-8">
-                      <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.5em] italic">Quant_Backtest_Protocol</h4>
+                      <div>
+                        <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.5em] italic mb-1">Quant_Backtest_Protocol</h4>
+                        {/* [FEATURE] 백테스팅 기간 명시적 표시 */}
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                           Simulation Period: <span className="text-emerald-400">{currentBacktest?.simulationPeriod || "Ready to Calculate"}</span>
+                        </p>
+                      </div>
                       <button 
                         onClick={() => handleRunBacktest(selectedStock)} 
                         disabled={backtestLoading} 
@@ -350,10 +358,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="space-y-4">
                            {/* [FIXED] Metrics Access Safe Guard - undefined 체크 강화 */}
                            {[
-                             { l: 'WIN RATE', v: currentBacktest.metrics?.winRate || '0%', c: 'text-emerald-400' },
-                             { l: 'PROFIT FACTOR', v: currentBacktest.metrics?.profitFactor || '0.0', c: 'text-blue-400' },
-                             { l: 'MAX DRAWDOWN', v: currentBacktest.metrics?.maxDrawdown || '0%', c: 'text-rose-400' },
-                             { l: 'SHARPE RATIO', v: currentBacktest.metrics?.sharpeRatio || '0.0', c: 'text-amber-400' }
+                             { l: 'WIN RATE', v: currentBacktest.metrics?.winRate || 'N/A', c: 'text-emerald-400' },
+                             { l: 'PROFIT FACTOR', v: currentBacktest.metrics?.profitFactor || 'N/A', c: 'text-blue-400' },
+                             { l: 'MAX DRAWDOWN', v: currentBacktest.metrics?.maxDrawdown || 'N/A', c: 'text-rose-400' },
+                             { l: 'SHARPE RATIO', v: currentBacktest.metrics?.sharpeRatio || 'N/A', c: 'text-amber-400' }
                            ].map((m, i) => (
                              <div key={i} className="p-5 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all">
                                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">{m.l}</span>
