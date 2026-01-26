@@ -38,7 +38,7 @@ const BACKTEST_SCHEMA = {
         type: Type.OBJECT,
         properties: {
           period: { type: Type.STRING, description: "Timeline (e.g. Month 1)" },
-          value: { type: Type.NUMBER, description: "Cumulative return percentage" }
+          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number only" }
         }
       }
     },
@@ -150,6 +150,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const prompt = `[퀀트 백테스트 시뮬레이션]
 종목: ${stock.symbol} / 현재가: ${stock.price} / 진입지지: ${stock.supportLevel} / 목표저항: ${stock.resistanceLevel}
 지난 2년간의 역사적 변동성을 반영하여 위 전략의 성과를 시뮬레이션하고 결과를 JSON으로 출력하세요.
+중요: equityCurve의 value는 반드시 순수 숫자(number)여야 하며 기호(%)를 포함하지 마십시오.
 한국어로 응답하고 반드시 다음 JSON 형식을 따르세요: { "equityCurve": [...], "metrics": {...}, "historicalContext": "..." }`;
 
   try {
