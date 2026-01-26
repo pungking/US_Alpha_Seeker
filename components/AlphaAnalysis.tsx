@@ -71,7 +71,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.7.0: Stability & UI Patch Applied.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.8.0: Layout & State Optimized.']);
   
   // Selected Metric Info State
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
@@ -83,11 +83,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // [FIX] 잔상 제거: 브레인 변경 시 캐시가 없으면 선택된 주식을 초기화
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
+      // 캐시가 있는데 현재 선택된 주식이 없거나, 현재 선택된 주식이 캐시 목록에 없으면 첫 번째 항목 선택
       const exists = selectedStock && cached.find(c => c.symbol === selectedStock.symbol);
       if (!exists) setSelectedStock(cached[0]);
+    } else {
+      // 캐시가 없으면 화면을 비움 (로딩 전 상태)
+      setSelectedStock(null);
     }
   }, [selectedBrain, resultsCache]);
 
@@ -131,7 +136,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     try {
       let currentUniverse = elite50;
-      // [FIX] Drive Loading Robustness: Check for empty universe and fetch if needed
       if (currentUniverse.length === 0) {
         if (!accessToken) throw new Error("Cloud Vault Disconnected. Please re-authenticate.");
         
@@ -159,7 +163,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const topCandidates = [...currentUniverse].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       
-      // [FIX] AI Call Error Handling
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
@@ -181,12 +184,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
       addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
     } catch (e: any) { 
-        // [FIX] Friendly Error Message for CORS/Network issues
         let msg = e.message;
         if (msg === 'Load failed' || msg === 'Failed to fetch') {
             msg = "Network/CORS Error. If using Sonar, switch to Gemini.";
         }
         addLog(`Engine Error: ${msg}`, "err"); 
+        // 에러 발생 시 현재 선택된 주식을 초기화하여 이전 잔상이 남지 않게 함
+        setSelectedStock(null);
     }
     finally { setLoading(false); }
   };
@@ -194,7 +198,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     
-    // [FIX] Prevent duplicate clicks but allow retry if error occurred
     if (backtestLoading) {
         addLog(`[BUSY] Simulation engine is occupied.`, "warn");
         return;
@@ -246,10 +249,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let msg = e.message;
       if (msg === 'Load failed' || msg === 'Failed to fetch') msg = "Network Error. Try again.";
       addLog(`Quant Error: ${msg}`, "err");
-      // Don't clear old data on error to keep UI stable
     }
     finally { 
-      // [CRITICAL] Ensure loading state is reset
       setBacktestLoading(false); 
     }
   };
@@ -265,7 +266,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  // [UI] Enhanced Verdict Color Logic
   const getVerdictColor = (verdict?: string) => {
     const v = verdict?.toUpperCase() || '';
     if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
@@ -305,7 +305,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.7.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.8.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -445,27 +445,50 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    
                    {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-6 duration-700">
-                        <div className="space-y-3">
-                           {[
-                             { k: 'WIN_RATE', l: '승률 (WIN RATE)', v: currentBacktest.metrics?.winRate || 'N/A', c: 'text-emerald-400' },
-                             { k: 'PROFIT_FACTOR', l: '손익비 (P.FACTOR)', v: currentBacktest.metrics?.profitFactor || 'N/A', c: 'text-blue-400' },
-                             { k: 'MAX_DRAWDOWN', l: '최대낙폭 (MDD)', v: currentBacktest.metrics?.maxDrawdown || 'N/A', c: 'text-rose-400' },
-                             { k: 'SHARPE_RATIO', l: '샤프지수 (RISK/RTN)', v: currentBacktest.metrics?.sharpeRatio || 'N/A', c: 'text-amber-400' }
-                           ].map((m, i) => (
-                             <div 
-                                key={i} 
-                                onClick={() => handleMetricClick(m.k, m.v)}
-                                className={`p-4 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all cursor-pointer hover:bg-white/5 ${selectedMetricInfo?.title === METRIC_DEFINITIONS[m.k].title ? 'border-white/30 bg-white/10' : ''}`}
-                             >
-                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.1em]">{m.l}</span>
-                                <span className={`text-xl font-black ${m.c} italic`}>{m.v}</span>
-                             </div>
-                           ))}
+                        {/* [LAYOUT] 좌측: 지표 버튼들 + 상세 설명 박스 */}
+                        <div className="flex flex-col gap-6">
+                            <div className="space-y-3">
+                               {[
+                                 { k: 'WIN_RATE', l: '승률 (WIN RATE)', v: currentBacktest.metrics?.winRate || 'N/A', c: 'text-emerald-400' },
+                                 { k: 'PROFIT_FACTOR', l: '손익비 (P.FACTOR)', v: currentBacktest.metrics?.profitFactor || 'N/A', c: 'text-blue-400' },
+                                 { k: 'MAX_DRAWDOWN', l: '최대낙폭 (MDD)', v: currentBacktest.metrics?.maxDrawdown || 'N/A', c: 'text-rose-400' },
+                                 { k: 'SHARPE_RATIO', l: '샤프지수 (RISK/RTN)', v: currentBacktest.metrics?.sharpeRatio || 'N/A', c: 'text-amber-400' }
+                               ].map((m, i) => (
+                                 <div 
+                                    key={i} 
+                                    onClick={() => handleMetricClick(m.k, m.v)}
+                                    className={`p-4 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all cursor-pointer hover:bg-white/5 ${selectedMetricInfo?.title === METRIC_DEFINITIONS[m.k].title ? 'border-white/30 bg-white/10' : ''}`}
+                                 >
+                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.1em]">{m.l}</span>
+                                    <span className={`text-xl font-black ${m.c} italic`}>{m.v}</span>
+                                 </div>
+                               ))}
+                            </div>
+                            
+                            {/* [BOX 1] Metric Detail Box (버튼 하단 좌측 배치) */}
+                            <div className="p-6 bg-blue-500/5 rounded-[30px] border border-blue-500/10 shadow-inner flex-1 flex flex-col justify-center min-h-[150px]">
+                                {selectedMetricInfo ? (
+                                    <div className="animate-in fade-in slide-in-from-left-4 duration-300">
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] italic">{selectedMetricInfo.title}</span>
+                                            <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
+                                        </div>
+                                        <p className="text-xs text-slate-300 leading-relaxed font-medium italic">{selectedMetricInfo.desc}</p>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2 opacity-60">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        <p className="text-[8px] uppercase tracking-widest text-center">Select a metric above</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
+
+                        {/* [LAYOUT] 우측: 차트 + 종합 인사이트 */}
                         <div className="lg:col-span-2 flex flex-col gap-6">
-                           <div className="w-full bg-black/80 rounded-[40px] border border-white/10 p-6 relative overflow-hidden shadow-3xl min-h-[400px]">
+                           <div className="w-full bg-black/80 rounded-[40px] border border-white/10 p-6 relative overflow-hidden shadow-3xl min-h-[350px]">
                               {isChartReady ? (
-                                <ResponsiveContainer width="100%" height={400}>
+                                <ResponsiveContainer width="100%" height={350}>
                                    <AreaChart 
                                      key={`backtest-${selectedStock.symbol}-${Math.random()}`}
                                      data={currentBacktest.equityCurve} 
@@ -506,33 +529,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               )}
                            </div>
                            
-                           {/* [UI] Split Insight Area into Two Boxes */}
-                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                               {/* Box 1: Comprehensive Analysis (Always Visible) */}
-                               <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[160px] flex flex-col">
-                                   <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
-                                   <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight line-clamp-6 hover:line-clamp-none transition-all">
-                                      {currentBacktest.historicalContext || "Insight generating..."}
-                                   </p>
-                               </div>
-
-                               {/* Box 2: Metric Detail (Visible on selection) */}
-                               <div className="p-8 bg-blue-500/5 rounded-[40px] border border-blue-500/10 shadow-inner min-h-[160px] flex flex-col justify-center">
-                                  {selectedMetricInfo ? (
-                                     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
-                                        <div className="flex items-center gap-3 mb-3">
-                                           <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] italic">{selectedMetricInfo.title}</span>
-                                           <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
-                                        </div>
-                                        <p className="text-xs text-slate-300 leading-relaxed font-medium italic">{selectedMetricInfo.desc}</p>
-                                     </div>
-                                  ) : (
-                                     <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2 opacity-60">
-                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                        <p className="text-[8px] uppercase tracking-widest text-center">Select a metric for deep dive</p>
-                                     </div>
-                                  )}
-                               </div>
+                           {/* [BOX 2] Simulation Intelligence Insight (차트 하단, 동일 너비) */}
+                           <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[150px] flex flex-col justify-center">
+                               <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
+                               <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight hover:text-slate-200 transition-colors">
+                                  {currentBacktest.historicalContext || "Insight generating..."}
+                               </p>
                            </div>
                         </div>
                      </div>
