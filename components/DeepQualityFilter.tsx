@@ -33,7 +33,7 @@ const DeepQualityFilter: React.FC = () => {
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.1: UX Feedback Patch Applied.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.2: AI Visualization Patch Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -188,12 +188,18 @@ const DeepQualityFilter: React.FC = () => {
   };
 
   const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
-    // 1. UI Status Update: Start
-    setAiAnalysis("📡 Gemini 3.0 Flash is analyzing sector alpha...");
+    // FORCE UI UPDATE immediately
+    setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
+    addLog("Initiating AI Sector Analysis...", "info");
     
+    if (!tickers || tickers.length === 0) {
+        setAiAnalysis("⚠️ Analysis Skipped: No Tickers Available.");
+        return;
+    }
+
     const prompt = `
     [Role: Senior Market Analyst]
-    Action: Analyze the Sector/Industry distribution of these top ${TARGET_SELECTION_COUNT} filtered stocks.
+    Action: Analyze the Sector/Industry distribution of these top filtered stocks.
     Data Sample (Top 5 by QualityScore): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe, qScore: t.qualityScore})))}
     Total Count: ${tickers.length}
     
@@ -207,9 +213,10 @@ const DeepQualityFilter: React.FC = () => {
     try {
         setActiveBrain("Gemini 3 Flash");
         const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+        // Fallback to process.env if available, otherwise config key
         const apiKey = process.env.API_KEY || geminiConfig?.key || "";
         
-        if (!apiKey) throw new Error("Gemini API Key Missing");
+        if (!apiKey) throw new Error("Gemini API Key Missing in Config");
 
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
@@ -220,20 +227,29 @@ const DeepQualityFilter: React.FC = () => {
         
         const result = sanitizeJson(response.text);
         if (result && result.insight) {
-            // 2. UI Status Update: Success
-            setAiAnalysis(`[${result.dominantSector}] ${result.insight}`);
-            addLog(`AI Insight: ${result.insight}`, "ok");
+            const msg = `[${result.dominantSector}] ${result.insight}`;
+            setAiAnalysis(msg);
+            addLog(`AI Analysis Success: ${msg}`, "ok");
         } else {
             // Fallback for non-JSON response
-            setAiAnalysis("Analysis Completed: " + (response.text.substring(0, 100) + "..."));
-            addLog("AI output format mismatch, raw text used.", "warn");
+            const rawMsg = response.text ? response.text.substring(0, 100) + "..." : "No text returned";
+            setAiAnalysis("Analysis Note: " + rawMsg);
+            addLog("AI output format mismatch, used raw text.", "warn");
         }
     } catch (e: any) {
-        // 3. UI Status Update: Error
-        const errMsg = e.message || "Unknown Error";
-        setAiAnalysis(`⚠️ Analysis Failed: ${errMsg.slice(0, 30)}...`);
-        addLog(`AI Analysis Failed: ${errMsg}`, "warn");
+        const errMsg = e.message || "Unknown Connection Error";
+        setAiAnalysis(`⚠️ Analysis Failed: ${errMsg}`);
+        addLog(`AI Error: ${errMsg}`, "err");
     }
+  };
+
+  // Manual Trigger Wrapper
+  const handleManualAnalysis = () => {
+      if (processedData.length > 0) {
+          analyzeSectorDistribution(processedData);
+      } else {
+          addLog("Cannot run analysis: No data processed yet.", "warn");
+      }
   };
 
   const executeDeepQualityScan = async () => {
@@ -336,14 +352,15 @@ const DeepQualityFilter: React.FC = () => {
       addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
       setNetworkStatus("Status: Scan Complete");
 
-      // AI Analysis Trigger
+      // AI Analysis Trigger - Await to ensure it runs
+      addLog("Triggering AI Sector Analysis...", "info");
       await analyzeSectorDistribution(eliteSurvivors);
 
       // Upload
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.1", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.2", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -393,7 +410,7 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -446,8 +463,19 @@ const DeepQualityFilter: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-blue-900/10 p-8 rounded-3xl border border-blue-500/10 relative overflow-hidden">
-                 <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-2">AI Sector Insight</p>
+              <div className="bg-blue-900/10 p-8 rounded-3xl border border-blue-500/10 relative overflow-hidden group">
+                 <div className="flex justify-between items-center mb-2">
+                    <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">AI Sector Insight</p>
+                    {/* Retry Button visible if processedData exists but no analysis */}
+                    {!loading && processedData.length > 0 && (
+                        <button 
+                            onClick={handleManualAnalysis}
+                            className="text-[8px] px-2 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded transition-colors uppercase font-bold border border-blue-500/20"
+                        >
+                            Retry Analysis
+                        </button>
+                    )}
+                 </div>
                  <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
                     {aiAnalysis || "Awaiting Post-Scan Analysis..."}
                  </p>
