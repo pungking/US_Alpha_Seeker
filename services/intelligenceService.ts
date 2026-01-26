@@ -134,14 +134,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Reverted to Direct Client-side Fetch
+      // Restore V9.4.0 Direct Fetch (No extra headers, clean request)
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}` 
+            'Authorization': `Bearer ${apiKey}`
         },
-        // 'mode: cors' is default. If user has extension, this works.
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
@@ -202,7 +201,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Reverted to Direct Client-side Fetch
+      // Restore V9.4.0 Direct Fetch (No extra headers, clean request)
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
@@ -266,7 +265,7 @@ export async function analyzePipelineStatus(data: {
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Reverted to Direct Client-side Fetch
+      // Restore V9.4.0 Direct Fetch (No extra headers, clean request)
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
