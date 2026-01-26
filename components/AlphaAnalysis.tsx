@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ApiProvider } from '../types';
-import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from '../constants';
+import { API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest } from '../services/intelligenceService';
 
 interface AlphaCandidate {
@@ -67,6 +67,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // 브레인 전환 시 선택된 종목 초기화 (잔상 제거)
+  useEffect(() => {
+    const cached = resultsCache[selectedBrain];
+    if (cached && cached.length > 0) {
+      setSelectedStock(cached[0]);
+    } else {
+      setSelectedStock(null);
+    }
+  }, [selectedBrain, resultsCache]);
 
   useEffect(() => {
     if (accessToken && elite50.length === 0) loadStage5Data();
@@ -155,38 +165,60 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Core v8.2.7</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Backtest & Synthesis Stable</p>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.2.7</h2>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Holistic Strategy Synthesis Stable</p>
               </div>
             </div>
             <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5">
               {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
-                <button key={p} onClick={() => setSelectedBrain(p)} className={`px-6 py-3 rounded-xl text-[9px] font-black uppercase transition-all ${selectedBrain === p ? 'bg-indigo-600 text-white' : 'text-slate-500'}`}>
-                  {p === ApiProvider.GEMINI ? 'Gemini 3' : 'Sonar Pro'}
+                <button key={p} onClick={() => setSelectedBrain(p)} className={`px-6 py-3 rounded-xl text-[9px] font-black uppercase transition-all flex items-center gap-2 ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                  <span className={`w-1.5 h-1.5 rounded-full ${selectedBrain === p ? 'bg-white' : 'bg-slate-700'}`}></span>
+                  {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
                 </button>
               ))}
             </div>
-            <button onClick={executeAlphaFinalization} disabled={loading || elite50.length === 0} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:scale-105'}`}>
-              {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
+            <button onClick={executeAlphaFinalization} disabled={loading || elite50.length === 0} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:scale-105 active:scale-95'}`}>
+              {loading ? 'Processing Synthesis...' : 'Execute Alpha Engine'}
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-             {currentResults.map((item, idx) => (
-               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[32px] border-l-4 cursor-pointer transition-all ${selectedStock?.symbol === item.symbol ? 'border-l-rose-500 bg-rose-500/10 scale-[1.02]' : 'border-l-white/10 hover:bg-white/5'}`}>
-                  <div className="flex justify-between items-start mb-2">
-                     <div>
-                        <span className="text-[10px] font-black text-rose-500/60 tracking-widest uppercase">Target #{idx + 1}</span>
-                        <h4 className="text-3xl font-black text-white italic uppercase leading-tight">{item.symbol}</h4>
-                     </div>
-                     <p className="text-xl font-black text-rose-500 italic">{item.convictionScore?.toFixed(0)}%</p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 min-h-[400px]">
+             {currentResults.length > 0 ? currentResults.map((item, idx) => (
+               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[32px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col justify-between h-[220px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500/50 bg-rose-500/10 scale-[1.02] shadow-[0_0_20px_rgba(244,63,94,0.15)]' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}>
+                  {/* Card Header: Priority & Conviction */}
+                  <div className="flex justify-between items-start">
+                     <span className="text-[9px] font-black text-slate-500 tracking-[0.2em] uppercase italic">Priority #{idx + 1}</span>
+                     <span className="text-2xl font-black text-rose-500 italic tracking-tighter">{item.convictionScore?.toFixed(1)}%</span>
                   </div>
-                  <div className="flex flex-wrap gap-2 mt-4">
-                     <span className="text-[7px] px-2 py-0.5 rounded-full font-black border border-white/10 text-slate-400 uppercase tracking-widest">{item.chartPattern || 'Analyzing...'}</span>
-                     <span className="text-[7px] px-2 py-0.5 rounded-full font-black border border-blue-500/30 text-blue-400 uppercase tracking-widest">R/R {item.riskRewardRatio || '---'}</span>
+
+                  {/* Card Center: Big Symbol */}
+                  <div className="text-center py-2">
+                     <h4 className="text-5xl font-black text-white italic uppercase tracking-tighter leading-none">{item.symbol}</h4>
+                  </div>
+
+                  {/* Card Meta: Badges */}
+                  <div className="flex items-center gap-2 mb-4">
+                     <span className={`text-[7px] px-2.5 py-1 rounded-full font-black border uppercase tracking-widest ${item.marketCapClass === 'LARGE' ? 'border-blue-500/30 text-blue-400 bg-blue-500/5' : 'border-amber-500/30 text-amber-400 bg-amber-500/5'}`}>
+                        {item.marketCapClass || 'MID'} CAP
+                     </span>
+                     <span className="text-[8px] font-bold text-slate-400 truncate uppercase tracking-tighter opacity-80">{item.sectorTheme || 'Strategic Asset'}</span>
+                  </div>
+
+                  {/* Card Footer: Return & Price */}
+                  <div className="flex justify-between items-end border-t border-white/5 pt-4">
+                     <div className="flex items-baseline gap-1">
+                        <span className="text-[7px] font-black text-slate-500 uppercase">Return</span>
+                        <span className="text-xs font-black text-blue-400">{item.expectedReturn || '---'}</span>
+                     </div>
+                     <span className="text-xs font-mono font-black text-white">${item.price?.toFixed(2)}</span>
                   </div>
                </div>
-             ))}
+             )) : (
+               <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20 space-y-4">
+                  <div className="w-16 h-16 border-2 border-dashed border-slate-600 rounded-full animate-pulse"></div>
+                  <p className="text-[10px] font-black uppercase tracking-[0.4em] text-slate-400">Awaiting {selectedBrain} Analysis Protocol...</p>
+               </div>
+             )}
           </div>
         </div>
 
@@ -200,7 +232,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <p className="text-sm font-bold text-slate-500 uppercase mt-2">{selectedStock.name} — <span className="text-rose-500/80">{selectedStock.sectorTheme}</span></p>
                       </div>
                       <button onClick={() => executeBacktest(selectedStock)} disabled={backtestLoading} className={`px-6 py-3 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all ${backtestLoading ? 'bg-slate-800 border-white/10 text-slate-500' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white'}`}>
-                        {backtestLoading ? 'Simulating...' : 'Run AI Backtest'}
+                        {backtestLoading ? 'Simulating Historical Data...' : 'Run AI Backtest'}
                       </button>
                    </div>
 
