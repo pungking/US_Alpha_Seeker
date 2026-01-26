@@ -18,7 +18,7 @@ const FundamentalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.9.1: Visual Pacing Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.9.2: Speed Constraints Removed.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -165,8 +165,8 @@ const FundamentalAnalysis: React.FC = () => {
           const v = (item.per > 0 && item.per < 15) ? 90 : (item.per < 25) ? 60 : 30;
           score = (p * 0.6) + (v * 0.4);
           
-          // [UI Smoothing] 너무 빨리 지나가지 않도록 딜레이 추가 (사용자 확인용)
-          await new Promise(r => setTimeout(r, 20));
+          // UI Smoothing (최소한의 딜레이)
+          if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
         }
 
         const p = Math.min(100, (item.roe || 0) * 2.5 + 20);
@@ -194,7 +194,7 @@ const FundamentalAnalysis: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "3.9.1", source: listRes.files[0].name, strategy: "Keep_All_250", count: results.length, timestamp: new Date().toISOString() },
+        manifest: { version: "3.9.2", source: listRes.files[0].name, strategy: "Keep_All_250", count: results.length, timestamp: new Date().toISOString() },
         fundamental_universe: results
       };
 
@@ -241,7 +241,7 @@ const FundamentalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.9.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.9.2</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Fundamental Analysis Ready'}

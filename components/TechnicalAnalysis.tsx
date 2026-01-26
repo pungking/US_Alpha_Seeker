@@ -19,7 +19,7 @@ const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.9.1: Visual Pacing Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.9.2: Speed Constraints Removed.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -148,8 +148,8 @@ const TechnicalAnalysis: React.FC = () => {
              setActiveBrain("Algo-Heuristic");
              // 간단한 휴리스틱
              techScore = 40 + (Math.random() * 40);
-             // [UI Smoothing] 너무 빨리 지나가지 않도록 딜레이 추가 (사용자 확인용)
-             await new Promise(r => setTimeout(r, 20));
+             // UI Smoothing
+             if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
         }
 
         // 4단계: 재무(45%) + 기술(55%) 융합
@@ -174,7 +174,7 @@ const TechnicalAnalysis: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.1", source: listRes.files[0].name, strategy: "Keep_All_250", count: results.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.2", source: listRes.files[0].name, strategy: "Keep_All_250", count: results.length, timestamp: new Date().toISOString() },
         technical_universe: results
       };
 
@@ -221,7 +221,7 @@ const TechnicalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.9.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.9.2</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Technical Analysis Ready'}
