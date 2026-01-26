@@ -40,7 +40,7 @@ const BACKTEST_SCHEMA = {
         type: Type.OBJECT,
         properties: {
           period: { type: Type.STRING, description: "Timeline (e.g. Month 01, Month 02...)" },
-          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number only" }
+          value: { type: Type.NUMBER, description: "Cumulative return percentage as a pure number only" }
         },
         required: ["period", "value"]
       }
