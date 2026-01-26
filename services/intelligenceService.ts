@@ -34,12 +34,15 @@ const BACKTEST_SCHEMA = {
   properties: {
     equityCurve: {
       type: Type.ARRAY,
+      minItems: 12,
+      maxItems: 12,
       items: {
         type: Type.OBJECT,
         properties: {
-          period: { type: Type.STRING, description: "Timeline (e.g. Month 1)" },
+          period: { type: Type.STRING, description: "Timeline (e.g. Month 01, Month 02...)" },
           value: { type: Type.NUMBER, description: "Cumulative return percentage as a number only" }
-        }
+        },
+        required: ["period", "value"]
       }
     },
     metrics: {
@@ -49,7 +52,8 @@ const BACKTEST_SCHEMA = {
         profitFactor: { type: Type.STRING, description: "Profit over loss ratio" },
         maxDrawdown: { type: Type.STRING, description: "Max drawdown percentage" },
         sharpeRatio: { type: Type.STRING, description: "Risk-adjusted return ratio" }
-      }
+      },
+      required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
     },
     historicalContext: { type: Type.STRING, description: "Backtest analysis summary in Korean" }
   },
@@ -150,8 +154,11 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const prompt = `[퀀트 백테스트 시뮬레이션]
 종목: ${stock.symbol} / 현재가: ${stock.price} / 진입지지: ${stock.supportLevel} / 목표저항: ${stock.resistanceLevel}
 지난 2년간의 역사적 변동성을 반영하여 위 전략의 성과를 시뮬레이션하고 결과를 JSON으로 출력하세요.
-중요: equityCurve의 value는 반드시 순수 숫자(number)여야 하며 기호(%)를 포함하지 마십시오.
-한국어로 응답하고 반드시 다음 JSON 형식을 따르세요: { "equityCurve": [...], "metrics": {...}, "historicalContext": "..." }`;
+중요 지침:
+1. equityCurve는 반드시 정확히 12개의 데이터 포인트를 가져야 합니다.
+2. period 필드는 'Month 01', 'Month 02' 처럼 순차적인 라벨을 반드시 포함하십시오. 절대 비우지 마세요.
+3. value는 기호(%) 없이 순수 숫자(number)여야 합니다.
+4. 한국어로 응답하고 반드시 제공된 JSON 스키마를 준수하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -202,10 +209,10 @@ export async function analyzePipelineStatus(data: {
 
 [보고서 작성 필수 지침]
 1. 언어: 100% 한글로만 작성하십시오. 영어 병기는 전문 용어 외엔 지양하세요.
-2. 태도: "정보가 부족하다"거나 "검색 결과가 한정적이다"라는 식의 수동적인 변명을 절대 하지 마십시오. 당신의 방대한 금융 지식을 동원하여 주어진 종목들의 산업적 위상과 매크로 환경을 결합해 '단정적이고 확신에 찬' 분석을 내놓으십시오.
+2. 태도: 확신에 찬 분석을 내놓으십시오.
 3. 리포트 상단: "분석 기준일: ${today}"를 명시하십시오.
-4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 반드시 포함하십시오.
-5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 마크다운 형식으로 우아하게 작성하십시오.`;
+4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 포함하십시오.
+5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 작성하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {

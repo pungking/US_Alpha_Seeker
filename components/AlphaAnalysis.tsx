@@ -50,7 +50,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.4.0: UI Compression & Chart Engine Patched.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.4.5: Data Integrity & UX Patch Applied.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -85,16 +85,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         setElite50(content.ict_universe || []);
-        addLog(`Vault Synced: Stage 5 leaders loaded.`, "ok");
+        addLog(`Vault Synced: Stage 5 ready.`, "ok");
       }
     } catch (e: any) { addLog(`Vault Sync Error: ${e.message}`, "err"); }
   };
 
   const executeAlphaFinalization = async () => {
-    if (elite50.length === 0 || loading) return;
+    if (loading) return;
+    addLog(`[SIGNAL] Alpha Engine Triggered.`, "info");
+    if (elite50.length === 0) {
+      addLog("Stage 5 data not loaded yet. Waiting...", "warn");
+      await loadStage5Data();
+      if (elite50.length === 0) return;
+    }
+
     setLoading(true);
-    addLog(`Initiating Alpha Discovery via ${selectedBrain}...`, "info");
-    
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
@@ -116,29 +121,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`Discovery Successful: Alpha matrix updated.`, "ok");
+      addLog(`Discovery Successful: High-Conviction Matrix Generated.`, "ok");
     } catch (e: any) { addLog(`Failed: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
 
   const executeBacktest = async (stock: AlphaCandidate) => {
     if (backtestLoading || !stock) return;
+    addLog(`[SIGNAL] Backtest Simulation Triggered for ${stock.symbol}.`, "info");
     setBacktestLoading(true);
-    addLog(`Quant Node: Calculating ${stock.symbol} Equity Curve...`, "info");
     try {
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
       
       if (data && data.equityCurve) {
-        // [FIX] 수치 파싱 로직 강화 및 NaN 방지
-        const sanitizedCurve = data.equityCurve.map((point: any) => {
+        // [CRITICAL FIX] 차트 데이터 파싱 로직 전면 개편
+        const sanitizedCurve = data.equityCurve.map((point: any, idx: number) => {
           let val = point.value;
-          if (typeof val === 'string') {
-            const raw = val.replace(/[^-0-9.]/g, '');
-            val = parseFloat(raw);
+          // 숫자 추출 강화
+          if (typeof val !== 'number') {
+            const strVal = String(val).replace(/[^-0-9.]/g, '');
+            val = parseFloat(strVal);
           }
           return {
-            period: point.period || 'N/A',
+            // period가 없거나 N/A면 강제로 P01, P02... 생성하여 가시성 확보
+            period: (!point.period || point.period === 'N/A') ? `P${String(idx + 1).padStart(2, '0')}` : point.period,
             value: (isNaN(val) || val === null) ? 0 : val
           };
         });
@@ -147,7 +154,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           ...prev, 
           [stock.symbol]: { ...data, equityCurve: sanitizedCurve } 
         }));
-        addLog(`Simulation Confirmed: Data integrity 100%.`, "ok");
+        addLog(`Simulation Confirmed: ${sanitizedCurve.length} data points mapped.`, "ok");
       }
     } catch (e: any) { addLog(`Backtest Failed: ${e.message}`, "err"); }
     finally { setBacktestLoading(false); }
@@ -159,16 +166,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        {/* 상단 제어 패널 */}
         <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
             <div className="flex items-center space-x-6">
               <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
-                 <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+                 <svg className={`w-5 h-5 pointer-events-none ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
-              <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.4.0</h2>
-                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Intelligent Asset Screening Matrix</p>
+              <div className="pointer-events-none">
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.4.5</h2>
+                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Asset Optimization</p>
               </div>
             </div>
             <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
@@ -178,17 +184,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </button>
               ))}
             </div>
-            <button onClick={executeAlphaFinalization} disabled={loading || elite50.length === 0} className={`px-8 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:scale-105 active:scale-95'}`}>
-              {loading ? 'Processing...' : 'Execute Alpha Engine'}
+            {/* 버튼 반응성: 하위 요소 pointer-events-none 적용 */}
+            <button onClick={executeAlphaFinalization} disabled={loading} className={`px-8 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:brightness-125 active:scale-95'}`}>
+              <span className="pointer-events-none">{loading ? 'Processing...' : 'Execute Alpha Engine'}</span>
             </button>
           </div>
 
-          {/* 종목 카드 그리드 - 레이아웃 슬림화 반영 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
              {currentResults.length > 0 ? currentResults.map((item, idx) => (
                <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[24px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[190px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_20px_rgba(244,63,94,0.1)]' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}>
-                  {/* 헤더 통합: Ticker + Score% */}
-                  <div className="flex justify-between items-center mb-1">
+                  <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
                        <span className="text-[7px] font-black text-slate-600 uppercase">#{idx + 1}</span>
                        <h4 className="text-2xl font-black text-white italic uppercase tracking-tighter">{item.symbol}</h4>
@@ -196,10 +201,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      </div>
                      <span className="text-[9px] font-mono font-black text-white bg-white/5 px-2 py-1 rounded-md shadow-sm">${item.price?.toFixed(2)}</span>
                   </div>
-                  
-                  <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest truncate mb-4 border-b border-white/5 pb-2">{item.sectorTheme}</p>
-                  
-                  <div className="grid grid-cols-3 gap-1 py-2 bg-black/20 rounded-lg px-2 border border-white/5 flex-grow">
+                  <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest truncate mb-4 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
+                  <div className="grid grid-cols-3 gap-1 py-2 bg-black/20 rounded-lg px-2 border border-white/5 flex-grow pointer-events-none">
                     <div className="text-center">
                       <p className="text-[5px] font-black text-emerald-500 uppercase mb-0.5">Entry</p>
                       <p className="text-[8px] font-mono font-black text-white">${item.supportLevel?.toFixed(2)}</p>
@@ -213,8 +216,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <p className="text-[8px] font-mono font-black text-white">${item.stopLoss?.toFixed(2)}</p>
                     </div>
                   </div>
-
-                  <div className="flex justify-between items-end mt-2">
+                  <div className="flex justify-between items-end mt-2 pointer-events-none">
                      <div className="flex items-center gap-2">
                         <span className="text-[6px] font-black text-slate-600 uppercase">Exp. Return</span>
                         <span className="text-[10px] font-black text-blue-400">{item.expectedReturn}</span>
@@ -284,8 +286,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 <div className="pt-8 border-t border-white/5">
                    <div className="flex justify-between items-center mb-6">
                       <h4 className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.4em] italic">Quant_Backtest_Protocol</h4>
-                      <button onClick={() => executeBacktest(selectedStock)} disabled={backtestLoading} className={`px-8 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 shadow-xl'}`}>
-                        {backtestLoading ? 'Processing...' : 'Run Simulation'}
+                      <button onClick={() => executeBacktest(selectedStock)} disabled={backtestLoading} className={`px-8 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:brightness-125 shadow-xl'}`}>
+                        <span className="pointer-events-none">{backtestLoading ? 'Simulating...' : 'Run Simulation'}</span>
                       </button>
                    </div>
                    {currentBacktest && (
@@ -317,12 +319,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
                                       <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} />
                                       <YAxis stroke="#475569" fontSize={8} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
-                                      {/* [FIX] 툴팁 값 표시 가독성 강화 */}
                                       <Tooltip 
                                         contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff20', borderRadius: '12px', fontSize: '10px', color: '#fff', fontWeight: 'bold' }}
                                         formatter={(val: any) => [`${parseFloat(val).toFixed(2)}%`, 'Cumulative Return']}
                                       />
-                                      <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" animationDuration={1000} isAnimationActive={true} />
+                                      {/* isAnimationActive={false}로 설정하여 렌더링 누락 방지 */}
+                                      <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={3} fillOpacity={1} fill="url(#colorVal)" isAnimationActive={false} />
                                    </AreaChart>
                                 </ResponsiveContainer>
                               ) : (
@@ -349,7 +351,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-5 rounded-[24px] font-mono text-[8px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-3 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-3 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-3 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
