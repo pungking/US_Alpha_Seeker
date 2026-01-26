@@ -24,9 +24,10 @@ interface AiProposal {
 const PreliminaryFilter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [activeAi, setActiveAi] = useState<string>('Standby'); // UI 표시용
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.0.1: Macro-Liquidity Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.1.0: Macro-Liquidity Protocol Online.']);
   
   // 필터 상태
   const [minPrice, setMinPrice] = useState(2.0);
@@ -54,24 +55,14 @@ const PreliminaryFilter: React.FC = () => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
-  // 재시도 로직이 포함된 AI 호출 함수
-  const callAiWithRetry = async (ai: any, prompt: string, retries = 3, delay = 5000): Promise<string> => {
+  const sanitizeJson = (text: string) => {
     try {
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-      return response.text;
-    } catch (error: any) {
-      const isRetryable = error.message?.includes("429") || error.message?.includes("quota") || error.message?.includes("limit");
-      if (retries > 0 && isRetryable) {
-        addLog(`AI Quota Hit. Retrying in ${delay/1000}s... (Attempts left: ${retries})`, "warn");
-        await new Promise(resolve => setTimeout(resolve, delay));
-        return callAiWithRetry(ai, prompt, retries - 1, delay * 2);
-      }
-      throw error;
-    }
+      let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      const first = clean.indexOf('{');
+      const last = clean.lastIndexOf('}');
+      if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
+      return JSON.parse(clean);
+    } catch (e) { return null; }
   };
 
   const syncAndAnalyzeMarket = async () => {
@@ -84,7 +75,8 @@ const PreliminaryFilter: React.FC = () => {
     setIsManual(false);
     setAiError(null);
     setAiProposal(null);
-    addLog("Phase 1: Retrieving Global Universe Matrix...", "info");
+    setActiveAi('Initializing');
+    addLog("Phase 1: Retrieving Global Universe Matrix from Stage 0...", "info");
 
     try {
       const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
@@ -92,7 +84,7 @@ const PreliminaryFilter: React.FC = () => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) throw new Error("Stage 0 Data not found.");
+      if (!listRes.files?.length) throw new Error("Stage 0 Data not found. Please run Stage 0 first.");
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -100,43 +92,116 @@ const PreliminaryFilter: React.FC = () => {
 
       const data = content.universe || [];
       setRawUniverse(data);
-      addLog(`Matrix Synced: ${data.length} assets. Requesting AI Strategic Analysis...`, "ok");
+      addLog(`Matrix Synced: ${data.length} assets. Calculating distribution stats...`, "ok");
 
+      // 통계 계산 (AI 프롬프트용)
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
       const volumes = data.map((s: any) => s.volume).filter((v: any) => v > 0).sort((a: any, b: any) => a - b);
       
       const statsSummary = {
-        total: data.length,
-        p25Price: prices[Math.floor(prices.length * 0.25)],
-        p50Price: prices[Math.floor(prices.length * 0.50)],
-        p75Price: prices[Math.floor(prices.length * 0.75)],
-        p50Volume: volumes[Math.floor(volumes.length * 0.5)],
-        p80Volume: volumes[Math.floor(volumes.length * 0.8)],
-        pennyCount: data.filter((s:any) => s.price < 1).length
+        date: new Date().toLocaleDateString(),
+        totalCount: data.length,
+        priceDistribution: {
+            min: prices[0] || 0,
+            p25: prices[Math.floor(prices.length * 0.25)] || 0,
+            p50: prices[Math.floor(prices.length * 0.50)] || 0,
+            p75: prices[Math.floor(prices.length * 0.75)] || 0,
+        },
+        volumeDistribution: {
+            p25: volumes[Math.floor(volumes.length * 0.25)] || 0,
+            p50: volumes[Math.floor(volumes.length * 0.50)] || 0,
+            p80: volumes[Math.floor(volumes.length * 0.80)] || 0,
+        },
+        pennyStocksCount: data.filter((s:any) => s.price < 1).length
       };
 
-      const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || geminiConfig?.key || "" });
-      
-      const prompt = `미국 주식 시장 유동성 분석: ${JSON.stringify(statsSummary)}. 
-      위 데이터를 기반으로 잡주를 걸러내고 기관 수급이 원활한 종목만 남기기 위한 최적의 suggestedPrice($1.5~$5)와 suggestedVolume(100k~1.5M)을 제안하세요.
-      반드시 JSON 형식으로만 응답하세요: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string" }`;
+      const prompt = `
+      [Role: Senior Quantitative Market Strategist]
+      Current Date: ${statsSummary.date}
+      Market Stats (US Equities):
+      - Total Assets: ${statsSummary.totalCount}
+      - Price Dist: P25=$${statsSummary.priceDistribution.p25}, Median=$${statsSummary.priceDistribution.p50}, P75=$${statsSummary.priceDistribution.p75}
+      - Volume Dist: P25=${statsSummary.volumeDistribution.p25}, Median=${statsSummary.volumeDistribution.p50}, P80=${statsSummary.volumeDistribution.p80}
+      - Penny Stocks (<$1): ${statsSummary.pennyStocksCount}
 
-      const aiText = await callAiWithRetry(ai, prompt);
-      const aiData: AiProposal = JSON.parse(aiText || "{}");
-      
-      setAiProposal(aiData);
-      setMinPrice(aiData.suggestedPrice);
-      setMinVolume(aiData.suggestedVolume);
-      
-      addLog(`AI Strategy Finalized: [${aiData.regime}]`, "ok");
+      [Task]
+      Determine optimal 'Price Floor' and 'Volume Threshold' to filter out junk/illiquid assets while keeping high-potential runners.
+      - Typically Price Floor is between $1.5 and $5.0.
+      - Typically Volume Threshold is between 100,000 and 1,000,000.
+      - Use the provided distribution stats to justify your choice. (e.g., if P25 price is high, raise the floor).
+
+      Return ONLY JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string (e.g. High Volatility)", "reasoning": "string (Korean)" }
+      `;
+
+      let aiResult = null;
+      let usedProvider = '';
+
+      // 1. Try Gemini
+      try {
+          setActiveAi('Gemini 3 Pro');
+          addLog("Requesting analysis from Gemini 3...", "info");
+          const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+          });
+          aiResult = sanitizeJson(response.text);
+          usedProvider = 'Gemini 3 Pro';
+      } catch (e: any) {
+          addLog(`Gemini Failed (${e.message}). Switching to Perplexity Fallback...`, "warn");
+      }
+
+      // 2. Try Perplexity (if Gemini failed)
+      if (!aiResult) {
+          try {
+              setActiveAi('Sonar Pro (Fallback)');
+              addLog("Requesting analysis from Perplexity Sonar...", "info");
+              const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+              const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${perplexityKey}`,
+                    'Accept': 'application/json' 
+                },
+                body: JSON.stringify({
+                    model: 'sonar-pro', 
+                    messages: [
+                        { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
+                        { role: "user", content: prompt }
+                    ],
+                    temperature: 0.1
+                })
+              });
+              if (!pRes.ok) throw new Error(`Status ${pRes.status}`);
+              const pJson = await pRes.json();
+              aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
+              usedProvider = 'Perplexity Sonar';
+          } catch (e: any) {
+              addLog(`Perplexity Failed (${e.message}). Using Default Protocol.`, "err");
+          }
+      }
+
+      // 3. Process Result
+      if (aiResult) {
+          setAiProposal(aiResult);
+          setMinPrice(aiResult.suggestedPrice);
+          setMinVolume(aiResult.suggestedVolume);
+          addLog(`Strategy Generated by ${usedProvider}: [${aiResult.regime}]`, "ok");
+          setActiveAi(usedProvider);
+      } else {
+          // Default Fallback
+          setAiError("All AI Nodes Unresponsive. Default filters applied.");
+          setMinPrice(2.0);
+          setMinVolume(500000);
+          setActiveAi('Default Logic');
+      }
+
     } catch (e: any) {
-      const errorMsg = e.message?.includes("429") ? "API 할당량 초과 (잠시 후 다시 시도)" : e.message;
-      setAiError(errorMsg);
-      addLog(`AI Node Warning: ${errorMsg}`, "warn");
-      // 에러 시에도 기본 필터는 유지
-      setMinPrice(2.0);
-      setMinVolume(500000);
+      setAiError(e.message);
+      addLog(`Critical Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
       setIsAnalyzing(false);
@@ -169,7 +234,7 @@ const PreliminaryFilter: React.FC = () => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       
       const payload = {
-        manifest: { version: "2.0.1", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
+        manifest: { version: "2.1.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
         investable_universe: filtered
       };
 
@@ -215,14 +280,14 @@ const PreliminaryFilter: React.FC = () => {
                 <svg className={`w-6 h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.0.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.1.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
-                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-emerald-500/20 bg-emerald-500/10 text-emerald-400 uppercase tracking-widest">
-                     {isAnalyzing ? 'Analyzing Macro...' : aiProposal?.regime || 'Awaiting Sync'}
+                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
+                     {isAnalyzing ? `Analyzing via ${activeAi}...` : activeAi !== 'Standby' ? `Active Brain: ${activeAi}` : 'System Standby'}
                    </span>
                    {aiError && (
                      <span className="text-[8px] font-black px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-400 uppercase tracking-widest">
-                       AI_OFFLINE: {aiError}
+                       AI_OFFLINE
                      </span>
                    )}
                 </div>
@@ -234,14 +299,14 @@ const PreliminaryFilter: React.FC = () => {
                 disabled={loading}
                 className={`px-8 py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
               >
-                {isAnalyzing ? 'Grounding...' : 'Sync & AI Baseline'}
+                {isAnalyzing ? 'Thinking...' : 'Sync & AI Analysis'}
               </button>
               <button 
                 onClick={commitPurification} 
                 disabled={loading || rawUniverse.length === 0}
                 className={`px-12 py-5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50`}
               >
-                {loading ? 'Processing...' : 'Run Purification & Commit'}
+                {loading ? 'Processing...' : 'Commit Filter'}
               </button>
             </div>
           </div>
@@ -335,7 +400,7 @@ const PreliminaryFilter: React.FC = () => {
                   <div className="flex items-center space-x-3">
                     <div className={`w-2 h-2 rounded-full animate-pulse ${aiError ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
                     <h4 className={`text-[10px] font-black uppercase tracking-[0.4em] ${aiError ? 'text-red-500' : 'text-emerald-500'}`}>
-                      {aiError ? 'AI Node Error Response' : `AI Strategic Reasoning — ${aiProposal?.regime}`}
+                      {aiError ? 'AI Node Error Response' : `AI Reasoning (${activeAi}) — ${aiProposal?.regime}`}
                     </h4>
                   </div>
                </div>
