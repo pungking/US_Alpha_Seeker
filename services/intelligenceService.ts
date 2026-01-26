@@ -111,6 +111,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 - investmentOutlook (상세 마크다운), aiSentiment, analysisLogic, chartPattern
 - supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
+주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
 한국어로 응답하고 오직 JSON 배열만 출력하세요.`;
 
   try {
@@ -154,11 +155,13 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const prompt = `[퀀트 백테스트 시뮬레이션]
 종목: ${stock.symbol} / 현재가: ${stock.price} / 진입지지: ${stock.supportLevel} / 목표저항: ${stock.resistanceLevel}
 지난 2년간의 역사적 변동성을 반영하여 위 전략의 성과를 시뮬레이션하고 결과를 JSON으로 출력하세요.
+
 중요 지침:
 1. equityCurve는 반드시 정확히 12개의 데이터 포인트를 가져야 합니다.
-2. period 필드는 'Month 01', 'Month 02' 처럼 순차적인 라벨을 반드시 포함하십시오. 절대 비우지 마세요.
-3. value는 기호(%) 없이 순수 숫자(number)여야 합니다.
-4. 한국어로 응답하고 반드시 제공된 JSON 스키마를 준수하십시오.`;
+2. period 필드는 'Month 01', 'Month 02' 처럼 순차적인 라벨을 반드시 포함하십시오.
+3. value는 절대 N/A나 NaN이어서는 안 되며, 기호(%) 없이 순수 숫자(number)여야 합니다.
+4. 모든 수익률은 누적(Cumulative) 수익률로 계산하십시오.
+5. 한국어로 응답하고 반드시 제공된 JSON 스키마를 준수하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -208,7 +211,7 @@ export async function analyzePipelineStatus(data: {
 대상 포트폴리오 자산: ${symbolsContext}
 
 [보고서 작성 필수 지침]
-1. 언어: 100% 한글로만 작성하십시오. 영어 병기는 전문 용어 외엔 지양하세요.
+1. 언어: 100% 한글로만 작성하십시오.
 2. 태도: 확신에 찬 분석을 내놓으십시오.
 3. 리포트 상단: "분석 기준일: ${today}"를 명시하십시오.
 4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 포함하십시오.

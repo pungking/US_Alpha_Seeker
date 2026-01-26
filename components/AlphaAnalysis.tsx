@@ -50,7 +50,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.5.0: Runtime Stability & Chart Guard Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.6.0: Layout Optimization & Fault Tolerance Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -61,7 +61,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
-    setSelectedStock(cached && cached.length > 0 ? cached[0] : null);
+    if (cached && cached.length > 0 && !selectedStock) {
+      setSelectedStock(cached[0]);
+    }
   }, [selectedBrain, resultsCache]);
 
   useEffect(() => {
@@ -92,16 +94,27 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const executeAlphaFinalization = async () => {
     if (loading) return;
-    addLog(`[SIGNAL] Alpha Finalization Request Initiated.`, "info");
+    addLog(`[SIGNAL] Alpha Engine Core Booting...`, "info");
     
     setLoading(true);
     try {
-      if (elite50.length === 0) {
-        await loadStage5Data();
+      let currentUniverse = elite50;
+      if (currentUniverse.length === 0) {
+        const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
+        const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        }).then(r => r.json());
+        if (listRes.files?.length) {
+          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }).then(r => r.json());
+          currentUniverse = content.ict_universe || [];
+          setElite50(currentUniverse);
+        }
       }
       
-      const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates found in Stage 5.");
+      const topCandidates = [...currentUniverse].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
+      if (topCandidates.length === 0) throw new Error("No candidates detected in Stage 5 Vault.");
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
@@ -122,7 +135,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`Alpha Discovery: Strategic Matrix Finalized.`, "ok");
+      addLog(`Alpha Discovery: High-Conviction Matrix Generated.`, "ok");
     } catch (e: any) { 
       addLog(`Discovery Node Failure: ${e.message}`, "err"); 
     } finally { 
@@ -133,7 +146,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const executeBacktest = async (stock: AlphaCandidate) => {
     if (backtestLoading || !stock) return;
     
-    // 버튼 클릭 즉시 시각적 피드백
     addLog(`[SIGNAL] Quant Backtest Protocol for ${stock.symbol} engaged.`, "info");
     setBacktestLoading(true);
 
@@ -145,24 +157,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         throw new Error("Invalid response format from AI node.");
       }
 
-      // [CRITICAL FIX] 데이터 가공 시 NaN 방지 가드 강화
+      // [CRITICAL] NaN 방지를 위한 3중 검증 파싱
       const sanitizedCurve = data.equityCurve.map((point: any, idx: number) => {
-        let rawVal = point.value;
-        if (typeof rawVal !== 'number') {
-          const parsed = parseFloat(String(rawVal).replace(/[^-0-9.]/g, ''));
-          rawVal = isNaN(parsed) ? 0 : parsed;
+        let val = point.value;
+        if (typeof val !== 'number') {
+          const rawString = String(val || '0').replace(/[^-0-9.]/g, '');
+          val = parseFloat(rawString);
         }
+        if (isNaN(val) || val === null || val === undefined) val = 0;
+        
         return {
-          period: point.period || `P${String(idx + 1).padStart(2, '0')}`,
-          value: rawVal
+          period: String(point.period || `M${idx + 1}`),
+          value: Number(val.toFixed(2))
         };
       });
 
+      // 데이터가 완전히 비어있는 경우를 대비한 최소값 세팅
+      const finalCurve = sanitizedCurve.length > 0 ? sanitizedCurve : [{ period: 'START', value: 0 }];
+
       setBacktestData(prev => ({ 
         ...prev, 
-        [stock.symbol]: { ...data, equityCurve: sanitizedCurve } 
+        [stock.symbol]: { ...data, equityCurve: finalCurve } 
       }));
-      addLog(`Backtest Successful: ${sanitizedCurve.length} data points mapped.`, "ok");
+      addLog(`Backtest Confirmed: ${finalCurve.length} periods validated.`, "ok");
     } catch (e: any) { 
       addLog(`Backtest Node Failure: ${e.message}`, "err"); 
     } finally { 
@@ -183,8 +200,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 pointer-events-none ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div className="pointer-events-none">
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.5.0</h2>
-                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Engine</p>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.6.0</h2>
+                <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Matrix</p>
               </div>
             </div>
             <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
@@ -195,157 +212,166 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               ))}
             </div>
             <button 
-              onClick={(e) => { e.preventDefault(); executeAlphaFinalization(); }} 
+              onClick={(e) => { e.preventDefault(); e.stopPropagation(); executeAlphaFinalization(); }} 
               disabled={loading} 
-              className={`px-8 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 text-white hover:brightness-125 active:scale-95'}`}
+              className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all relative overflow-hidden ${loading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 cursor-pointer group'}`}
             >
-              <span className="pointer-events-none">{loading ? 'Synthesizing...' : 'Execute Alpha Engine'}</span>
+              <span className="relative z-10 pointer-events-none">{loading ? 'SYNTESIZING...' : 'EXECUTE ALPHA ENGINE'}</span>
+              {!loading && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>}
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
              {currentResults.length > 0 ? currentResults.map((item, idx) => (
-               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[24px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[190px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_20px_rgba(244,63,94,0.1)]' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}>
+               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[30px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[210px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_30px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/30 hover:bg-white/5'}`}>
                   <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
-                       <span className="text-[7px] font-black text-slate-600 uppercase">#{idx + 1}</span>
-                       <h4 className="text-2xl font-black text-white italic uppercase tracking-tighter">{item.symbol}</h4>
-                       <span className="text-sm font-black text-rose-500 italic">({item.convictionScore?.toFixed(1)}%)</span>
+                       <span className="text-[8px] font-black text-slate-600 uppercase">#{idx + 1}</span>
+                       <h4 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">{item.symbol}</h4>
+                       <span className="text-xs font-black text-rose-500 italic mt-1">({item.convictionScore?.toFixed(1)}%)</span>
                      </div>
-                     <span className="text-[9px] font-mono font-black text-white bg-white/5 px-2 py-1 rounded-md shadow-sm">${item.price?.toFixed(2)}</span>
+                     <span className="text-[10px] font-mono font-black text-white bg-white/5 px-2.5 py-1 rounded-md shadow-sm border border-white/5">${item.price?.toFixed(2)}</span>
                   </div>
-                  <p className="text-[7px] font-bold text-slate-500 uppercase tracking-widest truncate mb-4 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
-                  <div className="grid grid-cols-3 gap-1 py-2 bg-black/20 rounded-lg px-2 border border-white/5 flex-grow pointer-events-none">
-                    <div className="text-center">
-                      <p className="text-[5px] font-black text-emerald-500 uppercase mb-0.5">Entry</p>
-                      <p className="text-[8px] font-mono font-black text-white">${item.supportLevel?.toFixed(2)}</p>
+                  <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-4 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
+                  
+                  {/* [FIX] 지지/저항/손절 공간 밀도 및 폰트 크기 대폭 확대 */}
+                  <div className="grid grid-cols-3 gap-2 py-3 bg-black/40 rounded-2xl px-3 border border-white/10 flex-grow pointer-events-none">
+                    <div className="text-center flex flex-col justify-center">
+                      <p className="text-[8px] font-black text-emerald-500 uppercase mb-1">Entry</p>
+                      <p className="text-sm md:text-base font-mono font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1)}</p>
                     </div>
-                    <div className="text-center border-x border-white/5">
-                      <p className="text-[5px] font-black text-blue-500 uppercase mb-0.5">Target</p>
-                      <p className="text-[8px] font-mono font-black text-white">${item.resistanceLevel?.toFixed(2)}</p>
+                    <div className="text-center border-x border-white/10 flex flex-col justify-center">
+                      <p className="text-[8px] font-black text-blue-500 uppercase mb-1">Target</p>
+                      <p className="text-sm md:text-base font-mono font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1)}</p>
                     </div>
-                    <div className="text-center">
-                      <p className="text-[5px] font-black text-rose-500 uppercase mb-0.5">Stop</p>
-                      <p className="text-[8px] font-mono font-black text-white">${item.stopLoss?.toFixed(2)}</p>
+                    <div className="text-center flex flex-col justify-center">
+                      <p className="text-[8px] font-black text-rose-500 uppercase mb-1">Stop</p>
+                      <p className="text-sm md:text-base font-mono font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1)}</p>
                     </div>
                   </div>
-                  <div className="flex justify-between items-end mt-2 pointer-events-none">
+
+                  <div className="flex justify-between items-end mt-3 pointer-events-none">
                      <div className="flex items-center gap-2">
-                        <span className="text-[6px] font-black text-slate-600 uppercase">Exp. Return</span>
-                        <span className="text-[10px] font-black text-blue-400">{item.expectedReturn}</span>
+                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest">Exp. Return</span>
+                        <span className="text-xs font-black text-blue-400">{item.expectedReturn}</span>
                      </div>
-                     <span className={`px-2 py-0.5 rounded text-[7px] font-black uppercase tracking-tighter ${item.aiVerdict === 'STRONG_BUY' ? 'bg-emerald-500/20 text-emerald-400' : 'bg-blue-500/20 text-blue-400'}`}>
+                     <span className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-tighter ${item.aiVerdict === 'STRONG_BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' : 'bg-blue-500/20 text-blue-400 border border-blue-500/20'}`}>
                        {item.aiVerdict}
                      </span>
                   </div>
                </div>
              )) : (
-               <div className="col-span-full flex flex-col items-center justify-center py-12 opacity-20 space-y-3">
-                  <div className="w-10 h-10 border border-dashed border-slate-600 rounded-full animate-pulse"></div>
-                  <p className="text-[7px] font-black uppercase tracking-[0.3em] text-slate-400">Awaiting Discovery Protocol...</p>
+               <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20 space-y-4">
+                  <div className="w-12 h-12 border-2 border-dashed border-slate-600 rounded-full animate-pulse flex items-center justify-center">
+                    <div className="w-4 h-4 bg-slate-600 rounded-full"></div>
+                  </div>
+                  <p className="text-[8px] font-black uppercase tracking-[0.5em] text-slate-400">Synchronizing Discovery Protocol...</p>
                </div>
              )}
           </div>
         </div>
 
         {selectedStock && (
-          <div className="glass-panel p-8 md:p-10 rounded-[40px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in duration-500 shadow-3xl">
-             <div className="space-y-8">
-                <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
-                   <div className="flex items-center gap-6">
-                      <h3 className="text-5xl font-black text-white italic uppercase tracking-tighter">{selectedStock.symbol}</h3>
+          <div className="glass-panel p-8 md:p-12 rounded-[50px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in duration-700 shadow-3xl">
+             <div className="space-y-10">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center gap-8">
+                   <div className="flex items-center gap-8">
+                      <h3 className="text-6xl font-black text-white italic uppercase tracking-tighter">{selectedStock.symbol}</h3>
                       <div className="flex flex-col">
-                        <span className="px-4 py-1 bg-rose-600 text-white text-[8px] font-black rounded-full uppercase italic tracking-widest mb-1 shadow-lg">{selectedStock.aiVerdict}</span>
-                        <span className="text-[9px] font-bold text-slate-500 uppercase tracking-wider">{selectedStock.name}</span>
+                        <span className="px-5 py-1.5 bg-rose-600 text-white text-[10px] font-black rounded-full uppercase italic tracking-widest mb-1 shadow-lg border border-white/10">{selectedStock.aiVerdict}</span>
+                        <span className="text-xs font-bold text-slate-500 uppercase tracking-widest">{selectedStock.name}</span>
                       </div>
                    </div>
-                   <div className="ml-auto bg-white/5 px-6 py-3 rounded-[20px] border border-white/10 text-center min-w-[120px]">
-                      <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Confidence</p>
-                      <p className="text-xl font-black text-emerald-400 italic">{selectedStock.convictionScore?.toFixed(1)}%</p>
+                   <div className="ml-auto bg-black/40 px-8 py-4 rounded-[28px] border border-white/10 text-center min-w-[150px] shadow-inner">
+                      <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-1">AI Confidence</p>
+                      <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore?.toFixed(1)}%</p>
                    </div>
                 </div>
 
-                <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                   <div className="lg:col-span-3 space-y-6">
-                      <div className="bg-black/60 rounded-[32px] border border-white/5 aspect-video overflow-hidden shadow-inner relative">
-                         <iframe title="Live Chart" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1&timezone=Etc%2FUTC`} className="w-full h-full border-none opacity-80" />
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-10">
+                   <div className="lg:col-span-3 space-y-8">
+                      <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative">
+                         <iframe title="Live Chart" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1&timezone=Etc%2FUTC`} className="w-full h-full border-none opacity-90" />
                       </div>
-                      <div className="p-8 bg-white/5 rounded-[32px] border border-white/5">
-                         <h4 className="text-[9px] font-black text-rose-500 uppercase tracking-widest mb-4 italic underline underline-offset-8">Strategy Outlook</h4>
-                         <div className="prose-report text-xs text-slate-300 leading-relaxed italic">
+                      <div className="p-10 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
+                         <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-[12px]">Neural Investment Strategy</h4>
+                         <div className="prose-report text-sm text-slate-300 leading-relaxed italic">
                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedStock.investmentOutlook || ""}</ReactMarkdown>
                          </div>
                       </div>
                    </div>
-                   <div className="lg:col-span-2 space-y-6">
-                      <div className="p-6 bg-black/20 rounded-[32px] border border-white/5">
-                         <h4 className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-4 italic">Selection Rationale</h4>
-                         <ul className="space-y-3">
+                   <div className="lg:col-span-2 space-y-8">
+                      <div className="p-8 bg-black/30 rounded-[40px] border border-white/5">
+                         <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.4em] mb-6 italic">Alpha Rationale</h4>
+                         <ul className="space-y-4">
                             {selectedStock.selectionReasons?.map((r, i) => (
-                              <li key={i} className="flex items-start space-x-3">
-                                 <div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1 shrink-0"></div>
-                                 <p className="text-[10px] font-bold text-slate-300 leading-snug uppercase tracking-tight">{r}</p>
+                              <li key={i} className="flex items-start space-x-4">
+                                 <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]"></div>
+                                 <p className="text-xs font-bold text-slate-200 leading-relaxed uppercase tracking-tight">{r}</p>
                               </li>
                             ))}
                          </ul>
                       </div>
-                      <div className="p-6 bg-black/60 rounded-[32px] border border-white/5 border-l-4 border-l-rose-500 shadow-xl">
-                         <h4 className="text-[8px] font-black text-slate-600 uppercase mb-2 tracking-widest italic">Core Analysis Logic</h4>
-                         <p className="text-[9px] text-slate-400 leading-relaxed font-mono italic uppercase tracking-tighter">{selectedStock.analysisLogic}</p>
+                      <div className="p-8 bg-black/60 rounded-[40px] border border-white/10 border-l-8 border-l-rose-600 shadow-2xl">
+                         <h4 className="text-[9px] font-black text-slate-600 uppercase mb-3 tracking-[0.3em] italic">Engine Core Logic</h4>
+                         <p className="text-xs text-slate-400 leading-relaxed font-mono italic uppercase tracking-tighter">{selectedStock.analysisLogic}</p>
                       </div>
                    </div>
                 </div>
 
-                <div className="pt-8 border-t border-white/5">
-                   <div className="flex justify-between items-center mb-6">
-                      <h4 className="text-[9px] font-black text-emerald-500 uppercase tracking-[0.4em] italic">Quant_Backtest_Protocol</h4>
+                <div className="pt-10 border-t border-white/10">
+                   <div className="flex justify-between items-center mb-8">
+                      <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.5em] italic">Quant_Backtest_Protocol</h4>
                       <button 
-                        onClick={(e) => { e.preventDefault(); executeBacktest(selectedStock); }} 
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); executeBacktest(selectedStock); }} 
                         disabled={backtestLoading} 
-                        className={`px-8 py-3 rounded-xl text-[9px] font-black uppercase tracking-widest border transition-all ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:brightness-125 shadow-xl active:scale-95'}`}
+                        className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-2xl relative group ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white active:scale-95 cursor-pointer'}`}
                       >
-                        <span className="pointer-events-none">{backtestLoading ? 'Processing...' : 'Run Simulation'}</span>
+                        <span className="relative z-10 pointer-events-none">{backtestLoading ? 'SIMULATING...' : 'RUN SIMULATION'}</span>
+                        {!backtestLoading && <div className="absolute inset-0 bg-emerald-500 opacity-0 group-hover:opacity-10 transition-opacity"></div>}
                       </button>
                    </div>
+                   
                    {currentBacktest && currentBacktest.equityCurve && (
-                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 animate-in zoom-in-95 duration-500">
-                        <div className="space-y-3">
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 animate-in slide-in-from-bottom-6 duration-700">
+                        <div className="space-y-4">
                            {[
-                             { l: '승률 (Win Rate)', v: currentBacktest.metrics.winRate, c: 'text-emerald-400' },
-                             { l: '손익비 (PF)', v: currentBacktest.metrics.profitFactor, c: 'text-blue-400' },
-                             { l: '최대 낙폭 (MDD)', v: currentBacktest.metrics.maxDrawdown, c: 'text-rose-400' },
-                             { l: '샤프 지수 (Sharpe)', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
+                             { l: 'WIN RATE', v: currentBacktest.metrics.winRate, c: 'text-emerald-400' },
+                             { l: 'PROFIT FACTOR', v: currentBacktest.metrics.profitFactor, c: 'text-blue-400' },
+                             { l: 'MAX DRAWDOWN', v: currentBacktest.metrics.maxDrawdown, c: 'text-rose-400' },
+                             { l: 'SHARPE RATIO', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
                            ].map((m, i) => (
-                             <div key={i} className="p-4 bg-white/5 rounded-[16px] border border-white/10 flex justify-between items-center">
-                                <span className="text-[8px] font-black text-slate-400 uppercase tracking-widest">{m.l}</span>
-                                <span className={`text-lg font-black ${m.c} italic`}>{m.v}</span>
+                             <div key={i} className="p-5 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all">
+                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] group-hover:text-slate-300">{m.l}</span>
+                                <span className={`text-xl font-black ${m.c} italic`}>{m.v}</span>
                              </div>
                            ))}
                         </div>
-                        <div className="lg:col-span-2 flex flex-col gap-6">
-                           {/* [FIX] 차트 영역 높이 강제 및 데이터 검증 */}
-                           <div className="w-full bg-black/40 rounded-[32px] border border-white/5 p-6 relative overflow-hidden" style={{ height: '320px' }}>
-                              {currentBacktest.equityCurve.length > 0 ? (
+                        <div className="lg:col-span-2 flex flex-col gap-8">
+                           {/* [FIX] 차트 영역을 데이터 안정성 가드로 래핑하여 블랙스크린 방지 */}
+                           <div className="w-full bg-black/60 rounded-[40px] border border-white/10 p-8 relative overflow-hidden shadow-3xl" style={{ height: '360px' }}>
+                              {currentBacktest.equityCurve && currentBacktest.equityCurve.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
-                                   <AreaChart data={currentBacktest.equityCurve} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                   <AreaChart data={currentBacktest.equityCurve} margin={{ top: 20, right: 20, left: -10, bottom: 0 }}>
                                       <defs>
                                          <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
                                             <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                                          </linearGradient>
                                       </defs>
-                                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                      <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} />
-                                      <YAxis stroke="#475569" fontSize={8} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v || 0)}%`} />
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
+                                      <XAxis dataKey="period" stroke="#334155" fontSize={9} tickLine={false} axisLine={false} dy={15} />
+                                      <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
                                       <Tooltip 
-                                        contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff20', borderRadius: '12px', fontSize: '10px', color: '#fff', fontWeight: 'bold' }}
-                                        formatter={(val: any) => [`${(Number(val) || 0).toFixed(2)}%`, 'Cumulative Return']}
+                                        contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '16px', fontSize: '11px', color: '#fff', fontWeight: '900', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}
+                                        itemStyle={{ color: '#10b981' }}
+                                        formatter={(val: any) => [`${Number(val || 0).toFixed(2)}%`, 'Cumulative Return']}
                                       />
                                       <Area 
                                         type="monotone" 
                                         dataKey="value" 
                                         stroke="#10b981" 
-                                        strokeWidth={3} 
+                                        strokeWidth={4} 
                                         fillOpacity={1} 
                                         fill="url(#colorVal)" 
                                         isAnimationActive={false} 
@@ -353,12 +379,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                    </AreaChart>
                                 </ResponsiveContainer>
                               ) : (
-                                <div className="flex items-center justify-center h-full text-slate-700 font-mono text-[8px] uppercase tracking-[0.4em]">Empty Dataset Detected</div>
+                                <div className="flex items-center justify-center h-full text-slate-800 font-mono text-[10px] uppercase tracking-[0.5em] animate-pulse">Awaiting Signal Integrity...</div>
                               )}
                            </div>
-                           <div className="p-8 bg-emerald-500/5 rounded-[32px] border border-emerald-500/10">
-                              <p className="text-[8px] font-black text-emerald-400 uppercase tracking-widest mb-2 italic">Simulation Context</p>
-                              <p className="text-[10px] text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight">{currentBacktest.historicalContext}</p>
+                           <div className="p-10 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner">
+                              <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-3 italic">Simulation Intelligence Insight</p>
+                              <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight">{currentBacktest.historicalContext}</p>
                            </div>
                         </div>
                      </div>
@@ -370,13 +396,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[660px] rounded-[32px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-6 px-1">
-            <h3 className="font-black text-white text-[9px] uppercase tracking-[0.3em] italic">Alpha_Terminal</h3>
+        <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
+          <div className="flex items-center justify-between mb-8 px-2">
+            <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic">Alpha_Terminal</h3>
           </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-5 rounded-[24px] font-mono text-[8px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-3 border border-white/5 leading-relaxed">
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-3 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
