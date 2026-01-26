@@ -90,7 +90,7 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000)
   try { return await fn(); } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
     if (msg === 'load failed' || msg === 'failed to fetch') {
-      throw new Error("Network Error. If local, ensure 'vercel dev' is running. If prod, check Vercel logs.");
+      throw new Error("CORS/Network Error. Browser blocked the request.");
     }
     if (retries > 0 && (msg.includes("429") || msg.includes("quota") || msg.includes("limit") || msg.includes("exhausted"))) {
       await new Promise(r => setTimeout(r, delay));
@@ -134,15 +134,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Use Vercel Proxy to avoid CORS
-      const endpoint = '/api/perplexity'; 
-      
-      const res = await fetch(endpoint, {
+      // Reverted to Direct Client-side Fetch
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
             'Authorization': `Bearer ${apiKey}` 
         },
+        // 'mode: cors' is default. If user has extension, this works.
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
@@ -154,8 +153,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       });
 
       if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          return { data: null, error: `HTTP_${res.status}: ${errData.error || 'Proxy Connection Failed'}` };
+        return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
       }
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
@@ -204,10 +202,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Use Vercel Proxy
-      const endpoint = '/api/perplexity';
-
-      const res = await fetch(endpoint, {
+      // Reverted to Direct Client-side Fetch
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
@@ -223,8 +219,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         })
       });
       if (!res.ok) {
-          const errData = await res.json().catch(() => ({}));
-          return { data: null, error: `HTTP_${res.status}: ${errData.error || 'Proxy Error'}` };
+        return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
       }
       const json = await res.json();
       return { data: sanitizeAndParseJson(json.choices?.[0]?.message?.content) };
@@ -271,8 +266,8 @@ export async function analyzePipelineStatus(data: {
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Use Vercel Proxy
-      const res = await fetch('/api/perplexity', {
+      // Reverted to Direct Client-side Fetch
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 

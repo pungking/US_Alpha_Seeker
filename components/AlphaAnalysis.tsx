@@ -106,7 +106,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.8: Sonar Pro Active (Vercel Proxy).']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.8: Sonar Pro Active (Direct).']);
   
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
 
@@ -218,8 +218,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
     } catch (e: any) { 
         let msg = e.message;
-        if (msg.includes('404')) {
-             msg = "API Route Error: 'vercel dev' must be running locally to support Perplexity Proxy.";
+        if (msg.includes('Load failed') || msg.includes('Failed to fetch')) {
+             msg = "Network/CORS Error: Please check if 'Allow CORS' extension is enabled.";
         }
         addLog(`Engine Error: ${msg}`, "err"); 
         setSelectedStock(null);
@@ -276,8 +276,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
       let msg = e.message;
-      if (msg.includes('404')) {
-           msg = "API Route Error: 'vercel dev' needed for Perplexity.";
+      if (msg.includes('Load failed') || msg.includes('Failed to fetch')) {
+           msg = "Network/CORS Error: Check 'Allow CORS' extension.";
       }
       addLog(`Quant Error: ${msg}`, "err");
     }
