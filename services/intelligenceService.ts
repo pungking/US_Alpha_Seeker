@@ -145,7 +145,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       }).catch(err => {
-         throw new Error("Network Error (CORS). Try switching to Gemini.");
+         // Explicitly identify CORS errors
+         if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
+             throw new Error("CORS/Network Error. Browser blocked Perplexity API.");
+         }
+         throw err;
       });
 
       if (!res.ok) return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
@@ -208,7 +212,10 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
           temperature: 0.1
         })
       }).catch(err => {
-         throw new Error("Network Error (CORS). Try switching to Gemini.");
+         if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
+             throw new Error("CORS/Network Error. Browser blocked Perplexity API.");
+         }
+         throw err;
       });
       if (!res.ok) return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
       const json = await res.json();

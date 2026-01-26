@@ -4,7 +4,6 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import { ApiProvider } from '../types';
-import { API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest } from '../services/intelligenceService';
 
 interface AlphaCandidate {
@@ -71,7 +70,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.8.0: Layout & State Optimized.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.0: Ghosting Fix & UI Restore.']);
   
   // Selected Metric Info State
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
@@ -83,15 +82,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // [FIX] 잔상 제거: 브레인 변경 시 캐시가 없으면 선택된 주식을 초기화
+  // [FIX] useEffect handles initial stock selection from cache, but explicit switching is handled in handleSwitchBrain
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
-      // 캐시가 있는데 현재 선택된 주식이 없거나, 현재 선택된 주식이 캐시 목록에 없으면 첫 번째 항목 선택
-      const exists = selectedStock && cached.find(c => c.symbol === selectedStock.symbol);
-      if (!exists) setSelectedStock(cached[0]);
+      if (!selectedStock || !cached.find(c => c.symbol === selectedStock.symbol)) {
+        setSelectedStock(cached[0]);
+      }
     } else {
-      // 캐시가 없으면 화면을 비움 (로딩 전 상태)
+      // If no cache for this brain, clear selection to prevent ghosting
       setSelectedStock(null);
     }
   }, [selectedBrain, resultsCache]);
@@ -108,6 +107,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
+  };
+
+  // [FIX] Explicit function to handle brain switching and clear state immediately
+  const handleSwitchBrain = (brain: ApiProvider) => {
+    if (brain === selectedBrain) return;
+    
+    // 1. Change Brain
+    setSelectedBrain(brain);
+    
+    // 2. Clear current stock immediately to prevent ghosting
+    // (useEffect will restore it if cache exists, but this ensures a clean slate transition)
+    setSelectedStock(null); 
+    
+    // 3. Clear metric info
+    setSelectedMetricInfo(null);
+    
+    addLog(`Switched to ${brain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}.`, 'info');
   };
 
   const loadStage5Data = async () => {
@@ -131,33 +147,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (loading) return;
     
-    addLog(`[SIGNAL] Initializing Alpha Sieve Engine...`, "info");
+    addLog(`[SIGNAL] Initializing Alpha Sieve Engine (${selectedBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar'})...`, "info");
     setLoading(true);
 
     try {
       let currentUniverse = elite50;
       if (currentUniverse.length === 0) {
-        if (!accessToken) throw new Error("Cloud Vault Disconnected. Please re-authenticate.");
-        
+        // ... (Existing Drive loading logic) ...
+        if (!accessToken) throw new Error("Cloud Vault Disconnected.");
         const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
         const listResRaw = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         });
-        
-        if (!listResRaw.ok) throw new Error(`Drive List Failed (HTTP ${listResRaw.status})`);
+        if (!listResRaw.ok) throw new Error(`Drive List Failed`);
         const listRes = await listResRaw.json();
-
         if (listRes.files?.length) {
-          const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-          });
-          if (!contentRes.ok) throw new Error(`Drive Content Failed (HTTP ${contentRes.status})`);
-          
-          const content = await contentRes.json();
+          }).then(r => r.json());
           currentUniverse = content.ict_universe || [];
           setElite50(currentUniverse);
         } else {
-          throw new Error("No Stage 5 Data Found. Run Stage 5 first.");
+          throw new Error("No Stage 5 Data Found.");
         }
       }
 
@@ -185,11 +196,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
     } catch (e: any) { 
         let msg = e.message;
-        if (msg === 'Load failed' || msg === 'Failed to fetch') {
-            msg = "Network/CORS Error. If using Sonar, switch to Gemini.";
+        if (msg.includes('Network') || msg.includes('CORS') || msg.includes('Failed to fetch')) {
+            msg = "CORS Error: Sonar Pro cannot be called from browser. Use Gemini.";
         }
         addLog(`Engine Error: ${msg}`, "err"); 
-        // 에러 발생 시 현재 선택된 주식을 초기화하여 이전 잔상이 남지 않게 함
+        // Force clear to avoid showing stale data from another brain
         setSelectedStock(null);
     }
     finally { setLoading(false); }
@@ -226,10 +237,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       });
 
       const safeMetrics = data.metrics || {
-        winRate: "N/A",
-        profitFactor: "N/A",
-        maxDrawdown: "N/A",
-        sharpeRatio: "N/A"
+        winRate: "N/A", profitFactor: "N/A", maxDrawdown: "N/A", sharpeRatio: "N/A"
       };
 
       const safeContext = data.historicalContext || "Analysis data unavailable.";
@@ -247,7 +255,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
       let msg = e.message;
-      if (msg === 'Load failed' || msg === 'Failed to fetch') msg = "Network Error. Try again.";
+      if (msg.includes('Network') || msg.includes('CORS') || msg.includes('Failed to fetch')) {
+        msg = "CORS Error: Sonar Pro blocked by browser. Use Gemini.";
+      }
       addLog(`Quant Error: ${msg}`, "err");
     }
     finally { 
@@ -298,6 +308,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
+        {/* HEADER & BRAIN SELECTOR */}
         <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
             <div className="flex items-center space-x-6">
@@ -305,13 +316,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.8.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
             <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
               {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
-                <button key={p} onClick={() => setSelectedBrain(p)} className={`px-4 py-2 rounded-lg text-[8px] font-black uppercase transition-all flex items-center gap-2 ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                <button 
+                    key={p} 
+                    onClick={() => handleSwitchBrain(p)} 
+                    className={`px-4 py-2 rounded-lg text-[8px] font-black uppercase transition-all flex items-center gap-2 ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
+                >
                   {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
                 </button>
               ))}
@@ -370,7 +385,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   <div className="w-12 h-12 border-2 border-dashed border-slate-600 rounded-full animate-pulse flex items-center justify-center">
                     <div className="w-4 h-4 bg-slate-600 rounded-full"></div>
                   </div>
-                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-400">Awaiting Discovery Protocol...</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-400">
+                    {loading ? 'Executing Neural Analysis...' : 'Awaiting Discovery Protocol...'}
+                  </p>
                </div>
              )}
           </div>
@@ -379,6 +396,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         {selectedStock && (
           <div className="glass-panel p-6 md:p-8 rounded-[50px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in duration-700 shadow-3xl">
              <div className="space-y-6">
+                {/* STOCK HEADER INFO */}
                 <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
                    <div className="flex items-end gap-6">
                       <h3 className="text-5xl lg:text-6xl font-black text-white italic uppercase tracking-tighter leading-none">{selectedStock.symbol}</h3>
@@ -426,6 +444,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                 </div>
 
+                {/* BACKTESTING SECTION */}
                 <div className="pt-8 border-t border-white/10">
                    <div className="flex justify-between items-center mb-6">
                       <div>
@@ -445,8 +464,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    
                    {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-6 duration-700">
-                        {/* [LAYOUT] 좌측: 지표 버튼들 + 상세 설명 박스 */}
+                        {/* [LEFT COLUMN] Metrics Buttons + Detail Box */}
                         <div className="flex flex-col gap-6">
+                            {/* 1. Metrics Buttons */}
                             <div className="space-y-3">
                                {[
                                  { k: 'WIN_RATE', l: '승률 (WIN RATE)', v: currentBacktest.metrics?.winRate || 'N/A', c: 'text-emerald-400' },
@@ -465,7 +485,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                ))}
                             </div>
                             
-                            {/* [BOX 1] Metric Detail Box (버튼 하단 좌측 배치) */}
+                            {/* 2. Metric Detail Box (Below Buttons) */}
                             <div className="p-6 bg-blue-500/5 rounded-[30px] border border-blue-500/10 shadow-inner flex-1 flex flex-col justify-center min-h-[150px]">
                                 {selectedMetricInfo ? (
                                     <div className="animate-in fade-in slide-in-from-left-4 duration-300">
@@ -484,8 +504,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                         </div>
 
-                        {/* [LAYOUT] 우측: 차트 + 종합 인사이트 */}
+                        {/* [RIGHT COLUMN] Chart + Insight */}
                         <div className="lg:col-span-2 flex flex-col gap-6">
+                           {/* 1. Chart */}
                            <div className="w-full bg-black/80 rounded-[40px] border border-white/10 p-6 relative overflow-hidden shadow-3xl min-h-[350px]">
                               {isChartReady ? (
                                 <ResponsiveContainer width="100%" height={350}>
@@ -529,7 +550,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               )}
                            </div>
                            
-                           {/* [BOX 2] Simulation Intelligence Insight (차트 하단, 동일 너비) */}
+                           {/* 2. Simulation Intelligence Insight (Below Chart) */}
                            <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[150px] flex flex-col justify-center">
                                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
                                <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight hover:text-slate-200 transition-colors">
