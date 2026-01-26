@@ -3,6 +3,8 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS } from "../constants";
 import { ApiProvider } from "../types";
 
+const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
+
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
   items: {
@@ -86,28 +88,23 @@ function sanitizeAndParseJson(text: string): any | null {
   }
 }
 
-// [UPDATED] Robust Retry Logic including 503 and Overloaded checks
-async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 4000): Promise<any> {
+// Retry logic handles network blips, but model fallback is handled in the main functions
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000): Promise<any> {
   try { return await fn(); } catch (error: any) {
-    // Capture the entire error object string if possible to catch nested codes
     const msg = (error.message || JSON.stringify(error)).toLowerCase();
     
+    // Auth/Payment errors should NOT retry
+    if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized')) {
+        throw error; 
+    }
+
     if (msg.includes('load failed') || msg.includes('failed to fetch')) {
       throw new Error("CORS/Network Error. Browser blocked the request.");
     }
 
-    // Check for various overload/limit indicators including 503
-    if (retries > 0 && (
-        msg.includes("429") || 
-        msg.includes("503") || 
-        msg.includes("quota") || 
-        msg.includes("limit") || 
-        msg.includes("exhausted") || 
-        msg.includes("overloaded") || 
-        msg.includes("unavailable")
-    )) {
+    if (retries > 0) {
       await new Promise(r => setTimeout(r, delay));
-      return fetchWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
+      return fetchWithRetry(fn, retries - 1, delay * 2); 
     }
     throw error;
   }
@@ -147,36 +144,50 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // v9.9.8 Specification: Direct Fetch with Headers
-      const res = await fetchWithRetry(async () => {
-          const r = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json' 
-            },
-            referrerPolicy: 'no-referrer', 
-            body: JSON.stringify({
-              model: 'sonar-pro', 
-              messages: [
-                { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
-                { role: "user", content: prompt }
-              ],
-              temperature: 0.1
-            })
-          });
-          
-          if (!r.ok) {
-             const errText = await r.text();
-             throw new Error(`HTTP_${r.status}: ${errText}`);
-          }
-          return r;
-      });
+      let lastError;
+      // Multi-Model Fallback Loop
+      for (const model of PERPLEXITY_MODELS) {
+        try {
+            const res = await fetchWithRetry(async () => {
+                const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Accept': 'application/json' 
+                    },
+                    referrerPolicy: 'no-referrer', 
+                    body: JSON.stringify({
+                        model: model, 
+                        messages: [
+                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                            { role: "user", content: prompt }
+                        ],
+                        temperature: 0.1
+                    })
+                });
+                
+                if (!r.ok) {
+                    const errText = await r.text();
+                    // 402 Payment Required or 401 Unauthorized -> Break loop, don't fallback
+                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                }
+                return r;
+            }, 1, 1000); // Low retry inside loop, rely on model switching
 
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      return { data: sanitizeAndParseJson(content) };
+            const data = await res.json();
+            const content = data.choices?.[0]?.message?.content;
+            const parsed = sanitizeAndParseJson(content);
+            if (parsed) return { data: parsed };
+            
+        } catch (e: any) {
+            console.warn(`Model ${model} failed: ${e.message}`);
+            lastError = e;
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; // Don't try other models if no money
+        }
+      }
+      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) { return { data: null, error: error.message }; }
@@ -221,35 +232,48 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // v9.9.8 Specification: Direct Fetch with Headers
-      const res = await fetchWithRetry(async () => {
-          const r = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json'
-            },
-            referrerPolicy: 'no-referrer',
-            body: JSON.stringify({
-              model: 'sonar-pro',
-              messages: [
-                { role: "system", content: "당신은 전문 퀀트 엔진입니다. 종합 분석(historicalContext) 작성 시 반드시 Markdown 문법을 사용하여 가독성을 높이십시오. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
-                { role: "user", content: prompt }
-              ],
-              temperature: 0.1
-            })
-          });
+      let lastError;
+      // Multi-Model Fallback Loop
+      for (const model of PERPLEXITY_MODELS) {
+        try {
+            const res = await fetchWithRetry(async () => {
+                const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Accept': 'application/json'
+                    },
+                    referrerPolicy: 'no-referrer',
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [
+                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. 종합 분석(historicalContext) 작성 시 반드시 Markdown 문법을 사용하여 가독성을 높이십시오. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
+                            { role: "user", content: prompt }
+                        ],
+                        temperature: 0.1
+                    })
+                });
 
-          if (!r.ok) {
-             const errText = await r.text();
-             throw new Error(`HTTP_${r.status}: ${errText}`);
-          }
-          return r;
-      });
+                if (!r.ok) {
+                    const errText = await r.text();
+                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                }
+                return r;
+            }, 1, 1000);
 
-      const json = await res.json();
-      return { data: sanitizeAndParseJson(json.choices?.[0]?.message?.content) };
+            const json = await res.json();
+            const parsed = sanitizeAndParseJson(json.choices?.[0]?.message?.content);
+            if (parsed) return { data: parsed };
+
+        } catch (e: any) {
+            console.warn(`Model ${model} failed: ${e.message}`);
+            lastError = e;
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break;
+        }
+      }
+      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Simulation Failed"}` };
     }
     return { data: null, error: "NOT_SUPPORTED" };
   } catch (error: any) { return { data: null, error: error.message }; }
@@ -293,31 +317,43 @@ export async function analyzePipelineStatus(data: {
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-       // v9.9.8 Specification: Direct Fetch with Headers
-       const res = await fetchWithRetry(async () => {
-          const r = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json' 
-            },
-            referrerPolicy: 'no-referrer',
-            body: JSON.stringify({
-              model: 'sonar-pro',
-              messages: [{ role: "user", content: prompt }],
-              temperature: 0.2
-            })
-          });
-          if (!r.ok) {
-             const errText = await r.text();
-             throw new Error(`HTTP_${r.status}: ${errText}`);
-          }
-          return r;
-       });
-       
-      const json = await res.json();
-      return json.choices?.[0]?.message?.content || "데이터 수신 오류";
+       let lastError;
+       // Multi-Model Fallback Loop
+       for (const model of PERPLEXITY_MODELS) {
+         try {
+            const res = await fetchWithRetry(async () => {
+                const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Accept': 'application/json' 
+                    },
+                    referrerPolicy: 'no-referrer',
+                    body: JSON.stringify({
+                        model: model,
+                        messages: [{ role: "user", content: prompt }],
+                        temperature: 0.2
+                    })
+                });
+                if (!r.ok) {
+                    const errText = await r.text();
+                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                }
+                return r;
+            }, 1, 1000);
+            
+            const json = await res.json();
+            const text = json.choices?.[0]?.message?.content;
+            if (text) return text;
+         } catch (e: any) {
+            console.warn(`Model ${model} failed: ${e.message}`);
+            lastError = e;
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break;
+         }
+       }
+       return `AUDIT_NODE_OFFLINE: ${lastError?.message || "All models unresponsive"}`;
     }
     return "INVALID_PROVIDER";
   } catch (error: any) { return `AUDIT_NODE_FAILURE: ${error.message}`; }
