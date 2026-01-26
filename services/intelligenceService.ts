@@ -127,7 +127,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "당신은 월가 퀀트입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오." },
+            { role: "system", content: "당신은 월가 퀀트입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록이나 설명 없이 순수 JSON 배열만 반환하세요." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
@@ -135,7 +135,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       });
       if (!res.ok) return { data: null, error: `HTTP_${res.status}` };
       const data = await res.json();
-      return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content) };
+      const content = data.choices?.[0]?.message?.content;
+      return { data: sanitizeAndParseJson(content) };
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) { return { data: null, error: error.message }; }
@@ -149,7 +150,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const prompt = `[퀀트 백테스트 시뮬레이션]
 종목: ${stock.symbol} / 현재가: ${stock.price} / 진입지지: ${stock.supportLevel} / 목표저항: ${stock.resistanceLevel}
 지난 2년간의 역사적 변동성을 반영하여 위 전략의 성과를 시뮬레이션하고 결과를 JSON으로 출력하세요.
-equityCurve(12개월), metrics(승률, PF, MDD, 샤프지수), historicalContext(한국어 요약).`;
+한국어로 응답하고 반드시 다음 JSON 형식을 따르세요: { "equityCurve": [...], "metrics": {...}, "historicalContext": "..." }`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -161,7 +162,7 @@ equityCurve(12개월), metrics(승률, PF, MDD, 샤프지수), historicalContext
       }));
       return { data: sanitizeAndParseJson(result.text) };
     }
-    
+
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
