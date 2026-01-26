@@ -55,6 +55,9 @@ const BACKTEST_SCHEMA = {
   required: ["equityCurve", "metrics", "historicalContext"]
 };
 
+/**
+ * AI 응답 텍스트에서 JSON 데이터를 추출하는 견고한 파서
+ */
 function sanitizeAndParseJson(text: string): any | null {
   if (!text) return null;
   try {
@@ -62,25 +65,31 @@ function sanitizeAndParseJson(text: string): any | null {
       .replace(/```json/g, "")
       .replace(/```/g, "")
       .replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
 
+    // 배열 형태인 경우
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
       return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
     }
-    return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    // 객체 형태인 경우
+    if (firstCurly !== -1) {
+      return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    }
+    return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON_PARSE_CRITICAL_FAILURE:", e);
+    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text.substring(0, 100));
     return null;
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 5000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000): Promise<any> {
   try { return await fn(); } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
-    if (retries > 0 && (msg.includes("429") || msg.includes("quota") || msg.includes("limit"))) {
+    if (retries > 0 && (msg.includes("429") || msg.includes("quota") || msg.includes("exhausted"))) {
       await new Promise(r => setTimeout(r, delay));
       return fetchWithRetry(fn, retries - 1, delay * 2);
     }
@@ -94,9 +103,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const prompt = `당신은 전설적인 월가 퀀트입니다. [오늘 날짜: ${today}]
-후보: ${JSON.stringify(candidates.map(c => ({s: c.symbol, p: c.price, score: c.compositeAlpha})))}.
-시장 주도 6개 종목 선정 및 정밀 분석 리포트를 JSON 배열로 작성하세요. 한국어로 응답하십시오.`;
+  const prompt = `당신은 전설적인 월가 퀀트 매니저입니다. [오늘 날짜: ${today}]
+엄선된 12개 후보: ${JSON.stringify(candidates.map(c => ({s: c.symbol, p: c.price, score: c.compositeAlpha})))}.
+
+이 중 시장 주도력이 가장 강력한 6개 종목을 최종 선정하여 정밀 분석 보고서를 작성하세요.
+반드시 아래 JSON 형식을 엄수하여 배열로만 응답하십시오. 한국어를 사용하세요.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -106,11 +117,32 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
-      return { data: sanitizeAndParseJson(result.text) };
+      const parsed = sanitizeAndParseJson(result.text);
+      return parsed ? { data: parsed } : { data: null, error: "PARSE_ERROR" };
     }
-    // Perplexity/Sonar Logic... (생략 - 기존 유지)
-    return { data: null, error: "PROVIDER_NOT_IMPLEMENTED" };
-  } catch (error: any) { return { data: null, error: error.message }; }
+
+    if (provider === ApiProvider.PERPLEXITY) {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'sonar-pro',
+          messages: [
+            { role: "system", content: "당신은 월가 퀀트입니다. 주어진 종목 리스트를 분석하여 JSON 배열 하나만 출력하십시오." },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.1
+        })
+      });
+      if (!res.ok) return { data: null, error: `HTTP_${res.status}`, code: res.status };
+      const data = await res.json();
+      const parsed = sanitizeAndParseJson(data.choices?.[0]?.message?.content);
+      return parsed ? { data: parsed } : { data: null, error: "PARSE_ERROR" };
+    }
+    return { data: null, error: "INVALID_PROVIDER" };
+  } catch (error: any) {
+    return { data: null, error: error.message };
+  }
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string}> {
@@ -118,27 +150,46 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `[퀀트 백테스트 시뮬레이션]
+  const prompt = `[퀀트 백테스트 시뮬레이션 요청]
 종목: ${stock.symbol} (${stock.name})
-현재가: ${stock.price}, 지지선: ${stock.supportLevel}, 저항선: ${stock.resistanceLevel}
-패턴: ${stock.chartPattern}
+현재가: ${stock.price}, 지지선(매수): ${stock.supportLevel}, 저항선(목표): ${stock.resistanceLevel}
+탐색 패턴: ${stock.chartPattern}
 
-지난 2년간의 역사적 변동성 데이터와 거시경제 이벤트를 기반으로, 위 기술적 전략(지지선 매수/저항선 매도)을 적용했을 때의 가상 성과를 시뮬레이션하십시오. 
-1. 12개월간의 누적 수익률 곡선 데이터 (0%에서 시작)
-2. 승률, 손익비, MDD, 샤프 지수 산출
-3. 시뮬레이션 요약 설명 (한국어)
-
-JSON 형식으로 응답하십시오.`;
+지난 2년간의 역사적 변동성과 거시 이벤트를 바탕으로 가상의 성과를 시뮬레이션하십시오.
+반드시 JSON 형식으로만 응답하십시오. 한국어를 사용하세요.`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const result = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt,
-      config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
-    }));
-    return { data: sanitizeAndParseJson(result.text) };
-  } catch (error: any) { return { data: null, error: error.message }; }
+    if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await fetchWithRetry(() => ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
+      }));
+      return { data: sanitizeAndParseJson(result.text) };
+    }
+
+    if (provider === ApiProvider.PERPLEXITY) {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'sonar-pro',
+          messages: [
+            { role: "system", content: "백테스팅 시뮬레이션 결과를 JSON 객체 하나로 응답하십시오." },
+            { role: "user", content: prompt }
+          ],
+          temperature: 0.2
+        })
+      });
+      if (!res.ok) return { data: null, error: `HTTP_${res.status}` };
+      const data = await res.json();
+      return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content) };
+    }
+    return { data: null, error: "INVALID_PROVIDER" };
+  } catch (error: any) {
+    return { data: null, error: error.message };
+  }
 }
 
 export async function analyzePipelineStatus(data: any, provider: ApiProvider): Promise<string> {
@@ -146,15 +197,28 @@ export async function analyzePipelineStatus(data: any, provider: ApiProvider): P
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
 
-  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-  const prompt = `전략 감사 보고서 작성. 오늘 날짜: ${today}. 파이프라인 데이터: ${JSON.stringify(data)}. 한국어 마크다운으로 작성하세요.`;
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  const prompt = `시스템 진단 및 전략 감사 리포트. 오늘: ${today}. 데이터: ${JSON.stringify(data)}. 한국어 마크다운으로 작성하십시오.`;
 
   try {
-    const ai = new GoogleGenAI({ apiKey });
-    const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
-      contents: prompt
-    }));
-    return response.text;
-  } catch (e: any) { return `오류: ${e.message}`; }
+    if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey });
+      const response = await fetchWithRetry(() => ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt
+      }));
+      return response.text;
+    } else {
+      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+          model: 'sonar-pro',
+          messages: [{ role: "user", content: prompt }]
+        })
+      });
+      const result = await res.json();
+      return result.choices?.[0]?.message?.content || "보고서 생성 실패";
+    }
+  } catch (e: any) { return `에러: ${e.message}`; }
 }
