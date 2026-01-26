@@ -191,14 +191,23 @@ export async function analyzePipelineStatus(data: {
   if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const symbolsContext = data.recommendedData ? `추천 종목 포트폴리오(6개): ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore, ret: d.expectedReturn})))}` : "분석 데이터 없음";
+  const symbolsContext = data.recommendedData ? `추천 종목 포트폴리오(6개): ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore, ret: d.expectedReturn, theme: d.sectorTheme})))}` : "분석 데이터 없음";
   
-  const prompt = `[최종 전략 감사 리포트]
-분석 기준일: ${today}
-대상 포트폴리오: ${symbolsContext}
+  const prompt = `[페르소나: 월가 헤지펀드 시니어 전략 분석가]
+당신은 현재 선정된 6개 종목에 대해 포트폴리오 매니저에게 보고할 최종 전략 리포트를 작성해야 합니다.
 
-위 6개 추천 종목 전체를 아우르는 통합 투자 전략 보고서를 한국어 마크다운 형식으로 작성하십시오.
-반드시 분석 기준일을 최상단에 강조하고, 6개 종목의 상관관계와 거시 경제적 주도력을 분석하십시오.`;
+현지 시간: ${today}
+대상 포트폴리오 자산 정보: ${symbolsContext}
+
+[보고서 작성 지침]
+1. 언어: 반드시 100% 한글로만 작성하십시오. 전문적인 금융 용어를 사용하되 영어 병기를 최소화하고 품격 있는 문체로 작성하세요.
+2. 서두: 리포트 최상단에 "분석 기준일: ${today}"를 명시하고 전체적인 시장 관점(Macro View)을 제시하십시오.
+3. 본문: 
+   - 선정된 6개 종목 간의 섹터 로테이션 및 상관관계를 분석하십시오.
+   - 각 종목의 선정 배경과 거시 경제적 주도력을 결합하여 설명하십시오.
+   - 포트폴리오 차원에서의 기대 수익률과 변동성 관리 방안을 제시하십시오.
+4. 결론: 리스크 헤징 전략(Stop-loss 가이드 포함) 및 향후 시장 이벤트에 따른 대응 시나리오를 작성하십시오.
+5. 형식: 마크다운(Markdown) 형식을 사용하여 시각적으로 구조화된 리포트를 제출하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -207,7 +216,7 @@ export async function analyzePipelineStatus(data: {
         model: 'gemini-3-flash-preview',
         contents: prompt,
       }));
-      return response.text || "No response text";
+      return response.text || "데이터 응답 오류";
     }
 
     if (provider === ApiProvider.PERPLEXITY) {

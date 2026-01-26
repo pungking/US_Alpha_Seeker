@@ -151,7 +151,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        {/* 상단 엔진 제어 패널 (v8.2.7 스타일 복원) */}
+        {/* 상단 엔진 제어 패널 */}
         <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
@@ -175,7 +175,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             </button>
           </div>
 
-          {/* 종목 카드 그리드 (시인성 복원 및 상세 정보 추가) */}
+          {/* 종목 카드 그리드 */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
              {currentResults.length > 0 ? currentResults.map((item, idx) => (
                <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[32px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col justify-between h-[280px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500/50 bg-rose-500/10 scale-[1.02] shadow-[0_0_30px_rgba(244,63,94,0.15)]' : 'border-white/5 bg-black/20 hover:bg-white/5'}`}>
@@ -189,7 +189,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      <p className="text-[8px] font-bold text-slate-500 uppercase mt-1 tracking-widest">{item.sectorTheme}</p>
                   </div>
 
-                  {/* 카드 내부 전략 수치 가이드 (진입/손절/타겟) */}
+                  {/* 카드 내부 전략 수치 가이드 */}
                   <div className="grid grid-cols-3 gap-2 py-3 border-y border-white/5 bg-black/20 rounded-xl px-2">
                     <div className="text-center">
                       <p className="text-[6px] font-black text-emerald-500 uppercase mb-0.5">Entry S/R</p>
@@ -222,7 +222,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
         </div>
 
-        {/* 종목 상세 분석 (PCAR 스타일 고도화 UI) */}
+        {/* 종목 상세 분석 */}
         {selectedStock && (
           <div className="glass-panel p-8 md:p-12 rounded-[48px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
              <div className="space-y-10">
@@ -306,36 +306,46 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                    {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 animate-in zoom-in-95 duration-500">
+                        {/* 백테스트 메트릭 블록 - 한글 설명 추가 */}
                         <div className="space-y-4">
                            {[
-                             { l: 'Win Rate', v: currentBacktest.metrics.winRate, c: 'text-emerald-400' },
-                             { l: 'Profit Factor', v: currentBacktest.metrics.profitFactor, c: 'text-blue-400' },
-                             { l: 'Max Drawdown', v: currentBacktest.metrics.maxDrawdown, c: 'text-rose-400' },
-                             { l: 'Sharpe Ratio', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
+                             { l: '승률 (Win Rate)', d: '수익 거래 발생 확률', v: currentBacktest.metrics.winRate, c: 'text-emerald-400' },
+                             { l: '손익비 (Profit Factor)', d: '손실 1달러 대비 수익 총액', v: currentBacktest.metrics.profitFactor, c: 'text-blue-400' },
+                             { l: '최대 낙폭 (MDD)', d: '고점 대비 최대 하락폭', v: currentBacktest.metrics.maxDrawdown, c: 'text-rose-400' },
+                             { l: '샤프 지수 (Sharpe)', d: '변동성 대비 수익 효율성', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
                            ].map((m, i) => (
-                             <div key={i} className="p-8 bg-white/5 rounded-[28px] border border-white/10 flex justify-between items-center transition-all hover:bg-white/10">
-                                <span className="text-[10px] font-black text-slate-500 uppercase tracking-widest">{m.l}</span>
-                                <span className={`text-2xl font-black ${m.c} italic tracking-tighter`}>{m.v}</span>
+                             <div key={i} className="p-6 bg-white/5 rounded-[28px] border border-white/10 flex flex-col transition-all hover:bg-white/10">
+                                <div className="flex justify-between items-center mb-1">
+                                  <span className="text-[10px] font-black text-slate-300 uppercase tracking-widest">{m.l}</span>
+                                  <span className={`text-2xl font-black ${m.c} italic tracking-tighter`}>{m.v}</span>
+                                </div>
+                                <p className="text-[8px] font-bold text-slate-500 uppercase tracking-tighter">{m.d}</p>
                              </div>
                            ))}
                         </div>
+                        {/* 차트 및 요약 */}
                         <div className="lg:col-span-2 flex flex-col gap-8">
-                           <div className="h-72 w-full bg-black/40 rounded-[40px] border border-white/5 p-10">
-                              <ResponsiveContainer width="100%" height="100%">
-                                 <AreaChart data={currentBacktest.equityCurve}>
-                                    <defs>
-                                       <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                                          <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                                          <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                       </linearGradient>
-                                    </defs>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" />
-                                    <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} />
-                                    <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
-                                    <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff10', borderRadius: '16px', fontSize: '11px' }} />
-                                    <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" />
-                                 </AreaChart>
-                              </ResponsiveContainer>
+                           {/* 차트 렌더링 높이 명시적 지정 */}
+                           <div className="h-[300px] md:h-[350px] w-full bg-black/40 rounded-[40px] border border-white/5 p-8 flex items-center justify-center">
+                              {currentBacktest.equityCurve && currentBacktest.equityCurve.length > 0 ? (
+                                <ResponsiveContainer width="100%" height="100%">
+                                   <AreaChart data={currentBacktest.equityCurve} margin={{ top: 10, right: 30, left: 0, bottom: 0 }}>
+                                      <defs>
+                                         <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                         </linearGradient>
+                                      </defs>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                                      <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
+                                      <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} dx={-5} />
+                                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff10', borderRadius: '16px', fontSize: '11px', color: '#fff' }} />
+                                      <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" animationDuration={1500} />
+                                   </AreaChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <div className="text-slate-600 font-mono text-xs animate-pulse uppercase tracking-[0.4em]">Rendering Equity Data...</div>
+                              )}
                            </div>
                            <div className="p-10 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10">
                               <p className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-4 italic">Backtest Simulation Summary</p>
@@ -352,6 +362,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         )}
       </div>
 
+      {/* 우측 터미널 */}
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[40px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
