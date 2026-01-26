@@ -18,7 +18,7 @@ const FundamentalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.6.4: Pre-Analysis 50% Efficiency Cut.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.9.0: Fixed 250-Pipeline Initialized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -101,7 +101,7 @@ const FundamentalAnalysis: React.FC = () => {
     }
 
     setLoading(true);
-    addLog("Step 1: Searching for Stage 2 Quality Universe file...", "info");
+    addLog("Step 1: Loading Stage 2 (Quality Universe) Data...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
@@ -115,30 +115,25 @@ const FundamentalAnalysis: React.FC = () => {
         return;
       }
       
-      addLog(`File Found: ${listRes.files[0].name}. Downloading content...`, "ok");
-
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
       const rawTargets = content.elite_universe || [];
       const totalAvailable = rawTargets.length;
-      
-      // [Efficiency Logic] Stage 2 점수 기반 상위 50% 선별 (Pre-Analysis)
-      addLog(`Efficiency Protocol: Sifting Top 50% from ${totalAvailable} candidates based on Quality Score...`, "info");
-      
-      // 1. Stage 2 Quality Score 기준 내림차순 정렬
-      rawTargets.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
-      
-      // 2. 상위 50% 컷오프
-      const cutOffIndex = Math.ceil(totalAvailable * 0.5);
-      const targetsToAnalyze = rawTargets.slice(0, cutOffIndex);
-      
-      addLog(`Target Locked: ${targetsToAnalyze.length} Elite Candidates selected for Deep Analysis.`, "ok");
 
-      // 3. AI 분석 대상: 거래대금 상위 30개는 정밀 분석, 나머지는 알고리즘 스코어링
-      // 여기서 targetsToAnalyze는 이미 Quality Score가 높은 놈들임. 그 중에서 시총/거래대금 높은 순으로 AI 배정
+      // [Filter Logic] Stage 2(500개)에서 상위 50%(250개)만 컷오프하여 입력으로 사용
+      addLog(`Input: ${totalAvailable} candidates. Selecting Top 50% (~250) for Pipeline Processing...`, "info");
+      
+      const cutOffIndex = Math.ceil(totalAvailable * 0.5);
+      const targetsToAnalyze = rawTargets
+          .sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0))
+          .slice(0, cutOffIndex);
+          
+      // AI 분석 우선순위를 위해 시가총액/거래대금 순 재정렬 (분석은 250개 전수 수행)
       targetsToAnalyze.sort((a: any, b: any) => b.marketValue - a.marketValue);
+
+      addLog(`Target Locked: Analyzing ALL ${targetsToAnalyze.length} selected assets.`, "ok");
       
       const eliteCount = 30; // 상위 30개는 AI 정밀 분석
       setProgress({ current: 0, total: targetsToAnalyze.length });
@@ -160,19 +155,20 @@ const FundamentalAnalysis: React.FC = () => {
             engine = "AI-Verified";
             aiReason = aiResult.reason;
           } else {
-            // AI 실패시 알고리즘 백업
             engine = "Algo-Fallback";
             score = Math.min(100, (item.roe || 0) * 2 + 30);
           }
+          await new Promise(r => setTimeout(r, 500)); 
         } else {
           setActiveBrain("Algo-Heuristic");
-          // 나머지 종목 알고리즘 계산
           const p = Math.min(100, (item.roe || 0) * 2.5 + 20);
           const v = (item.per > 0 && item.per < 15) ? 90 : (item.per < 25) ? 60 : 30;
           score = (p * 0.6) + (v * 0.4);
+          
+          // UI Smoothing
+          if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
         }
 
-        // 세부 메트릭 생성
         const p = Math.min(100, (item.roe || 0) * 2.5 + 20);
         const g = 50 + (Math.random() * 30); 
         const h = Math.max(0, 100 - (item.debtToEquity || 50));
@@ -187,19 +183,18 @@ const FundamentalAnalysis: React.FC = () => {
           scoringEngine: engine
         });
 
-        if (i % 5 === 0) setProgress({ current: i + 1, total: targetsToAnalyze.length });
-        if (i < eliteCount) await new Promise(r => setTimeout(r, 500)); // Rate limit protection
+        if (i % 2 === 0) setProgress({ current: i + 1, total: targetsToAnalyze.length });
       }
 
-      // 최종 점수순 정렬
+      // [Output Logic] 250개 전수 저장 (No Cut-off)
       results.sort((a, b) => b.alphaScore - a.alphaScore);
       
-      addLog(`Fundamental Audit Complete. ${results.length} Survivors saved to Stage 3 Vault.`, "ok");
+      addLog(`Analysis Complete. Saving ALL ${results.length} items to Stage 3 Vault.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
-      const fileName = `STAGE3_FUNDAMENTAL_ELITE_${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "3.6.4", source: listRes.files[0].name, source_strategy: "Top 50% Quality Cut", count: results.length, timestamp: new Date().toISOString() },
+        manifest: { version: "3.9.0", source: listRes.files[0].name, strategy: "Keep_All_250", count: results.length, timestamp: new Date().toISOString() },
         fundamental_universe: results
       };
 
@@ -246,7 +241,7 @@ const FundamentalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.6.4</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.9.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Fundamental Analysis Ready'}

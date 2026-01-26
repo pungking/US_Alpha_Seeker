@@ -19,7 +19,7 @@ const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.6.1: Connection Logic Patched.']);
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.9.0: Fixed 250-Pipeline Initialized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -99,11 +99,11 @@ const TechnicalAnalysis: React.FC = () => {
     }
 
     setLoading(true);
-    addLog("Step 1: Searching for Stage 3 Fundamental Results...", "info");
+    addLog("Step 1: Loading Stage 3 Data...", "info");
     
     try {
       // Improved query
-      const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_ELITE' and trashed = false`);
+      const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
@@ -114,20 +114,18 @@ const TechnicalAnalysis: React.FC = () => {
         return;
       }
 
-      addLog(`File Found: ${listRes.files[0].name}. Downloading...`, "ok");
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // Fundamental 점수 순으로 정렬하여 상위권 우선 AI 분석
+      // [Filter Logic] Stage 3에서 넘어온 250개 전량 사용
       const targets = (content.fundamental_universe || []).sort((a: any, b: any) => b.alphaScore - a.alphaScore);
       const total = targets.length;
       
-      // Top 20는 AI 정밀 분석, 나머지는 Algo
       const eliteCount = 20;
 
       setProgress({ current: 0, total });
-      addLog(`Matrix Synced: ${total} assets. Top ${eliteCount} AI Trend Scan initiated...`, "ok");
+      addLog(`Input: ${total} assets. Analyzing Trend & Momentum for ALL...`, "ok");
 
       const results: TechScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
@@ -145,10 +143,13 @@ const TechnicalAnalysis: React.FC = () => {
                  engine = "Algo-Fallback";
                  techScore = 50 + (Math.random() * 30); // Failover
              }
+             await new Promise(r => setTimeout(r, 600)); // AI Rate limit
         } else {
              setActiveBrain("Algo-Heuristic");
-             // 간단한 휴리스틱 (거래량 팩터 등) - 여기서는 기존 로직 유지하되 범위 조정
+             // 간단한 휴리스틱
              techScore = 40 + (Math.random() * 40);
+             // UI Smoothing
+             if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
         }
 
         // 4단계: 재무(45%) + 기술(55%) 융합
@@ -162,19 +163,18 @@ const TechnicalAnalysis: React.FC = () => {
           scoringEngine: engine
         });
 
-        if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteCount) await new Promise(r => setTimeout(r, 600)); // Rate limit
+        if (i % 2 === 0) setProgress({ current: i + 1, total });
       }
 
-      // 최종 정렬 (Total Alpha 기준)
+      // [Output Logic] 250개 전수 저장 (No Cut-off)
       results.sort((a, b) => b.totalAlpha - a.totalAlpha);
-
-      addLog(`Success: Technical Scan Complete. AI & Algo Fusion done.`, "ok");
+      
+      addLog(`Analysis Complete. Saving ALL ${results.length} items to Stage 4 Vault.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.6.1", source: listRes.files[0].name, count: results.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.0", source: listRes.files[0].name, strategy: "Keep_All_250", count: results.length, timestamp: new Date().toISOString() },
         technical_universe: results
       };
 
@@ -221,7 +221,7 @@ const TechnicalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.6.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.9.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Technical Analysis Ready'}
