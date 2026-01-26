@@ -25,9 +25,9 @@ const App: React.FC = () => {
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
   
-  // [FIX] Default to Gemini to avoid CORS issues on client-side fetching with Perplexity
-  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
-  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  // [CHANGED] Default to Perplexity (Sonar Pro) as requested
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
   useEffect(() => {
     setAuditBrain(selectedBrain);

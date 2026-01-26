@@ -74,6 +74,19 @@ const VERDICT_MAP: { [key: string]: string } = {
     "STRONG_SELL": "강력 매도"
 };
 
+// [CUSTOM MARKDOWN COMPONENTS]
+const MarkdownComponents = {
+    h1: ({node, ...props}: any) => <h1 className="text-xl font-bold text-white mt-4 mb-2 uppercase tracking-wide border-l-4 border-rose-500 pl-3" {...props} />,
+    h2: ({node, ...props}: any) => <h2 className="text-lg font-bold text-emerald-400 mt-3 mb-2 uppercase tracking-wide" {...props} />,
+    h3: ({node, ...props}: any) => <h3 className="text-base font-bold text-blue-400 mt-2 mb-1" {...props} />,
+    p: ({node, ...props}: any) => <p className="text-sm text-slate-300 leading-7 mb-4 font-medium" {...props} />,
+    ul: ({node, ...props}: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
+    ol: ({node, ...props}: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
+    li: ({node, ...props}: any) => <li className="pl-1" {...props} />,
+    strong: ({node, ...props}: any) => <strong className="text-emerald-400 font-bold" {...props} />,
+    blockquote: ({node, ...props}: any) => <blockquote className="border-l-4 border-slate-600 pl-4 italic text-slate-400 my-4" {...props} />,
+};
+
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -81,7 +94,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.5: Korean Localization & CORS Patch.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.6: Perplexity (Sonar Pro) Active.']);
   
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
 
@@ -193,9 +206,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
     } catch (e: any) { 
         let msg = e.message;
-        if (msg.includes('Network') || msg.includes('CORS') || msg.includes('Failed to fetch')) {
-            msg = "CORS Error: 브라우저 정책상 Sonar Pro 연결이 차단되었습니다. Gemini를 사용해주세요.";
-        }
+        // Simplify error message to suggest checking connection, but don't assume CORS block if user insists it works
         addLog(`Engine Error: ${msg}`, "err"); 
         setSelectedStock(null);
     }
@@ -250,11 +261,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }));
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
-      let msg = e.message;
-      if (msg.includes('Network') || msg.includes('CORS') || msg.includes('Failed to fetch')) {
-        msg = "CORS Error: Sonar Pro 연결 실패. Gemini를 사용해주세요.";
-      }
-      addLog(`Quant Error: ${msg}`, "err");
+      addLog(`Quant Error: ${e.message}`, "err");
     }
     finally { 
       setBacktestLoading(false); 
@@ -320,7 +327,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.5</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.6</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -426,8 +433,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                       <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                          <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4 italic underline underline-offset-[12px]">Neural Investment Strategy</h4>
-                         <div className="prose-report text-sm text-slate-300 leading-relaxed italic prose prose-invert prose-sm max-w-none">
-                           <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedStock.investmentOutlook || ""}</ReactMarkdown>
+                         <div className="prose-report text-sm text-slate-300 leading-relaxed italic">
+                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                             {selectedStock.investmentOutlook || ""}
+                           </ReactMarkdown>
                          </div>
                       </div>
                    </div>
@@ -561,7 +570,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                            <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[150px] flex flex-col justify-center">
                                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
                                <div className="text-sm text-slate-400 leading-relaxed font-medium italic prose prose-invert prose-sm max-w-none">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                     {currentBacktest.historicalContext || "Insight generating..."}
                                   </ReactMarkdown>
                                </div>

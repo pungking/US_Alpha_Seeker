@@ -135,8 +135,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        mode: 'cors', // Explicitly request CORS handling
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}` 
+        },
+        // Removed 'mode: cors' to rely on default behavior or browser extensions
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
@@ -145,11 +148,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           ],
           temperature: 0.1
         })
-      }).catch(err => {
-         if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
-             throw new Error("브라우저 정책상 Sonar Pro 연결이 차단되었습니다. Gemini를 사용해주세요.");
-         }
-         throw err;
       });
 
       if (!res.ok) return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
@@ -202,8 +200,11 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        mode: 'cors', // Explicitly request CORS handling
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}` 
+        },
+        // Removed 'mode: cors'
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
@@ -212,11 +213,6 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
           ],
           temperature: 0.1
         })
-      }).catch(err => {
-         if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
-             throw new Error("브라우저 정책상 Sonar Pro 연결이 차단되었습니다. Gemini를 사용해주세요.");
-         }
-         throw err;
       });
       if (!res.ok) return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
       const json = await res.json();
@@ -265,8 +261,10 @@ export async function analyzePipelineStatus(data: {
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        mode: 'cors',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}` 
+        },
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [{ role: "user", content: prompt }],
