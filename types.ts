@@ -4,6 +4,7 @@ export enum ApiProvider {
   PERPLEXITY = 'Perplexity',
   ALPHA_VANTAGE = 'Alpha Vantage',
   FINNHUB = 'Finnhub',
+  FMP = 'Financial Modeling Prep',
   TWELVE_DATA = 'Twelve Data',
   POLYGON = 'Polygon',
   GOOGLE_DRIVE = 'Google Drive',

@@ -17,6 +17,7 @@ interface QualityTicker {
   sector?: string;
   industry?: string;
   lastUpdate: string;
+  source?: string; // Data source for audit
 }
 
 const DeepQualityFilter: React.FC = () => {
@@ -24,15 +25,20 @@ const DeepQualityFilter: React.FC = () => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Poly + Finn + FMP');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.5.0: High-Velocity Parallel Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.8.0: Triple-Core API Engine (Poly + Finn + FMP) Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  
   const logRef = useRef<HTMLDivElement>(null);
 
   // 병렬 처리 설정
-  const BATCH_SIZE = 5; // 한 번에 동시에 처리할 종목 수 (병렬성)
+  const BATCH_SIZE = 5; 
+  const TARGET_COUNT = 500; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -53,29 +59,106 @@ const DeepQualityFilter: React.FC = () => {
     } catch (e) { return null; }
   };
 
-  // 개별 종목 데이터 페치 함수 (Promise.all용)
+  // [TRIPLE HYBRID STRATEGY]
+  // 1. Profile: Polygon (Fastest) -> FMP (Backup) -> Finnhub (Last Resort)
+  // 2. Metrics: Finnhub (Primary) -> FMP (Instant Failover)
   const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
     try {
-      // Metric과 Profile을 병렬로 요청하여 시간 단축
-      const [finRes, profRes] = await Promise.all([
-        fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`).then(r => {
-            if (r.status === 429) throw new Error("RATE_LIMIT");
-            return r;
-        }),
-        fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`).then(r => {
-            if (r.status === 429) throw new Error("RATE_LIMIT");
-            return r;
-        })
-      ]);
+      // Step 1: Metrics Acquisition (Try Finnhub first, Failover to FMP)
+      let metrics: any = {};
+      let metricsSource = "";
 
-      if (!finRes.ok || !profRes.ok) return null;
+      try {
+        const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
+        if (fhRes.status === 429) throw new Error("FINNHUB_LIMIT");
+        if (fhRes.ok) {
+            const data = await fhRes.json();
+            metrics = {
+                per: data.metric?.peNormalized || 0,
+                pbr: data.metric?.pbAnnual || 0,
+                debt: data.metric?.totalDebtEquityRatioQuarterly || 0,
+                roe: data.metric?.roeTTM || 0
+            };
+            metricsSource = "Finnhub";
+        }
+      } catch (e: any) {
+        // [FMP FAILOVER] If Finnhub fails, immediately use FMP
+        if (e.message === "FINNHUB_LIMIT" || !metrics.per) {
+            try {
+                const fmpRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
+                if (fmpRes.ok) {
+                    const data = await fmpRes.json();
+                    if (data && data.length > 0) {
+                        const m = data[0];
+                        metrics = {
+                            per: m.peRatioTTM || 0,
+                            pbr: m.priceToBookRatioTTM || 0,
+                            debt: m.debtEquityRatioTTM || 0,
+                            roe: (m.returnOnEquityTTM || 0) * 100 // FMP is decimal, Finnhub is percent
+                        };
+                        metricsSource = "FMP(Backup)";
+                    }
+                }
+            } catch (fmpErr) {
+                // Both failed
+            }
+        }
+        // If critical failure (Finnhub limit AND FMP failed), escalate
+        if (e.message === "FINNHUB_LIMIT" && !metricsSource) throw e; 
+      }
 
-      const metricsData = await finRes.json();
-      const profileData = await profRes.json();
-      const metrics = metricsData.metric || {};
-      
-      // 필수 데이터가 없으면 스킵
-      if (!profileData.name && !metrics.peNormalized) return null;
+      // Step 2: Profile Acquisition (Try Polygon first)
+      let profileData: any = {};
+      let profileSource = "";
+
+      // Try Polygon
+      try {
+          const polyRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${target.symbol}?apiKey=${polygonKey}`);
+          if (polyRes.ok) {
+              const p = await polyRes.json();
+              if (p.results) {
+                  profileData = {
+                      name: p.results.name,
+                      sector: p.results.sic_description || p.results.type || "Unknown",
+                      type: "Equity"
+                  };
+                  profileSource = "Polygon";
+              }
+          }
+      } catch (err) {}
+
+      // Try FMP Profile if Polygon empty
+      if (!profileData.name) {
+          try {
+             const fmpPRes = await fetch(`https://financialmodelingprep.com/api/v3/profile/${target.symbol}?apikey=${fmpKey}`);
+             if (fmpPRes.ok) {
+                 const d = await fmpPRes.json();
+                 if (d && d.length > 0) {
+                     profileData = {
+                         name: d[0].companyName,
+                         sector: d[0].sector,
+                         type: "Equity"
+                     };
+                     profileSource = "FMP";
+                 }
+             }
+          } catch (err) {}
+      }
+
+      // Try Finnhub Profile (Last Resort)
+      if (!profileData.name) {
+         try {
+             const fhPRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`);
+             if (fhPRes.status !== 429 && fhPRes.ok) {
+                 const d = await fhPRes.json();
+                 profileData = { name: d.name, sector: d.finnhubIndustry };
+                 profileSource = "Finnhub";
+             }
+         } catch(err) {}
+      }
+
+      // 3. Final Validation
+      if ((!metrics.per && !metrics.roe) || !profileData.name) return null;
 
       return {
         symbol: target.symbol,
@@ -83,25 +166,27 @@ const DeepQualityFilter: React.FC = () => {
         price: target.price, 
         volume: target.volume, 
         marketValue: target.marketValue || (target.price * target.volume),
-        type: profileData.type || "Equity", 
-        per: metrics.peNormalized || 0,
-        pbr: metrics.pbAnnual || 0, 
-        debtToEquity: metrics.totalDebtEquityRatioQuarterly || 0,
-        roe: metrics.roeTTM || 0, 
-        sector: profileData.finnhubIndustry || "N/A",
-        industry: profileData.finnhubIndustry || "N/A", 
-        lastUpdate: new Date().toISOString()
+        type: "Equity", 
+        per: metrics.per,
+        pbr: metrics.pbr, 
+        debtToEquity: metrics.debt,
+        roe: metrics.roe, 
+        sector: profileData.sector || "N/A",
+        industry: profileData.sector || "N/A", 
+        lastUpdate: new Date().toISOString(),
+        source: `M:${metricsSource}/P:${profileSource}`
       };
+
     } catch (e: any) {
-      if (e.message === "RATE_LIMIT") throw e; // 상위 배치 루프에서 처리
-      return null; // 데이터 없음 등 일반 에러는 무시
+      if (e.message === "FINNHUB_LIMIT") throw e; // Catch in batch loop to pause
+      return null;
     }
   };
 
   const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
     const prompt = `
     [Role: Senior Market Analyst]
-    Action: Analyze the Sector/Industry distribution of these top 300 filtered stocks.
+    Action: Analyze the Sector/Industry distribution of these top ${TARGET_COUNT} filtered stocks.
     Data Sample (Top 5): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe})))}
     Total Count: ${tickers.length}
     
@@ -157,14 +242,15 @@ const DeepQualityFilter: React.FC = () => {
 
       let targets = content.investable_universe || [];
       
-      // Optimization: Sort by Volume * Price (Liquidity) and take TOP 300
+      // Optimization: Sort by Volume * Price (Liquidity) and take TOP 500
       targets = targets
         .map((t: any) => ({ ...t, marketValue: t.price * t.volume }))
         .sort((a: any, b: any) => b.marketValue - a.marketValue)
-        .slice(0, 300);
+        .slice(0, TARGET_COUNT);
 
-      addLog(`Target Locked: Top ${targets.length} Liquid Assets. Parallel Batching Initiated...`, "ok");
+      addLog(`Target Locked: Top ${targets.length} Liquid Assets. Triple-Hybrid Batching Initiated...`, "ok");
       setProgress({ current: 0, total: targets.length });
+      setNetworkStatus("Hybrid: Poly + Finn + FMP");
 
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
@@ -180,21 +266,32 @@ const DeepQualityFilter: React.FC = () => {
               results.forEach(r => {
                   if (r && r.symbol) validResults.push(r);
               });
+              
+              // Dynamic Status Update Logic
+              const batchSources = results.map(r => r?.source || "").join(",");
+              if (batchSources.includes("FMP(Backup)")) {
+                 setNetworkStatus("Active: FMP (Failover)");
+              } else if (batchSources.includes("Finnhub")) {
+                 setNetworkStatus("Active: Poly + Finn");
+              } else if (batchSources.includes("Polygon")) {
+                 setNetworkStatus("Active: Polygon Focus");
+              }
 
               currentIndex += BATCH_SIZE;
               setProgress({ current: Math.min(currentIndex, targets.length), total: targets.length });
               
-              // Rate Limit 방지를 위한 최소한의 딜레이 (병렬 처리 후 0.25초 휴식 - 매우 빠름)
-              await new Promise(r => setTimeout(r, 250));
+              // Rate Limit 방지를 위한 최소한의 딜레이
+              await new Promise(r => setTimeout(r, 200));
 
           } catch (e: any) {
-              if (e.message === "RATE_LIMIT") {
-                  addLog("API Heat Warning (429). Cooling down for 5s...", "warn");
-                  // 5초 대기 후 재시도 (인덱스 증가시키지 않음)
-                  await new Promise(r => setTimeout(r, 5000));
-                  addLog("Resuming Batch Process...", "info");
+              if (e.message === "FINNHUB_LIMIT") {
+                  addLog("Finnhub Limit Hit (429). FMP taking over fully for this batch...", "warn");
+                  setNetworkStatus("Status: Cooling Down..."); 
+                  // 429 발생 시 즉시 재시도하지 않고 잠시 대기 (FMP로 커버 가능하지만 안전하게)
+                  await new Promise(r => setTimeout(r, 3000));
+                  addLog("Resuming with Backup Engines...", "info");
+                  setNetworkStatus("Active: FMP (Failover)");
               } else {
-                  // 알 수 없는 에러면 스킵하고 진행
                   addLog(`Batch Failed (${e.message}). Skipping...`, "err");
                   currentIndex += BATCH_SIZE;
               }
@@ -202,7 +299,8 @@ const DeepQualityFilter: React.FC = () => {
       }
 
       setProcessedData(validResults);
-      addLog(`Parallel Scan Complete. ${validResults.length} Quality Assets Found.`, "ok");
+      addLog(`Scan Complete. ${validResults.length} Assets Validated.`, "ok");
+      setNetworkStatus("Status: Scan Complete");
 
       // AI Analysis on Result
       await analyzeSectorDistribution(validResults);
@@ -211,7 +309,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "2.5.0", strategy: "Parallel_Batch_Processing", count: validResults.length, timestamp: new Date().toISOString() },
+        manifest: { version: "2.8.0", strategy: "Triple_Hybrid_API", count: validResults.length, timestamp: new Date().toISOString() },
         elite_universe: validResults
       };
 
@@ -231,6 +329,7 @@ const DeepQualityFilter: React.FC = () => {
     } finally {
       setLoading(false);
       setActiveBrain('Standby');
+      setNetworkStatus('Standby');
     }
   };
 
@@ -259,16 +358,23 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.5.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.8.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                     {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Parallel Quality Scan Ready'}
+                     {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Triple-Core Protocol Active'}
+                   </span>
+                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
+                     networkStatus.includes("Failover") || networkStatus.includes("Cooling") 
+                       ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
+                       : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
+                   }`}>
+                     {networkStatus}
                    </span>
                 </div>
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="px-12 py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Processing Batch...' : 'Execute Parallel Scan'}
+              {loading ? 'Processing Batch...' : 'Execute Triple Scan'}
             </button>
           </div>
 
@@ -282,7 +388,7 @@ const DeepQualityFilter: React.FC = () => {
                   <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                 </div>
                 <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   Mode: Parallel Batching (x{BATCH_SIZE}) • Target: Top 300 Liquid Assets
+                   Mode: Triple Load Balancing • Target: Top {TARGET_COUNT} Assets
                 </p>
               </div>
 
@@ -300,7 +406,7 @@ const DeepQualityFilter: React.FC = () => {
       <div className="xl:col-span-1">
         <div className="glass-panel h-[600px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Parallel_Log</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Triple_Log</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (

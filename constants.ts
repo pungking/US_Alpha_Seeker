@@ -15,6 +15,7 @@ export const API_CONFIGS: ApiConfig[] = [
   { provider: ApiProvider.POLYGON, key: 'ArKrr9dmI2FxH71B_YTSWk8YXC2AG9KQ', category: 'Acquisition' },
   { provider: ApiProvider.ALPACA, key: 'PKHWDYDOEWWLYZKMUG9L', category: 'Acquisition' },
   { provider: ApiProvider.FINNHUB, key: 'd2pjjgpr01qnf9nlc7ngd2pjjgpr01qnf9nlc7o0', category: 'Acquisition' },
+  { provider: ApiProvider.FMP, key: 'dMhbH7OaYJKXeCCpCp001RQrq55259p7', category: 'Acquisition' },
   { provider: ApiProvider.TWELVE_DATA, key: '5ef1dfe22fe7463688783c6787e8f2bf', category: 'Acquisition' },
   { provider: ApiProvider.ALPHA_VANTAGE, key: '8PBTS3IDZM85B3QE', category: 'Acquisition' },
   
