@@ -25,9 +25,13 @@ const DeepQualityFilter: React.FC = () => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Poly + Finn + FMP');
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Triple-Core Engine');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.8.0: Triple-Core API Engine (Poly + Finn + FMP) Ready.']);
+  
+  // Circuit Breaker State
+  const [finnhubCooldownUntil, setFinnhubCooldownUntil] = useState<number>(0);
+
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.9.0: Smart Circuit Breaker Protocol Installed.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -44,6 +48,18 @@ const DeepQualityFilter: React.FC = () => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // Update Status based on circuit breaker
+  useEffect(() => {
+    if (loading) {
+        if (Date.now() < finnhubCooldownUntil) {
+            const remaining = Math.ceil((finnhubCooldownUntil - Date.now()) / 1000);
+            setNetworkStatus(`Circuit Breaker: Finnhub Paused (${remaining}s)`);
+        } else {
+            setNetworkStatus("Active: Poly + Finn + FMP");
+        }
+    }
+  }, [finnhubCooldownUntil, loading]);
+
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
@@ -59,59 +75,68 @@ const DeepQualityFilter: React.FC = () => {
     } catch (e) { return null; }
   };
 
-  // [TRIPLE HYBRID STRATEGY]
-  // 1. Profile: Polygon (Fastest) -> FMP (Backup) -> Finnhub (Last Resort)
-  // 2. Metrics: Finnhub (Primary) -> FMP (Instant Failover)
   const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
     try {
-      // Step 1: Metrics Acquisition (Try Finnhub first, Failover to FMP)
       let metrics: any = {};
       let metricsSource = "";
+      
+      // Circuit Breaker Logic
+      const isFinnhubAvailable = Date.now() > finnhubCooldownUntil;
 
-      try {
-        const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
-        if (fhRes.status === 429) throw new Error("FINNHUB_LIMIT");
-        if (fhRes.ok) {
-            const data = await fhRes.json();
-            metrics = {
-                per: data.metric?.peNormalized || 0,
-                pbr: data.metric?.pbAnnual || 0,
-                debt: data.metric?.totalDebtEquityRatioQuarterly || 0,
-                roe: data.metric?.roeTTM || 0
-            };
-            metricsSource = "Finnhub";
-        }
-      } catch (e: any) {
-        // [FMP FAILOVER] If Finnhub fails, immediately use FMP
-        if (e.message === "FINNHUB_LIMIT" || !metrics.per) {
-            try {
-                const fmpRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
-                if (fmpRes.ok) {
-                    const data = await fmpRes.json();
-                    if (data && data.length > 0) {
-                        const m = data[0];
-                        metrics = {
-                            per: m.peRatioTTM || 0,
-                            pbr: m.priceToBookRatioTTM || 0,
-                            debt: m.debtEquityRatioTTM || 0,
-                            roe: (m.returnOnEquityTTM || 0) * 100 // FMP is decimal, Finnhub is percent
-                        };
-                        metricsSource = "FMP(Backup)";
-                    }
-                }
-            } catch (fmpErr) {
-                // Both failed
+      // --- Step 1: Metrics Acquisition ---
+      // Primary: Finnhub (if available)
+      if (isFinnhubAvailable) {
+        try {
+            const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
+            if (fhRes.status === 429) {
+                // Trigger Circuit Breaker: Block Finnhub for 60 seconds
+                setFinnhubCooldownUntil(Date.now() + 60000); 
+                throw new Error("FINNHUB_LIMIT_TRIGGER");
+            }
+            if (fhRes.ok) {
+                const data = await fhRes.json();
+                metrics = {
+                    per: data.metric?.peNormalized || 0,
+                    pbr: data.metric?.pbAnnual || 0,
+                    debt: data.metric?.totalDebtEquityRatioQuarterly || 0,
+                    roe: data.metric?.roeTTM || 0
+                };
+                metricsSource = "Finnhub";
+            }
+        } catch (e: any) {
+            if (e.message !== "FINNHUB_LIMIT_TRIGGER") {
+               // Silent fail for other network errors, try FMP
             }
         }
-        // If critical failure (Finnhub limit AND FMP failed), escalate
-        if (e.message === "FINNHUB_LIMIT" && !metricsSource) throw e; 
       }
 
-      // Step 2: Profile Acquisition (Try Polygon first)
+      // Failover / Circuit Breaker Active: Use FMP
+      if (!metrics.per) {
+         try {
+            const fmpRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
+            if (fmpRes.ok) {
+                const data = await fmpRes.json();
+                if (data && data.length > 0) {
+                    const m = data[0];
+                    metrics = {
+                        per: m.peRatioTTM || 0,
+                        pbr: m.priceToBookRatioTTM || 0,
+                        debt: m.debtEquityRatioTTM || 0,
+                        roe: (m.returnOnEquityTTM || 0) * 100
+                    };
+                    metricsSource = isFinnhubAvailable ? "FMP(Failover)" : "FMP(Primary)";
+                }
+            }
+         } catch (fmpErr) {
+            // Both failed
+         }
+      }
+
+      // --- Step 2: Profile Acquisition ---
       let profileData: any = {};
       let profileSource = "";
 
-      // Try Polygon
+      // 1. Polygon (Fastest)
       try {
           const polyRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${target.symbol}?apiKey=${polygonKey}`);
           if (polyRes.ok) {
@@ -120,14 +145,13 @@ const DeepQualityFilter: React.FC = () => {
                   profileData = {
                       name: p.results.name,
                       sector: p.results.sic_description || p.results.type || "Unknown",
-                      type: "Equity"
                   };
                   profileSource = "Polygon";
               }
           }
       } catch (err) {}
 
-      // Try FMP Profile if Polygon empty
+      // 2. FMP (Backup)
       if (!profileData.name) {
           try {
              const fmpPRes = await fetch(`https://financialmodelingprep.com/api/v3/profile/${target.symbol}?apikey=${fmpKey}`);
@@ -137,7 +161,6 @@ const DeepQualityFilter: React.FC = () => {
                      profileData = {
                          name: d[0].companyName,
                          sector: d[0].sector,
-                         type: "Equity"
                      };
                      profileSource = "FMP";
                  }
@@ -145,11 +168,13 @@ const DeepQualityFilter: React.FC = () => {
           } catch (err) {}
       }
 
-      // Try Finnhub Profile (Last Resort)
-      if (!profileData.name) {
+      // 3. Finnhub (Last Resort - check CB)
+      if (!profileData.name && isFinnhubAvailable) {
          try {
              const fhPRes = await fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${target.symbol}&token=${finnhubKey}`);
-             if (fhPRes.status !== 429 && fhPRes.ok) {
+             if (fhPRes.status === 429) {
+                 setFinnhubCooldownUntil(Date.now() + 60000); // Extend cooldown
+             } else if (fhPRes.ok) {
                  const d = await fhPRes.json();
                  profileData = { name: d.name, sector: d.finnhubIndustry };
                  profileSource = "Finnhub";
@@ -157,7 +182,7 @@ const DeepQualityFilter: React.FC = () => {
          } catch(err) {}
       }
 
-      // 3. Final Validation
+      // Final Validation
       if ((!metrics.per && !metrics.roe) || !profileData.name) return null;
 
       return {
@@ -178,7 +203,6 @@ const DeepQualityFilter: React.FC = () => {
       };
 
     } catch (e: any) {
-      if (e.message === "FINNHUB_LIMIT") throw e; // Catch in batch loop to pause
       return null;
     }
   };
@@ -222,6 +246,7 @@ const DeepQualityFilter: React.FC = () => {
     setProcessedData([]);
     setAiAnalysis(null);
     setActiveBrain('Processing');
+    setFinnhubCooldownUntil(0); // Reset cooldown on new run
     addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
 
     try {
@@ -248,12 +273,13 @@ const DeepQualityFilter: React.FC = () => {
         .sort((a: any, b: any) => b.marketValue - a.marketValue)
         .slice(0, TARGET_COUNT);
 
-      addLog(`Target Locked: Top ${targets.length} Liquid Assets. Triple-Hybrid Batching Initiated...`, "ok");
+      addLog(`Target Locked: Top ${targets.length} Liquid Assets. Engine Active.`, "ok");
       setProgress({ current: 0, total: targets.length });
       setNetworkStatus("Hybrid: Poly + Finn + FMP");
 
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
+      let circuitBreakerLogged = false;
 
       while (currentIndex < targets.length) {
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
@@ -267,34 +293,23 @@ const DeepQualityFilter: React.FC = () => {
                   if (r && r.symbol) validResults.push(r);
               });
               
-              // Dynamic Status Update Logic
-              const batchSources = results.map(r => r?.source || "").join(",");
-              if (batchSources.includes("FMP(Backup)")) {
-                 setNetworkStatus("Active: FMP (Failover)");
-              } else if (batchSources.includes("Finnhub")) {
-                 setNetworkStatus("Active: Poly + Finn");
-              } else if (batchSources.includes("Polygon")) {
-                 setNetworkStatus("Active: Polygon Focus");
+              // Check for active circuit breaker to log only ONCE
+              if (Date.now() < finnhubCooldownUntil && !circuitBreakerLogged) {
+                  addLog("Finnhub 429 Detected. Circuit Breaker Active (60s). Routing all to FMP.", "warn");
+                  circuitBreakerLogged = true;
+              } else if (Date.now() > finnhubCooldownUntil && circuitBreakerLogged) {
+                  addLog("Finnhub Cooldown Expired. Resuming Hybrid Mode.", "info");
+                  circuitBreakerLogged = false;
               }
 
               currentIndex += BATCH_SIZE;
               setProgress({ current: Math.min(currentIndex, targets.length), total: targets.length });
               
-              // Rate Limit 방지를 위한 최소한의 딜레이
               await new Promise(r => setTimeout(r, 200));
 
           } catch (e: any) {
-              if (e.message === "FINNHUB_LIMIT") {
-                  addLog("Finnhub Limit Hit (429). FMP taking over fully for this batch...", "warn");
-                  setNetworkStatus("Status: Cooling Down..."); 
-                  // 429 발생 시 즉시 재시도하지 않고 잠시 대기 (FMP로 커버 가능하지만 안전하게)
-                  await new Promise(r => setTimeout(r, 3000));
-                  addLog("Resuming with Backup Engines...", "info");
-                  setNetworkStatus("Active: FMP (Failover)");
-              } else {
-                  addLog(`Batch Failed (${e.message}). Skipping...`, "err");
-                  currentIndex += BATCH_SIZE;
-              }
+              addLog(`Batch Failed (${e.message}). Skipping...`, "err");
+              currentIndex += BATCH_SIZE;
           }
       }
 
@@ -309,7 +324,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "2.8.0", strategy: "Triple_Hybrid_API", count: validResults.length, timestamp: new Date().toISOString() },
+        manifest: { version: "2.9.0", strategy: "Smart_Circuit_Breaker", count: validResults.length, timestamp: new Date().toISOString() },
         elite_universe: validResults
       };
 
@@ -330,6 +345,7 @@ const DeepQualityFilter: React.FC = () => {
       setLoading(false);
       setActiveBrain('Standby');
       setNetworkStatus('Standby');
+      setFinnhubCooldownUntil(0);
     }
   };
 
@@ -358,13 +374,13 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.8.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.9.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                     {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Triple-Core Protocol Active'}
+                     {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Smart Circuit Breaker Ready'}
                    </span>
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
-                     networkStatus.includes("Failover") || networkStatus.includes("Cooling") 
+                     networkStatus.includes("Paused") 
                        ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
                        : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
                    }`}>
@@ -374,7 +390,7 @@ const DeepQualityFilter: React.FC = () => {
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="px-12 py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Processing Batch...' : 'Execute Triple Scan'}
+              {loading ? 'Processing Batch...' : 'Execute Smart Scan'}
             </button>
           </div>
 
@@ -388,7 +404,7 @@ const DeepQualityFilter: React.FC = () => {
                   <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                 </div>
                 <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   Mode: Triple Load Balancing • Target: Top {TARGET_COUNT} Assets
+                   Mode: Smart Load Balancing • Target: Top {TARGET_COUNT} Assets
                 </p>
               </div>
 
