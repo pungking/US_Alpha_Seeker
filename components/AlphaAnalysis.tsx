@@ -50,7 +50,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.1.0: Zero-Crash Engine & Scaled UI Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.2.0: Crash-Proof Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -149,14 +149,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (error) throw new Error(error);
       if (!data || !Array.isArray(data.equityCurve)) throw new Error("Incomplete simulation stream.");
 
-      // [ZERO-CRASH GUARD] 데이터 무결성 검증 - NaN/Infinity/String 전수 정화
+      // [CRITICAL CRASH GUARD] 데이터 정제 및 기본값 보장
+      // 1. Equity Curve 정제
       const curve = data.equityCurve.map((point: any, idx: number) => {
         let val = (point || {}).value;
         if (typeof val !== 'number') {
           // 숫자가 아닌 문자(%, $, 등) 제거 후 파싱
           val = parseFloat(String(val || '0').replace(/[^-0-9.]/g, ''));
         }
-        // 최종 정밀 검사: Recharts 블랙스크린 원인인 NaN/Infinity를 0으로 강제 치환
+        // NaN/Infinity는 무조건 0으로 치환하여 차트 엔진 폭발 방지
         if (!Number.isFinite(val) || Number.isNaN(val)) val = 0;
         
         return {
@@ -165,11 +166,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       });
 
-      setBacktestData(prev => ({ ...prev, [stock.symbol]: { ...data, equityCurve: curve } }));
+      // 2. Metrics 객체가 없을 경우를 대비한 기본값 주입 (이게 없으면 렌더링 시 흰/검은 화면 뜸)
+      const safeMetrics = data.metrics || {
+        winRate: "N/A",
+        profitFactor: "N/A",
+        maxDrawdown: "N/A",
+        sharpeRatio: "N/A"
+      };
+
+      // 3. Context 기본값
+      const safeContext = data.historicalContext || "Analysis data unavailable.";
+
+      setBacktestData(prev => ({ 
+        ...prev, 
+        [stock.symbol]: { 
+          equityCurve: curve,
+          metrics: safeMetrics,
+          historicalContext: safeContext
+        } 
+      }));
       addLog(`Backtest Confirmed: Simulation integrity verified.`, "ok");
     } catch (e: any) { 
       addLog(`Quant Error: ${e.message}`, "err");
-      // 에러 시 기존 데이터를 초기화하여 크래시 방지
+      // 에러 발생 시 해당 종목 데이터 초기화하여 꼬임 방지
       setBacktestData(prev => ({ ...prev, [stock.symbol]: undefined as any }));
     }
     finally { setBacktestLoading(false); }
@@ -179,9 +198,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   // 차트 데이터가 완벽히 깨끗한지(NaN이 없는지) 최종 확인하는 가드
+  // 배열이 있고, 길이가 2 이상이어야 차트가 그려짐
   const isChartReady = useMemo(() => {
     return !!currentBacktest?.equityCurve && 
-           currentBacktest.equityCurve.length > 0 && 
+           currentBacktest.equityCurve.length > 1 && 
            currentBacktest.equityCurve.every(p => Number.isFinite(p.value));
   }, [currentBacktest]);
 
@@ -195,7 +215,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.1.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.2.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -228,7 +248,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   </div>
                   <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-4 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
                   
-                  {/* [SCALED UI] 수치 폰트 크기 축소 (text-[13px]) 및 정렬 최적화 */}
+                  {/* [SCALED UI] 수치 폰트 크기 유지 (text-[13px]) */}
                   <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl px-1 border border-white/10 flex-grow pointer-events-none shadow-inner">
                     <div className="text-center flex flex-col justify-center">
                       <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-tighter">Entry</p>
@@ -328,11 +348,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 animate-in slide-in-from-bottom-6 duration-700">
                         <div className="space-y-4">
+                           {/* [FIXED] Metrics Access Safe Guard - undefined 체크 강화 */}
                            {[
-                             { l: 'WIN RATE', v: currentBacktest.metrics.winRate || '0%', c: 'text-emerald-400' },
-                             { l: 'PROFIT FACTOR', v: currentBacktest.metrics.profitFactor || '0.0', c: 'text-blue-400' },
-                             { l: 'MAX DRAWDOWN', v: currentBacktest.metrics.maxDrawdown || '0%', c: 'text-rose-400' },
-                             { l: 'SHARPE RATIO', v: currentBacktest.metrics.sharpeRatio || '0.0', c: 'text-amber-400' }
+                             { l: 'WIN RATE', v: currentBacktest.metrics?.winRate || '0%', c: 'text-emerald-400' },
+                             { l: 'PROFIT FACTOR', v: currentBacktest.metrics?.profitFactor || '0.0', c: 'text-blue-400' },
+                             { l: 'MAX DRAWDOWN', v: currentBacktest.metrics?.maxDrawdown || '0%', c: 'text-rose-400' },
+                             { l: 'SHARPE RATIO', v: currentBacktest.metrics?.sharpeRatio || '0.0', c: 'text-amber-400' }
                            ].map((m, i) => (
                              <div key={i} className="p-5 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all">
                                 <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">{m.l}</span>
@@ -341,12 +362,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                            ))}
                         </div>
                         <div className="lg:col-span-2 flex flex-col gap-8">
-                           {/* [FIX] 차트 블랙스크린 100% 방지 가드: 키(key)를 종목명으로 고정하여 안정적인 리마운트 유도 */}
+                           {/* [FIXED] 차트 블랙스크린 100% 방지 가드: 키(key)에 랜덤값 부여하여 강제 리마운트 */}
                            <div className="w-full bg-black/80 rounded-[40px] border border-white/10 p-8 relative overflow-hidden shadow-3xl min-h-[400px]">
                               {isChartReady ? (
                                 <ResponsiveContainer width="100%" height={400}>
                                    <AreaChart 
-                                     key={`backtest-chart-${selectedStock.symbol}`}
+                                     key={`backtest-${selectedStock.symbol}-${Math.random()}`}
                                      data={currentBacktest.equityCurve} 
                                      margin={{ top: 20, right: 20, left: -10, bottom: 0 }}
                                    >
@@ -358,7 +379,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                       </defs>
                                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
                                       <XAxis dataKey="period" stroke="#334155" fontSize={9} tickLine={false} axisLine={false} dy={15} />
-                                      <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v || 0)}%`} />
+                                      <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v || 0)}%`} domain={['auto', 'auto']} />
                                       <Tooltip 
                                         contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '16px', fontSize: '11px', color: '#fff', fontWeight: '900', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}
                                         formatter={(val: any) => [`${Number(val || 0).toFixed(2)}%`, 'Cumulative Return']}
@@ -379,14 +400,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                   <div className="w-12 h-12 border-4 border-slate-700 rounded-full border-t-emerald-500 animate-spin"></div>
                                   <div className="text-center">
                                     <p className="font-mono text-[10px] uppercase tracking-[0.5em] text-slate-500 animate-pulse">Quant_Stream Integrity Verification...</p>
-                                    <p className="text-[8px] text-slate-700 mt-2 uppercase tracking-widest">Awaiting valid neural data points</p>
+                                    <p className="text-[8px] text-slate-700 mt-2 uppercase tracking-widest">Compiling Neural Data Points</p>
                                   </div>
                                 </div>
                               )}
                            </div>
                            <div className="p-10 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner">
                               <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-3 italic">Simulation Intelligence Insight</p>
-                              <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight">{currentBacktest.historicalContext}</p>
+                              <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight">{currentBacktest.historicalContext || "Insight generating..."}</p>
                            </div>
                         </div>
                      </div>
