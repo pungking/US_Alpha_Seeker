@@ -44,7 +44,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.6: High-Frequency Equity Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.7: High-Frequency Equity Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -64,11 +64,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
-  const getLatestTradingDate = () => {
+  const getInitialTargetDate = () => {
     const d = new Date();
+    // Default to yesterday to ensure market close data is available
     d.setDate(d.getDate() - 1);
-    if (d.getDay() === 0) d.setDate(d.getDate() - 2);
-    else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
+    
+    // Adjust for weekends
+    if (d.getDay() === 0) d.setDate(d.getDate() - 2); // If Sunday, go to Friday
+    else if (d.getDay() === 6) d.setDate(d.getDate() - 1); // If Saturday, go to Friday
+    
     return d.toISOString().split('T')[0];
   };
 
@@ -119,14 +123,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     }, 1000);
 
     try {
+      // --- STEP 1: FINNHUB SYMBOL DISCOVERY ---
       addLog("Step 1: Identifying Global Equities (Finnhub)...", "info");
       const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
       
+      if (!Array.isArray(fhRes)) {
+         throw new Error(`Finnhub API did not return an array. Check API Key quota. Response: ${JSON.stringify(fhRes).substring(0, 50)}...`);
+      }
+
       if (Array.isArray(fhRes)) {
         let filteredCount = 0;
         fhRes.forEach((s: any) => {
           const allowedTypes = ['Common Stock', 'ADR', 'REIT', 'MLP'];
-          if (allowedTypes.includes(s.type) || !s.type) {
+          // Finnhub sometimes returns type as null/undefined, usually implies common stock
+          const type = s.type || 'Common Stock';
+          if (allowedTypes.includes(type)) {
             newRegistry.set(s.symbol, {
               symbol: s.symbol,
               name: s.description,
@@ -134,7 +145,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               volume: 0,
               change: 0,
               updated: new Date().toISOString(),
-              type: s.type || 'Common Stock'
+              type: type
             });
           } else {
             filteredCount++;
@@ -145,25 +156,57 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
 
-      await new Promise(r => setTimeout(r, 2000));
+      // Throttle slightly to avoid hitting limits immediately
+      await new Promise(r => setTimeout(r, 1500));
 
-      const targetDate = getLatestTradingDate();
-      addLog(`Step 2: Merging Price Aggregates (${targetDate})...`, "info");
-      
-      const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-      
-      if (polyRes.status === 429) {
-        addLog("API QUOTA EXCEEDED (429). Initiating 60s cooldown.", "err");
-        setCooldown(60);
-        setStats(prev => ({ ...prev, phase: 'Cooldown' }));
-        throw new Error("Rate limit hit");
+      // --- STEP 2: POLYGON PRICE AGGREGATION (WITH HOLIDAY FALLBACK) ---
+      let targetDate = getInitialTargetDate();
+      let polyResults: any[] = [];
+      let foundData = false;
+      let attempts = 0;
+      const maxAttempts = 5;
+
+      while (!foundData && attempts < maxAttempts) {
+          addLog(`Step 2: Merging Price Aggregates (${targetDate})... (Attempt ${attempts + 1})`, "info");
+          
+          const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+          
+          if (polyRes.status === 429) {
+            addLog("API QUOTA EXCEEDED (429). Initiating 60s cooldown.", "err");
+            setCooldown(60);
+            setStats(prev => ({ ...prev, phase: 'Cooldown' }));
+            throw new Error("Rate limit hit");
+          }
+
+          if (polyRes.ok) {
+              const polyData = await polyRes.json();
+              if (polyData.results && polyData.results.length > 0) {
+                  polyResults = polyData.results;
+                  foundData = true;
+                  addLog(`Successfully retrieved market data for ${targetDate}.`, "ok");
+              } else {
+                  addLog(`Market data empty for ${targetDate}. Market likely closed. Checking previous day...`, "warn");
+                  // Go back 1 day
+                  const d = new Date(targetDate);
+                  d.setDate(d.getDate() - 1);
+                  targetDate = d.toISOString().split('T')[0];
+                  attempts++;
+                  await new Promise(r => setTimeout(r, 1000));
+              }
+          } else {
+             // Handle non-200 errors (e.g., 401, 403)
+             addLog(`Polygon API Error: ${polyRes.status} ${polyRes.statusText}`, "err");
+             break;
+          }
       }
 
-      const polyData = await polyRes.json();
+      if (!foundData) {
+         addLog("Warning: Could not retrieve price data after multiple attempts. Saving universe with base metadata only.", "warn");
+      }
 
-      if (polyData.results) {
+      if (foundData && polyResults.length > 0) {
         let matchCount = 0;
-        polyData.results.forEach((r: any) => {
+        polyResults.forEach((r: any) => {
           if (newRegistry.has(r.T)) {
             const current = newRegistry.get(r.T)!;
             newRegistry.set(r.T, {
@@ -184,9 +227,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
       // Drive Sync
       const masterData = Array.from(newRegistry.values());
-      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.6.json`;
+      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.7.json`;
       const payload = {
-        manifest: { version: "1.9.6", data_date: targetDate, total: masterData.length, mode: "Equity_Focus" },
+        manifest: { version: "1.9.7", data_date: targetDate, total: masterData.length, mode: "Equity_Focus" },
         universe: masterData
       };
 
@@ -265,7 +308,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.6</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.7</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Equity_Protocol_Active'}
@@ -314,7 +357,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
               { label: 'Asset Type', val: 'EQUITY_NODES', color: 'text-indigo-400' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
-              { label: 'Engine Mode', val: 'V1.9.6_CORE', color: 'text-blue-400' }
+              { label: 'Engine Mode', val: 'V1.9.7_CORE', color: 'text-blue-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
