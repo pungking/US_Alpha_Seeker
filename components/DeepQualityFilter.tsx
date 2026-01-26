@@ -30,8 +30,9 @@ const DeepQualityFilter: React.FC = () => {
   
   // Circuit Breaker State
   const [finnhubCooldownUntil, setFinnhubCooldownUntil] = useState<number>(0);
+  const [cooldownRemaining, setCooldownRemaining] = useState<number>(0);
 
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.9.0: Smart Circuit Breaker Protocol Installed.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v3.0.0: Circuit Breaker Visualizer Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -48,17 +49,26 @@ const DeepQualityFilter: React.FC = () => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Update Status based on circuit breaker
+  // Circuit Breaker Timer & Status Updater
   useEffect(() => {
-    if (loading) {
-        if (Date.now() < finnhubCooldownUntil) {
-            const remaining = Math.ceil((finnhubCooldownUntil - Date.now()) / 1000);
-            setNetworkStatus(`Circuit Breaker: Finnhub Paused (${remaining}s)`);
-        } else {
-            setNetworkStatus("Active: Poly + Finn + FMP");
-        }
+    let interval: any;
+    if (finnhubCooldownUntil > 0) {
+        interval = setInterval(() => {
+            const left = Math.ceil((finnhubCooldownUntil - Date.now()) / 1000);
+            if (left <= 0) {
+                setFinnhubCooldownUntil(0);
+                setCooldownRemaining(0);
+                setNetworkStatus("Restored: Poly + Finn + FMP");
+            } else {
+                setCooldownRemaining(left);
+                setNetworkStatus("Traffic Rerouted: FMP Priority");
+            }
+        }, 1000);
+    } else {
+        setCooldownRemaining(0);
     }
-  }, [finnhubCooldownUntil, loading]);
+    return () => clearInterval(interval);
+  }, [finnhubCooldownUntil]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -90,7 +100,8 @@ const DeepQualityFilter: React.FC = () => {
             const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
             if (fhRes.status === 429) {
                 // Trigger Circuit Breaker: Block Finnhub for 60 seconds
-                setFinnhubCooldownUntil(Date.now() + 60000); 
+                const cooldownEnd = Date.now() + 60000;
+                setFinnhubCooldownUntil(cooldownEnd); 
                 throw new Error("FINNHUB_LIMIT_TRIGGER");
             }
             if (fhRes.ok) {
@@ -124,7 +135,7 @@ const DeepQualityFilter: React.FC = () => {
                         debt: m.debtEquityRatioTTM || 0,
                         roe: (m.returnOnEquityTTM || 0) * 100
                     };
-                    metricsSource = isFinnhubAvailable ? "FMP(Failover)" : "FMP(Primary)";
+                    metricsSource = isFinnhubAvailable ? "FMP(Failover)" : "FMP(CircuitBreaker)";
                 }
             }
          } catch (fmpErr) {
@@ -223,8 +234,7 @@ const DeepQualityFilter: React.FC = () => {
     
     try {
         setActiveBrain("Gemini 3 Flash");
-        const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
@@ -293,13 +303,9 @@ const DeepQualityFilter: React.FC = () => {
                   if (r && r.symbol) validResults.push(r);
               });
               
-              // Check for active circuit breaker to log only ONCE
               if (Date.now() < finnhubCooldownUntil && !circuitBreakerLogged) {
-                  addLog("Finnhub 429 Detected. Circuit Breaker Active (60s). Routing all to FMP.", "warn");
+                  addLog("Finnhub 429 Detected. Circuit Breaker Active. Routing to FMP.", "warn");
                   circuitBreakerLogged = true;
-              } else if (Date.now() > finnhubCooldownUntil && circuitBreakerLogged) {
-                  addLog("Finnhub Cooldown Expired. Resuming Hybrid Mode.", "info");
-                  circuitBreakerLogged = false;
               }
 
               currentIndex += BATCH_SIZE;
@@ -324,7 +330,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "2.9.0", strategy: "Smart_Circuit_Breaker", count: validResults.length, timestamp: new Date().toISOString() },
+        manifest: { version: "3.0.0", strategy: "Smart_Circuit_Breaker", count: validResults.length, timestamp: new Date().toISOString() },
         elite_universe: validResults
       };
 
@@ -374,18 +380,30 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.9.0</h2>
-                <div className="flex items-center space-x-2 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                     {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Smart Circuit Breaker Ready'}
-                   </span>
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
-                     networkStatus.includes("Paused") 
-                       ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
-                       : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
-                   }`}>
-                     {networkStatus}
-                   </span>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v3.0.0</h2>
+                <div className="flex flex-col mt-2 gap-1">
+                   <div className="flex items-center space-x-2">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
+                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Smart Circuit Breaker Ready'}
+                        </span>
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
+                            cooldownRemaining > 0 
+                            ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
+                            : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
+                        }`}>
+                            {networkStatus}
+                        </span>
+                   </div>
+                   
+                   {/* Circuit Breaker Visualizer Bar */}
+                   {cooldownRemaining > 0 && (
+                       <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1">
+                           <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
+                           <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
+                               CIRCUIT BREAKER: FINNHUB PAUSED ({cooldownRemaining}s)
+                           </span>
+                       </div>
+                   )}
                 </div>
               </div>
             </div>
@@ -401,10 +419,10 @@ const DeepQualityFilter: React.FC = () => {
                   <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
                 </div>
                 <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                  <div className={`h-full transition-all duration-300 ${cooldownRemaining > 0 ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                 </div>
                 <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   Mode: Smart Load Balancing • Target: Top {TARGET_COUNT} Assets
+                   {cooldownRemaining > 0 ? 'Mode: FAILOVER PROTECTION (FMP Only)' : 'Mode: TRIPLE LOAD BALANCING'} • Target: Top {TARGET_COUNT} Assets
                 </p>
               </div>
 
