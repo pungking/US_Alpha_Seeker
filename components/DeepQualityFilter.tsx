@@ -33,7 +33,7 @@ const DeepQualityFilter: React.FC = () => {
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.0: Adaptive Throttle Logic Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.1: UX Feedback Patch Applied.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -43,12 +43,9 @@ const DeepQualityFilter: React.FC = () => {
   const logRef = useRef<HTMLDivElement>(null);
 
   // [ADAPTIVE STRATEGY]
-  const BATCH_SIZE = 5; // 한 번에 처리할 종목 수 (병렬 처리)
-  
-  // Delays in ms
-  const DELAY_TURBO = 300;   // FMP Active: Fast (~15 tickers/sec theoretically, adjusted for safe batching)
-  const DELAY_SAFE = 4500;   // Finnhub Fallback: Slow to respect 60 req/min limit
-  
+  const BATCH_SIZE = 5; 
+  const DELAY_TURBO = 300;   
+  const DELAY_SAFE = 4500;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -77,20 +74,16 @@ const DeepQualityFilter: React.FC = () => {
       let metricsSource = "";
       let profileSource = "";
 
-      // --- STRATEGY: Hybrid (FMP first -> Fallback to Finnhub) ---
-
       // 1. Try FMP (If not depleted)
       if (!fmpDepleted) {
           try {
-            // Using FMP Ratios & Profile
             const [ratioRes, profileRes] = await Promise.all([
                 fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`),
                 fetch(`https://financialmodelingprep.com/api/v3/profile/${target.symbol}?apikey=${fmpKey}`)
             ]);
 
-            // Check Limits
             if (ratioRes.status === 429 || profileRes.status === 429) {
-                setFmpDepleted(true); // Switch to Finnhub Only mode permanently for this session
+                setFmpDepleted(true);
                 throw new Error("FMP_LIMIT");
             }
 
@@ -145,7 +138,7 @@ const DeepQualityFilter: React.FC = () => {
           }
       }
 
-      // Profile Backup (Polygon) - Only if name missing
+      // Profile Backup (Polygon)
       if (!profileData.name) {
           try {
             const polyRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${target.symbol}?apiKey=${polygonKey}`);
@@ -162,14 +155,8 @@ const DeepQualityFilter: React.FC = () => {
           } catch(e) {}
       }
 
-      // Essential Data Check: Must have basic valuation metrics to consider "Quality"
       if ((!metrics.per && !metrics.roe)) return null;
 
-      // [CALCULATE QUALITY SCORE]
-      // Algorithm: Quality > Size
-      // 1. ROE (Return on Equity): Higher is better. Weight 2.0.
-      // 2. Debt Penalty: Higher debt is worse.
-      // 3. Market Cap Bonus: Slight bonus for stability, but capped to prevent size bias.
       const roeScore = (metrics.roe || 0) * 2.0; 
       const debtPenalty = (metrics.debt || 0) * 0.5;
       const mktCapBonus = Math.min(20, Math.log10(target.marketValue || 1000000) * 2); 
@@ -201,10 +188,13 @@ const DeepQualityFilter: React.FC = () => {
   };
 
   const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
+    // 1. UI Status Update: Start
+    setAiAnalysis("📡 Gemini 3.0 Flash is analyzing sector alpha...");
+    
     const prompt = `
     [Role: Senior Market Analyst]
     Action: Analyze the Sector/Industry distribution of these top ${TARGET_SELECTION_COUNT} filtered stocks.
-    Data Sample (Top 5): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe, qScore: t.qualityScore})))}
+    Data Sample (Top 5 by QualityScore): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe, qScore: t.qualityScore})))}
     Total Count: ${tickers.length}
     
     Task:
@@ -219,7 +209,7 @@ const DeepQualityFilter: React.FC = () => {
         const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
         const apiKey = process.env.API_KEY || geminiConfig?.key || "";
         
-        if (!apiKey) throw new Error("API Key Missing");
+        if (!apiKey) throw new Error("Gemini API Key Missing");
 
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
@@ -227,13 +217,22 @@ const DeepQualityFilter: React.FC = () => {
             contents: prompt,
             config: { responseMimeType: "application/json" }
         });
+        
         const result = sanitizeJson(response.text);
-        if (result) {
-            setAiAnalysis(result.insight);
+        if (result && result.insight) {
+            // 2. UI Status Update: Success
+            setAiAnalysis(`[${result.dominantSector}] ${result.insight}`);
             addLog(`AI Insight: ${result.insight}`, "ok");
+        } else {
+            // Fallback for non-JSON response
+            setAiAnalysis("Analysis Completed: " + (response.text.substring(0, 100) + "..."));
+            addLog("AI output format mismatch, raw text used.", "warn");
         }
     } catch (e: any) {
-        addLog(`AI Analysis Failed: ${e.message}`, "warn");
+        // 3. UI Status Update: Error
+        const errMsg = e.message || "Unknown Error";
+        setAiAnalysis(`⚠️ Analysis Failed: ${errMsg.slice(0, 30)}...`);
+        addLog(`AI Analysis Failed: ${errMsg}`, "warn");
     }
   };
 
@@ -266,9 +265,6 @@ const DeepQualityFilter: React.FC = () => {
       let targets = content.investable_universe || [];
       const totalCandidates = targets.length;
       
-      // [OPTIMIZATION] Sort by Estimated Transaction Value (Price * Volume) DESC
-      // This is purely for SCANNING ORDER efficiency (Most active first).
-      // The Final Selection will be based on QualityScore after scanning ALL targets.
       addLog(`Universe Loaded: ${totalCandidates} Candidates. Sorting by Liquidity...`, "info");
       targets.sort((a: any, b: any) => {
           const valA = (a.price || 0) * (a.volume || 0);
@@ -284,7 +280,6 @@ const DeepQualityFilter: React.FC = () => {
       let currentIndex = 0;
 
       while (currentIndex < totalCandidates) {
-          // Dynamic Status Update
           setNetworkStatus(fmpDepleted 
               ? `Safe Mode (Finnhub) - Delay ${DELAY_SAFE}ms` 
               : `Turbo Mode (FMP) - Delay ${DELAY_TURBO}ms`
@@ -299,7 +294,6 @@ const DeepQualityFilter: React.FC = () => {
               results.forEach(r => {
                   if (r && r.symbol) {
                       validResults.push(r);
-                      // Count Statistics
                       setSourceStats(prev => {
                           const src = r.source || "";
                           return {
@@ -314,8 +308,6 @@ const DeepQualityFilter: React.FC = () => {
               currentIndex += BATCH_SIZE;
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
               
-              // [ADAPTIVE DELAY]
-              // Use Turbo delay if FMP is active, otherwise Safe delay for Finnhub
               const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
               await new Promise(r => setTimeout(r, currentDelay));
 
@@ -324,11 +316,9 @@ const DeepQualityFilter: React.FC = () => {
                   addLog(`FMP Limit Hit! Engaging Safe Mode (Finnhub)...`, "warn");
                   setFmpDepleted(true); 
                   await new Promise(r => setTimeout(r, 1000));
-                  // Do NOT increment index, retry this batch
               } else if (e.message === "FINNHUB_LIMIT") {
                   addLog(`Finnhub Limit. Cooling down (10s)...`, "warn");
                   await new Promise(r => setTimeout(r, 10000));
-                  // Retry same batch
               } else {
                   addLog(`Batch Error: ${e.message}`, "err");
                   currentIndex += BATCH_SIZE;
@@ -338,8 +328,6 @@ const DeepQualityFilter: React.FC = () => {
 
       addLog(`Full Scan Complete. ${validResults.length} Assets Validated. Ranking by Quality Score...`, "info");
       
-      // [FINAL SELECTION] Sort by QUALITY SCORE (ROE + Fundamentals)
-      // This is the CRITICAL STEP: We select the best FUNDAMENTALS, not the biggest Market Caps.
       const eliteSurvivors = validResults
           .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)) 
           .slice(0, TARGET_SELECTION_COUNT);
@@ -348,14 +336,14 @@ const DeepQualityFilter: React.FC = () => {
       addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
       setNetworkStatus("Status: Scan Complete");
 
-      // AI Analysis on Result
+      // AI Analysis Trigger
       await analyzeSectorDistribution(eliteSurvivors);
 
       // Upload
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.0", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.1", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -405,7 +393,7 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -420,7 +408,6 @@ const DeepQualityFilter: React.FC = () => {
                         </span>
                    </div>
                    
-                   {/* Data Source Stats */}
                    {loading && (
                        <div className="flex items-center space-x-2 mt-1">
                            <span className="text-[8px] font-bold text-slate-500 uppercase">Live Source:</span>
@@ -429,7 +416,6 @@ const DeepQualityFilter: React.FC = () => {
                        </div>
                    )}
                    
-                   {/* FMP Depleted Warning */}
                    {fmpDepleted && (
                        <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1">
                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
@@ -462,10 +448,10 @@ const DeepQualityFilter: React.FC = () => {
 
               <div className="bg-blue-900/10 p-8 rounded-3xl border border-blue-500/10 relative overflow-hidden">
                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-2">AI Sector Insight</p>
-                 <p className="text-xs font-bold text-slate-300 leading-relaxed italic">
+                 <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
                     {aiAnalysis || "Awaiting Post-Scan Analysis..."}
                  </p>
-                 {loading && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
+                 {loading && !aiAnalysis && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
               </div>
           </div>
         </div>
