@@ -25,10 +25,13 @@ const DeepQualityFilter: React.FC = () => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: FMP Turbo Engine');
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Free Tier Optimized');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.0.0: FMP Primary Architecture Loaded.']);
+  // 무료 플랜 상태 관리
+  const [fmpDepleted, setFmpDepleted] = useState(false);
+  
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.5.0: Free-Tier Safe Mode Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -37,9 +40,10 @@ const DeepQualityFilter: React.FC = () => {
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  // FMP는 속도가 빠르므로 배치 사이즈 대폭 증대 (2500개 처리를 위함)
-  const BATCH_SIZE = 20; 
-  const TARGET_SELECTION_COUNT = 500; // 최종 선발 인원
+  // Free Tier Limits: Finnhub ~60/min, FMP ~250/day. 
+  // Batch 2 per 2000ms = ~60 calls/min (Safe)
+  const BATCH_SIZE = 2; 
+  const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -67,53 +71,63 @@ const DeepQualityFilter: React.FC = () => {
       let metricsSource = "";
       let profileSource = "";
 
-      // --- STRATEGY: FMP FIRST (High Speed, High Limit) ---
+      // --- STRATEGY: Hybrid (FMP first -> Fallback to Finnhub) ---
 
-      // 1. Metrics & Profile from FMP (Try to get all in one go if possible, but endpoints are separate)
-      try {
-        // Parallel Fetch for Speed
-        const [ratioRes, profileRes] = await Promise.all([
-            fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`),
-            fetch(`https://financialmodelingprep.com/api/v3/profile/${target.symbol}?apikey=${fmpKey}`)
-        ]);
+      // 1. Try FMP (If not depleted)
+      if (!fmpDepleted) {
+          try {
+            const [ratioRes, profileRes] = await Promise.all([
+                fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`),
+                fetch(`https://financialmodelingprep.com/api/v3/profile/${target.symbol}?apikey=${fmpKey}`)
+            ]);
 
-        if (ratioRes.ok) {
-            const data = await ratioRes.json();
-            if (data && data.length > 0) {
-                const m = data[0];
-                metrics = {
-                    per: m.peRatioTTM || 0,
-                    pbr: m.priceToBookRatioTTM || 0,
-                    debt: m.debtEquityRatioTTM || 0,
-                    roe: (m.returnOnEquityTTM || 0) * 100
-                };
-                metricsSource = "FMP";
+            // Check Limits
+            if (ratioRes.status === 429 || profileRes.status === 429) {
+                setFmpDepleted(true); // Switch to Finnhub Only mode
+                throw new Error("FMP_LIMIT");
             }
-        }
 
-        if (profileRes.ok) {
-            const data = await profileRes.json();
-            if (data && data.length > 0) {
-                const p = data[0];
-                profileData = {
-                    name: p.companyName,
-                    sector: p.sector,
-                    industry: p.industry
-                };
-                profileSource = "FMP";
+            if (ratioRes.ok) {
+                const data = await ratioRes.json();
+                // FMP sometimes returns error message in JSON even with 200 OK
+                if (data && data['Error Message']) {
+                    setFmpDepleted(true);
+                    throw new Error("FMP_LIMIT");
+                }
+                if (data && Array.isArray(data) && data.length > 0) {
+                    const m = data[0];
+                    metrics = {
+                        per: m.peRatioTTM || 0,
+                        pbr: m.priceToBookRatioTTM || 0,
+                        debt: m.debtEquityRatioTTM || 0,
+                        roe: (m.returnOnEquityTTM || 0) * 100
+                    };
+                    metricsSource = "FMP";
+                }
             }
-        }
-      } catch (e) {
-         // FMP Network Error - Silent Fail to Backup
+            if (profileRes.ok) {
+                const data = await profileRes.json();
+                if (data && Array.isArray(data) && data.length > 0) {
+                    const p = data[0];
+                    profileData = { name: p.companyName, sector: p.sector, industry: p.industry };
+                    profileSource = "FMP";
+                }
+            }
+          } catch (e: any) {
+             if (e.message !== "FMP_LIMIT") {
+                 // Regular network error, just continue
+             }
+          }
       }
 
-      // --- BACKUP STRATEGY: Finnhub & Polygon (Only if FMP failed/empty) ---
-      
-      // Backup Metrics (Finnhub)
+      // 2. Fallback to Finnhub (If FMP failed, depleted, or empty data)
       if (!metrics.per && !metrics.roe) {
           try {
             const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
-            if (fhRes.ok) {
+            if (fhRes.status === 429) {
+                // If Finnhub also limits, we really just have to skip or wait.
+                // For this implementation, we skip to keep the loop moving.
+            } else if (fhRes.ok) {
                 const data = await fhRes.json();
                 metrics = {
                     per: data.metric?.peNormalized || 0,
@@ -121,12 +135,12 @@ const DeepQualityFilter: React.FC = () => {
                     debt: data.metric?.totalDebtEquityRatioQuarterly || 0,
                     roe: data.metric?.roeTTM || 0
                 };
-                metricsSource = "Finnhub(Backup)";
+                metricsSource = "Finnhub";
             }
           } catch(e) {}
       }
 
-      // Backup Profile (Polygon)
+      // Profile Backup (Polygon)
       if (!profileData.name) {
           try {
             const polyRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${target.symbol}?apiKey=${polygonKey}`);
@@ -137,13 +151,12 @@ const DeepQualityFilter: React.FC = () => {
                         name: p.results.name,
                         sector: p.results.sic_description || "Unknown"
                     };
-                    profileSource = "Polygon(Backup)";
+                    profileSource = "Polygon";
                 }
             }
           } catch(e) {}
       }
 
-      // Final Validation: Must have at least some fundamental data OR a valid name to be considered "Quality"
       if ((!metrics.per && !metrics.roe) || !profileData.name) return null;
 
       return {
@@ -205,6 +218,7 @@ const DeepQualityFilter: React.FC = () => {
     setLoading(true);
     setProcessedData([]);
     setAiAnalysis(null);
+    setFmpDepleted(false);
     setActiveBrain('Processing');
     addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
 
@@ -225,13 +239,12 @@ const DeepQualityFilter: React.FC = () => {
       }).then(r => r.json());
 
       let targets = content.investable_universe || [];
-      
-      // [CHANGE] 전수 조사 모드: 입력된 모든 티커를 대상으로 함 (약 2500개 예상)
       const totalCandidates = targets.length;
-      addLog(`Target Locked: All ${totalCandidates} Candidates. FMP Turbo Scan Initiated...`, "ok");
+      
+      addLog(`Target Locked: ${totalCandidates} Candidates. Free-Tier Safe Mode Initiated...`, "ok");
       
       setProgress({ current: 0, total: totalCandidates });
-      setNetworkStatus("Active: FMP Primary Engine");
+      setNetworkStatus("Active: FMP/Finnhub Hybrid");
 
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
@@ -240,30 +253,34 @@ const DeepQualityFilter: React.FC = () => {
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
           
           try {
-              // Parallel Execution
+              // Update status based on FMP availability
+              setNetworkStatus(fmpDepleted ? "Mode: Finnhub Only (FMP Depleted)" : "Mode: FMP Priority Hybrid");
+
               const promises = batch.map((t: any) => fetchTickerData(t));
               const results = await Promise.all(promises);
               
               results.forEach(r => {
-                  if (r && r.symbol) validResults.push(r);
+                  if (r && r.symbol) {
+                      validResults.push(r);
+                      // [RESTORED] Log every find for user feedback
+                      addLog(`[${r.symbol}] Acquired via ${r.source.split('/')[0].replace('M:','')}`, "info");
+                  }
               });
 
               currentIndex += BATCH_SIZE;
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
               
-              // FMP는 빠르지만 최소한의 예의(Rate Limit 방지)를 위해 약간의 딜레이
-              await new Promise(r => setTimeout(r, 100));
+              // [CRITICAL] 2000ms delay for Free Tier safety (~60 calls/min)
+              await new Promise(r => setTimeout(r, 2000));
 
           } catch (e: any) {
-              addLog(`Batch Failed (${e.message}). Skipping...`, "err");
+              addLog(`Batch Error: ${e.message}`, "err");
               currentIndex += BATCH_SIZE;
           }
       }
 
-      addLog(`Scan Complete. ${validResults.length} Valid Assets Found. Selecting Top ${TARGET_SELECTION_COUNT}...`, "info");
+      addLog(`Scan Complete. ${validResults.length} Assets Found. Selecting Top ${TARGET_SELECTION_COUNT}...`, "info");
       
-      // [CHANGE] 최종 선발: Market Value(시총/유동성) 기준 정렬 후 상위 500개 Cut
-      // 또는 ROE/PER 퀄리티 점수로 정렬할 수도 있으나, Stage 2는 '우량주 유니버스' 확보가 목적이므로 시총/유동성이 안전함.
       const eliteSurvivors = validResults
           .sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0))
           .slice(0, TARGET_SELECTION_COUNT);
@@ -279,7 +296,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.0.0", strategy: "FMP_Turbo_Full_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.5.0", strategy: "Free_Tier_Safe_Mode", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -300,6 +317,7 @@ const DeepQualityFilter: React.FC = () => {
       setLoading(false);
       setActiveBrain('Standby');
       setNetworkStatus('Standby');
+      setFmpDepleted(false);
     }
   };
 
@@ -328,21 +346,35 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.0.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.5.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'FMP Turbo Engine Ready'}
+                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Free Tier Safe Mode Ready'}
                         </span>
-                        <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-purple-500/20 bg-purple-500/10 text-purple-400">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
+                            fmpDepleted
+                            ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
+                            : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
+                        }`}>
                             {networkStatus}
                         </span>
                    </div>
+                   
+                   {/* FMP Depleted Warning */}
+                   {fmpDepleted && (
+                       <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1">
+                           <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
+                           <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
+                               FMP DAILY LIMIT REACHED - USING FINNHUB ONLY
+                           </span>
+                       </div>
+                   )}
                 </div>
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="px-12 py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Full Scanning...' : 'Execute FMP Turbo Scan'}
+              {loading ? 'Safe Scanning...' : 'Execute Free-Tier Scan'}
             </button>
           </div>
 
@@ -353,10 +385,10 @@ const DeepQualityFilter: React.FC = () => {
                   <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
                 </div>
                 <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                  <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                 </div>
                 <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   Mode: FULL UNIVERSE SCAN • Target: Select Top {TARGET_SELECTION_COUNT}
+                   {fmpDepleted ? 'Mode: FAILOVER PROTECTION (Finnhub Only)' : 'Mode: HYBRID SAFE SCAN'} • Target: Top {TARGET_SELECTION_COUNT}
                 </p>
               </div>
 
@@ -374,7 +406,7 @@ const DeepQualityFilter: React.FC = () => {
       <div className="xl:col-span-1">
         <div className="glass-panel h-[600px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Turbo_Log</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Ticker_Log</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
