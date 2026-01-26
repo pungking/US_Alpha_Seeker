@@ -9,20 +9,20 @@ const ALPHA_SCHEMA = {
     type: Type.OBJECT,
     properties: {
       symbol: { type: Type.STRING, description: "The stock ticker symbol" },
-      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY'" },
+      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ACCUMULATE'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown" },
-      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3-4 reasons in Korean" },
+      investmentOutlook: { type: Type.STRING, description: "Professional perspective in 300+ characters Korean Markdown" },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean (ICT, FVG, Volume, etc.)" },
       convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
-      expectedReturn: { type: Type.STRING, description: "Target return e.g. +20%" },
+      expectedReturn: { type: Type.STRING, description: "Target return e.g. +25.0%" },
       theme: { type: Type.STRING, description: "Market narrative" },
-      aiSentiment: { type: Type.STRING, description: "Sentiment report in Korean" },
-      analysisLogic: { type: Type.STRING, description: "Neural logic in Korean" },
+      aiSentiment: { type: Type.STRING, description: "Sentiment description in Korean" },
+      analysisLogic: { type: Type.STRING, description: "Neural logic engine state description in Korean" },
       chartPattern: { type: Type.STRING, description: "Detected technical pattern name" },
       supportLevel: { type: Type.NUMBER, description: "Key technical support level" },
       resistanceLevel: { type: Type.NUMBER, description: "Major technical resistance level" },
-      riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:3" }
+      riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:3.5" }
     },
     required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "riskRewardRatio"]
   }
@@ -59,16 +59,12 @@ function sanitizeAndParseJson(text: string): any | null {
   if (!text) return null;
   try {
     let cleanText = text.trim();
-    // 마크다운 블록 제거
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
-    // 제어 문자 제거
     cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
-
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
-
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
       return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
     }
@@ -77,7 +73,7 @@ function sanitizeAndParseJson(text: string): any | null {
     }
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Content:", text.substring(0, 100));
+    console.error("JSON_PARSE_CRITICAL_FAILURE:", e);
     return null;
   }
 }
@@ -93,25 +89,26 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000)
   }
 }
 
-// Generates high-level investment synthesis across different AI providers
-export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string, code?: number}> {
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const prompt = `당신은 전설적인 월가 퀀트 헤지펀드 매니저입니다. [오늘 날짜: ${today}]
-분석 후보 종목 리스트: ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
+  const prompt = `[시스템 미션: 월가 일류 퀀트 전략가]
+현재 날짜: ${today}
+분석 대상 종목(TOP 12): ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
 
-위 리스트에서 시장 주도력이 가장 강력한 6개 종목을 최종 선정하여 정밀 분석 보고서를 작성하세요.
-반드시 아래 JSON 필드명을 포함한 배열 형식으로만 응답하십시오:
-symbol, aiVerdict, marketCapClass, sectorTheme, investmentOutlook, selectionReasons (배열), convictionScore (숫자), expectedReturn, theme, aiSentiment, analysisLogic, chartPattern, supportLevel (숫자), resistanceLevel (숫자), riskRewardRatio.
+위 리스트에서 기술적/재무적/ICT 관점에서 가장 완벽한 6개 종목을 최종 선정하십시오.
+각 종목에 대해 다음 정보를 '상세히' 포함하여 JSON 배열로 응답하십시오:
+- symbol, aiVerdict(예: STRONG_BUY), marketCapClass, sectorTheme, convictionScore(신뢰도 0-100)
+- selectionReasons (배열: ICT 오더블록, FVG, 수급 현황 등 최소 4개 이상의 구체적 기술 지표 포함)
+- expectedReturn (예: +25.0%), investmentOutlook (300자 이상의 마크다운 투자 관점), aiSentiment (감성 지수 설명), analysisLogic (추론 로직 상태), chartPattern, supportLevel, resistanceLevel, riskRewardRatio.
 
-한국어로 응답하십시오. 오직 JSON 데이터만 출력하세요.`;
+한국어로 응답하고 오직 JSON 배열만 출력하세요.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      // Use process.env.API_KEY as primary source for Gemini
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       const result = await fetchWithRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -143,28 +140,20 @@ symbol, aiVerdict, marketCapClass, sectorTheme, investmentOutlook, selectionReas
   } catch (error: any) { return { data: null, error: error.message }; }
 }
 
-// Fixed truncated function: Simulates historical performance for a specific stock candidate
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `[퀀트 백테스트 시뮬레이션 요청]
-종목: ${stock.symbol}
-현재가: ${stock.price}, 지지선(매수타점): ${stock.supportLevel}, 저항선(목표가): ${stock.resistanceLevel}
-탐색된 패턴: ${stock.chartPattern}
+  const prompt = `[퀀트 백테스트 시뮬레이션]
+종목: ${stock.symbol} / 현재가: ${stock.price} / 지지: ${stock.supportLevel} / 저항: ${stock.resistanceLevel}
+패턴: ${stock.chartPattern}
 
-지난 2년간의 역사적 변동성과 거시 이벤트를 바탕으로, 위 기술적 전략을 적용했을 때의 가상 성과를 시뮬레이션하십시오. 
-반드시 다음 필드를 포함한 JSON 형식으로만 응답하십시오:
-1. equityCurve: [{ period: string, value: number }] (12개월 누적 수익률, 0%부터 시작)
-2. metrics: { winRate: string, profitFactor: string, maxDrawdown: string, sharpeRatio: string }
-3. historicalContext: string (시뮬레이션 분석 요약, 한국어)
-
-한국어로 응답하고 오직 JSON 데이터만 출력하세요.`;
+지난 2년간의 역사적 변동성을 반영하여 위 전략의 성과를 시뮬레이션하고 결과를 JSON으로 출력하세요.
+equityCurve(12개월), metrics(승률, PF, MDD, 샤프지수), historicalContext(한국어 요약).`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      // Use process.env.API_KEY as primary source for Gemini
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       const result = await fetchWithRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
@@ -173,44 +162,32 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
       }));
       return { data: sanitizeAndParseJson(result.text) };
     }
-
-    if (provider === ApiProvider.PERPLEXITY) {
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-          model: 'sonar-pro',
-          messages: [
-            { role: "system", content: "백테스트 시뮬레이션 결과를 JSON 객체 하나로 응답하십시오. 설명 없이 순수 JSON만 반환하세요." },
-            { role: "user", content: prompt }
-          ],
-          temperature: 0.2
-        })
-      });
-      if (!res.ok) return { data: null, error: `HTTP_${res.status}` };
-      const data = await res.json();
-      const content = data.choices?.[0]?.message?.content;
-      return { data: sanitizeAndParseJson(content) };
-    }
-    return { data: null, error: "INVALID_PROVIDER" };
-  } catch (error: any) {
-    return { data: null, error: error.message };
-  }
+    return { data: null, error: "NOT_IMPLEMENTED" };
+  } catch (error: any) { return { data: null, error: error.message }; }
 }
 
-// Added missing function to analyze the system pipeline status and provide Korean audit reports
 export async function analyzePipelineStatus(data: {
   currentStage: number;
   apiStatuses: any[];
   symbols?: string[] | null;
+  recommendedData?: any[] | null;
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
 
-  const activeNodes = data.apiStatuses.filter(s => s.isConnected).map(s => s.provider).join(", ");
-  const symbolContext = data.symbols ? `Target Symbols: ${data.symbols.join(", ")}.` : "No symbols selected yet.";
-  const prompt = `System Stage ${data.currentStage}, Active Nodes: ${activeNodes}. ${symbolContext} Provide a deep diagnostic audit and strategic recommendation in Korean Markdown.`;
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  const symbolsContext = data.recommendedData ? `추천 종목 포트폴리오: ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore})))}` : "분석 데이터 없음";
+  
+  const prompt = `[최종 전략 감사 리포트]
+분석 기준일: ${today}
+상태: ${symbolsContext}
+
+위 6개 추천 종목 전체를 아우르는 통합 투자 전략 보고서를 한국어 마크다운 형식으로 작성하십시오.
+1. 분석 기준일을 리포트 최상단에 명시할 것.
+2. 선정된 6개 종목의 상관관계 및 포트폴리오 리스크를 진단할 것.
+3. 거시 경제 상황과 결합하여 섹터별 주도력을 상세히 분석할 것.
+4. 투자자가 반드시 주의해야 할 리스크(Hard Stop) 지점을 명확히 할 것.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -228,19 +205,13 @@ export async function analyzePipelineStatus(data: {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
         body: JSON.stringify({
           model: 'sonar-pro',
-          messages: [
-            { role: "system", content: "당신은 월가의 전략 분석가입니다. 마크다운 형식으로 심층 진단 보고서를 작성하십시오." },
-            { role: "user", content: prompt }
-          ],
+          messages: [{ role: "user", content: prompt }],
           temperature: 0.3
         })
       });
-      if (!res.ok) return `AUDIT_NODE_FAILURE: HTTP_${res.status}`;
       const json = await res.json();
       return json.choices?.[0]?.message?.content || "No response content";
     }
-    return "AUDIT_NODE_ERROR: INVALID_PROVIDER";
-  } catch (error: any) {
-    return `AUDIT_NODE_FAILURE: ${error.message}`;
-  }
+    return "INVALID_PROVIDER";
+  } catch (error: any) { return `AUDIT_NODE_FAILURE: ${error.message}`; }
 }
