@@ -25,8 +25,8 @@ const DeepQualityFilter: React.FC = () => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [selectionMode, setSelectionMode] = useState<'AI_SELECTED' | 'ALGO_FALLBACK' | 'PENDING'>('PENDING');
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.3.1: Protocol Handshake Initiated.']);
+  const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.4.0: Market Liquidity Protocol Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -41,93 +41,55 @@ const DeepQualityFilter: React.FC = () => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
-  const sanitizeJson = (text: string) => {
-    try {
-      let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
-      const first = clean.indexOf('[');
-      const last = clean.lastIndexOf(']');
-      if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
-      return JSON.parse(clean);
-    } catch (e) { return null; }
-  };
-
-  // AI에게 상위 500개 선별 요청
-  const selectEliteCandidates = async (candidates: any[]): Promise<string[] | null> => {
+  // AI에게 선별된 유니버스에 대한 브리핑 요청 (선별 로직 X, 분석 로직 O)
+  const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
     const prompt = `
-    [Task]
-    You are a Senior Portfolio Manager.
-    Input: A list of ${candidates.length} tickers (Top liquidity assets).
-    Action: Select exactly 500 tickers that are most worthy of a "Deep Fundamental Scan" (checking PER, ROE, Debt, etc.).
-    Criteria:
-    1. Prioritize companies with established business models (exclude likely shell companies).
-    2. Focus on market leaders in their respective sectors.
-    3. Include high-growth potential mid-caps.
-    
-    Data:
-    ${JSON.stringify(candidates.map(c => c.symbol).slice(0, 1000))}
-
-    Output:
-    Return ONLY a JSON Array of strings containing exactly 500 symbols. Example: ["AAPL", "MSFT", ...]
-    Do not add any explanation.
+    [Role: Senior Market Analyst]
+    Action: Analyze the Sector/Industry distribution of these top ${tickers.length} filtered stocks.
+    Input Data (Top 20 Samples): ${JSON.stringify(tickers.slice(0, 20).map(t => ({ s: t.symbol, sec: t.sector, ind: t.industry })))}
+    Task: Provide a 1-sentence summary of which sectors are currently dominating the liquidity in the market. (e.g., "Tech and Healthcare are leading the liquidity flow.")
+    Language: Korean.
     `;
 
-    // 1. Gemini
     try {
       setActiveBrain('Gemini 3 Pro');
-      addLog("Requesting Elite Selection from Gemini 3...", "info");
+      addLog("Requesting Sector Briefing from Gemini...", "info");
       const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
       const ai = new GoogleGenAI({ apiKey: geminiKey });
       const response = await ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
-        config: { responseMimeType: "application/json" }
       });
-      const result = sanitizeJson(response.text);
-      if (Array.isArray(result) && result.length > 100) return result;
+      setAiAnalysis(response.text);
+      addLog("AI Sector Analysis Complete.", "ok");
     } catch (e: any) {
-      addLog(`Gemini Selection Failed (${e.message}). Switching to Perplexity...`, "warn");
+        // Fallback to Perplexity
+        try {
+            setActiveBrain('Sonar Pro (Fallback)');
+            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+            const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                body: JSON.stringify({
+                    model: 'sonar-pro', 
+                    messages: [{ role: "user", content: prompt }]
+                })
+            });
+            const data = await pRes.json();
+            setAiAnalysis(data.choices?.[0]?.message?.content);
+            addLog("AI Sector Analysis Complete (Sonar).", "ok");
+        } catch (err) {
+            setAiAnalysis("AI Analysis Failed. Proceeding with raw data.");
+        }
     }
-
-    // 2. Perplexity
-    try {
-      setActiveBrain('Sonar Pro (Fallback)');
-      addLog("Requesting Elite Selection from Perplexity Sonar...", "info");
-      const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-      const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${perplexityKey}`, 
-            'Accept': 'application/json'
-        },
-        body: JSON.stringify({
-            model: 'sonar-pro', 
-            messages: [
-                { role: "system", content: "You are a stock selector. Return ONLY JSON Array of 500 symbols." },
-                { role: "user", content: prompt }
-            ],
-            temperature: 0.1
-        })
-      });
-      
-      if (!pRes.ok) throw new Error(`Status ${pRes.status}`);
-      const pJson = await pRes.json();
-      const result = sanitizeJson(pJson.choices?.[0]?.message?.content);
-      if (Array.isArray(result) && result.length > 100) return result;
-
-    } catch (e: any) {
-      addLog(`Perplexity Selection Failed (${e.message}).`, "err");
-    }
-
-    return null; // Both failed
   };
 
   const executeIntegratedScan = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    setSelectionMode('PENDING');
-    setActiveBrain('Initializing');
-    addLog("Step 1: Locating Purified Universe from Stage 1 Vault...", "info");
+    setAiAnalysis(null);
+    setActiveBrain('Algo: Market Value');
+    addLog("Step 1: Retrieving Purified Universe from Stage 1...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
@@ -141,42 +103,26 @@ const DeepQualityFilter: React.FC = () => {
         return;
       }
 
-      addLog(`Found target: ${listRes.files[0].name}. Synchronizing nodes...`, "ok");
-
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // Pre-process: 거래대금 순 정렬
+      // 1. 알고리즘 선별: 거래대금(Price * Volume) 기준 상위 500개 (가장 확실한 방법)
       const rawEquities = (content.investable_universe || [])
         .map((s: any) => ({ ...s, marketValue: (s.price || 0) * (s.volume || 0) }))
-        .sort((a: any, b: any) => b.marketValue - a.marketValue);
+        .sort((a: any, b: any) => b.marketValue - a.marketValue); // 내림차순 정렬
 
-      let targetSymbols: string[] = [];
-      const candidatesForAi = rawEquities.slice(0, 1200); // AI에게는 상위 1200개만 보여줌 (토큰 절약 및 노이즈 제거)
-
-      // AI Selection
-      const aiSelectedSymbols = await selectEliteCandidates(candidatesForAi);
-
-      if (aiSelectedSymbols && aiSelectedSymbols.length > 0) {
-        targetSymbols = aiSelectedSymbols;
-        setSelectionMode('AI_SELECTED');
-        addLog(`AI successfully selected ${targetSymbols.length} elite candidates.`, "ok");
-      } else {
-        // Fallback: Algo Selection (Top 500 by Market Value)
-        targetSymbols = rawEquities.slice(0, 500).map((e: any) => e.symbol);
-        setSelectionMode('ALGO_FALLBACK');
-        setActiveBrain('Algo (Market Value)');
-        addLog(`AI Nodes Unresponsive. Fallback: Selected Top ${targetSymbols.length} by Market Value.`, "warn");
-      }
-
-      // Filter rawEquities to match targetSymbols
-      const finalTargets = rawEquities.filter((e: any) => targetSymbols.includes(e.symbol)).slice(0, 500);
+      const targetCount = 500;
+      const finalTargets = rawEquities.slice(0, targetCount);
       
+      addLog(`Algorithm Selected Top ${targetCount} by Liquidity (Highest Reliability).`, "ok");
       setProgress({ current: 0, total: finalTargets.length });
-      addLog(`Step 2: Deep Scanning ${finalTargets.length} Elite Assets (Finnhub)...`, "info");
-
+      
       const results: QualityTicker[] = [];
+      
+      // 2. Finnhub 정밀 스캔
+      addLog(`Step 2: Deep Fundamental Scan (Finnhub) for ${finalTargets.length} assets...`, "info");
+
       for (let i = 0; i < finalTargets.length; i++) {
         const target = finalTargets[i];
         setProgress(prev => ({ ...prev, current: i + 1 }));
@@ -200,8 +146,7 @@ const DeepQualityFilter: React.FC = () => {
           });
 
           if (i % 5 === 0) setProcessedData([...results]);
-          
-          await new Promise(r => setTimeout(r, 800));
+          await new Promise(r => setTimeout(r, 800)); // Rate Limit 준수
         } catch (e) {
           addLog(`Node Skip: ${target.symbol} latency issues.`, "warn");
           await new Promise(r => setTimeout(r, 2000));
@@ -209,16 +154,19 @@ const DeepQualityFilter: React.FC = () => {
       }
 
       setProcessedData(results);
+      
+      // 3. AI에게 결과 요약 요청 (병렬 처리)
+      analyzeSectorDistribution(results);
+
       addLog(`Scan Complete. Committing ${results.length} nodes to Quality Vault...`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
         manifest: { 
-            version: "2.3.1", 
+            version: "2.4.0", 
             node: "Deep_Quality_Scan", 
-            mode: selectionMode,
-            brain: activeBrain,
+            mode: "ALGO_LIQUIDITY_SORT",
             count: results.length, 
             timestamp: new Date().toISOString() 
         },
@@ -266,16 +214,16 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-purple-500 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Elite_Scanner v2.3.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Elite_Scanner v2.4.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${selectionMode === 'AI_SELECTED' ? 'border-purple-500/20 bg-purple-500/10 text-purple-400' : selectionMode === 'ALGO_FALLBACK' ? 'border-amber-500/20 bg-amber-500/10 text-amber-400' : 'border-slate-500/20 text-slate-500'}`}>
-                     {loading ? `Identifying via ${activeBrain}...` : selectionMode === 'PENDING' ? 'Ready to Scan' : `Mode: ${selectionMode}`}
+                   <span className="text-[8px] font-black px-2 py-0.5 rounded border border-purple-500/20 bg-purple-500/10 text-purple-400 uppercase tracking-widest">
+                     Mode: Algo-Liquidity Sort (High Accuracy)
                    </span>
                 </div>
               </div>
             </div>
             <button onClick={executeIntegratedScan} disabled={loading} className="px-12 py-5 bg-purple-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest hover:scale-105 active:scale-95 transition-all disabled:opacity-50 shadow-xl shadow-purple-900/20">
-              {loading ? 'AI Filtering & Scanning...' : 'Execute Elite Scan'}
+              {loading ? 'Scanning Liquidity & Fundamentals...' : 'Execute Elite Scan'}
             </button>
           </div>
 
@@ -288,6 +236,16 @@ const DeepQualityFilter: React.FC = () => {
                 <div className="h-full bg-gradient-to-r from-purple-700 to-purple-400 transition-all duration-300 rounded-full" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
               </div>
           </div>
+
+          {aiAnalysis && (
+             <div className="p-6 rounded-[24px] bg-indigo-500/10 border border-indigo-500/20 animate-in fade-in slide-in-from-top-2">
+                <div className="flex items-center gap-2 mb-2">
+                   <span className="w-1.5 h-1.5 rounded-full bg-indigo-400 animate-pulse"></span>
+                   <p className="text-[8px] font-black text-indigo-400 uppercase tracking-widest">AI Sector Briefing ({activeBrain})</p>
+                </div>
+                <p className="text-xs text-indigo-100 font-medium leading-relaxed italic">"{aiAnalysis}"</p>
+             </div>
+          )}
         </div>
       </div>
 
