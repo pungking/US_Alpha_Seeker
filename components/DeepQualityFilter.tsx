@@ -14,6 +14,7 @@ interface QualityTicker {
   pbr?: number;
   debtToEquity?: number;
   roe?: number;
+  qualityScore?: number; // New Quality Metric
   sector?: string;
   industry?: string;
   lastUpdate: string;
@@ -25,14 +26,14 @@ const DeepQualityFilter: React.FC = () => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Smart Burst Mode');
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Engine');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.6.1: Hybrid Protocol Verified.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.0: Adaptive Throttle Logic Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -41,12 +42,13 @@ const DeepQualityFilter: React.FC = () => {
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  // [SMART BURST STRATEGY]
-  // Finnhub Free Limit: 60 reqs/min.
-  // Batch 4 every ~4.5s = ~53 reqs/min.
-  // Maximizes throughput while keeping a safe buffer from the 60 limit.
-  const BATCH_SIZE = 4; 
-  const BURST_DELAY = 4500;
+  // [ADAPTIVE STRATEGY]
+  const BATCH_SIZE = 5; // 한 번에 처리할 종목 수 (병렬 처리)
+  
+  // Delays in ms
+  const DELAY_TURBO = 300;   // FMP Active: Fast (~15 tickers/sec theoretically, adjusted for safe batching)
+  const DELAY_SAFE = 4500;   // Finnhub Fallback: Slow to respect 60 req/min limit
+  
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -80,6 +82,7 @@ const DeepQualityFilter: React.FC = () => {
       // 1. Try FMP (If not depleted)
       if (!fmpDepleted) {
           try {
+            // Using FMP Ratios & Profile
             const [ratioRes, profileRes] = await Promise.all([
                 fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`),
                 fetch(`https://financialmodelingprep.com/api/v3/profile/${target.symbol}?apikey=${fmpKey}`)
@@ -93,7 +96,6 @@ const DeepQualityFilter: React.FC = () => {
 
             if (ratioRes.ok) {
                 const data = await ratioRes.json();
-                // FMP sometimes returns error message in JSON even with 200 OK
                 if (data && data['Error Message']) {
                     setFmpDepleted(true);
                     throw new Error("FMP_LIMIT");
@@ -118,17 +120,15 @@ const DeepQualityFilter: React.FC = () => {
                 }
             }
           } catch (e: any) {
-             if (e.message === "FMP_LIMIT") throw e; // Rethrow limit error to handle switching
-             // Other errors (network, 404) -> just continue to fallback
+             if (e.message === "FMP_LIMIT") throw e; 
           }
       }
 
-      // 2. Fallback to Finnhub (If FMP failed, depleted, or empty data)
+      // 2. Fallback to Finnhub
       if (!metrics.per && !metrics.roe) {
           try {
             const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
             if (fhRes.status === 429) {
-                // Return null to indicate rate limit hit for this item, but catch block handles batch logic
                 throw new Error("FINNHUB_LIMIT");
             } else if (fhRes.ok) {
                 const data = await fhRes.json();
@@ -145,7 +145,7 @@ const DeepQualityFilter: React.FC = () => {
           }
       }
 
-      // Profile Backup (Polygon)
+      // Profile Backup (Polygon) - Only if name missing
       if (!profileData.name) {
           try {
             const polyRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${target.symbol}?apiKey=${polygonKey}`);
@@ -162,7 +162,19 @@ const DeepQualityFilter: React.FC = () => {
           } catch(e) {}
       }
 
-      if ((!metrics.per && !metrics.roe) || !profileData.name) return null;
+      // Essential Data Check: Must have basic valuation metrics to consider "Quality"
+      if ((!metrics.per && !metrics.roe)) return null;
+
+      // [CALCULATE QUALITY SCORE]
+      // Algorithm: Quality > Size
+      // 1. ROE (Return on Equity): Higher is better. Weight 2.0.
+      // 2. Debt Penalty: Higher debt is worse.
+      // 3. Market Cap Bonus: Slight bonus for stability, but capped to prevent size bias.
+      const roeScore = (metrics.roe || 0) * 2.0; 
+      const debtPenalty = (metrics.debt || 0) * 0.5;
+      const mktCapBonus = Math.min(20, Math.log10(target.marketValue || 1000000) * 2); 
+      
+      const qScore = roeScore - debtPenalty + mktCapBonus;
 
       return {
         symbol: target.symbol,
@@ -174,7 +186,8 @@ const DeepQualityFilter: React.FC = () => {
         per: metrics.per,
         pbr: metrics.pbr, 
         debtToEquity: metrics.debt,
-        roe: metrics.roe, 
+        roe: metrics.roe,
+        qualityScore: qScore,
         sector: profileData.sector || "N/A",
         industry: profileData.industry || "N/A", 
         lastUpdate: new Date().toISOString(),
@@ -191,7 +204,7 @@ const DeepQualityFilter: React.FC = () => {
     const prompt = `
     [Role: Senior Market Analyst]
     Action: Analyze the Sector/Industry distribution of these top ${TARGET_SELECTION_COUNT} filtered stocks.
-    Data Sample (Top 5): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe})))}
+    Data Sample (Top 5): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe, qScore: t.qualityScore})))}
     Total Count: ${tickers.length}
     
     Task:
@@ -253,30 +266,39 @@ const DeepQualityFilter: React.FC = () => {
       let targets = content.investable_universe || [];
       const totalCandidates = targets.length;
       
-      addLog(`Target Locked: ${totalCandidates} Candidates. Engaging Smart Burst (4x) Engine...`, "ok");
+      // [OPTIMIZATION] Sort by Estimated Transaction Value (Price * Volume) DESC
+      // This is purely for SCANNING ORDER efficiency (Most active first).
+      // The Final Selection will be based on QualityScore after scanning ALL targets.
+      addLog(`Universe Loaded: ${totalCandidates} Candidates. Sorting by Liquidity...`, "info");
+      targets.sort((a: any, b: any) => {
+          const valA = (a.price || 0) * (a.volume || 0);
+          const valB = (b.price || 0) * (b.volume || 0);
+          return valB - valA;
+      });
+
+      addLog(`Starting Full Scan on ${totalCandidates} Assets. Mode: Adaptive Turbo.`, "ok");
       
       setProgress({ current: 0, total: totalCandidates });
-      setNetworkStatus("Active: Smart Burst Hybrid");
-
+      
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
 
       while (currentIndex < totalCandidates) {
+          // Dynamic Status Update
+          setNetworkStatus(fmpDepleted 
+              ? `Safe Mode (Finnhub) - Delay ${DELAY_SAFE}ms` 
+              : `Turbo Mode (FMP) - Delay ${DELAY_TURBO}ms`
+          );
+
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
           
           try {
-              // Update status based on FMP availability
-              setNetworkStatus(fmpDepleted ? "Mode: Burst (Finnhub Only)" : "Mode: Burst (Hybrid FMP/FH)");
-
               const promises = batch.map((t: any) => fetchTickerData(t));
               const results = await Promise.all(promises);
               
-              let batchSuccessCount = 0;
               results.forEach(r => {
                   if (r && r.symbol) {
                       validResults.push(r);
-                      batchSuccessCount++;
-                      
                       // Count Statistics
                       setSourceStats(prev => {
                           const src = r.source || "";
@@ -288,26 +310,24 @@ const DeepQualityFilter: React.FC = () => {
                       });
                   }
               });
-              
-              if (batchSuccessCount > 0) {
-                  addLog(`Burst: Processed ${batch.length}, Found ${batchSuccessCount} valid.`, "info");
-              }
 
               currentIndex += BATCH_SIZE;
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
               
-              // [CRITICAL] Smart Delay to respect 60 req/min
-              await new Promise(r => setTimeout(r, BURST_DELAY));
+              // [ADAPTIVE DELAY]
+              // Use Turbo delay if FMP is active, otherwise Safe delay for Finnhub
+              const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
+              await new Promise(r => setTimeout(r, currentDelay));
 
           } catch (e: any) {
               if (e.message === "FMP_LIMIT") {
-                  addLog(`FMP Quota Depleted. Switching to Finnhub Only...`, "warn");
-                  setFmpDepleted(true); // Switch mode permanently for this run
-                  // Do NOT increment index, retry this batch with Finnhub immediately
-                  await new Promise(r => setTimeout(r, 1000)); // Short breath
+                  addLog(`FMP Limit Hit! Engaging Safe Mode (Finnhub)...`, "warn");
+                  setFmpDepleted(true); 
+                  await new Promise(r => setTimeout(r, 1000));
+                  // Do NOT increment index, retry this batch
               } else if (e.message === "FINNHUB_LIMIT") {
-                  addLog(`Finnhub Limit Hit. Cooling down for 10s...`, "warn");
-                  await new Promise(r => setTimeout(r, 10000)); // 10s cooldown
+                  addLog(`Finnhub Limit. Cooling down (10s)...`, "warn");
+                  await new Promise(r => setTimeout(r, 10000));
                   // Retry same batch
               } else {
                   addLog(`Batch Error: ${e.message}`, "err");
@@ -316,14 +336,16 @@ const DeepQualityFilter: React.FC = () => {
           }
       }
 
-      addLog(`Scan Complete. ${validResults.length} Assets Found. Selecting Top ${TARGET_SELECTION_COUNT}...`, "info");
+      addLog(`Full Scan Complete. ${validResults.length} Assets Validated. Ranking by Quality Score...`, "info");
       
+      // [FINAL SELECTION] Sort by QUALITY SCORE (ROE + Fundamentals)
+      // This is the CRITICAL STEP: We select the best FUNDAMENTALS, not the biggest Market Caps.
       const eliteSurvivors = validResults
-          .sort((a, b) => (b.marketValue || 0) - (a.marketValue || 0))
+          .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)) 
           .slice(0, TARGET_SELECTION_COUNT);
 
       setProcessedData(eliteSurvivors);
-      addLog(`Selection Finalized. ${eliteSurvivors.length} Elite Assets Ready.`, "ok");
+      addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
       setNetworkStatus("Status: Scan Complete");
 
       // AI Analysis on Result
@@ -333,7 +355,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.6.1", strategy: "Smart_Burst_Hybrid", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.0", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -383,11 +405,11 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.6.1</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Smart Burst Engine Ready'}
+                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Adaptive Engine Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
                             fmpDepleted
@@ -412,7 +434,7 @@ const DeepQualityFilter: React.FC = () => {
                        <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1">
                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
                            <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
-                               FMP LIMIT REACHED - FAILOVER TO FINNHUB
+                               FMP LIMIT - SAFE MODE ACTIVE
                            </span>
                        </div>
                    )}
@@ -420,21 +442,21 @@ const DeepQualityFilter: React.FC = () => {
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="px-12 py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Executing Burst...' : 'Start Smart Burst Scan'}
+              {loading ? 'Scanning & Scoring...' : 'Start Full Quality Scan'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-10">
               <div className="bg-black/40 p-8 rounded-3xl border border-white/5">
                 <div className="flex justify-between items-center mb-6">
-                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Processing Speed</p>
+                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
                   <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
                 </div>
                 <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
                   <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                 </div>
                 <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   {fmpDepleted ? 'Mode: FAILOVER PROTECTION (Finnhub Only)' : 'Mode: SMART BURST HYBRID'} • Target: Top {TARGET_SELECTION_COUNT}
+                   {fmpDepleted ? 'Status: Safe Mode (Slower for Accuracy)' : 'Status: Turbo Mode (Maximum Speed)'} • Target: Top {TARGET_SELECTION_COUNT} Quality
                 </p>
               </div>
 
