@@ -50,7 +50,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.6.0: Layout Optimization & Fault Tolerance Active.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.7.0: Chart Runtime Safe-Guard Activated.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -61,8 +61,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
-    if (cached && cached.length > 0 && !selectedStock) {
-      setSelectedStock(cached[0]);
+    if (cached && cached.length > 0) {
+      if (!selectedStock || !cached.find(c => c.symbol === selectedStock.symbol)) {
+        setSelectedStock(cached[0]);
+      }
     }
   }, [selectedBrain, resultsCache]);
 
@@ -87,19 +89,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         setElite50(content.ict_universe || []);
-        addLog(`Vault Synced: Universe integrity verified.`, "ok");
+        addLog(`Vault Synced: Stage 5 leaders mapped.`, "ok");
       }
     } catch (e: any) { addLog(`Vault Sync Error: ${e.message}`, "err"); }
   };
 
   const executeAlphaFinalization = async () => {
     if (loading) return;
-    addLog(`[SIGNAL] Alpha Engine Core Booting...`, "info");
-    
+    addLog(`[SIGNAL] Alpha Synthesis Protocol Initiated.`, "info");
     setLoading(true);
     try {
-      let currentUniverse = elite50;
-      if (currentUniverse.length === 0) {
+      const currentUniverse = elite50.length > 0 ? elite50 : await (async () => {
         const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
         const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -108,13 +108,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
-          currentUniverse = content.ict_universe || [];
-          setElite50(currentUniverse);
+          setElite50(content.ict_universe || []);
+          return content.ict_universe || [];
         }
-      }
-      
+        return [];
+      })();
+
       const topCandidates = [...currentUniverse].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates detected in Stage 5 Vault.");
+      if (topCandidates.length === 0) throw new Error("Stage 5 data source not found.");
 
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
@@ -135,36 +136,30 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`Alpha Discovery: High-Conviction Matrix Generated.`, "ok");
-    } catch (e: any) { 
-      addLog(`Discovery Node Failure: ${e.message}`, "err"); 
-    } finally { 
-      setLoading(false); 
-    }
+      addLog(`Alpha Matrix: ${mergedFinal.length} candidates optimized.`, "ok");
+    } catch (e: any) { addLog(`Synthesis Failure: ${e.message}`, "err"); }
+    finally { setLoading(false); }
   };
 
   const executeBacktest = async (stock: AlphaCandidate) => {
     if (backtestLoading || !stock) return;
-    
-    addLog(`[SIGNAL] Quant Backtest Protocol for ${stock.symbol} engaged.`, "info");
+    addLog(`[SIGNAL] Triggering Quant Backtest for ${stock.symbol}...`, "info");
     setBacktestLoading(true);
 
     try {
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
-      
-      if (!data || !Array.isArray(data.equityCurve)) {
-        throw new Error("Invalid response format from AI node.");
-      }
+      if (!data || !Array.isArray(data.equityCurve)) throw new Error("Invalid response from AI Node.");
 
-      // [CRITICAL] NaN 방지를 위한 3중 검증 파싱
+      // [CRITICAL FIX] 어떤 경우에도 NaN을 허용하지 않는 방탄 파싱
       const sanitizedCurve = data.equityCurve.map((point: any, idx: number) => {
         let val = point.value;
         if (typeof val !== 'number') {
-          const rawString = String(val || '0').replace(/[^-0-9.]/g, '');
-          val = parseFloat(rawString);
+          const raw = String(val || '0').replace(/[^-0-9.]/g, '');
+          val = parseFloat(raw);
         }
-        if (isNaN(val) || val === null || val === undefined) val = 0;
+        // NaN, Infinity, null인 경우 무조건 0으로 강제치환 (Recharts 블랙스크린 방지 핵심)
+        if (!isFinite(val)) val = 0;
         
         return {
           period: String(point.period || `M${idx + 1}`),
@@ -172,23 +167,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       });
 
-      // 데이터가 완전히 비어있는 경우를 대비한 최소값 세팅
-      const finalCurve = sanitizedCurve.length > 0 ? sanitizedCurve : [{ period: 'START', value: 0 }];
-
-      setBacktestData(prev => ({ 
-        ...prev, 
-        [stock.symbol]: { ...data, equityCurve: finalCurve } 
-      }));
-      addLog(`Backtest Confirmed: ${finalCurve.length} periods validated.`, "ok");
-    } catch (e: any) { 
-      addLog(`Backtest Node Failure: ${e.message}`, "err"); 
-    } finally { 
-      setBacktestLoading(false); 
-    }
+      const finalCurve = sanitizedCurve.length > 0 ? sanitizedCurve : [{ period: 'DATA_ERR', value: 0 }];
+      setBacktestData(prev => ({ ...prev, [stock.symbol]: { ...data, equityCurve: finalCurve } }));
+      addLog(`Backtest Successful: ${finalCurve.length} data points validated.`, "ok");
+    } catch (e: any) { addLog(`Simulation Failure: ${e.message}`, "err"); }
+    finally { setBacktestLoading(false); }
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
+
+  // 차트 데이터가 안전한지(NaN이 없는지) 확인하는 가드 변수
+  const isChartDataSafe = currentBacktest?.equityCurve && 
+                          currentBacktest.equityCurve.length > 0 && 
+                          currentBacktest.equityCurve.every(p => isFinite(p.value));
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -200,7 +192,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 pointer-events-none ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div className="pointer-events-none">
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.6.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.7.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Matrix</p>
               </div>
             </div>
@@ -211,61 +203,56 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </button>
               ))}
             </div>
-            <button 
-              onClick={(e) => { e.preventDefault(); e.stopPropagation(); executeAlphaFinalization(); }} 
-              disabled={loading} 
-              className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all relative overflow-hidden ${loading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 cursor-pointer group'}`}
-            >
-              <span className="relative z-10 pointer-events-none">{loading ? 'SYNTESIZING...' : 'EXECUTE ALPHA ENGINE'}</span>
-              {!loading && <div className="absolute inset-0 bg-gradient-to-r from-transparent via-white/10 to-transparent -translate-x-full group-hover:translate-x-full transition-transform duration-1000"></div>}
+            <button onClick={executeAlphaFinalization} disabled={loading} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all relative overflow-hidden ${loading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95'}`}>
+              <span className="relative z-10 pointer-events-none">{loading ? 'Synthesizing...' : 'Execute Alpha Engine'}</span>
             </button>
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
              {currentResults.length > 0 ? currentResults.map((item, idx) => (
-               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[30px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[210px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_30px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/30 hover:bg-white/5'}`}>
+               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[230px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
                   <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
                        <span className="text-[8px] font-black text-slate-600 uppercase">#{idx + 1}</span>
                        <h4 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">{item.symbol}</h4>
                        <span className="text-xs font-black text-rose-500 italic mt-1">({item.convictionScore?.toFixed(1)}%)</span>
                      </div>
-                     <span className="text-[10px] font-mono font-black text-white bg-white/5 px-2.5 py-1 rounded-md shadow-sm border border-white/5">${item.price?.toFixed(2)}</span>
+                     <span className="text-[10px] font-mono font-black text-white bg-white/10 px-3 py-1.5 rounded-lg border border-white/10 shadow-sm">${item.price?.toFixed(2)}</span>
                   </div>
                   <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-4 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
                   
-                  {/* [FIX] 지지/저항/손절 공간 밀도 및 폰트 크기 대폭 확대 */}
-                  <div className="grid grid-cols-3 gap-2 py-3 bg-black/40 rounded-2xl px-3 border border-white/10 flex-grow pointer-events-none">
+                  {/* [FIX] 종목 카드 수치 밀도 및 가독성 대폭 강화 */}
+                  <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl px-3 border border-white/10 flex-grow pointer-events-none shadow-inner">
                     <div className="text-center flex flex-col justify-center">
-                      <p className="text-[8px] font-black text-emerald-500 uppercase mb-1">Entry</p>
-                      <p className="text-sm md:text-base font-mono font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1)}</p>
+                      <p className="text-[9px] font-black text-emerald-500 uppercase mb-1.5 tracking-tighter">Entry</p>
+                      <p className="text-xl font-mono font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1)}</p>
                     </div>
                     <div className="text-center border-x border-white/10 flex flex-col justify-center">
-                      <p className="text-[8px] font-black text-blue-500 uppercase mb-1">Target</p>
-                      <p className="text-sm md:text-base font-mono font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1)}</p>
+                      <p className="text-[9px] font-black text-blue-500 uppercase mb-1.5 tracking-tighter">Target</p>
+                      <p className="text-xl font-mono font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1)}</p>
                     </div>
                     <div className="text-center flex flex-col justify-center">
-                      <p className="text-[8px] font-black text-rose-500 uppercase mb-1">Stop</p>
-                      <p className="text-sm md:text-base font-mono font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1)}</p>
+                      <p className="text-[9px] font-black text-rose-500 uppercase mb-1.5 tracking-tighter">Stop</p>
+                      <p className="text-xl font-mono font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1)}</p>
                     </div>
                   </div>
 
-                  <div className="flex justify-between items-end mt-3 pointer-events-none">
+                  <div className="flex justify-between items-end mt-4 pointer-events-none">
                      <div className="flex items-center gap-2">
-                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest">Exp. Return</span>
-                        <span className="text-xs font-black text-blue-400">{item.expectedReturn}</span>
+                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">Expectation</span>
+                        <span className="text-sm font-black text-blue-400 italic">{item.expectedReturn}</span>
                      </div>
-                     <span className={`px-2.5 py-1 rounded-md text-[8px] font-black uppercase tracking-tighter ${item.aiVerdict === 'STRONG_BUY' ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/20' : 'bg-blue-500/20 text-blue-400 border border-blue-500/20'}`}>
+                     <span className={`px-3 py-1 rounded-md text-[8px] font-black uppercase tracking-tighter ${item.aiVerdict === 'STRONG_BUY' ? 'bg-emerald-500 text-white shadow-lg shadow-emerald-900/30' : 'bg-blue-600 text-white shadow-lg shadow-blue-900/30'}`}>
                        {item.aiVerdict}
                      </span>
                   </div>
                </div>
              )) : (
-               <div className="col-span-full flex flex-col items-center justify-center py-20 opacity-20 space-y-4">
+               <div className="col-span-full flex flex-col items-center justify-center py-24 opacity-20 space-y-4">
                   <div className="w-12 h-12 border-2 border-dashed border-slate-600 rounded-full animate-pulse flex items-center justify-center">
                     <div className="w-4 h-4 bg-slate-600 rounded-full"></div>
                   </div>
-                  <p className="text-[8px] font-black uppercase tracking-[0.5em] text-slate-400">Synchronizing Discovery Protocol...</p>
+                  <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-400">Awaiting Discovery Initialization...</p>
                </div>
              )}
           </div>
@@ -322,17 +309,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 <div className="pt-10 border-t border-white/10">
                    <div className="flex justify-between items-center mb-8">
                       <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.5em] italic">Quant_Backtest_Protocol</h4>
-                      <button 
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); executeBacktest(selectedStock); }} 
-                        disabled={backtestLoading} 
-                        className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-2xl relative group ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white active:scale-95 cursor-pointer'}`}
-                      >
-                        <span className="relative z-10 pointer-events-none">{backtestLoading ? 'SIMULATING...' : 'RUN SIMULATION'}</span>
-                        {!backtestLoading && <div className="absolute inset-0 bg-emerald-500 opacity-0 group-hover:opacity-10 transition-opacity"></div>}
+                      <button onClick={() => executeBacktest(selectedStock)} disabled={backtestLoading} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-2xl ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white active:scale-95'}`}>
+                        <span className="pointer-events-none">{backtestLoading ? 'Simulation_Active...' : 'Run Portfolio Simulation'}</span>
                       </button>
                    </div>
                    
-                   {currentBacktest && currentBacktest.equityCurve && (
+                   {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-10 animate-in slide-in-from-bottom-6 duration-700">
                         <div className="space-y-4">
                            {[
@@ -342,16 +324,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                              { l: 'SHARPE RATIO', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
                            ].map((m, i) => (
                              <div key={i} className="p-5 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all">
-                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em] group-hover:text-slate-300">{m.l}</span>
+                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.2em]">{m.l}</span>
                                 <span className={`text-xl font-black ${m.c} italic`}>{m.v}</span>
                              </div>
                            ))}
                         </div>
                         <div className="lg:col-span-2 flex flex-col gap-8">
                            {/* [FIX] 차트 영역을 데이터 안정성 가드로 래핑하여 블랙스크린 방지 */}
-                           <div className="w-full bg-black/60 rounded-[40px] border border-white/10 p-8 relative overflow-hidden shadow-3xl" style={{ height: '360px' }}>
-                              {currentBacktest.equityCurve && currentBacktest.equityCurve.length > 0 ? (
-                                <ResponsiveContainer width="100%" height="100%">
+                           <div className="w-full bg-black/80 rounded-[40px] border border-white/10 p-8 relative overflow-hidden shadow-3xl" style={{ height: '380px' }}>
+                              {isChartDataSafe ? (
+                                <ResponsiveContainer width="100%" height="100%" debounce={50}>
                                    <AreaChart data={currentBacktest.equityCurve} margin={{ top: 20, right: 20, left: -10, bottom: 0 }}>
                                       <defs>
                                          <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
@@ -361,10 +343,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                       </defs>
                                       <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
                                       <XAxis dataKey="period" stroke="#334155" fontSize={9} tickLine={false} axisLine={false} dy={15} />
-                                      <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                                      <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v || 0)}%`} />
                                       <Tooltip 
                                         contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '16px', fontSize: '11px', color: '#fff', fontWeight: '900', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}
-                                        itemStyle={{ color: '#10b981' }}
                                         formatter={(val: any) => [`${Number(val || 0).toFixed(2)}%`, 'Cumulative Return']}
                                       />
                                       <Area 
@@ -379,7 +360,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                    </AreaChart>
                                 </ResponsiveContainer>
                               ) : (
-                                <div className="flex items-center justify-center h-full text-slate-800 font-mono text-[10px] uppercase tracking-[0.5em] animate-pulse">Awaiting Signal Integrity...</div>
+                                <div className="flex flex-col items-center justify-center h-full text-slate-800 space-y-4">
+                                  <div className="w-10 h-10 border border-slate-700 rounded-full border-t-emerald-500 animate-spin"></div>
+                                  <p className="font-mono text-[9px] uppercase tracking-[0.5em] animate-pulse">Data Verification in Progress...</p>
+                                </div>
                               )}
                            </div>
                            <div className="p-10 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner">
