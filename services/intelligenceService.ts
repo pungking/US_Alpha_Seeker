@@ -134,13 +134,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Restore V9.4.0 Direct Fetch (No extra headers, clean request)
+      // Reverted to v9.9.8 Direct Fetch with robust headers (referrerPolicy & Accept)
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
         },
+        referrerPolicy: 'no-referrer', 
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
@@ -201,13 +203,15 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Restore V9.4.0 Direct Fetch (No extra headers, clean request)
+      // Reverted to v9.9.8 Direct Fetch with robust headers (referrerPolicy & Accept)
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json'
         },
+        referrerPolicy: 'no-referrer',
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
@@ -265,13 +269,15 @@ export async function analyzePipelineStatus(data: {
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Restore V9.4.0 Direct Fetch (No extra headers, clean request)
+      // Reverted to v9.9.8 Direct Fetch with robust headers (referrerPolicy & Accept)
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}` 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
         },
+        referrerPolicy: 'no-referrer',
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [{ role: "user", content: prompt }],
