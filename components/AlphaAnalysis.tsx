@@ -50,7 +50,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.3.0: Quant Logic Optimized.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v8.3.1: Rendering Engine Patch Applied.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -85,7 +85,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         setElite50(content.ict_universe || []);
-        addLog(`Vault Synced: ${content.ict_universe?.length} assets active.`, "ok");
+        addLog(`Vault Synced: ${content.ict_universe?.length} leaders in memory.`, "ok");
       }
     } catch (e: any) { addLog(`Vault Sync Error: ${e.message}`, "err"); }
   };
@@ -93,7 +93,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const executeAlphaFinalization = async () => {
     if (elite50.length === 0 || loading) return;
     setLoading(true);
-    addLog(`Initiating Alpha Synthesis via ${selectedBrain}...`, "info");
+    addLog(`Initiating Phase 6 Synthesis via ${selectedBrain}...`, "info");
     
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
@@ -116,7 +116,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`Synthesis Complete: ${mergedFinal.length} candidates identified.`, "ok");
+      addLog(`Synthesis Successful: Alpha Universe Updated.`, "ok");
     } catch (e: any) { addLog(`Failed: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
@@ -124,20 +124,27 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const executeBacktest = async (stock: AlphaCandidate) => {
     if (backtestLoading || !stock) return;
     setBacktestLoading(true);
-    addLog(`Quantum Backtest Engine: Simulating ${stock.symbol}...`, "info");
+    addLog(`Quant Simulation Node: Computing ${stock.symbol} History...`, "info");
     try {
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
       if (data && data.equityCurve) {
-        // 숫자 형변환 보장 (데이터 타입 이슈 해결)
-        const sanitizedCurve = data.equityCurve.map((point: any) => ({
-          ...point,
-          value: Number(point.value)
-        }));
+        // [CRITICAL PATCH] 숫자 형변환 및 NaN 방어 로직 강화
+        const sanitizedCurve = data.equityCurve.map((point: any) => {
+          let val = point.value;
+          if (typeof val === 'string') {
+            // %, +, , 등 비숫자 문자 제거 후 파싱
+            val = parseFloat(val.replace(/[^0-9.-]/g, ''));
+          }
+          return {
+            ...point,
+            value: isNaN(val) ? 0 : val
+          };
+        });
         setBacktestData(prev => ({ ...prev, [stock.symbol]: { ...data, equityCurve: sanitizedCurve } }));
-        addLog(`Simulation OK: ${stock.symbol} Meta-Analysis Stable.`, "ok");
+        addLog(`Simulation Successful: Data Stream Verified.`, "ok");
       }
-    } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
+    } catch (e: any) { addLog(`Backtest Failed: ${e.message}`, "err"); }
     finally { setBacktestLoading(false); }
   };
 
@@ -147,7 +154,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        {/* 상단 엔진 제어 패널 */}
+        {/* 상단 제어 패널 */}
         <div className={`glass-panel p-8 md:p-10 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
             <div className="flex items-center space-x-6">
@@ -155,8 +162,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.3.0</h2>
-                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Hedge-Fund Grade Intelligence Nexus</p>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v8.3.1</h2>
+                <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Institutional Strategy Matrix</p>
               </div>
             </div>
             <div className="flex bg-black/40 p-1.5 rounded-2xl border border-white/5">
@@ -167,7 +174,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               ))}
             </div>
             <button onClick={executeAlphaFinalization} disabled={loading || elite50.length === 0} className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500' : 'bg-rose-600 text-white hover:scale-105 active:scale-95'}`}>
-              {loading ? 'Processing...' : 'Execute Alpha Engine'}
+              {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
             </button>
           </div>
 
@@ -213,6 +220,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
         </div>
 
+        {/* 상세 분석 섹션 */}
         {selectedStock && (
           <div className="glass-panel p-8 md:p-12 rounded-[48px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
              <div className="space-y-10">
@@ -263,21 +271,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                 </div>
 
+                {/* 백테스트 영역 */}
                 <div className="pt-10 border-t border-white/5">
                    <div className="flex justify-between items-center mb-10">
                       <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.4em] italic">Quant_Backtest_Protocol</h4>
                       <button onClick={() => executeBacktest(selectedStock)} disabled={backtestLoading} className={`px-12 py-5 rounded-2xl text-[11px] font-black uppercase tracking-widest border transition-all ${backtestLoading ? 'bg-slate-800 border-white/10 text-slate-500' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 shadow-2xl shadow-emerald-600/20'}`}>
-                        {backtestLoading ? 'Running Simulation...' : 'Execute AI Backtest'}
+                        {backtestLoading ? 'Computing Simulation...' : 'Execute AI Backtest'}
                       </button>
                    </div>
                    {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-12 animate-in zoom-in-95 duration-500">
                         <div className="space-y-4">
                            {[
-                             { l: '승률 (Win Rate)', d: '포지션 수익 종료 빈도', v: currentBacktest.metrics.winRate, c: 'text-emerald-400' },
-                             { l: '손익비 (Profit Factor)', d: '위험 대비 총 수익 배수', v: currentBacktest.metrics.profitFactor, c: 'text-blue-400' },
-                             { l: '최대 낙폭 (MDD)', d: '고점 대비 최대 하락 비율', v: currentBacktest.metrics.maxDrawdown, c: 'text-rose-400' },
-                             { l: '샤프 지수 (Sharpe)', d: '리스크 조정 수익 효율성', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
+                             { l: '승률 (Win Rate)', d: '수익 거래 발생 확률', v: currentBacktest.metrics.winRate, c: 'text-emerald-400' },
+                             { l: '손익비 (Profit Factor)', d: '위험 대비 수익 배수', v: currentBacktest.metrics.profitFactor, c: 'text-blue-400' },
+                             { l: '최대 낙폭 (MDD)', d: '고점 대비 최대 하락폭', v: currentBacktest.metrics.maxDrawdown, c: 'text-rose-400' },
+                             { l: '샤프 지수 (Sharpe)', d: '변동성 대비 수익 효율성', v: currentBacktest.metrics.sharpeRatio, c: 'text-amber-400' }
                            ].map((m, i) => (
                              <div key={i} className="p-6 bg-white/5 rounded-[28px] border border-white/10 flex flex-col transition-all hover:bg-white/10">
                                 <div className="flex justify-between items-center mb-1">
@@ -289,28 +298,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                            ))}
                         </div>
                         <div className="lg:col-span-2 flex flex-col gap-8">
-                           {/* 차트 영역 컨테이너 고도화 */}
-                           <div className="min-h-[300px] md:min-h-[350px] w-full bg-black/40 rounded-[40px] border border-white/5 p-8 relative flex items-center justify-center">
+                           {/* 차트 렌더링 컨테이너 안정화 (고정 높이 및 패딩 부여) */}
+                           <div className="h-[350px] w-full bg-black/40 rounded-[40px] border border-white/5 p-10 relative overflow-hidden">
                               {currentBacktest.equityCurve && currentBacktest.equityCurve.length > 0 ? (
-                                <div className="w-full h-full absolute inset-0 p-8">
-                                  <ResponsiveContainer width="100%" height="100%">
-                                     <AreaChart data={currentBacktest.equityCurve} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
-                                        <defs>
-                                           <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                                              <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
-                                              <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                           </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                        <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
-                                        <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} dx={-5} />
-                                        <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff10', borderRadius: '16px', fontSize: '11px', color: '#fff' }} />
-                                        <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" isAnimationActive={true} />
-                                     </AreaChart>
-                                  </ResponsiveContainer>
-                                </div>
+                                <ResponsiveContainer width="100%" height="100%">
+                                   <AreaChart data={currentBacktest.equityCurve} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                      <defs>
+                                         <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.4}/>
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                         </linearGradient>
+                                      </defs>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                                      <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
+                                      <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${v}%`} />
+                                      <Tooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #ffffff10', borderRadius: '16px', fontSize: '11px', color: '#fff' }} />
+                                      <Area type="monotone" dataKey="value" stroke="#10b981" strokeWidth={4} fillOpacity={1} fill="url(#colorVal)" animationDuration={1000} />
+                                   </AreaChart>
+                                </ResponsiveContainer>
                               ) : (
-                                <div className="text-slate-600 font-mono text-xs animate-pulse uppercase tracking-[0.4em]">Rendering Equity Data...</div>
+                                <div className="absolute inset-0 flex items-center justify-center text-slate-600 font-mono text-[9px] uppercase tracking-[0.4em] animate-pulse">Syncing Equity Data...</div>
                               )}
                            </div>
                            <div className="p-10 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10">
