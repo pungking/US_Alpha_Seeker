@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -20,7 +19,7 @@ const TechnicalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.6.0: AI Trend Matrix Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v4.6.1: Connection Logic Patched.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -88,22 +87,34 @@ const TechnicalAnalysis: React.FC = () => {
   };
 
   const executeIntegratedTechProtocol = async () => {
-    if (!accessToken || loading) return;
+    addLog("Initiating Technical Scan Protocol...", "info");
+    
+    if (!accessToken) {
+        addLog("Error: Google Drive Token Missing. Please authenticate.", "err");
+        return;
+    }
+    if (loading) {
+        addLog("Warning: Process already running.", "warn");
+        return;
+    }
+
     setLoading(true);
-    addLog("Step 1: Fetching Stage 3 Fundamental Results...", "info");
+    addLog("Step 1: Searching for Stage 3 Fundamental Results...", "info");
     
     try {
+      // Improved query
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) {
-        addLog("Stage 3 source missing. Please run Stage 3 first.", "err");
+      if (!listRes.files || listRes.files.length === 0) {
+        addLog("Stage 3 source file NOT found. Please run Stage 3 first.", "err");
         setLoading(false);
         return;
       }
 
+      addLog(`File Found: ${listRes.files[0].name}. Downloading...`, "ok");
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
@@ -163,7 +174,7 @@ const TechnicalAnalysis: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.6.0", source: listRes.files[0].name, count: results.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.6.1", source: listRes.files[0].name, count: results.length, timestamp: new Date().toISOString() },
         technical_universe: results
       };
 
@@ -210,7 +221,7 @@ const TechnicalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.6.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Hub v4.6.1</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Technical Analysis Ready'}
@@ -242,7 +253,7 @@ const TechnicalAnalysis: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-orange-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-orange-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-orange-900'}`}>
                 {l}
               </div>
             ))}

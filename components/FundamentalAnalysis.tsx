@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -19,7 +18,7 @@ const FundamentalAnalysis: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.6.0: AI Value Auditor Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v3.6.1: Connection Logic Patched.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -90,21 +89,34 @@ const FundamentalAnalysis: React.FC = () => {
   };
 
   const executeIntegratedAudit = async () => {
-    if (!accessToken || loading) return;
+    addLog("Initiating Fundamental Scan Protocol...", "info");
+    
+    if (!accessToken) {
+        addLog("Error: Google Drive Token Missing. Please authenticate.", "err");
+        return;
+    }
+    if (loading) {
+        addLog("Warning: Process already running.", "warn");
+        return;
+    }
+
     setLoading(true);
-    addLog("Step 1: Fetching Stage 2 Quality Universe...", "info");
+    addLog("Step 1: Searching for Stage 2 Quality Universe file...", "info");
     
     try {
+      // Improved query: search specifically for files with 'STAGE2_ELITE_UNIVERSE' in name, not deleted
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) {
-        addLog("Stage 2 source missing. Please run Stage 2 first.", "err");
+      if (!listRes.files || listRes.files.length === 0) {
+        addLog("Stage 2 source file NOT found in Drive. Run Stage 2 first.", "err");
         setLoading(false);
         return;
       }
+      
+      addLog(`File Found: ${listRes.files[0].name}. Downloading content...`, "ok");
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -181,7 +193,7 @@ const FundamentalAnalysis: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_ELITE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "3.6.0", source: listRes.files[0].name, count: passedResults.length, timestamp: new Date().toISOString() },
+        manifest: { version: "3.6.1", source: listRes.files[0].name, count: passedResults.length, timestamp: new Date().toISOString() },
         fundamental_universe: passedResults
       };
 
@@ -228,7 +240,7 @@ const FundamentalAnalysis: React.FC = () => {
                  <svg className={`w-6 h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.6.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Core v3.6.1</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Fundamental Analysis Ready'}
@@ -260,7 +272,7 @@ const FundamentalAnalysis: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-cyan-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : 'border-cyan-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-cyan-900'}`}>
                 {l}
               </div>
             ))}

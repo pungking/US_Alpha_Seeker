@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -25,6 +26,11 @@ const DeepQualityFilter: React.FC = () => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  
+  // Time Tracking
+  const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
+  const startTimeRef = useRef<number>(0);
+
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
   const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Engine');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
@@ -33,7 +39,7 @@ const DeepQualityFilter: React.FC = () => {
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.2: AI Visualization Patch Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.3: Timer & AI Check Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -51,6 +57,28 @@ const DeepQualityFilter: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Timer Effect
+  useEffect(() => {
+    let interval: any;
+    if (loading && startTimeRef.current > 0) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
+        
+        // Calculate ETA
+        let etaSec = 0;
+        if (progress.current > 0 && progress.total > 0) {
+           const rate = progress.current / elapsedSec; // items per second
+           const remaining = progress.total - progress.current;
+           etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
+        }
+        
+        setTimeStats({ elapsed: elapsedSec, eta: etaSec });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [loading, progress]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -253,8 +281,16 @@ const DeepQualityFilter: React.FC = () => {
   };
 
   const executeDeepQualityScan = async () => {
-    if (!accessToken || loading) return;
+    if (!accessToken) {
+        addLog("Error: Google Drive Not Connected.", "err");
+        return;
+    }
+    if (loading) return;
+
     setLoading(true);
+    startTimeRef.current = Date.now();
+    setTimeStats({ elapsed: 0, eta: 0 });
+    
     setProcessedData([]);
     setAiAnalysis(null);
     setSourceStats({ fmp: 0, finnhub: 0, polygon: 0 });
@@ -353,14 +389,14 @@ const DeepQualityFilter: React.FC = () => {
       setNetworkStatus("Status: Scan Complete");
 
       // AI Analysis Trigger - Await to ensure it runs
-      addLog("Triggering AI Sector Analysis...", "info");
+      addLog("Triggering AI Sector Analysis (Yes, it runs here)...", "info");
       await analyzeSectorDistribution(eliteSurvivors);
 
       // Upload
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.2", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.3", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -382,6 +418,7 @@ const DeepQualityFilter: React.FC = () => {
       setActiveBrain('Standby');
       setNetworkStatus('Standby');
       setFmpDepleted(false);
+      startTimeRef.current = 0; // Reset timer
     }
   };
 
@@ -399,6 +436,13 @@ const DeepQualityFilter: React.FC = () => {
     return create.id;
   };
 
+  const formatTime = (seconds: number) => {
+    if (seconds === 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -410,7 +454,7 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.2</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -425,16 +469,21 @@ const DeepQualityFilter: React.FC = () => {
                         </span>
                    </div>
                    
+                   {/* Time Stats */}
                    {loading && (
-                       <div className="flex items-center space-x-2 mt-1">
-                           <span className="text-[8px] font-bold text-slate-500 uppercase">Live Source:</span>
-                           <span className="text-[8px] font-mono text-emerald-400">FMP({sourceStats.fmp})</span>
-                           <span className="text-[8px] font-mono text-blue-400">FH({sourceStats.finnhub})</span>
-                       </div>
+                     <div className="flex items-center space-x-2 mt-0.5">
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
+                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
+                       </span>
+                     </div>
                    )}
                    
                    {fmpDepleted && (
-                       <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1">
+                       <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1 mt-1">
                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
                            <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
                                FMP LIMIT - SAFE MODE ACTIVE
@@ -477,7 +526,7 @@ const DeepQualityFilter: React.FC = () => {
                     )}
                  </div>
                  <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
-                    {aiAnalysis || "Awaiting Post-Scan Analysis..."}
+                    {aiAnalysis || "Awaiting Post-Scan Analysis (Runs after scan completes)..."}
                  </p>
                  {loading && !aiAnalysis && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
               </div>
