@@ -63,6 +63,17 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   }
 };
 
+const VERDICT_MAP: { [key: string]: string } = {
+    "STRONG_BUY": "강력 매수",
+    "BUY": "매수",
+    "ACCUMULATE": "비중 확대",
+    "HOLD": "관망",
+    "NEUTRAL": "중립",
+    "REDUCE": "비중 축소",
+    "SELL": "매도",
+    "STRONG_SELL": "강력 매도"
+};
+
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -70,9 +81,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.0: Ghosting Fix & UI Restore.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.5: Korean Localization & CORS Patch.']);
   
-  // Selected Metric Info State
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -82,7 +92,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // [FIX] useEffect handles initial stock selection from cache, but explicit switching is handled in handleSwitchBrain
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
@@ -90,7 +99,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(cached[0]);
       }
     } else {
-      // If no cache for this brain, clear selection to prevent ghosting
       setSelectedStock(null);
     }
   }, [selectedBrain, resultsCache]);
@@ -99,7 +107,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // Reset metric selection when stock changes
   useEffect(() => {
     setSelectedMetricInfo(null);
   }, [selectedStock]);
@@ -109,21 +116,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
-  // [FIX] Explicit function to handle brain switching and clear state immediately
   const handleSwitchBrain = (brain: ApiProvider) => {
     if (brain === selectedBrain) return;
-    
-    // 1. Change Brain
     setSelectedBrain(brain);
-    
-    // 2. Clear current stock immediately to prevent ghosting
-    // (useEffect will restore it if cache exists, but this ensures a clean slate transition)
     setSelectedStock(null); 
-    
-    // 3. Clear metric info
     setSelectedMetricInfo(null);
-    
-    addLog(`Switched to ${brain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}.`, 'info');
+    addLog(`Brain Switched: ${brain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}.`, 'info');
   };
 
   const loadStage5Data = async () => {
@@ -153,7 +151,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
       let currentUniverse = elite50;
       if (currentUniverse.length === 0) {
-        // ... (Existing Drive loading logic) ...
         if (!accessToken) throw new Error("Cloud Vault Disconnected.");
         const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
         const listResRaw = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -197,10 +194,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     } catch (e: any) { 
         let msg = e.message;
         if (msg.includes('Network') || msg.includes('CORS') || msg.includes('Failed to fetch')) {
-            msg = "CORS Error: Sonar Pro cannot be called from browser. Use Gemini.";
+            msg = "CORS Error: 브라우저 정책상 Sonar Pro 연결이 차단되었습니다. Gemini를 사용해주세요.";
         }
         addLog(`Engine Error: ${msg}`, "err"); 
-        // Force clear to avoid showing stale data from another brain
         setSelectedStock(null);
     }
     finally { setLoading(false); }
@@ -256,7 +252,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     } catch (e: any) { 
       let msg = e.message;
       if (msg.includes('Network') || msg.includes('CORS') || msg.includes('Failed to fetch')) {
-        msg = "CORS Error: Sonar Pro blocked by browser. Use Gemini.";
+        msg = "CORS Error: Sonar Pro 연결 실패. Gemini를 사용해주세요.";
       }
       addLog(`Quant Error: ${msg}`, "err");
     }
@@ -276,24 +272,32 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  const getVerdictColor = (verdict?: string) => {
+  const getVerdictStyle = (verdict?: string) => {
     const v = verdict?.toUpperCase() || '';
+    let style = 'bg-slate-800 text-slate-400 border border-white/5';
+    let text = verdict || 'N/A';
+
+    // Find Korean translation
+    for (const [key, val] of Object.entries(VERDICT_MAP)) {
+        if (v.includes(key)) {
+            text = val;
+            break;
+        }
+    }
+
     if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
-        return 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
+        style = 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
+    } else if (v === 'BUY' || v.includes('매수')) {
+        style = 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 border border-emerald-500/20';
+    } else if (v.includes('ACCUMULATE') || v.includes('CONDITIONAL') || v.includes('조건부')) {
+        style = 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 border border-blue-500/20';
+    } else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('관망')) {
+        style = 'bg-amber-600 text-white shadow-lg shadow-amber-900/50 border border-amber-500/20';
+    } else if (v.includes('SELL') || v.includes('SHORT')) {
+        style = 'bg-slate-700 text-slate-300 border border-white/10';
     }
-    if (v === 'BUY' || v.includes('매수')) {
-        return 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 border border-emerald-500/20';
-    }
-    if (v.includes('ACCUMULATE') || v.includes('CONDITIONAL') || v.includes('조건부')) {
-        return 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 border border-blue-500/20';
-    }
-    if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('관망')) {
-        return 'bg-amber-600 text-white shadow-lg shadow-amber-900/50 border border-amber-500/20';
-    }
-    if (v.includes('SELL') || v.includes('SHORT')) {
-        return 'bg-slate-700 text-slate-300 border border-white/10';
-    }
-    return 'bg-slate-800 text-slate-400 border border-white/5';
+
+    return { style, text };
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
@@ -316,7 +320,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.5</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -341,7 +345,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-             {currentResults.length > 0 ? currentResults.map((item, idx) => (
+             {currentResults.length > 0 ? currentResults.map((item, idx) => {
+               const verdictInfo = getVerdictStyle(item.aiVerdict);
+               return (
                <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[250px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
                   <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
@@ -375,12 +381,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
                         <span className="text-xs font-black text-blue-400 italic">{item.expectedReturn}</span>
                      </div>
-                     <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${getVerdictColor(item.aiVerdict)}`}>
-                       {item.aiVerdict}
+                     <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style}`}>
+                       {verdictInfo.text}
                      </span>
                   </div>
                </div>
-             )) : (
+             )}) : (
                <div className="col-span-full flex flex-col items-center justify-center py-24 opacity-20 space-y-4">
                   <div className="w-12 h-12 border-2 border-dashed border-slate-600 rounded-full animate-pulse flex items-center justify-center">
                     <div className="w-4 h-4 bg-slate-600 rounded-full"></div>
@@ -401,8 +407,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div className="flex items-end gap-6">
                       <h3 className="text-5xl lg:text-6xl font-black text-white italic uppercase tracking-tighter leading-none">{selectedStock.symbol}</h3>
                       <div className="flex flex-col mb-1">
-                        <span className={`px-6 py-2 ${getVerdictColor(selectedStock.aiVerdict)} text-sm font-black rounded-full uppercase italic tracking-widest mb-2 w-fit shadow-xl`}>
-                            {selectedStock.aiVerdict}
+                        <span className={`px-6 py-2 ${getVerdictStyle(selectedStock.aiVerdict).style} text-sm font-black rounded-full uppercase italic tracking-widest mb-2 w-fit shadow-xl`}>
+                            {getVerdictStyle(selectedStock.aiVerdict).text}
                         </span>
                         <span className="text-xl font-bold text-slate-400 uppercase tracking-widest leading-none">{selectedStock.name}</span>
                       </div>
@@ -420,7 +426,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                       <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                          <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4 italic underline underline-offset-[12px]">Neural Investment Strategy</h4>
-                         <div className="prose-report text-sm text-slate-300 leading-relaxed italic">
+                         <div className="prose-report text-sm text-slate-300 leading-relaxed italic prose prose-invert prose-sm max-w-none">
                            <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedStock.investmentOutlook || ""}</ReactMarkdown>
                          </div>
                       </div>
@@ -526,7 +532,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                       <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v || 0)}%`} domain={['auto', 'auto']} />
                                       <Tooltip 
                                         contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '16px', fontSize: '11px', color: '#fff', fontWeight: '900', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}
-                                        formatter={(val: any) => [`${Number(val || 0).toFixed(2)}%`, 'Cumulative Return']}
+                                        labelFormatter={(label) => `기간: ${label}`}
+                                        formatter={(val: any) => [`${Number(val || 0).toFixed(2)}%`, '누적 수익률']}
                                       />
                                       <Area 
                                         type="monotone" 
@@ -553,9 +560,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                            {/* 2. Simulation Intelligence Insight (Below Chart) */}
                            <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[150px] flex flex-col justify-center">
                                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
-                               <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight hover:text-slate-200 transition-colors">
-                                  {currentBacktest.historicalContext || "Insight generating..."}
-                               </p>
+                               <div className="text-sm text-slate-400 leading-relaxed font-medium italic prose prose-invert prose-sm max-w-none">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {currentBacktest.historicalContext || "Insight generating..."}
+                                  </ReactMarkdown>
+                               </div>
                            </div>
                         </div>
                      </div>

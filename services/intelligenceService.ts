@@ -136,6 +136,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        mode: 'cors', // Explicitly request CORS handling
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
@@ -145,9 +146,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           temperature: 0.1
         })
       }).catch(err => {
-         // Explicitly identify CORS errors
          if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
-             throw new Error("CORS/Network Error. Browser blocked Perplexity API.");
+             throw new Error("브라우저 정책상 Sonar Pro 연결이 차단되었습니다. Gemini를 사용해주세요.");
          }
          throw err;
       });
@@ -203,6 +203,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        mode: 'cors', // Explicitly request CORS handling
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
@@ -213,7 +214,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         })
       }).catch(err => {
          if (err.message && (err.message.includes('Failed to fetch') || err.message.includes('Load failed'))) {
-             throw new Error("CORS/Network Error. Browser blocked Perplexity API.");
+             throw new Error("브라우저 정책상 Sonar Pro 연결이 차단되었습니다. Gemini를 사용해주세요.");
          }
          throw err;
       });
@@ -265,6 +266,7 @@ export async function analyzePipelineStatus(data: {
       const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        mode: 'cors',
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [{ role: "user", content: prompt }],
