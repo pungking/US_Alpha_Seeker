@@ -71,7 +71,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.6.0: UX/UI Logic Optimized.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.7.0: Stability & UI Patch Applied.']);
   
   // Selected Metric Info State
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
@@ -131,21 +131,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     try {
       let currentUniverse = elite50;
+      // [FIX] Drive Loading Robustness: Check for empty universe and fetch if needed
       if (currentUniverse.length === 0) {
+        if (!accessToken) throw new Error("Cloud Vault Disconnected. Please re-authenticate.");
+        
         const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-        const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+        const listResRaw = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).then(r => r.json());
+        });
+        
+        if (!listResRaw.ok) throw new Error(`Drive List Failed (HTTP ${listResRaw.status})`);
+        const listRes = await listResRaw.json();
+
         if (listRes.files?.length) {
-          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+          const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-          }).then(r => r.json());
+          });
+          if (!contentRes.ok) throw new Error(`Drive Content Failed (HTTP ${contentRes.status})`);
+          
+          const content = await contentRes.json();
           currentUniverse = content.ict_universe || [];
           setElite50(currentUniverse);
+        } else {
+          throw new Error("No Stage 5 Data Found. Run Stage 5 first.");
         }
       }
 
       const topCandidates = [...currentUniverse].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
+      
+      // [FIX] AI Call Error Handling
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
@@ -166,15 +180,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
       addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
-    } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
+    } catch (e: any) { 
+        // [FIX] Friendly Error Message for CORS/Network issues
+        let msg = e.message;
+        if (msg === 'Load failed' || msg === 'Failed to fetch') {
+            msg = "Network/CORS Error. If using Sonar, switch to Gemini.";
+        }
+        addLog(`Engine Error: ${msg}`, "err"); 
+    }
     finally { setLoading(false); }
   };
 
   const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     
+    // [FIX] Prevent duplicate clicks but allow retry if error occurred
     if (backtestLoading) {
-        addLog(`[BUSY] Simulation engine is occupied. Please wait.`, "warn");
+        addLog(`[BUSY] Simulation engine is occupied.`, "warn");
         return;
     }
     
@@ -221,10 +243,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }));
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
-      addLog(`Quant Error: ${e.message}`, "err");
-      // Do not clear data on error to keep UI stable, but log error visible to user
+      let msg = e.message;
+      if (msg === 'Load failed' || msg === 'Failed to fetch') msg = "Network Error. Try again.";
+      addLog(`Quant Error: ${msg}`, "err");
+      // Don't clear old data on error to keep UI stable
     }
     finally { 
+      // [CRITICAL] Ensure loading state is reset
       setBacktestLoading(false); 
     }
   };
@@ -240,10 +265,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  // [UPDATED] Enhanced Verdict Color Logic
+  // [UI] Enhanced Verdict Color Logic
   const getVerdictColor = (verdict?: string) => {
     const v = verdict?.toUpperCase() || '';
-    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG'))) {
+    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
         return 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
     }
     if (v === 'BUY' || v.includes('매수')) {
@@ -280,7 +305,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.6.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.7.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -481,7 +506,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               )}
                            </div>
                            
-                           {/* [UPDATED] Split Insight Area into Two Boxes */}
+                           {/* [UI] Split Insight Area into Two Boxes */}
                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                                {/* Box 1: Comprehensive Analysis (Always Visible) */}
                                <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[160px] flex flex-col">

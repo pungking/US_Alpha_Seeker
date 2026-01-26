@@ -89,6 +89,10 @@ function sanitizeAndParseJson(text: string): any | null {
 async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000): Promise<any> {
   try { return await fn(); } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
+    // Handle typical fetch errors for client-side AI calls
+    if (msg === 'load failed' || msg === 'failed to fetch') {
+      throw new Error("CORS/Network Error. Browser blocked the request.");
+    }
     if (retries > 0 && (msg.includes("429") || msg.includes("quota") || msg.includes("limit") || msg.includes("exhausted"))) {
       await new Promise(r => setTimeout(r, delay));
       return fetchWithRetry(fn, retries - 1, delay * 2);
@@ -140,7 +144,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           ],
           temperature: 0.1
         })
+      }).catch(err => {
+         throw new Error("Network Error (CORS). Try switching to Gemini.");
       });
+
       if (!res.ok) return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
@@ -155,7 +162,6 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  // [Fix] 날짜 범위 명시적 계산 (최근 2년)
   const endDate = new Date();
   const startDate = new Date();
   startDate.setFullYear(endDate.getFullYear() - 2);
@@ -201,6 +207,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
           ],
           temperature: 0.1
         })
+      }).catch(err => {
+         throw new Error("Network Error (CORS). Try switching to Gemini.");
       });
       if (!res.ok) return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
       const json = await res.json();
