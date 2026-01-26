@@ -44,7 +44,7 @@ interface Props {
   onFinalSymbolsDetected?: (symbols: string[], fullData?: any[]) => void;
 }
 
-// [HELPER] 지표 설명 딕셔너리
+// [HELPER] Metric Definitions
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
@@ -71,9 +71,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.5.0: Visual Logic Enhancement.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.6.0: UX/UI Logic Optimized.']);
   
-  // [NEW] 선택된 백테스트 지표 (인사이트 표시용)
+  // Selected Metric Info State
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -95,7 +95,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // [NEW] 종목 변경 시 지표 선택 초기화
+  // Reset metric selection when stock changes
   useEffect(() => {
     setSelectedMetricInfo(null);
   }, [selectedStock]);
@@ -122,12 +122,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     } catch (e: any) { addLog(`Vault Sync Error: ${e.message}`, "err"); }
   };
 
-  // [FIX] 버튼 클릭 이벤트 처리 개선 (e.preventDefault)
   const handleExecuteEngine = async (e?: React.MouseEvent) => {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
-    }
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (loading) return;
     
     addLog(`[SIGNAL] Initializing Alpha Sieve Engine...`, "info");
@@ -174,16 +170,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     finally { setLoading(false); }
   };
 
-  // [FIX] 버튼 클릭 이벤트 처리 개선 (e.preventDefault)
   const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
-    if (e) {
-        e.preventDefault();
-        e.stopPropagation();
+    if (e) { e.preventDefault(); e.stopPropagation(); }
+    
+    if (backtestLoading) {
+        addLog(`[BUSY] Simulation engine is occupied. Please wait.`, "warn");
+        return;
     }
-    if (backtestLoading) return;
     
     setBacktestLoading(true);
-    setSelectedMetricInfo(null); // 초기화
+    setSelectedMetricInfo(null);
     addLog(`[SIGNAL] Quant Backtest initiated for ${stock.symbol}.`, "info");
 
     try {
@@ -226,7 +222,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
       addLog(`Quant Error: ${e.message}`, "err");
-      setBacktestData(prev => ({ ...prev, [stock.symbol]: undefined as any }));
+      // Do not clear data on error to keep UI stable, but log error visible to user
     }
     finally { 
       setBacktestLoading(false); 
@@ -244,13 +240,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  // [HELPER] Verdict에 따른 색상 반환
+  // [UPDATED] Enhanced Verdict Color Logic
   const getVerdictColor = (verdict?: string) => {
     const v = verdict?.toUpperCase() || '';
-    if (v.includes('STRONG')) return 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
-    if (v.includes('BUY')) return 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 border border-emerald-500/20';
-    if (v.includes('SELL')) return 'bg-red-600 text-white';
-    return 'bg-amber-600 text-white';
+    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG'))) {
+        return 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
+    }
+    if (v === 'BUY' || v.includes('매수')) {
+        return 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 border border-emerald-500/20';
+    }
+    if (v.includes('ACCUMULATE') || v.includes('CONDITIONAL') || v.includes('조건부')) {
+        return 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 border border-blue-500/20';
+    }
+    if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('관망')) {
+        return 'bg-amber-600 text-white shadow-lg shadow-amber-900/50 border border-amber-500/20';
+    }
+    if (v.includes('SELL') || v.includes('SHORT')) {
+        return 'bg-slate-700 text-slate-300 border border-white/10';
+    }
+    return 'bg-slate-800 text-slate-400 border border-white/5';
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
@@ -272,7 +280,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.5.0</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.6.0</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -294,7 +302,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
              {currentResults.length > 0 ? currentResults.map((item, idx) => (
-               // [LAYOUT] 카드 높이 약간 증가 (230px -> 250px) 하여 내부 여백 확보
                <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[250px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
                   <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
@@ -308,7 +315,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   </div>
                   <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-3 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
                   
-                  {/* [LAYOUT] 내부 그리드 상하 패딩 증가 (py-3 -> py-5) */}
                   <div className="grid grid-cols-3 gap-2 py-5 bg-black/50 rounded-2xl px-1 border border-white/10 flex-grow pointer-events-none shadow-inner items-center">
                     <div className="text-center flex flex-col justify-center">
                       <p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-tighter">Entry</p>
@@ -329,7 +335,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
                         <span className="text-xs font-black text-blue-400 italic">{item.expectedReturn}</span>
                      </div>
-                     {/* [COLOR] Verdict 색상 적용 */}
                      <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${getVerdictColor(item.aiVerdict)}`}>
                        {item.aiVerdict}
                      </span>
@@ -353,8 +358,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div className="flex items-end gap-6">
                       <h3 className="text-5xl lg:text-6xl font-black text-white italic uppercase tracking-tighter leading-none">{selectedStock.symbol}</h3>
                       <div className="flex flex-col mb-1">
-                        {/* [FONT] Verdict 폰트 크기 확대 (text-[10px] -> text-sm) 및 패딩 증가 */}
-                        <span className={`px-6 py-2 ${getVerdictColor(selectedStock.aiVerdict)} text-sm font-black rounded-full uppercase italic tracking-widest mb-2 w-fit`}>
+                        <span className={`px-6 py-2 ${getVerdictColor(selectedStock.aiVerdict)} text-sm font-black rounded-full uppercase italic tracking-widest mb-2 w-fit shadow-xl`}>
                             {selectedStock.aiVerdict}
                         </span>
                         <span className="text-xl font-bold text-slate-400 uppercase tracking-widest leading-none">{selectedStock.name}</span>
@@ -417,7 +421,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    {currentBacktest && (
                      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-6 duration-700">
                         <div className="space-y-3">
-                           {/* [INTERACTION] 백테스팅 지표 클릭 이벤트 추가 */}
                            {[
                              { k: 'WIN_RATE', l: '승률 (WIN RATE)', v: currentBacktest.metrics?.winRate || 'N/A', c: 'text-emerald-400' },
                              { k: 'PROFIT_FACTOR', l: '손익비 (P.FACTOR)', v: currentBacktest.metrics?.profitFactor || 'N/A', c: 'text-blue-400' },
@@ -478,28 +481,33 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               )}
                            </div>
                            
-                           {/* [CONTENT] 선택된 지표에 따른 설명 또는 AI 종합 분석 표시 */}
-                           <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[140px] flex flex-col justify-center">
-                              {selectedMetricInfo ? (
-                                 <div className="animate-in fade-in slide-in-from-left-4 duration-300">
-                                    <div className="flex items-center gap-3 mb-2">
-                                       <span className="text-[10px] font-black text-emerald-400 uppercase tracking-[0.4em] italic">{selectedMetricInfo.title}</span>
-                                       <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
-                                    </div>
-                                    <p className="text-sm text-slate-300 leading-relaxed font-medium italic">{selectedMetricInfo.desc}</p>
-                                    <button 
-                                      onClick={() => setSelectedMetricInfo(null)} 
-                                      className="mt-3 text-[9px] font-bold text-slate-500 hover:text-white uppercase tracking-widest transition-colors flex items-center gap-1"
-                                    >
-                                      ← Back to Integrated Summary
-                                    </button>
-                                 </div>
-                              ) : (
-                                 <div>
-                                    <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-3 italic">Simulation Intelligence Insight</p>
-                                    <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight">{currentBacktest.historicalContext || "Insight generating..."}</p>
-                                 </div>
-                              )}
+                           {/* [UPDATED] Split Insight Area into Two Boxes */}
+                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+                               {/* Box 1: Comprehensive Analysis (Always Visible) */}
+                               <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[160px] flex flex-col">
+                                   <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
+                                   <p className="text-sm text-slate-400 leading-relaxed font-medium italic uppercase tracking-tight line-clamp-6 hover:line-clamp-none transition-all">
+                                      {currentBacktest.historicalContext || "Insight generating..."}
+                                   </p>
+                               </div>
+
+                               {/* Box 2: Metric Detail (Visible on selection) */}
+                               <div className="p-8 bg-blue-500/5 rounded-[40px] border border-blue-500/10 shadow-inner min-h-[160px] flex flex-col justify-center">
+                                  {selectedMetricInfo ? (
+                                     <div className="animate-in fade-in slide-in-from-right-4 duration-300">
+                                        <div className="flex items-center gap-3 mb-3">
+                                           <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] italic">{selectedMetricInfo.title}</span>
+                                           <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
+                                        </div>
+                                        <p className="text-xs text-slate-300 leading-relaxed font-medium italic">{selectedMetricInfo.desc}</p>
+                                     </div>
+                                  ) : (
+                                     <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2 opacity-60">
+                                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        <p className="text-[8px] uppercase tracking-widest text-center">Select a metric for deep dive</p>
+                                     </div>
+                                  )}
+                               </div>
                            </div>
                         </div>
                      </div>
