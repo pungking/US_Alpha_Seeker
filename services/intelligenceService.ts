@@ -12,7 +12,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ACCUMULATE'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown format (Use headers #, bold **, lists -)" },
+      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean" },
       convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
       expectedReturn: { type: Type.STRING, description: "Target return e.g. +25.0%" },
@@ -56,7 +56,7 @@ const BACKTEST_SCHEMA = {
       },
       required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
     },
-    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean Markdown format" }
+    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points." }
   },
   required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
 };
@@ -90,7 +90,7 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 6000)
   try { return await fn(); } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
     if (msg === 'load failed' || msg === 'failed to fetch') {
-      throw new Error("CORS/Network Error. Browser blocked the request.");
+      throw new Error("Network Error. If local, ensure 'vercel dev' is running. If prod, check Vercel logs.");
     }
     if (retries > 0 && (msg.includes("429") || msg.includes("quota") || msg.includes("limit") || msg.includes("exhausted"))) {
       await new Promise(r => setTimeout(r, delay));
@@ -114,8 +114,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn
-- investmentOutlook (상세 Markdown: # 헤더, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic, chartPattern
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic, chartPattern
 - supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
+
+투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
 
 주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
 한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
@@ -132,25 +134,29 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+      // Use Vercel Proxy to avoid CORS
+      const endpoint = '/api/perplexity'; 
+      
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json' 
+            'Authorization': `Bearer ${apiKey}` 
         },
-        referrerPolicy: 'no-referrer', 
         body: JSON.stringify({
           model: 'sonar-pro', 
           messages: [
-            { role: "system", content: "당신은 월가 퀀트입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
         })
       });
 
-      if (!res.ok) return { data: null, error: `HTTP_${res.status}: API 연결 실패` };
+      if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          return { data: null, error: `HTTP_${res.status}: ${errData.error || 'Proxy Connection Failed'}` };
+      }
       const data = await res.json();
       const content = data.choices?.[0]?.message?.content;
       return { data: sanitizeAndParseJson(content) };
@@ -182,7 +188,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
 3. equityCurve: 2년치 데이터를 2개월 단위로 요약하여 정확히 12개의 포인트를 생성하십시오.
 4. value: 누적 수익률(%)이며 순수 숫자(Number)여야 합니다. (예: 15.5)
-5. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. # 헤더, **강조**, - 리스트 등 Markdown 문법을 사용하여 가독성을 극대화하십시오.
+5. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
 
 반드시 JSON 스키마를 준수하여 출력하십시오.`;
 
@@ -198,24 +204,28 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+      // Use Vercel Proxy
+      const endpoint = '/api/perplexity';
+
+      const res = await fetch(endpoint, {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json'
+            'Authorization': `Bearer ${apiKey}`
         },
-        referrerPolicy: 'no-referrer',
         body: JSON.stringify({
           model: 'sonar-pro',
           messages: [
-            { role: "system", content: "당신은 전문 퀀트 엔진입니다. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
+            { role: "system", content: "당신은 전문 퀀트 엔진입니다. 종합 분석(historicalContext) 작성 시 반드시 Markdown 문법을 사용하여 가독성을 높이십시오. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
             { role: "user", content: prompt }
           ],
           temperature: 0.1
         })
       });
-      if (!res.ok) return { data: null, error: `HTTP_${res.status}: 시뮬레이션 서버 응답 없음` };
+      if (!res.ok) {
+          const errData = await res.json().catch(() => ({}));
+          return { data: null, error: `HTTP_${res.status}: ${errData.error || 'Proxy Error'}` };
+      }
       const json = await res.json();
       return { data: sanitizeAndParseJson(json.choices?.[0]?.message?.content) };
     }
@@ -247,7 +257,8 @@ export async function analyzePipelineStatus(data: {
 2. 태도: 확신에 찬 분석을 내놓으십시오.
 3. 리포트 상단: "분석 기준일: ${today}"를 명시하십시오.
 4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 포함하십시오.
-5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 작성하십시오.`;
+5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 작성하십시오.
+6. 가독성: ## 헤더, **강조**, - 리스트 등의 Markdown 문법을 적극 활용하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -260,7 +271,8 @@ export async function analyzePipelineStatus(data: {
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+      // Use Vercel Proxy
+      const res = await fetch('/api/perplexity', {
         method: 'POST',
         headers: { 
             'Content-Type': 'application/json', 

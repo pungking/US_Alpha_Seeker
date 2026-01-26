@@ -77,25 +77,25 @@ const VERDICT_MAP: { [key: string]: string } = {
 // [CUSTOM MARKDOWN COMPONENTS] - High Readability Theme
 const MarkdownComponents = {
     h1: ({node, ...props}: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: ({node, ...props}: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-5 mb-3 uppercase tracking-wide flex items-center gap-2"><span className="w-2 h-2 rounded-full bg-emerald-500 inline-block"></span>{props.children}</h2>,
+    h2: ({node, ...props}: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1"><span className="text-emerald-500 mr-2">#</span>{props.children}</h2>,
     h3: ({node, ...props}: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
-    p: ({node, ...props}: any) => <p className="text-sm md:text-base text-slate-200 leading-8 mb-4 font-normal tracking-wide" {...props} />,
-    ul: ({node, ...props}: any) => <ul className="list-none space-y-2 mb-4 text-slate-200" {...props} />,
+    p: ({node, ...props}: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-8 mb-4 font-normal tracking-wide" {...props} />,
+    ul: ({node, ...props}: any) => <ul className="space-y-3 mb-6 mt-2" {...props} />,
     ol: ({node, ...props}: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-200 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: ({node, ...props}: any) => (
-        <li className="pl-2 relative flex items-start gap-2" {...props}>
-             <span className="text-emerald-500 mt-1.5 text-[8px]">▶</span>
-             <span className="flex-1 leading-7">{props.children}</span>
+        <li className="pl-4 relative flex items-start group" {...props}>
+             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-300 transition-colors"></span>
+             <span className="flex-1 leading-7 text-slate-300 text-sm md:text-[15px]">{props.children}</span>
         </li>
     ),
-    strong: ({node, ...props}: any) => <strong className="text-emerald-300 font-extrabold bg-emerald-900/30 px-1 rounded mx-0.5" {...props} />,
+    strong: ({node, ...props}: any) => <strong className="text-emerald-300 font-extrabold bg-emerald-900/40 px-1.5 py-0.5 rounded mx-0.5 shadow-sm" {...props} />,
     blockquote: ({node, ...props}: any) => (
-        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-900/10 p-4 my-4 rounded-r-xl italic text-slate-300 shadow-inner" {...props} />
+        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/30 p-4 my-6 rounded-r-xl italic text-slate-300 shadow-inner" {...props} />
     ),
     code: ({node, inline, ...props}: any) => (
         inline 
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
-        : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono" {...props} />
+        : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
     ),
 };
 
@@ -106,7 +106,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.7: Sonar Pro Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.8: Sonar Pro Active (Vercel Proxy).']);
   
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
 
@@ -218,8 +218,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
     } catch (e: any) { 
         let msg = e.message;
-        if (msg.includes('Load failed') || msg.includes('Failed to fetch')) {
-             msg = "Network/CORS Error: Please check if 'Allow CORS' extension is enabled or try Gemini.";
+        if (msg.includes('404')) {
+             msg = "API Route Error: 'vercel dev' must be running locally to support Perplexity Proxy.";
         }
         addLog(`Engine Error: ${msg}`, "err"); 
         setSelectedStock(null);
@@ -276,8 +276,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
     } catch (e: any) { 
       let msg = e.message;
-      if (msg.includes('Load failed') || msg.includes('Failed to fetch')) {
-           msg = "Network/CORS Error: Please check 'Allow CORS' extension.";
+      if (msg.includes('404')) {
+           msg = "API Route Error: 'vercel dev' needed for Perplexity.";
       }
       addLog(`Quant Error: ${msg}`, "err");
     }
@@ -343,7 +343,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.7</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.8</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
