@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -33,13 +32,16 @@ const DeepQualityFilter: React.FC = () => {
 
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
   const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Engine');
+  
+  // AI Status separate from main loading
+  const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.3: Timer & AI Check Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.6: AI Feedback Loop Optimization.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -216,12 +218,14 @@ const DeepQualityFilter: React.FC = () => {
   };
 
   const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
-    // FORCE UI UPDATE immediately
+    // 1. Initial State Set
+    setAiStatus('ANALYZING');
     setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
     addLog("Initiating AI Sector Analysis...", "info");
     
     if (!tickers || tickers.length === 0) {
         setAiAnalysis("⚠️ Analysis Skipped: No Tickers Available.");
+        setAiStatus('FAILED');
         return;
     }
 
@@ -241,10 +245,9 @@ const DeepQualityFilter: React.FC = () => {
     try {
         setActiveBrain("Gemini 3 Flash");
         const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-        // Fallback to process.env if available, otherwise config key
         const apiKey = process.env.API_KEY || geminiConfig?.key || "";
         
-        if (!apiKey) throw new Error("Gemini API Key Missing in Config");
+        if (!apiKey) throw new Error("Gemini API Key Missing");
 
         const ai = new GoogleGenAI({ apiKey });
         const response = await ai.models.generateContent({
@@ -254,19 +257,25 @@ const DeepQualityFilter: React.FC = () => {
         });
         
         const result = sanitizeJson(response.text);
+        
+        // 2. Success State Update
         if (result && result.insight) {
             const msg = `[${result.dominantSector}] ${result.insight}`;
             setAiAnalysis(msg);
+            setAiStatus('SUCCESS');
             addLog(`AI Analysis Success: ${msg}`, "ok");
         } else {
-            // Fallback for non-JSON response
+            // Fallback
             const rawMsg = response.text ? response.text.substring(0, 100) + "..." : "No text returned";
             setAiAnalysis("Analysis Note: " + rawMsg);
+            setAiStatus('SUCCESS'); // Still consider success even if format is off
             addLog("AI output format mismatch, used raw text.", "warn");
         }
     } catch (e: any) {
+        // 3. Error State Update
         const errMsg = e.message || "Unknown Connection Error";
-        setAiAnalysis(`⚠️ Analysis Failed: ${errMsg}`);
+        setAiAnalysis(`⚠️ Analysis Failed: ${errMsg.slice(0, 50)}...`);
+        setAiStatus('FAILED');
         addLog(`AI Error: ${errMsg}`, "err");
     }
   };
@@ -288,11 +297,12 @@ const DeepQualityFilter: React.FC = () => {
     if (loading) return;
 
     setLoading(true);
+    setAiStatus('IDLE');
+    setAiAnalysis(null);
     startTimeRef.current = Date.now();
     setTimeStats({ elapsed: 0, eta: 0 });
     
     setProcessedData([]);
-    setAiAnalysis(null);
     setSourceStats({ fmp: 0, finnhub: 0, polygon: 0 });
     setFmpDepleted(false);
     setActiveBrain('Processing');
@@ -389,14 +399,19 @@ const DeepQualityFilter: React.FC = () => {
       setNetworkStatus("Status: Scan Complete");
 
       // AI Analysis Trigger - Await to ensure it runs
-      addLog("Triggering AI Sector Analysis (Yes, it runs here)...", "info");
-      await analyzeSectorDistribution(eliteSurvivors);
+      // Set initial status to show activity in UI
+      setAiStatus('ANALYZING');
+      setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
+      addLog("Triggering AI Sector Analysis...", "info");
+      
+      // Do not await to allow main thread to finish loading state
+      analyzeSectorDistribution(eliteSurvivors);
 
       // Upload
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.3", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.6", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -454,7 +469,7 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.3</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.6</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -512,9 +527,9 @@ const DeepQualityFilter: React.FC = () => {
                 </p>
               </div>
 
-              <div className="bg-blue-900/10 p-8 rounded-3xl border border-blue-500/10 relative overflow-hidden group">
+              <div className={`bg-blue-900/10 p-8 rounded-3xl border relative overflow-hidden group transition-colors ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
                  <div className="flex justify-between items-center mb-2">
-                    <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">AI Sector Insight</p>
+                    <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Sector Insight</p>
                     {/* Retry Button visible if processedData exists but no analysis */}
                     {!loading && processedData.length > 0 && (
                         <button 
@@ -528,7 +543,8 @@ const DeepQualityFilter: React.FC = () => {
                  <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
                     {aiAnalysis || "Awaiting Post-Scan Analysis (Runs after scan completes)..."}
                  </p>
-                 {loading && !aiAnalysis && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
+                 {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
+                 {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
               </div>
           </div>
         </div>
