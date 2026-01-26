@@ -23,12 +23,12 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
+  const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
   
-  // 6단계 실행 엔진과 감사 보고서 엔진 상태
+  // [CHANGED] Default to Perplexity (Sonar Pro) as requested
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
-  // 6단계 엔진이 바뀌면 감사 엔진도 기본적으로 따라가도록 설정 (사용자 편의성)
   useEffect(() => {
     setAuditBrain(selectedBrain);
   }, [selectedBrain]);
@@ -36,37 +36,25 @@ const App: React.FC = () => {
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
-    
     let geminiActive = !!process.env.API_KEY;
-    if (window.aistudio && !geminiActive) {
-      geminiActive = await window.aistudio.hasSelectedApiKey();
-    }
+    if (window.aistudio && !geminiActive) geminiActive = await window.aistudio.hasSelectedApiKey();
     if (!geminiActive) {
       const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
       geminiActive = !!geminiConfig?.key;
     }
-
     setApiStatuses(() => {
       const orderedConfigs = [
         ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
         ...API_CONFIGS.filter(c => c.category === 'Intelligence'),
         ...API_CONFIGS.filter(c => c.category === 'Infrastructure')
       ];
-
       return orderedConfigs.map(config => {
-        let isConnected = false;
-        if (config.provider === ApiProvider.GOOGLE_DRIVE) {
-          isConnected = hasGdriveToken;
-        } else if (config.provider === ApiProvider.GEMINI) {
-          isConnected = geminiActive;
-        } else {
-          isConnected = !!config.key;
-        }
-
+        let isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : 
+                          config.provider === ApiProvider.GEMINI ? geminiActive : !!config.key;
         return {
           provider: config.provider,
           category: config.category,
-          isConnected: isConnected,
+          isConnected,
           latency: isConnected ? Math.floor(Math.random() * 20) + 5 : 0,
           lastChecked: new Date().toLocaleTimeString()
         };
@@ -87,25 +75,18 @@ const App: React.FC = () => {
       const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
-        symbols: finalSymbols.length > 0 ? finalSymbols : null,
+        symbols: finalSymbols,
+        recommendedData: recommendedData
       }, auditBrain);
-      
-      setAuditReports(prev => ({
-        ...prev,
-        [auditBrain]: report
-      }));
+      setAuditReports(prev => ({ ...prev, [auditBrain]: report }));
     } catch (err: any) {
-      setAuditReports(prev => ({
-        ...prev,
-        [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}`
-      }));
+      setAuditReports(prev => ({ ...prev, [auditBrain]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
     }
   };
 
   const currentReport = auditReports[auditBrain] || null;
-
   const copyReport = () => {
     if (currentReport) {
       navigator.clipboard.writeText(currentReport);
@@ -191,7 +172,10 @@ const App: React.FC = () => {
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
             setSelectedBrain={setSelectedBrain}
-            onFinalSymbolsDetected={(symbols) => setFinalSymbols(symbols)}
+            onFinalSymbolsDetected={(symbols, fullData) => {
+              setFinalSymbols(symbols);
+              setRecommendedData(fullData);
+            }}
           />
         </div>
       </main>
@@ -200,7 +184,6 @@ const App: React.FC = () => {
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
         </div>
-
         <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-8 relative z-10">
           <div className="flex items-center space-x-8">
              <div className="bg-emerald-500/10 p-5 rounded-[28px] border border-emerald-500/20 shadow-inner">
@@ -211,64 +194,35 @@ const App: React.FC = () => {
                 <div className="flex items-center space-x-3 mt-3">
                    <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20">Alpha_Insight_Node_Active</span>
                    <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-4">
-                      <button 
-                        onClick={() => setAuditBrain(ApiProvider.GEMINI)}
-                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                      >Gemini</button>
-                      <button 
-                        onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)}
-                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}
-                      >Sonar</button>
+                      <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini</button>
+                      <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar</button>
                    </div>
                 </div>
              </div>
           </div>
-          
           <div className="flex gap-4">
-             {currentReport && (
-               <button 
-                 onClick={copyReport}
-                 className="px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all"
-               >
-                 Copy Report
-               </button>
-             )}
-             <button 
-                onClick={runAiAnalysis}
-                disabled={isAiLoading}
-                className={`px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 cursor-not-allowed bg-slate-900 border-slate-800' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30 active:scale-95'}`}
-              >
-                {isAiLoading ? 'Generating Intelligence...' : 'Execute Strategic Audit'}
+             {currentReport && <button onClick={copyReport} className="px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5">Copy Report</button>}
+             <button onClick={runAiAnalysis} disabled={isAiLoading} className={`px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 bg-slate-900' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30'}`}>
+                {isAiLoading ? 'Generating Global Insight...' : 'Execute Strategic Audit'}
               </button>
           </div>
         </div>
-
         <div className="bg-black/40 rounded-[40px] border border-white/5 p-8 md:p-12 min-h-[300px] shadow-inner relative group">
           {isAiLoading ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-6">
               <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
-              <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Synthesizing High-Frequency Market Data...</p>
+              <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Synchronizing Neural Strategy Matrix...</p>
             </div>
           ) : currentReport ? (
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
-               <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                 {currentReport}
-               </ReactMarkdown>
+               <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentReport}</ReactMarkdown>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">
               <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic">
-                Awaiting Alpha Protocol Signal... <br/>
-                <span className="text-[8px] mt-2 block">Stage 6 Data must be synthesized before audit.</span>
-              </p>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic text-center">Awaiting Alpha Protocol Signal...<br/>Run Stage 6 Synthesis to enable global audit.</p>
             </div>
           )}
-        </div>
-
-        <div className="mt-8 flex justify-between items-center px-4 opacity-40">
-           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">InnocentBae Systems • Integrated Neural Strategy Node</p>
-           <p className="text-[8px] font-black text-slate-600 uppercase tracking-widest">v8.2.6_Audit_Matrix</p>
         </div>
       </section>
     </div>
