@@ -63,19 +63,6 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   }
 };
 
-const VERDICT_MAP: { [key: string]: string } = {
-    "STRONG_BUY": "강력 매수",
-    "BUY": "매수",
-    "ACCUMULATE": "비중 확대",
-    "HOLD": "관망",
-    "NEUTRAL": "중립",
-    "REDUCE": "비중 축소",
-    "SELL": "매도",
-    "STRONG_SELL": "강력 매도",
-    "HIGH_RISK": "고위험 고수익",
-    "SPECULATIVE": "투기 등급"
-};
-
 // [CUSTOM MARKDOWN COMPONENTS] - High Readability Theme
 const MarkdownComponents = {
     h1: ({node, ...props}: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
