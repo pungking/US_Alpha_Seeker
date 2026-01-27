@@ -264,6 +264,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
+      
+      // CRITICAL: Robust validation to prevent Black Screen of Death
+      if (!data) throw new Error("AI returned empty data structure");
+      if (!data.metrics || !data.equityCurve) throw new Error("Invalid Simulation Data: Missing Metrics/Equity");
 
       const safeContext = data.historicalContext || "Analysis data unavailable.";
       setBacktestData(prev => ({ 
@@ -490,24 +494,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-8">
                              {/* Left Metrics Column */}
                              <div className="lg:col-span-1 space-y-4 flex flex-col justify-center">
-                                 <div onClick={() => handleMetricClick('MAX_DRAWDOWN', String(currentBacktest.metrics.maxDrawdown))} className="p-5 bg-rose-950/20 border border-rose-500/20 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-rose-900/20 transition-colors group">
+                                 <div onClick={() => handleMetricClick('MAX_DRAWDOWN', String(currentBacktest.metrics?.maxDrawdown || "N/A"))} className="p-5 bg-rose-950/20 border border-rose-500/20 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-rose-900/20 transition-colors group">
                                      <span className="text-[9px] font-black text-slate-400 group-hover:text-rose-400 uppercase tracking-widest transition-colors">최대낙폭 (MDD)</span>
-                                     <span className="text-2xl font-black text-rose-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics.maxDrawdown)}</span>
+                                     <span className="text-2xl font-black text-rose-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.maxDrawdown || "N/A")}</span>
                                  </div>
-                                 <div onClick={() => handleMetricClick('SHARPE_RATIO', String(currentBacktest.metrics.sharpeRatio))} className="p-5 bg-amber-950/20 border border-amber-500/20 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-amber-900/20 transition-colors group">
+                                 <div onClick={() => handleMetricClick('SHARPE_RATIO', String(currentBacktest.metrics?.sharpeRatio || "N/A"))} className="p-5 bg-amber-950/20 border border-amber-500/20 rounded-[24px] flex justify-between items-center cursor-pointer hover:bg-amber-900/20 transition-colors group">
                                      <span className="text-[9px] font-black text-slate-400 group-hover:text-amber-400 uppercase tracking-widest transition-colors">샤프지수 (RISK/RTN)</span>
-                                     <span className="text-2xl font-black text-amber-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics.sharpeRatio)}</span>
+                                     <span className="text-2xl font-black text-amber-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.sharpeRatio || "N/A")}</span>
                                  </div>
                                  
                                  {/* Secondary Metrics */}
                                  <div className="grid grid-cols-2 gap-3 mt-2">
-                                     <div onClick={() => handleMetricClick('WIN_RATE', String(currentBacktest.metrics.winRate))} className="p-4 bg-white/5 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10">
+                                     <div onClick={() => handleMetricClick('WIN_RATE', String(currentBacktest.metrics?.winRate || "N/A"))} className="p-4 bg-white/5 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10">
                                          <p className="text-[8px] text-slate-500 font-black uppercase tracking-tighter mb-1">승률 (WIN RATE)</p>
-                                         <p className="text-sm font-black text-white italic">{cleanMarkdown(currentBacktest.metrics.winRate)}</p>
+                                         <p className="text-sm font-black text-white italic">{cleanMarkdown(currentBacktest.metrics?.winRate || "N/A")}</p>
                                      </div>
-                                     <div onClick={() => handleMetricClick('PROFIT_FACTOR', String(currentBacktest.metrics.profitFactor))} className="p-4 bg-white/5 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10">
+                                     <div onClick={() => handleMetricClick('PROFIT_FACTOR', String(currentBacktest.metrics?.profitFactor || "N/A"))} className="p-4 bg-white/5 rounded-2xl border border-white/5 cursor-pointer hover:bg-white/10">
                                          <p className="text-[8px] text-slate-500 font-black uppercase tracking-tighter mb-1">손익비 (P.FACTOR)</p>
-                                         <p className="text-sm font-black text-white italic">{cleanMarkdown(currentBacktest.metrics.profitFactor)}</p>
+                                         <p className="text-sm font-black text-white italic">{cleanMarkdown(currentBacktest.metrics?.profitFactor || "N/A")}</p>
                                      </div>
                                  </div>
                                  
