@@ -44,13 +44,6 @@ interface Props {
   onFinalSymbolsDetected?: (symbols: string[], fullData?: any[]) => void;
 }
 
-const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
-  WIN_RATE: { title: "승률 (Win Rate)", desc: "**수익 거래의 비율**입니다. 60% 이상이면 매우 안정적입니다." },
-  PROFIT_FACTOR: { title: "손익비 (Profit Factor)", desc: "**총 수익 / 총 손실**의 비율입니다. 1.5 이상이면 이상적입니다." },
-  MAX_DRAWDOWN: { title: "최대 낙폭 (MDD)", desc: "**최고점 대비 최대 하락률**로 심리적 허용 한계를 측정합니다." },
-  SHARPE_RATIO: { title: "샤프 지수 (Sharpe Ratio)", desc: "**변동성 대비 초과 수익**을 측정합니다. 1.0 이상이면 우수합니다." }
-};
-
 const MarkdownComponents = {
     h1: ({node, ...props}: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
     h2: ({node, ...props}: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1" {...props} />,
@@ -73,9 +66,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
-  const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Standby.']);
-  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
-
+  const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Standby.']);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -121,7 +112,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         setElite50(content.ict_universe || []);
-        addLog(`Vault Synchronized: Elite candidates loaded.`, "ok");
+        addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
       }
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
@@ -129,7 +120,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleExecuteEngine = async () => {
     if (loading) return;
     setLoading(true);
-    addLog(`Initializing Alpha Analysis via ${selectedBrain}...`, "signal");
+    addLog(`Initializing Alpha Synthesis via ${selectedBrain}...`, "signal");
 
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
@@ -146,7 +137,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`${mergedFinal.length} Alpha targets identified.`, "ok");
+      addLog(`Success: ${mergedFinal.length} candidates mapped.`, "ok");
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
@@ -154,9 +145,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
     setMatrixBrain(brain);
-    const currentResults = resultsCache[selectedBrain] || [];
+    const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
-        addLog("Error: No data to audit. Run Individual analysis first.", "err");
+        addLog("Matrix Error: No data available. Run Alpha Engine first.", "err");
         return;
     }
     setMatrixLoading(true);
@@ -165,7 +156,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const report = await analyzePipelineStatus({
             currentStage: 6,
             apiStatuses: [],
-            recommendedData: currentResults
+            recommendedData: currentResults,
+            symbols: currentResults.map(c => c.symbol)
         }, brain);
         setMatrixReports(prev => ({ ...prev, [brain]: report }));
         addLog("Portfolio Matrix generated successfully.", "ok");
@@ -176,12 +168,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunBacktest = async (stock: AlphaCandidate) => {
     if (backtestLoading) return;
     setBacktestLoading(true);
-    addLog(`Running Quant Simulation for ${stock.symbol}...`, "signal");
+    addLog(`Simulating Quant Strategy for ${stock.symbol}...`, "signal");
     try {
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
       setBacktestData(prev => ({ ...prev, [stock.symbol]: data }));
-      addLog(`Simulation complete for ${stock.symbol}.`, "ok");
+      addLog(`Simulation verified for ${stock.symbol}.`, "ok");
     } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
     finally { setBacktestLoading(false); }
   };
@@ -206,7 +198,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">Alpha_Discovery Hub</h2>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Sieve v9.9.9</h2>
                 <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 mt-2 w-fit">
                     <button onClick={() => setActiveTab('INDIVIDUAL')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Individual</button>
                     <button onClick={() => setActiveTab('MATRIX')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'MATRIX' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Matrix</button>
@@ -215,16 +207,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             </div>
             
             <div className="flex gap-4">
-              <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
-                {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
-                  <button key={p} onClick={() => setSelectedBrain(p)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
-                    {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
+              {activeTab === 'INDIVIDUAL' && (
+                <>
+                  <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                      {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
+                      <button key={p} onClick={() => setSelectedBrain(p)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
+                          {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
+                      </button>
+                      ))}
+                  </div>
+                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800' : 'bg-rose-600 text-white hover:brightness-110 shadow-rose-900/20'}`}>
+                    {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
                   </button>
-                ))}
-              </div>
-              <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800' : 'bg-rose-600 text-white hover:brightness-110 shadow-rose-900/20'}`}>
-                {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
-              </button>
+                </>
+              )}
             </div>
           </div>
 
@@ -235,7 +231,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 return (
                   <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
                     {loading && isSelected && (
-                      <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center"><div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div></div>
+                      <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2">
+                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
+                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Analyzing...</span>
+                      </div>
                     )}
                     <div className="flex justify-between items-center mb-1">
                       <div className="flex items-baseline gap-2">
@@ -256,17 +255,32 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                   </div>
                 );
-              }) : <div className="col-span-full py-20 text-center opacity-30 text-xs font-black uppercase tracking-[0.5em]">Awaiting Analysis Signal...</div>}
+              }) : <div className="col-span-full py-24 text-center opacity-30 text-[10px] font-black uppercase tracking-[0.5em]">Awaiting Discovery Signal...</div>}
             </div>
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
                <div className="flex gap-4">
-                  <button onClick={() => handleRunMatrixAudit(ApiProvider.GEMINI)} disabled={matrixLoading} className="flex-1 py-4 bg-emerald-600/10 border border-emerald-500/30 text-emerald-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all">Audit via Gemini</button>
-                  <button onClick={() => handleRunMatrixAudit(ApiProvider.PERPLEXITY)} disabled={matrixLoading} className="flex-1 py-4 bg-cyan-600/10 border border-cyan-500/30 text-cyan-400 rounded-2xl text-[10px] font-black uppercase tracking-widest hover:bg-cyan-600 hover:text-white transition-all">Audit via Sonar</button>
+                  <button onClick={() => handleRunMatrixAudit(ApiProvider.GEMINI)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.GEMINI ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-600 hover:text-white'}`}>
+                    {matrixLoading && matrixBrain === ApiProvider.GEMINI ? 'Auditing...' : 'Audit via Gemini'}
+                  </button>
+                  <button onClick={() => handleRunMatrixAudit(ApiProvider.PERPLEXITY)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-cyan-600/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-600 hover:text-white'}`}>
+                    {matrixLoading && matrixBrain === ApiProvider.PERPLEXITY ? 'Auditing...' : 'Audit via Sonar'}
+                  </button>
                </div>
-               {matrixReports[matrixBrain] && (
-                 <div className="prose-report bg-black/30 p-8 rounded-[40px] border border-white/5">
+               
+               {matrixReports[matrixBrain] ? (
+                 <div className="prose-report bg-black/30 p-8 rounded-[40px] border border-white/5 min-h-[400px]">
+                   <div className="mb-6 flex items-center justify-between border-b border-white/10 pb-4">
+                        <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">
+                            Matrix Analysis by {matrixBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Perplexity Sonar'}
+                        </span>
+                        <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
+                   </div>
                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{matrixReports[matrixBrain]}</ReactMarkdown>
+                 </div>
+               ) : (
+                 <div className="min-h-[400px] flex items-center justify-center text-slate-600 uppercase text-[10px] font-black tracking-widest italic border border-dashed border-white/5 rounded-[40px]">
+                    Select a Model to generate Portfolio Matrix Report
                  </div>
                )}
             </div>
@@ -294,8 +308,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                    <div className="p-8 bg-white/5 rounded-[40px] border border-white/10">
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
-                      <div className="prose-report">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{selectedStock.investmentOutlook || "_Analyzing..._"}</ReactMarkdown>
+                      <div className="prose-report min-h-[200px]">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{selectedStock.investmentOutlook || "_Analyzing strategic datasets..._"}</ReactMarkdown>
                       </div>
                    </div>
                 </div>
@@ -309,10 +323,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </ul>
                    </div>
                    <button onClick={() => handleRunBacktest(selectedStock)} disabled={backtestLoading} className="w-full py-5 bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-xl">
-                     {backtestLoading ? 'Calculating Alpha...' : 'Run Portfolio Simulation'}
+                     {backtestLoading ? 'Calculating Simulation...' : 'Run Quant Backtest Protocol'}
                    </button>
                    {currentBacktest && (
-                     <div className="p-6 bg-black/80 rounded-[40px] border border-white/10 shadow-2xl space-y-4">
+                     <div className="p-6 bg-black/80 rounded-[40px] border border-white/10 shadow-2xl space-y-4 animate-in fade-in slide-in-from-top-4">
                         <div className="grid grid-cols-2 gap-2">
                            {Object.entries(currentBacktest.metrics).map(([k, v]) => (
                              <div key={k} className="p-3 bg-white/5 rounded-2xl border border-white/5"><p className="text-[7px] text-slate-500 font-black uppercase">{k.replace(/([A-Z])/g, ' $1')}</p><p className="text-sm font-black text-white">{cleanMarkdown(v)}</p></div>
