@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -70,9 +71,7 @@ const VERDICT_MAP: { [key: string]: string } = {
     "NEUTRAL": "중립",
     "REDUCE": "비중 축소",
     "SELL": "매도",
-    "STRONG_SELL": "강력 매도",
-    "HIGH_RISK": "고위험 고수익",
-    "SPECULATIVE": "투기 등급"
+    "STRONG_SELL": "강력 매도"
 };
 
 // [CUSTOM MARKDOWN COMPONENTS] - High Readability Theme
@@ -98,11 +97,6 @@ const MarkdownComponents = {
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
     ),
-};
-
-const MetricMarkdownComponents = {
-    p: ({node, ...props}: any) => <p className="mb-2 last:mb-0" {...props} />,
-    strong: ({node, ...props}: any) => <strong className="text-emerald-400 font-bold" {...props} />,
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
@@ -145,11 +139,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
-  };
-
-  const cleanMarkdown = (text?: string) => {
-      if (!text) return '';
-      return text.replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
   };
 
   const handleSwitchBrain = (brain: ApiProvider) => {
@@ -210,13 +199,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
-      // SAFEGUARD: Ensure aiResults is an array to prevent "map" crash
-      const validResults = Array.isArray(aiResults) ? aiResults : [];
-      if (!Array.isArray(aiResults) && aiResults) {
-           addLog(`Warning: AI returned non-array structure.`, "warn");
-      }
-
-      const mergedFinal = validResults.map(aiData => {
+      const mergedFinal = (aiResults || []).map(aiData => {
         const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
         if (!item) return null;
         return { 
@@ -314,6 +297,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
+  const cleanMarkdown = (text?: string) => text?.replace(/\*\*/g, '').replace(/__/g, '').trim() || '';
+
   const getVerdictStyle = (verdict?: string) => {
     const clean = cleanMarkdown(verdict);
     const v = clean.toUpperCase();
@@ -321,31 +306,33 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     let style = 'bg-slate-800 text-slate-400 border border-white/5';
     let text = clean || 'N/A';
 
-    // Prioritize specific keywords with Distinct Colors
-    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
-         text = "강력 매수";
-         style = 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] border border-rose-400 font-black animate-pulse-soft';
-    } 
-    // Fix: Check STRONG SELL before regular SELL
-    else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) {
-         text = "강력 매도";
-         style = 'bg-slate-800 text-red-500 border border-red-500 font-black';
+    // Prioritize translation based on keywords
+    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG'))) text = "강력 매수";
+    else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) text = "강력 매도";
+    else if ((v.includes('BUY') && !v.includes('STRONG')) || v === 'LONG') text = "매수";
+    else if ((v.includes('SELL') && !v.includes('STRONG')) || v === 'SHORT') text = "매도";
+    else if (v.includes('ACCUMULATE') || v.includes('비중')) text = "비중 확대";
+    else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('관망')) text = "관망";
+    else {
+         // Fallback map check
+        for (const [key, val] of Object.entries(VERDICT_MAP)) {
+            if (v.includes(key) || v.includes(key.replace('_', ' '))) {
+                text = val;
+                break;
+            }
+        }
     }
-    else if (v.includes('HIGH') && (v.includes('RISK') || v.includes('RETURN') || v.includes('고위험'))) {
-         text = "고위험 고수익";
-         style = 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.6)] border border-purple-400 font-black';
-    } else if (v.includes('ACCUMULATE') || v.includes('OVERWEIGHT') || v.includes('비중')) {
-         text = "비중 확대";
-         style = 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] border border-blue-400 font-bold';
-    } else if (v.includes('BUY') || v === 'LONG' || v.includes('매수')) {
-         text = "매수";
-         style = 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-emerald-400 font-bold';
-    } else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('MARKET PERFORM') || v.includes('관망') || v.includes('중립')) {
-         text = "관망";
-         style = 'bg-amber-600 text-white border border-amber-400/50 font-medium';
+
+    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
+        style = 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
+    } else if (v.includes('ACCUMULATE') || v.includes('비중')) {
+        style = 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 border border-blue-500/20';
+    } else if (v.includes('BUY') || v.includes('매수')) {
+        style = 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 border border-emerald-500/20';
+    } else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('관망') || v.includes('중립')) {
+        style = 'bg-amber-600 text-white shadow-lg shadow-amber-900/50 border border-amber-500/20';
     } else if (v.includes('SELL') || v.includes('SHORT') || v.includes('매도')) {
-         text = "매도";
-         style = 'bg-slate-700 text-slate-300 border border-slate-500 font-medium';
+        style = 'bg-slate-700 text-slate-300 border border-white/10';
     }
 
     return { style, text };
@@ -353,29 +340,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const renderExpectedReturn = (text?: string) => {
     const clean = cleanMarkdown(text) || '---';
-    const pctMatch = clean.match(/([+\-]?\d+(?:\.\d+)?%)/);
+    // Match pattern: "+25% (some text)" -> Split into Rate and Desc
+    const match = clean.match(/^([+\-]?\d+(?:\.\d+)?%?)\s*(.*)$/);
     
-    if (pctMatch) {
-        const pct = pctMatch[0];
-        // Remove percentage and parentheses from string to get description
-        const desc = clean.replace(pct, '').replace(/[()]/g, '').trim();
-        const isPositive = !pct.startsWith('-');
-        
+    if (match && match[2]) {
         return (
-            <div className="flex flex-col items-start justify-center">
-                <span className={`text-sm font-black italic tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {pct}
-                </span>
-                {desc && (
-                    <span className="text-[9px] font-bold text-slate-500 leading-tight mt-1 max-w-[120px] truncate">
-                        {desc}
-                    </span>
-                )}
+            <div className="flex flex-col items-start leading-tight">
+                <span className="text-sm font-black text-blue-400 italic">{match[1]}</span>
+                <span className="text-[9px] font-bold text-slate-500 leading-none mt-0.5">{match[2].replace(/[()]/g, '').trim()}</span>
             </div>
         );
     }
-    
-    return <span className="text-xs font-black text-slate-400 italic">{clean}</span>;
+    return <span className="text-xs font-black text-blue-400 italic">{clean}</span>;
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
@@ -425,7 +401,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              {currentResults.length > 0 ? currentResults.map((item, idx) => {
                const verdictInfo = getVerdictStyle(item.aiVerdict);
                return (
-               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[260px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
+               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[250px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
                   <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
                        <span className="text-[8px] font-black text-slate-600 uppercase">#{idx + 1}</span>
@@ -454,11 +430,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   </div>
 
                   <div className="flex justify-between items-end mt-3 pointer-events-none">
-                     <div className="flex flex-col gap-1 w-[60%]">
-                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">EXP. RETURN</span>
+                     <div className="flex flex-col gap-1">
+                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
                         {renderExpectedReturn(item.expectedReturn)}
                      </div>
-                     <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style} mb-1 shadow-md whitespace-nowrap`}>
+                     <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style} mb-1`}>
                        {verdictInfo.text}
                      </span>
                   </div>
@@ -573,11 +549,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] italic">{selectedMetricInfo.title}</span>
                                             <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
                                         </div>
-                                        <div className="text-xs text-slate-300 leading-relaxed font-medium italic">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MetricMarkdownComponents}>
-                                                {selectedMetricInfo.desc}
-                                            </ReactMarkdown>
-                                        </div>
+                                        <p className="text-xs text-slate-300 leading-relaxed font-medium italic">{selectedMetricInfo.desc}</p>
                                     </div>
                                 ) : (
                                     <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2 opacity-60">
