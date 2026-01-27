@@ -193,6 +193,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const finalReturn = balance - 100;
       const profitFactor = losses > 0 ? (wins * (target - entry)) / (losses * (entry - stop)) : wins > 0 ? 99 : 0; // Simplified PF
       
+      // KOREAN TEMPLATE FOR DETERMINISTIC RESULTS
       return {
           simulationPeriod: `${from} ~ ${to}`,
           equityCurve: equityCurve.slice(-12), // Last 12 points
@@ -202,13 +203,14 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
               maxDrawdown: `-${maxDrawdown.toFixed(1)}%`,
               sharpeRatio: (finalReturn / (maxDrawdown || 1)).toFixed(2) // Rough Sharpe approximation
           },
-          historicalContext: `### Real-Data Backtest Analysis
-**Confirmed Strategy Performance** via Polygon.io Data.
-- **Accuracy**: Based on ${totalTrades} hypothetical trades over 2 years.
-- **Risk Assessment**: Maximum drawdown was ${maxDrawdown.toFixed(1)}%.
-- **Strategy Logic**: Entry @ $${entry.toFixed(2)}, Target @ $${target.toFixed(2)}, Stop @ $${stop.toFixed(2)}.
+          historicalContext: `### 실데이터 검증 분석 리포트 (Real-Data Audit)
+**Polygon.io 공식 데이터**를 기반으로 수행된 확정적 백테스트 결과입니다.
 
-This is a deterministic simulation using actual historical OHLCV data. The results reflect what *would have happened* if strict limit orders were executed.`
+- **매매 신뢰도**: 지난 24개월간 총 ${totalTrades}회의 가상 매매가 시뮬레이션 되었습니다.
+- **리스크 진단**: 해당 기간 동안 발생한 최대 낙폭(MDD)은 ${maxDrawdown.toFixed(1)}% 입니다.
+- **매매 전략**: 진입 $${entry.toFixed(2)} / 목표 $${target.toFixed(2)} / 손절 $${stop.toFixed(2)}
+
+이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다. 지정가 주문이 100% 체결되었다는 가정하에 산출되었습니다.`
       };
 
   } catch (e) {
@@ -339,7 +341,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 1. simulationPeriod: "${periodStr}"로 고정.
 2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
 3. equityCurve: [{ "period": "24.01", "value": 0 }, { "period": "24.03", "value": 12.5 }, ...] 형태의 JSON 배열.
-4. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
+4. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 반드시 **한국어**로 작성하십시오. 영어 사용을 엄격히 금지합니다. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
 
 반드시 JSON 스키마를 준수하여 출력하십시오.`;
 
@@ -371,7 +373,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
                     body: JSON.stringify({
                         model: model,
                         messages: [
-                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. equityCurve는 누적 수익률 곡선이어야 하며, 0에서 시작하여 변동하는 값들의 배열이어야 합니다. 단일 값을 반복하지 마십시오." },
+                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. equityCurve는 누적 수익률 곡선이어야 하며, 0에서 시작하여 변동하는 값들의 배열이어야 합니다. 분석 내용은 반드시 한국어로 출력하십시오." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1
