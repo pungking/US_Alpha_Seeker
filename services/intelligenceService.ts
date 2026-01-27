@@ -334,6 +334,7 @@ AI 확신도: ${s.convictionScore}%
       
       // Attempt Primary Model (Pro)
       try {
+          // Attempt with Pro model first
           const response = await fetchWithRetry(() => ai.models.generateContent({
             model: 'gemini-3-pro-preview',
             contents: prompt,
@@ -341,12 +342,12 @@ AI 확신도: ${s.convictionScore}%
           return response.text || "분석 리포트 생성 실패";
       } catch (proError: any) {
           const errorMsg = (proError.message || "").toLowerCase();
-          // Fallback Strategy for Quota/Rate Limits
+          // Fallback Strategy for Quota/Rate Limits (429 Resource Exhausted)
           if (errorMsg.includes("429") || errorMsg.includes("exhausted") || errorMsg.includes("quota")) {
               console.warn("Gemini Pro Quota Exceeded. Falling back to Flash...");
               const fallbackResponse = await fetchWithRetry(() => ai.models.generateContent({
                   model: 'gemini-3-flash-preview',
-                  contents: prompt + "\n(Note: Generated via Flash model due to high load)",
+                  contents: prompt + "\n(Note: Generated via Flash model due to high load on Pro)",
               }));
               return fallbackResponse.text || "분석 리포트 생성 실패 (Fallback)";
           }
