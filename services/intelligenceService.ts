@@ -43,7 +43,7 @@ const BACKTEST_SCHEMA = {
         type: Type.OBJECT,
         properties: {
           period: { type: Type.STRING, description: "Timeline label (e.g. '23.01', '23.03'...)" },
-          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number" }
+          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number (e.g., 15.5 for 15.5%)" }
         },
         required: ["period", "value"]
       }
@@ -134,6 +134,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       let losses = 0;
       let maxDrawdown = 0;
       let peakBalance = 100;
+      let tradeCount = 0;
       
       const equityCurve = [];
       let lastMonth = '';
@@ -152,6 +153,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
                   balance = position.quantity * exitPrice;
                   position = null;
                   losses++;
+                  tradeCount++;
               } 
               // Check Target Profit
               else if (candle.h >= target) {
@@ -159,6 +161,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
                   balance = position.quantity * exitPrice;
                   position = null;
                   wins++;
+                  tradeCount++;
               }
           }
           
@@ -187,12 +190,25 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
           }
       }
 
-      // Finalize Stats
+      // Safe Division & Formatting
       const totalTrades = wins + losses;
       const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
       const finalReturn = balance - 100;
-      const profitFactor = losses > 0 ? (wins * (target - entry)) / (losses * (entry - stop)) : wins > 0 ? 99 : 0; // Simplified PF
       
+      // Calculate Profit Factor Safely
+      let profitFactor = 0;
+      if (losses === 0) {
+          profitFactor = wins > 0 ? 99.99 : 0;
+      } else {
+          // Approximate calculation for simulation speed
+          const avgWin = wins > 0 ? (target - entry) : 0;
+          const avgLoss = losses > 0 ? (entry - stop) : 0;
+          profitFactor = (wins * avgWin) / (losses * avgLoss);
+      }
+      
+      // Calculate Sharpe Safely
+      const sharpeRatio = maxDrawdown > 0 ? (finalReturn / maxDrawdown) : (finalReturn > 0 ? 3.0 : 0);
+
       // KOREAN TEMPLATE FOR DETERMINISTIC RESULTS
       return {
           simulationPeriod: `${from} ~ ${to}`,
@@ -201,7 +217,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
               winRate: `${winRate.toFixed(1)}%`,
               profitFactor: profitFactor.toFixed(2),
               maxDrawdown: `-${maxDrawdown.toFixed(1)}%`,
-              sharpeRatio: (finalReturn / (maxDrawdown || 1)).toFixed(2) // Rough Sharpe approximation
+              sharpeRatio: sharpeRatio.toFixed(2)
           },
           historicalContext: `### 실데이터 검증 분석 리포트 (Real-Data Audit)
 **Polygon.io 공식 데이터**를 기반으로 수행된 확정적 백테스트 결과입니다.
@@ -333,13 +349,13 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 실제 틱 데이터가 없다면, 종목의 통계적 특성을 이용해 몬테카를로 시뮬레이션 결과를 생성하여 빈 값 없이 응답해야 합니다.
 
 [중요 요구사항: Equity Curve 데이터 구조]
-1. equityCurve는 반드시 0 또는 100에서 시작하여 누적 수익률(%) 변화를 나타내는 숫자여야 합니다. (예: 0, 5.2, 3.1, 8.5, ...)
-2. **단순 지표값(예: 2.1)을 반복하지 마십시오.** 시간에 따른 자산 곡선을 그리십시오.
+1. equityCurve는 반드시 0에서 시작하여 시간 흐름에 따른 '누적 수익률(%)'을 나타내는 숫자여야 합니다. (예: 0, 5.2, -3.1, 8.5, ...)
+2. 'value' 필드는 절대 계좌 잔고가 아닌 **수익률 퍼센트**입니다.
 3. 데이터 포인트는 12개 이상이어야 합니다.
 
 [필수 필드]
 1. simulationPeriod: "${periodStr}"로 고정.
-2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
+2. metrics: "N/A" 금지. 값이 없으면 "0%" 또는 "0.00"으로 채우십시오.
 3. equityCurve: [{ "period": "24.01", "value": 0 }, { "period": "24.03", "value": 12.5 }, ...] 형태의 JSON 배열.
 4. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 반드시 **한국어**로 작성하십시오. 영어 사용을 엄격히 금지합니다. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
 
@@ -373,7 +389,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
                     body: JSON.stringify({
                         model: model,
                         messages: [
-                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. equityCurve는 누적 수익률 곡선이어야 하며, 0에서 시작하여 변동하는 값들의 배열이어야 합니다. 분석 내용은 반드시 한국어로 출력하십시오." },
+                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. equityCurve는 누적 수익률(%) 곡선이어야 하며, 0에서 시작하여 변동하는 값들의 배열이어야 합니다. 분석 내용은 반드시 한국어로 출력하십시오." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1

@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
+import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ApiProvider } from '../types';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus } from '../services/intelligenceService';
 
@@ -414,6 +414,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const isChartReady = chartData.length > 1;
 
+  // Determine chart color based on final return
+  const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
+  const chartColor = isProfitable ? '#10b981' : '#ef4444';
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
@@ -624,31 +628,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                              <div className="lg:col-span-1 flex flex-col h-full">
                                  <div className="flex-1 flex flex-col gap-3 justify-center">
                                      {/* Win Rate */}
-                                     <div onClick={() => handleMetricClick('WIN_RATE', String(currentBacktest.metrics?.winRate || "N/A"))} 
+                                     <div onClick={() => handleMetricClick('WIN_RATE', String(currentBacktest.metrics?.winRate || "0%"))} 
                                           className="p-4 bg-emerald-950/10 border border-emerald-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-emerald-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-emerald-400 uppercase tracking-widest transition-colors">승률 (WIN RATE)</span>
-                                        <span className="text-xl font-black text-emerald-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.winRate || "N/A")}</span>
+                                        <span className="text-xl font-black text-emerald-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.winRate || "0%")}</span>
                                      </div>
 
                                      {/* Profit Factor */}
-                                     <div onClick={() => handleMetricClick('PROFIT_FACTOR', String(currentBacktest.metrics?.profitFactor || "N/A"))} 
+                                     <div onClick={() => handleMetricClick('PROFIT_FACTOR', String(currentBacktest.metrics?.profitFactor || "0.00"))} 
                                           className="p-4 bg-blue-950/10 border border-blue-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-blue-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-blue-400 uppercase tracking-widest transition-colors">손익비 (P.FACTOR)</span>
-                                        <span className="text-xl font-black text-blue-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.profitFactor || "N/A")}</span>
+                                        <span className="text-xl font-black text-blue-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.profitFactor || "0.00")}</span>
                                      </div>
 
                                      {/* MDD */}
-                                     <div onClick={() => handleMetricClick('MAX_DRAWDOWN', String(currentBacktest.metrics?.maxDrawdown || "N/A"))} 
+                                     <div onClick={() => handleMetricClick('MAX_DRAWDOWN', String(currentBacktest.metrics?.maxDrawdown || "0%"))} 
                                           className="p-4 bg-rose-950/10 border border-rose-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-rose-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-rose-400 uppercase tracking-widest transition-colors">최대낙폭 (MDD)</span>
-                                        <span className="text-xl font-black text-rose-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.maxDrawdown || "N/A")}</span>
+                                        <span className="text-xl font-black text-rose-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.maxDrawdown || "0%")}</span>
                                      </div>
 
                                      {/* Sharpe */}
-                                     <div onClick={() => handleMetricClick('SHARPE_RATIO', String(currentBacktest.metrics?.sharpeRatio || "N/A"))} 
+                                     <div onClick={() => handleMetricClick('SHARPE_RATIO', String(currentBacktest.metrics?.sharpeRatio || "0.00"))} 
                                           className="p-4 bg-amber-950/10 border border-amber-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-amber-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-amber-400 uppercase tracking-widest transition-colors">샤프지수 (RISK/RTN)</span>
-                                        <span className="text-xl font-black text-amber-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.sharpeRatio || "N/A")}</span>
+                                        <span className="text-xl font-black text-amber-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.sharpeRatio || "0.00")}</span>
                                      </div>
                                  </div>
 
@@ -674,32 +678,52 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                  <div className="absolute top-0 right-0 p-8 opacity-10">
                                      <svg className="w-48 h-48 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
                                  </div>
+                                 <div className="mb-4 flex items-center justify-between z-10 relative">
+                                    <h5 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">누적 수익률 (Cumulative Return %)</h5>
+                                 </div>
                                  {isChartReady ? (
                                     <div className="w-full h-[320px] mt-auto relative z-10" key={`chart-container-${selectedStock?.symbol}-${currentBacktest?.timestamp}`}>
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
+                                            <AreaChart data={chartData} margin={{ top: 20, right: 10, left: 10, bottom: 0 }}>
                                                 <defs>
                                                     <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
-                                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.6}/>
+                                                        <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
                                                     </linearGradient>
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                                <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} dy={10} interval="preserveStartEnd" />
-                                                <YAxis domain={['auto', 'auto']} hide width={0} />
+                                                <ReferenceLine y={0} stroke="#64748b" strokeDasharray="3 3" strokeOpacity={0.5} />
+                                                <XAxis 
+                                                    dataKey="period" 
+                                                    tick={{fontSize: 9, fill: '#64748b'}} 
+                                                    axisLine={false} 
+                                                    tickLine={false} 
+                                                    dy={10} 
+                                                    interval="preserveStartEnd" 
+                                                />
+                                                <YAxis 
+                                                    domain={['auto', 'auto']} 
+                                                    hide={false}
+                                                    tickFormatter={(val) => `${val}%`}
+                                                    tick={{fontSize: 9, fill: '#64748b'}}
+                                                    axisLine={false}
+                                                    tickLine={false}
+                                                    width={30}
+                                                />
                                                 <Tooltip 
                                                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
-                                                    itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
+                                                    itemStyle={{ color: chartColor, fontWeight: 'bold' }}
                                                     labelStyle={{ display: 'none' }}
+                                                    formatter={(value: number) => [`${value}%`, 'Cumulative Return']}
                                                 />
                                                 <Area 
                                                     type="monotone" 
                                                     dataKey="value" 
-                                                    stroke="#10b981" 
+                                                    stroke={chartColor}
                                                     strokeWidth={3} 
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`}
-                                                    baseValue="dataMin"
+                                                    baseValue={0} // Fill area from 0, not minimum
                                                 />
                                             </AreaChart>
                                         </ResponsiveContainer>
