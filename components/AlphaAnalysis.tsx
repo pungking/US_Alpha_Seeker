@@ -47,20 +47,31 @@ interface Props {
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
-    desc: "**전체 매매 중 수익 거래의 비율**입니다.\n\n- **60% 이상**: 훌륭한 전략으로 간주\n- **50% 미만**: 손익비가 높아야 수익 가능"
+    desc: "전체 매매 횟수 중 수익을 낸 매매의 비율입니다. 60% 이상이면 훌륭한 전략으로 간주되며, 승률이 낮더라도 손익비가 높으면 수익을 낼 수 있습니다."
   },
   PROFIT_FACTOR: {
     title: "손익비 (Profit Factor)",
-    desc: "**총 수익을 총 손실로 나눈 값**입니다.\n\n- **1.0 초과**: 수익 구간 진입\n- **1.5 이상**: 준수한 전략\n- **2.0 이상**: 매우 뛰어난 전략"
+    desc: "총 수익을 총 손실로 나눈 값입니다. 1.0보다 커야 수익이 나는 전략이며, 1.5 이상은 준수, 2.0 이상은 매우 뛰어난 전략으로 평가받습니다."
   },
   MAX_DRAWDOWN: {
     title: "최대 낙폭 (MDD)",
-    desc: "**자산 고점 대비 최대 하락 비율**입니다.\n\n- 수치가 0에 가까울수록 방어력이 좋습니다.\n- **-10% 이내**라면 심리적으로 안정적인 전략입니다."
+    desc: "특정 기간 동안 고점 대비 가장 많이 하락한 비율입니다. 이 수치가 낮을수록(-10% 이내) 심리적으로 견디기 쉬운 안정적인 전략임을 의미합니다."
   },
   SHARPE_RATIO: {
     title: "샤프 지수 (Sharpe Ratio)",
-    desc: "**위험(변동성) 1단위당 초과 수익**입니다.\n\n- **1.0 이상**: 위험 대비 수익 양호\n- 수치가 높을수록 **적은 변동성**으로 **높은 수익**을 달성했음을 의미합니다."
+    desc: "위험(변동성) 대비 초과 수익률을 나타냅니다. 1.0 이상이면 위험 대비 수익이 좋은 편이며, 숫자가 높을수록 적은 변동성으로 높은 수익을 냈다는 뜻입니다."
   }
+};
+
+const VERDICT_MAP: { [key: string]: string } = {
+    "STRONG_BUY": "강력 매수",
+    "BUY": "매수",
+    "ACCUMULATE": "비중 확대",
+    "HOLD": "관망",
+    "NEUTRAL": "중립",
+    "REDUCE": "비중 축소",
+    "SELL": "매도",
+    "STRONG_SELL": "강력 매도"
 };
 
 // [CUSTOM MARKDOWN COMPONENTS] - High Readability Theme
@@ -85,19 +96,6 @@ const MarkdownComponents = {
         inline 
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
-    ),
-};
-
-// [CUSTOM MARKDOWN COMPONENTS] - Small Metrics
-const MetricMarkdownComponents = {
-    p: ({node, ...props}: any) => <p className="text-xs text-slate-300 leading-relaxed mb-2 font-medium" {...props} />,
-    strong: ({node, ...props}: any) => <strong className="text-emerald-400 font-bold" {...props} />,
-    ul: ({node, ...props}: any) => <ul className="space-y-1 mb-1 mt-1" {...props} />,
-    li: ({node, ...props}: any) => (
-        <li className="flex items-start gap-2 pl-1" {...props}>
-             <span className="w-1 h-1 rounded-full bg-blue-400 mt-1.5 shrink-0 opacity-80"></span>
-             <span className="flex-1 text-[11px] text-slate-400 leading-snug">{props.children}</span>
-        </li>
     ),
 };
 
@@ -201,13 +199,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
-      // CRITICAL FIX: Ensure aiResults is an array to prevent "map is not a function" crash
-      const validResults = Array.isArray(aiResults) ? aiResults : [];
-      if (!Array.isArray(aiResults) && aiResults) {
-           addLog(`Warning: AI returned non-array structure. Attempting recovery...`, "warn");
-      }
-
-      const mergedFinal = validResults.map(aiData => {
+      const mergedFinal = (aiResults || []).map(aiData => {
         const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
         if (!item) return null;
         return { 
@@ -217,10 +209,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           stopLoss: Number(aiData.stopLoss) || item.price * 0.92
         };
       }).filter(x => x !== null) as AlphaCandidate[];
-
-      if (mergedFinal.length === 0 && validResults.length > 0) {
-          addLog("Symbol mismatch error. Retrying engine...", "warn");
-      }
 
       setResultsCache(prev => ({ ...prev, [selectedBrain]: mergedFinal }));
       if (mergedFinal.length > 0) {
@@ -309,66 +297,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  const cleanMarkdown = (text?: string) => text?.replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim() || '';
-
   const getVerdictStyle = (verdict?: string) => {
-    const clean = cleanMarkdown(verdict);
-    const v = clean.toUpperCase();
-    
+    const v = verdict?.toUpperCase() || '';
     let style = 'bg-slate-800 text-slate-400 border border-white/5';
-    let text = clean || 'N/A';
+    let text = verdict || 'N/A';
+
+    for (const [key, val] of Object.entries(VERDICT_MAP)) {
+        if (v.includes(key)) {
+            text = val;
+            break;
+        }
+    }
 
     if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
-         text = "강력 매수";
-         style = 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] border border-rose-400 font-black animate-pulse-soft';
-    } else if (v.includes('HIGH') && (v.includes('RISK') || v.includes('RETURN'))) {
-         text = "고위험 고수익";
-         style = 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.6)] border border-purple-400 font-black';
-    } else if (v.includes('ACCUMULATE') || v.includes('OVERWEIGHT') || v.includes('비중')) {
-         text = "비중 확대";
-         style = 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] border border-blue-400 font-bold';
-    } else if ((v.includes('BUY') && !v.includes('STRONG')) || v === 'LONG' || v.includes('매수')) {
-         text = "매수";
-         style = 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-emerald-400 font-bold';
-    } else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('MARKET PERFORM') || v.includes('관망') || v.includes('중립')) {
-         text = "관망";
-         style = 'bg-amber-600 text-white border border-amber-400/50 font-medium';
-    } else if (v.includes('SELL') || v.includes('SHORT') || v.includes('매도')) {
-         text = "매도";
-         style = 'bg-slate-700 text-slate-300 border border-slate-500 font-medium';
-    } else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) {
-         text = "강력 매도";
-         style = 'bg-slate-800 text-red-500 border border-red-500 font-black';
+        style = 'bg-rose-600 text-white shadow-lg shadow-rose-900/50 border border-rose-500/20';
+    } else if (v === 'BUY' || v.includes('매수')) {
+        style = 'bg-emerald-600 text-white shadow-lg shadow-emerald-900/50 border border-emerald-500/20';
+    } else if (v.includes('ACCUMULATE') || v.includes('CONDITIONAL') || v.includes('조건부')) {
+        style = 'bg-blue-600 text-white shadow-lg shadow-blue-900/50 border border-blue-500/20';
+    } else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('관망')) {
+        style = 'bg-amber-600 text-white shadow-lg shadow-amber-900/50 border border-amber-500/20';
+    } else if (v.includes('SELL') || v.includes('SHORT')) {
+        style = 'bg-slate-700 text-slate-300 border border-white/10';
     }
 
     return { style, text };
-  };
-
-  const renderExpectedReturn = (text?: string) => {
-    const clean = cleanMarkdown(text) || '---';
-    const pctMatch = clean.match(/([+\-]?\d+(?:\.\d+)?%)/);
-    
-    if (pctMatch) {
-        const pct = pctMatch[0];
-        // Remove percentage and parentheses from string to get description
-        const desc = clean.replace(pct, '').replace(/[()]/g, '').trim();
-        const isPositive = !pct.startsWith('-');
-        
-        return (
-            <div className="flex flex-col items-start justify-center">
-                <span className={`text-sm font-black italic tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {pct}
-                </span>
-                {desc && (
-                    <span className="text-[9px] font-bold text-slate-500 leading-tight mt-1">
-                        {desc}
-                    </span>
-                )}
-            </div>
-        );
-    }
-    
-    return <span className="text-xs font-black text-slate-400 italic">{clean}</span>;
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
@@ -418,7 +371,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              {currentResults.length > 0 ? currentResults.map((item, idx) => {
                const verdictInfo = getVerdictStyle(item.aiVerdict);
                return (
-               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[260px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
+               <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[250px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
                   <div className="flex justify-between items-center mb-1 pointer-events-none">
                      <div className="flex items-center gap-3">
                        <span className="text-[8px] font-black text-slate-600 uppercase">#{idx + 1}</span>
@@ -429,7 +382,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      </div>
                      <span className="text-[10px] font-mono font-black text-white bg-white/10 px-3 py-1 rounded-lg border border-white/10 shadow-sm">${item.price?.toFixed(2)}</span>
                   </div>
-                  <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-3 border-b border-white/5 pb-2 pointer-events-none">{cleanMarkdown(item.sectorTheme)}</p>
+                  <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-3 border-b border-white/5 pb-2 pointer-events-none">{item.sectorTheme}</p>
                   
                   <div className="grid grid-cols-3 gap-2 py-5 bg-black/50 rounded-2xl px-1 border border-white/10 flex-grow pointer-events-none shadow-inner items-center">
                     <div className="text-center flex flex-col justify-center">
@@ -447,11 +400,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   </div>
 
                   <div className="flex justify-between items-end mt-3 pointer-events-none">
-                     <div className="flex flex-col gap-1 w-[60%]">
-                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">EXP. RETURN</span>
-                        {renderExpectedReturn(item.expectedReturn)}
+                     <div className="flex items-center gap-2">
+                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
+                        <span className="text-xs font-black text-blue-400 italic">{item.expectedReturn}</span>
                      </div>
-                     <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style} mb-1 shadow-md whitespace-nowrap`}>
+                     <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style}`}>
                        {verdictInfo.text}
                      </span>
                   </div>
@@ -497,7 +450,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4 italic underline underline-offset-[12px]">Neural Investment Strategy</h4>
                          <div className="prose-report min-h-[150px]">
                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                             {cleanMarkdown(selectedStock.investmentOutlook) || "_Strategic data is being compiled..._"}
+                             {selectedStock.investmentOutlook || "_Strategic data is being compiled..._"}
                            </ReactMarkdown>
                          </div>
                       </div>
@@ -509,14 +462,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             {selectedStock.selectionReasons?.map((r, i) => (
                               <li key={i} className="flex items-start space-x-3">
                                  <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]"></div>
-                                 <p className="text-xs font-bold text-slate-200 leading-relaxed uppercase tracking-tight">{cleanMarkdown(r)}</p>
+                                 <p className="text-xs font-bold text-slate-200 leading-relaxed uppercase tracking-tight">{r}</p>
                               </li>
                             ))}
                          </ul>
                       </div>
                       <div className="p-6 bg-black/60 rounded-[40px] border border-white/10 border-l-8 border-l-rose-600 shadow-2xl">
                          <h4 className="text-[9px] font-black text-slate-600 uppercase mb-3 tracking-[0.3em] italic">Engine Core Logic</h4>
-                         <p className="text-xs text-slate-400 leading-relaxed font-mono italic uppercase tracking-tighter">{cleanMarkdown(selectedStock.analysisLogic)}</p>
+                         <p className="text-xs text-slate-400 leading-relaxed font-mono italic uppercase tracking-tighter">{selectedStock.analysisLogic}</p>
                       </div>
                    </div>
                 </div>
@@ -554,7 +507,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     className={`p-4 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all cursor-pointer hover:bg-white/5 ${selectedMetricInfo?.title === METRIC_DEFINITIONS[m.k].title ? 'border-white/30 bg-white/10' : ''}`}
                                  >
                                     <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.1em]">{m.l}</span>
-                                    <span className={`text-xl font-black ${m.c} italic`}>{cleanMarkdown(m.v)}</span>
+                                    <span className={`text-xl font-black ${m.c} italic`}>{m.v}</span>
                                  </div>
                                ))}
                             </div>
@@ -566,11 +519,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] italic">{selectedMetricInfo.title}</span>
                                             <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
                                         </div>
-                                        <div className="text-xs text-slate-300 leading-relaxed font-medium italic">
-                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MetricMarkdownComponents}>
-                                                {selectedMetricInfo.desc}
-                                            </ReactMarkdown>
-                                        </div>
+                                        <p className="text-xs text-slate-300 leading-relaxed font-medium italic">{selectedMetricInfo.desc}</p>
                                     </div>
                                 ) : (
                                     <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2 opacity-60">
@@ -630,7 +579,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
                                <div className="prose-report">
                                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanMarkdown(currentBacktest.historicalContext) || "_Calculating strategic insight..._"}
+                                    {currentBacktest.historicalContext || "_Calculating strategic insight..._"}
                                   </ReactMarkdown>
                                </div>
                            </div>
