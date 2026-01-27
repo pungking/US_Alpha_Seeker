@@ -49,7 +49,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.1.0: Robust Fallback Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.2.0: Historical Lookback Protocol Restored.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -72,6 +72,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const getInitialTargetDate = () => {
     const d = new Date();
     d.setDate(d.getDate() - 1);
+    // Initial adjust for weekends
     if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
     else if (d.getDay() === 6) d.setDate(d.getDate() - 1); 
     return d.toISOString().split('T')[0];
@@ -117,7 +118,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (!fmpKey) throw new Error("FMP Key missing");
     addLog("Strategy A: FMP Bulk Screener (Primary)...", "info");
     
-    // Fetch NYSE, NASDAQ, AMEX stocks with some volume to filter trash immediately
     const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=12000&apikey=${fmpKey}`;
     
     const res = await fetch(url);
@@ -164,49 +164,67 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     });
     addLog(`Finnhub: Found ${symbolMap.size} symbols. Requesting Polygon data...`, "info");
 
-    // 2. Polygon Prices (Aggregates)
+    // 2. Polygon Prices (Aggregates) with 5-Day Lookback
     let targetDate = getInitialTargetDate();
     let polyResults: any[] = [];
-    let attempts = 0;
+    let daysChecked = 0;
     
-    while (attempts < 3) {
-        const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+    // Check up to 5 days back
+    while (daysChecked < 5) {
+        let retryCount = 0;
+        let successOnDay = false;
         
-        if (polyRes.status === 429) {
-            // [Fix] Increase wait time for free tier (5 req/min -> 12s+ delay needed)
-            addLog("Polygon 429 Hit. Waiting 20s for quota...", "warn");
-            await new Promise(r => setTimeout(r, 20000));
-            attempts++;
-            continue;
-        }
+        // Retry logic for 429 on specific day
+        while (retryCount < 3) {
+            const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+            
+            if (polyRes.status === 429) {
+                addLog(`Polygon 429 Hit on ${targetDate}. Waiting 20s...`, "warn");
+                await new Promise(r => setTimeout(r, 20000));
+                retryCount++;
+                continue; // Retry same date
+            }
 
-        if (polyRes.ok) {
-            const data = await polyRes.json();
-            if (data.results && data.results.length > 0) {
-                polyResults = data.results;
-                addLog(`Polygon: Pricing data retrieved for ${targetDate}`, "ok");
-                break;
+            if (polyRes.ok) {
+                const data = await polyRes.json();
+                if (data.results && data.results.length > 0) {
+                    polyResults = data.results;
+                    addLog(`Polygon: Pricing data retrieved for ${targetDate}`, "ok");
+                    successOnDay = true;
+                } else {
+                    addLog(`Polygon: No market data for ${targetDate} (Holiday/Weekend).`, "warn");
+                }
+                break; // Exit retry loop (success or empty data)
+            } else {
+                addLog(`Polygon Error ${polyRes.status} on ${targetDate}.`, "err");
+                break; // Exit retry loop
             }
         }
-        
-        // Go back 1 day if empty or failed
+
+        if (successOnDay && polyResults.length > 0) break; // Found data, break day loop
+
+        // Go back 1 day
         const d = new Date(targetDate);
         d.setDate(d.getDate() - 1);
         targetDate = d.toISOString().split('T')[0];
-        attempts++;
-        await new Promise(r => setTimeout(r, 1500));
+        daysChecked++;
+        
+        if (daysChecked < 5) {
+             addLog(`Switching to previous day: ${targetDate}...`, "info");
+             await new Promise(r => setTimeout(r, 1000));
+        }
     }
 
-    // [Fix] Graceful Degradation: If Polygon fails, use Symbol Map only (Price 0)
+    // [Fix] Graceful Degradation: If Polygon fails after 5 days, use Symbol Map only (Price 0)
     if (polyResults.length === 0) {
-        addLog("Polygon Pricing Failed. Proceeding with Symbol List only (Price $0).", "warn");
+        addLog("Polygon Pricing Failed (All 5 days checked). Proceeding with Symbol List only (Price $0).", "warn");
         const fallbackResults: MasterTicker[] = [];
         symbolMap.forEach((val, key) => {
             fallbackResults.push({
                 symbol: key,
                 name: val.name,
                 type: val.type,
-                price: 0, // Zero price indicates missing data
+                price: 0, 
                 volume: 0,
                 change: 0,
                 updated: new Date().toISOString().split('T')[0]
@@ -319,7 +337,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         const fileName = `STAGE0_MASTER_UNIVERSE_v2.0.0.json`;
         const payload = {
             manifest: { 
-                version: "2.0.0", 
+                version: "2.2.0", 
                 provider: usedProvider, 
                 date: new Date().toISOString(), 
                 count: masterData.length 
@@ -403,7 +421,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.1.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.2.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
