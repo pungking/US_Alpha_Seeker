@@ -14,7 +14,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ACCUMULATE'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points." },
+      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points. NO EMOJIS." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean" },
       convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
       expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+24.5% (6개월)')" },
@@ -58,7 +58,7 @@ const BACKTEST_SCHEMA = {
       },
       required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
     },
-    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points." }
+    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points. NO EMOJIS." }
   },
   required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
 };
@@ -256,7 +256,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
       "simulationPeriod": "2023.01 ~ 2025.01",
       "equityCurve": [{ "period": "23.01", "value": 0 }, ... 12 monthly points ...],
       "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
-      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown."
+      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown. DO NOT USE EMOJIS."
   }
   `;
 
@@ -309,9 +309,9 @@ export async function analyzePipelineStatus(data: {
   let userPrompt = "";
 
   if (provider === ApiProvider.GEMINI) {
-      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. Return clean Markdown without emojis.";
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
   } else {
-      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. Return clean Markdown without emojis.";
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
   }
 
   if (isPortfolio) {
@@ -321,7 +321,7 @@ export async function analyzePipelineStatus(data: {
       분석 일자: ${today}
       
       다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오.
-      **주의: 이모티콘(🚀, 📈 등)을 절대 사용하지 마십시오.**
+      **작성 원칙: 이모티콘(🚀, 📈, 💎 등)을 절대 사용하지 마십시오. 텍스트와 기호(-, *)로만 깔끔하게 작성하십시오.**
 
       ### 📅 분석 일자: ${today}
       
@@ -341,14 +341,14 @@ export async function analyzePipelineStatus(data: {
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
       
       **작성 원칙**:
-      1. **불필요한 이모티콘(🚀, 💎 등) 사용 금지**. 깔끔한 텍스트로만 작성.
-      2. Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성 극대화.
-      3. 전문적이고 냉철한 어조 유지.
+      1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
+      2. 보고서의 어조는 냉철하고 전문적이어야 합니다.
+      3. 가독성을 위해 불렛 포인트와 볼드체를 적극 활용하십시오.
       
-      반드시 다음 형식을 준수하십시오:
+      반드시 다음 형식을 준수하십시오 (제목에 날짜 포함):
       
-      ### 📅 분석 일자: ${today}
-      ### 🚨 실전 투자자 체크포인트 (Deep Audit)
+      ### 분석 일자: ${today}
+      ### 실전 투자자 체크포인트 (Deep Audit)
       
       1. **리스크 시나리오 (Red Team Analysis)**:
          - 이 트레이딩이 실패한다면 원인은 무엇인가? (구체적인 악재나 기술적 붕괴 지점)
@@ -421,6 +421,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
     - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
     - Style: Conservative but accurate. "Don't lose money" is rule #1.
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
   `;
 
   const PERPLEXITY_PERSONA = `
@@ -428,6 +429,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
     - Preference: High growth potential, viral themes, sector rotation leaders.
     - Style: High Risk / High Reward. "Trend is your friend".
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
   `;
 
   const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
@@ -440,10 +442,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
-- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. **이모티콘 사용 금지**), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
 - chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
+**주의: 출력물에 이모티콘(🚀, 💎 등)을 절대 포함하지 마십시오.**
 
 주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
 한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
@@ -476,7 +479,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                     body: JSON.stringify({
                         model: model, 
                         messages: [
-                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. **이모티콘 사용은 절대 금지입니다.** 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1

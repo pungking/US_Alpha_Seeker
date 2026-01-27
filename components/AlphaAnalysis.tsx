@@ -170,21 +170,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const cleanInsightText = (text: string) => {
     if (!text) return "";
     return text
-      .replace(/[\u{1F600}-\u{1F64F}]/gu, "")
-      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "")
-      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "")
-      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "")
-      .replace(/[\u{2600}-\u{26FF}]/gu, "")
-      .replace(/[\u{2700}-\u{27BF}]/gu, "")
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "")
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲]/g, "")
-      .replace(/\[\d+\]/g, '')
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") // Emoticons
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") // Misc Symbols and Pictographs
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") // Transport and Map
+      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") // Supplemental Symbols and Pictographs
+      .replace(/[\u{2600}-\u{26FF}]/gu, "")   // Misc Symbols
+      .replace(/[\u{2700}-\u{27BF}]/gu, "")   // Dingbats
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") // Flags
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲👍👎👉👈]/g, "") // Common specific emojis
+      .replace(/\[\d+\]/g, '') // Citations like [1]
       .trim();
   };
 
   const cleanMarkdown = (text?: any) => {
       if (text === null || text === undefined) return '';
-      return String(text).replace(/\[\d+\]/g, '').replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
+      // Aggressively clean up markdown for compact views (like list items)
+      return String(text)
+        .replace(/\[\d+\]/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/__/g, '')
+        .replace(/\*/g, '')
+        .replace(/#/g, '')
+        .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
+        .trim();
   };
 
   const loadStage5Data = async () => {
@@ -513,7 +521,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </span>
                         <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                    </div>
-                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{matrixReports[matrixBrain]}</ReactMarkdown>
+                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                        {cleanInsightText(matrixReports[matrixBrain])}
+                   </ReactMarkdown>
                  </div>
                ) : (
                  <div className="min-h-[300px] flex flex-col items-center justify-center text-center space-y-6 border border-dashed border-white/10 rounded-[40px]">
@@ -556,7 +566,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
                       <div className="prose-report min-h-[200px]">
                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                            {removeCitations(selectedStock.investmentOutlook) || "_Analyzing strategic datasets for this asset..._"}
+                            {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
                         </ReactMarkdown>
                       </div>
                    </div>
