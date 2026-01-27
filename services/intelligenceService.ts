@@ -5,7 +5,6 @@ import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
 
-// Required fields for UI mapping to prevent empty values ($ / %)
 const ALPHA_FIELDS = [
   "symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", 
   "selectionReasons", "convictionScore", "expectedReturn", "theme", 
@@ -22,7 +21,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING },
       marketCapClass: { type: Type.STRING },
       sectorTheme: { type: Type.STRING },
-      investmentOutlook: { type: Type.STRING, description: "Markdown format. [CRITICAL]: Analyze ONLY this specific stock. Focus on its unique catalysts." },
+      investmentOutlook: { type: Type.STRING },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING } },
       convictionScore: { type: Type.NUMBER },
       expectedReturn: { type: Type.STRING },
@@ -77,10 +76,20 @@ function sanitizeAndParseJson(text: string): any | null {
     const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
-    if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
-    if (firstCurly !== -1) return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+
+    // Array logic
+    if (firstBracket !== -1 && lastBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
+      return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
+    }
+    // Object logic
+    if (firstCurly !== -1 && lastCurly !== -1) {
+      return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    }
     return JSON.parse(cleanText);
-  } catch (e) { return null; }
+  } catch (e) {
+    console.warn("Alpha_Sieve: JSON Extraction failed", e);
+    return null;
+  }
 }
 
 async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000): Promise<any> {
@@ -97,12 +106,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const prompt = `[시스템 미션: 월가 퀀트 전략가]
 분석 대상: ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
-
-지침:
-1. 가장 유망한 6개 종목을 선정하십시오.
-2. 각 종목에 대해 반드시 다음 모든 JSON 필드를 포함한 배열을 반환하십시오: ${ALPHA_FIELDS.join(", ")}
-3. investmentOutlook에는 해당 종목의 고유한 재료와 수급 분석만 담으십시오. (포트폴리오 전체 요약 금지)
-4. 한국어로 응답하고 반드시 유효한 JSON 배열만 반환하십시오.`;
+1. 가장 유망한 6개 종목 선정.
+2. 반드시 JSON 배열로 응답. 필드: ${ALPHA_FIELDS.join(", ")}
+3. 한국어로 상세 분석.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -125,7 +131,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             body: JSON.stringify({ 
               model, 
               messages: [
-                { role: "system", content: `당신은 퀀트 분석가입니다. 반드시 JSON 배열 형식으로만 응답하며, 각 객체는 다음 필드를 모두 포함해야 합니다: ${ALPHA_FIELDS.join(", ")}` }, 
+                { role: "system", content: "당신은 퀀트 전문가입니다. 반드시 JSON 배열로만 응답하세요." }, 
                 { role: "user", content: prompt }
               ], 
               temperature: 0.1 
@@ -148,7 +154,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `[백테스트 시뮬레이션] ${stock.symbol}에 대해 최근 24개월 누적 수익률과 성과 지표를 산출하여 JSON으로 반환하십시오. historicalContext는 Markdown 형식의 한국어 리포트여야 합니다.`;
+  const prompt = `[백테스트 시뮬레이션] ${stock.symbol}에 대해 JSON으로 수익률 시뮬레이션 결과를 생성하십시오.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -174,14 +180,14 @@ export async function analyzePipelineStatus(data: {
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "API_KEY_MISSING";
 
-  const context = data.recommendedData ? `추천 포트폴리오 요약: ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, verdict: d.aiVerdict, score: d.convictionScore})))}` : "데이터 없음";
-  const prompt = `[시니어 전략가] 다음 포트폴리오를 종합 분석하여 시장 주도권, 상관관계, 전체 헷징 전략을 Markdown으로 작성하십시오. 인사말 없이 바로 본론을 시작하십시오: ${context}`;
+  const context = data.recommendedData ? `포트폴리오: ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol})))}` : "데이터 없음";
+  const prompt = `[전략 리포트] 다음 데이터를 기반으로 통합 시장 전망을 Markdown으로 작성하십시오: ${context}`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const response = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt }));
-      return response.text || "분석 리포트를 생성할 수 없습니다.";
+      return response.text || "생성 실패";
     }
     if (provider === ApiProvider.PERPLEXITY) {
       const res = await fetch('/api/perplexity', {
@@ -190,7 +196,7 @@ export async function analyzePipelineStatus(data: {
         body: JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: prompt }] })
       });
       const json = await res.json();
-      return json.choices?.[0]?.message?.content || "분석 리포트를 생성할 수 없습니다.";
+      return json.choices?.[0]?.message?.content || "생성 실패";
     }
     return "INVALID_PROVIDER";
   } catch (error: any) { return `ERROR: ${error.message}`; }

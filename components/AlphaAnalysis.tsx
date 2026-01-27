@@ -42,11 +42,12 @@ interface Props {
   onFinalSymbolsDetected?: (symbols: string[], fullData?: any[]) => void;
 }
 
-const MarkdownComponents = {
-    h1: ({node, ...props}: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: ({node, ...props}: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1" {...props} />,
-    p: ({node, ...props}: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-7 mb-4" {...props} />,
-    li: ({node, ...props}: any) => <li className="ml-4 list-disc text-slate-300 text-sm mb-2" {...props} />,
+// Safer Markdown Components for React 19
+const MarkdownComponents: any = {
+    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
+    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1" {...props} />,
+    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-7 mb-4" {...props} />,
+    li: (props: any) => <li className="ml-4 list-disc text-slate-300 text-sm mb-2" {...props} />,
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
@@ -60,7 +61,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
   
-  // Matrix Cache per Provider
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
@@ -72,7 +72,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Sync selectedStock with current brain cache
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
@@ -105,12 +104,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
+      
       if (listRes.files?.length) {
         const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
-        setElite50(content.ict_universe || []);
-        addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
+        
+        if (content && content.ict_universe) {
+            setElite50(content.ict_universe);
+            addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
+        } else {
+            addLog("Vault Error: Data format mismatch.", "err");
+        }
       }
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
@@ -118,22 +123,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleExecuteEngine = async () => {
     if (loading) return;
     setLoading(true);
-    addLog(`Initiating Neural Alpha Sieve via ${selectedBrain}...`, "signal");
+    addLog(`Initiating Alpha Sieve via ${selectedBrain}...`, "signal");
 
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
+      if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
+
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
-      // Fix "map is not a function" by checking if aiResults is an array
       const safeAiResults = Array.isArray(aiResults) ? aiResults : (aiResults ? [aiResults] : []);
       
       const mergedFinal = safeAiResults.map((aiData: any) => {
-        // Robust symbol matching (case-insensitive and trimmed)
-        const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol?.trim().toUpperCase());
+        if (!aiData?.symbol) return null;
+        const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
         if (!item) return null;
         
-        // Ensure numbers and defaults to prevent $--- / %0
         return {
             ...item,
             ...aiData,
@@ -159,7 +164,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setMatrixBrain(brain);
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
-        addLog("Error: Execute Alpha Engine first to generate data.", "err");
+        addLog("Error: Execute Alpha Engine first.", "err");
         return;
     }
     setMatrixLoading(true);
@@ -201,7 +206,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
         <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
@@ -237,7 +242,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
 
           {activeTab === 'INDIVIDUAL' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in duration-500">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
                 const isSelected = selectedStock?.symbol === item.symbol;
                 return (
@@ -245,7 +250,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     {loading && isSelected && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
-                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Analyzing...</span>
+                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Analyzing Asset...</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center mb-1">
@@ -267,7 +272,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                   </div>
                 );
-              }) : <div className="col-span-full py-24 text-center opacity-30 text-xs font-black uppercase tracking-[0.6em] italic">Awaiting Alpha Neural Signal...</div>}
+              }) : <div className="col-span-full py-24 text-center opacity-30 text-xs font-black uppercase tracking-[0.6em] italic">Awaiting Alpha Protocol Signal...</div>}
             </div>
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
