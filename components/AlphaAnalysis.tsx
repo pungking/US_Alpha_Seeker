@@ -44,18 +44,62 @@ interface Props {
   onFinalSymbolsDetected?: (symbols: string[], fullData?: any[]) => void;
 }
 
+// [HELPER] Metric Definitions
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
-  WIN_RATE: { title: "승률 (Win Rate)", desc: "**수익 거래의 비율**입니다. 60% 이상이면 매우 안정적입니다." },
-  PROFIT_FACTOR: { title: "손익비 (Profit Factor)", desc: "**총 수익 / 총 손실**의 비율입니다. 1.5 이상이면 이상적입니다." },
-  MAX_DRAWDOWN: { title: "최대 낙폭 (MDD)", desc: "**최고점 대비 최대 하락률**로 심리적 허용 한계를 측정합니다." },
-  SHARPE_RATIO: { title: "샤프 지수 (Sharpe Ratio)", desc: "**변동성 대비 초과 수익**을 측정합니다. 1.0 이상이면 우수합니다." }
+  WIN_RATE: {
+    title: "승률 (Win Rate)",
+    desc: "**수익 거래의 비율**을 의미합니다.\n\n- **60% 이상**: 매우 안정적인 전략\n- **40~50%**: 손익비(Profit Factor)가 1.5 이상이어야 수익 가능\n- **40% 미만**: 추세 추종형 전략에서 흔하며, 높은 손익비가 필수적임"
+  },
+  PROFIT_FACTOR: {
+    title: "손익비 (Profit Factor)",
+    desc: "**총 수익 / 총 손실**의 비율입니다.\n\n- **1.0 초과**: 수익 발생 구간\n- **1.5 이상**: 이상적인 우상향 계좌\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략"
+  },
+  MAX_DRAWDOWN: {
+    title: "최대 낙폭 (MDD)",
+    desc: "**최고점 대비 최대 하락률**로 심리적 고통을 나타냅니다.\n\n- **-10% 이내**: 매우 안정적 (보수적 투자자)\n- **-20% 이내**: 공격적 성장주 전략 허용 범위\n- **-30% 초과**: 깡통 계좌 위험, 레버리지 조절 필요"
+  },
+  SHARPE_RATIO: {
+    title: "샤프 지수 (Sharpe Ratio)",
+    desc: "**변동성 대비 초과 수익**을 측정합니다.\n\n- **1.0 이상**: 리스크 대비 수익 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 거의 완벽에 가까운 성과 (또는 데이터 과최적화 의심)"
+  }
 };
 
+// [CUSTOM MARKDOWN COMPONENTS] - High Readability Theme
 const MarkdownComponents = {
     h1: ({node, ...props}: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: ({node, ...props}: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1" {...props} />,
-    p: ({node, ...props}: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-7 mb-4" {...props} />,
-    li: ({node, ...props}: any) => <li className="ml-4 list-disc text-slate-300 text-sm mb-2" {...props} />,
+    h2: ({node, ...props}: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1"><span className="text-emerald-500 mr-2">#</span>{props.children}</h2>,
+    h3: ({node, ...props}: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    p: ({node, ...props}: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-8 mb-4 font-normal tracking-wide" {...props} />,
+    ul: ({node, ...props}: any) => <ul className="space-y-3 mb-6 mt-2" {...props} />,
+    ol: ({node, ...props}: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-200 marker:text-emerald-500 marker:font-bold" {...props} />,
+    li: ({node, ...props}: any) => (
+        <li className="pl-4 relative flex items-start group" {...props}>
+             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-300 transition-colors"></span>
+             <span className="flex-1 leading-7 text-slate-300 text-sm md:text-[15px]">{props.children}</span>
+        </li>
+    ),
+    strong: ({node, ...props}: any) => <strong className="text-emerald-300 font-extrabold bg-emerald-900/40 px-1.5 py-0.5 rounded mx-0.5 shadow-sm" {...props} />,
+    blockquote: ({node, ...props}: any) => (
+        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/30 p-4 my-6 rounded-r-xl italic text-slate-300 shadow-inner" {...props} />
+    ),
+    code: ({node, inline, ...props}: any) => (
+        inline 
+        ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
+        : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
+    ),
+};
+
+// [CUSTOM MARKDOWN COMPONENTS] - Small Metrics
+const MetricMarkdownComponents = {
+    p: ({node, ...props}: any) => <p className="mb-2 last:mb-0" {...props} />,
+    strong: ({node, ...props}: any) => <strong className="text-emerald-400 font-bold" {...props} />,
+    ul: ({node, ...props}: any) => <ul className="space-y-1.5 mb-2 mt-2" {...props} />,
+    li: ({node, ...props}: any) => (
+        <li className="flex items-start gap-2 pl-1" {...props}>
+             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0 opacity-80"></span>
+             <span className="flex-1 text-[11px] text-slate-300 leading-snug">{props.children}</span>
+        </li>
+    ),
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected }) => {
@@ -66,14 +110,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
+  
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
+  const [matrixReport, setMatrixReport] = useState<string | null>(null);
   
-  // Matrix Report Cache & Selection
-  const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
-  const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  const [logs, setLogs] = useState<string[]>(['> AI_Alpha_Node v9.9.9 (Multi-Model): Sonar Pro Active (Fallback Ready).']);
+  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
 
-  const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Standby.']);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -81,7 +125,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Handle caching logic for individual results
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
@@ -97,14 +140,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', signal: '[SIGNAL]' };
+  useEffect(() => {
+    // Reset metric info when switching stocks to prevent stale data
+    setSelectedMetricInfo(null);
+  }, [selectedStock]);
+
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
+  const removeCitations = (text?: any) => {
+      if (text === null || text === undefined) return '';
+      return String(text).replace(/\[\d+\]/g, '').trim();
+  };
+
   const cleanMarkdown = (text?: any) => {
-    if (!text) return '';
-    return String(text).replace(/\[\d+\]/g, '').replace(/\*\*/g, '').trim();
+      if (text === null || text === undefined) return '';
+      return String(text).replace(/\[\d+\]/g, '').replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
+  };
+
+  const handleSwitchBrain = (brain: ApiProvider) => {
+    if (brain === selectedBrain) return;
+    setSelectedBrain(brain);
+    // Note: We don't clear resultsCache here to allow persistent data
+    addLog(`Brain Switched: ${brain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}.`, 'info');
   };
 
   const loadStage5Data = async () => {
@@ -119,24 +179,59 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         setElite50(content.ict_universe || []);
-        addLog(`Vault Synchronized: Elite candidates loaded.`, "ok");
+        addLog(`Vault Access: Stage 5 leaders synchronized.`, "ok");
       }
-    } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
+    } catch (e: any) { addLog(`Vault Sync Error: ${e.message}`, "err"); }
   };
 
-  const handleExecuteEngine = async () => {
+  const handleExecuteEngine = async (e?: React.MouseEvent) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (loading) return;
+    
+    addLog(`[SIGNAL] Initializing Alpha Sieve Engine (${selectedBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar'})...`, "info");
     setLoading(true);
-    addLog(`Initializing Alpha Analysis via ${selectedBrain}...`, "signal");
+    setMatrixReport(null); // Clear previous matrix report on new engine run
 
     try {
-      const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
+      let currentUniverse = elite50;
+      if (currentUniverse.length === 0) {
+        if (!accessToken) throw new Error("Cloud Vault Disconnected.");
+        const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
+        const listResRaw = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          headers: { 'Authorization': `Bearer ${accessToken}` }
+        });
+        if (!listResRaw.ok) throw new Error(`Drive List Failed`);
+        const listRes = await listResRaw.json();
+        if (listRes.files?.length) {
+          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }).then(r => r.json());
+          currentUniverse = content.ict_universe || [];
+          setElite50(currentUniverse);
+        } else {
+          throw new Error("No Stage 5 Data Found.");
+        }
+      }
+
+      const topCandidates = [...currentUniverse].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
+      
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
-      const mergedFinal = (aiResults || []).map((aiData: any) => {
+      const validResults = Array.isArray(aiResults) ? aiResults : [];
+      if (!Array.isArray(aiResults) && aiResults) {
+           addLog(`Warning: AI returned non-array structure.`, "warn");
+      }
+
+      const mergedFinal = validResults.map(aiData => {
         const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
-        return item ? { ...item, ...aiData } : null;
+        if (!item) return null;
+        return { 
+          ...item, ...aiData,
+          supportLevel: Number(aiData.supportLevel) || item.price * 0.98,
+          resistanceLevel: Number(aiData.resistanceLevel) || item.price * 1.25,
+          stopLoss: Number(aiData.stopLoss) || item.price * 0.92
+        };
       }).filter(x => x !== null) as AlphaCandidate[];
 
       setResultsCache(prev => ({ ...prev, [selectedBrain]: mergedFinal }));
@@ -144,203 +239,432 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`${mergedFinal.length} Alpha targets identified.`, "ok");
-    } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
+      addLog(`Alpha Protocol: ${mergedFinal.length} assets mapped for deep analysis.`, "ok");
+    } catch (e: any) { 
+        let msg = e.message;
+        if (msg.includes('Load failed') || msg.includes('Failed to fetch')) {
+             msg = "Network/CORS Error: Please check if 'Allow CORS' extension is enabled.";
+        }
+        addLog(`Engine Error: ${msg}`, "err"); 
+        setSelectedStock(null);
+    }
     finally { setLoading(false); }
   };
 
-  const handleRunMatrixAudit = async (brain: ApiProvider) => {
-    if (matrixLoading) return;
-    setMatrixBrain(brain);
-    // Use the CURRENTLY selected individual analysis results as input for matrix
-    const currentResults = resultsCache[selectedBrain] || []; 
-    if (currentResults.length === 0) {
-        addLog("Error: No individual analysis data found. Run Alpha Engine first.", "err");
-        return;
-    }
-    setMatrixLoading(true);
-    addLog(`Generating Matrix Report via ${brain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar'}...`, "signal");
-    try {
-        const report = await analyzePipelineStatus({
-            currentStage: 6,
-            apiStatuses: [],
-            recommendedData: currentResults,
-            symbols: currentResults.map(c => c.symbol)
-        }, brain);
-        setMatrixReports(prev => ({ ...prev, [brain]: report }));
-        addLog("Portfolio Matrix generated successfully.", "ok");
-    } catch (e: any) { addLog(`Matrix Error: ${e.message}`, "err"); }
-    finally { setMatrixLoading(false); }
-  };
-
-  const handleRunBacktest = async (stock: AlphaCandidate) => {
+  const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
+    if (e) { e.preventDefault(); e.stopPropagation(); }
     if (backtestLoading) return;
+    
     setBacktestLoading(true);
-    addLog(`Running Quant Simulation for ${stock.symbol}...`, "signal");
+    setSelectedMetricInfo(null);
+    addLog(`[SIGNAL] Quant Backtest initiated for ${stock.symbol}.`, "info");
+
     try {
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
-      setBacktestData(prev => ({ ...prev, [stock.symbol]: data }));
-      addLog(`Simulation complete for ${stock.symbol}.`, "ok");
-    } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
+      if (!data || !Array.isArray(data.equityCurve)) throw new Error("Incomplete simulation stream.");
+
+      const curve = data.equityCurve.map((point: any, idx: number) => {
+        let val = (point || {}).value;
+        if (typeof val !== 'number') {
+          val = parseFloat(String(val || '0').replace(/[^-0-9.]/g, ''));
+        }
+        if (!Number.isFinite(val) || Number.isNaN(val)) val = 0;
+        
+        return {
+          period: String((point || {}).period || `M${idx + 1}`),
+          value: Number(val.toFixed(2))
+        };
+      });
+
+      const safeMetrics = data.metrics || {
+        winRate: "N/A", profitFactor: "N/A", maxDrawdown: "N/A", sharpeRatio: "N/A"
+      };
+
+      const safeContext = data.historicalContext || "Analysis data unavailable.";
+      const safePeriod = data.simulationPeriod || "Last 24 Months";
+
+      setBacktestData(prev => ({ 
+        ...prev, 
+        [stock.symbol]: { 
+          simulationPeriod: safePeriod,
+          equityCurve: curve,
+          metrics: safeMetrics,
+          historicalContext: safeContext,
+          timestamp: Date.now()
+        } 
+      }));
+      addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
+    } catch (e: any) { 
+      let msg = e.message;
+      if (msg.includes('Load failed') || msg.includes('Failed to fetch')) msg = "Network/CORS Error.";
+      addLog(`Quant Error: ${msg}`, "err");
+    }
     finally { setBacktestLoading(false); }
   };
 
-  const getVerdictStyle = (v?: string) => {
-    const text = cleanMarkdown(v).toUpperCase();
-    if (text.includes('BUY') || text.includes('매수')) return 'bg-rose-600 text-white border-rose-400';
-    if (text.includes('SELL') || text.includes('매도')) return 'bg-blue-600 text-white border-blue-400';
-    return 'bg-slate-700 text-slate-300 border-slate-600';
+  const handleRunMatrixAudit = async () => {
+    if (matrixLoading) return;
+    const currentResults = resultsCache[selectedBrain] || [];
+    if (currentResults.length === 0) {
+        addLog("Matrix Error: No alpha candidates to analyze. Run Engine first.", "err");
+        return;
+    }
+
+    setMatrixLoading(true);
+    addLog("Matrix Protocol: Initializing Comprehensive Portfolio Audit...", "info");
+
+    try {
+        const report = await analyzePipelineStatus({
+            currentStage: 6,
+            apiStatuses: [], // Not needed for this specific context call
+            recommendedData: currentResults,
+            symbols: currentResults.map(c => c.symbol)
+        }, selectedBrain);
+
+        setMatrixReport(report);
+        addLog("Matrix Audit: Strategic Portfolio Report Generated.", "ok");
+    } catch (e: any) {
+        addLog(`Matrix Error: ${e.message}`, "err");
+    } finally {
+        setMatrixLoading(false);
+    }
+  };
+
+  const handleMetricClick = (key: string, value: string) => {
+    const info = METRIC_DEFINITIONS[key];
+    if (info) setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value });
+  };
+
+  const getVerdictStyle = (verdict?: string) => {
+    const clean = cleanMarkdown(verdict);
+    const v = clean.toUpperCase();
+    
+    let style = 'bg-slate-800 text-slate-400 border border-white/5';
+    let text = clean || 'N/A';
+
+    if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
+         text = "강력 매수"; style = 'bg-red-600 text-white shadow-[0_0_15px_rgba(220,38,38,0.6)] border border-red-400 font-black animate-pulse-soft';
+    } else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) {
+         text = "강력 매도"; style = 'bg-blue-800 text-white shadow-[0_0_15px_rgba(30,58,138,0.6)] border border-blue-600 font-black';
+    } else if (v.includes('HIGH') && (v.includes('RISK') || v.includes('RETURN'))) {
+         text = "고위험 고수익"; style = 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.6)] border border-purple-400 font-black';
+    } else if (v.includes('ACCUMULATE') || v.includes('OVERWEIGHT')) {
+         text = "비중 확대"; style = 'bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] border border-orange-400 font-bold';
+    } else if (v.includes('BUY') || v === 'LONG' || v.includes('매수')) {
+         text = "매수"; style = 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.5)] border border-rose-400 font-bold';
+    } else if (v.includes('HOLD') || v.includes('NEUTRAL')) {
+         text = "관망"; style = 'bg-slate-500 text-white border border-slate-400/50 font-medium';
+    } else if (v.includes('SELL') || v.includes('SHORT')) {
+         text = "매도"; style = 'bg-blue-600 text-white border border-blue-500 font-medium';
+    }
+    return { style, text };
+  };
+
+  const renderExpectedReturnBlock = (text?: string) => {
+    const clean = cleanMarkdown(text) || '---';
+    const pctMatch = clean.match(/([+\-]?\d+(?:\.\d+)?%)/);
+    
+    if (pctMatch) {
+        const pct = pctMatch[0];
+        let desc = clean.replace(pct, '').trim();
+        if (desc.startsWith('(') && desc.endsWith(')')) desc = desc.substring(1, desc.length - 1);
+        const isPositive = !pct.startsWith('-');
+        
+        return (
+            <div className="flex flex-col">
+                <div className="flex items-baseline gap-2 mb-0.5">
+                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
+                </div>
+                <div className="flex flex-col items-start">
+                     <span className={`text-xl font-black italic tracking-tighter leading-none ${isPositive ? 'text-red-400' : 'text-blue-400'}`}>{pct}</span>
+                     <span className="text-[9px] font-bold text-slate-400 leading-tight mt-0.5">{desc || "단기 목표"}</span>
+                </div>
+            </div>
+        );
+    }
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">EXP. RETURN</span>
+            <span className="text-xs font-black text-slate-400 italic">{clean}</span>
+        </div>
+    );
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
+  const isChartReady = useMemo(() => !!currentBacktest?.equityCurve && currentBacktest.equityCurve.length > 1, [currentBacktest]);
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className={`glass-panel p-6 rounded-[40px] border-t-2 shadow-2xl transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
+        <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
+          
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
-                 <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
+                 <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">Alpha_Discovery Hub</h2>
-                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 mt-2 w-fit">
-                    <button onClick={() => setActiveTab('INDIVIDUAL')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Individual</button>
-                    <button onClick={() => setActiveTab('MATRIX')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'MATRIX' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Matrix</button>
+                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.9</h2>
+                <div className="flex items-center gap-4 mt-2">
+                    <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                        <button onClick={() => setActiveTab('INDIVIDUAL')} className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Individual Analysis</button>
+                        <button onClick={() => setActiveTab('MATRIX')} className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase transition-all ${activeTab === 'MATRIX' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Portfolio Matrix</button>
+                    </div>
                 </div>
               </div>
             </div>
-            
             <div className="flex gap-4">
-              {activeTab === 'INDIVIDUAL' && (
-                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
-                    {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
-                    <button key={p} onClick={() => setSelectedBrain(p)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
-                        {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 h-fit">
+                {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
+                    <button key={p} onClick={() => handleSwitchBrain(p)} className={`px-4 py-2 rounded-lg text-[8px] font-black uppercase transition-all flex items-center gap-2 ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>
+                    {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
                     </button>
-                    ))}
+                ))}
                 </div>
-              )}
-              {activeTab === 'INDIVIDUAL' && (
-                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800' : 'bg-rose-600 text-white hover:brightness-110 shadow-rose-900/20'}`}>
-                    {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
-                  </button>
-              )}
+                <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
+                {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
+                </button>
             </div>
           </div>
 
           {activeTab === 'INDIVIDUAL' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {currentResults.length > 0 ? currentResults.map((item, idx) => {
-                const isSelected = selectedStock?.symbol === item.symbol;
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 animate-in fade-in duration-500">
+                {currentResults.length > 0 ? currentResults.map((item, idx) => {
+                const verdictInfo = getVerdictStyle(item.aiVerdict);
                 return (
-                  <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
-                    {loading && isSelected && (
-                      <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
-                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Analyzing...</span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center mb-1">
-                      <div className="flex items-baseline gap-2">
-                        <h4 className="text-3xl font-black text-white italic">{item.symbol}</h4>
-                        <span className="text-sm font-bold text-rose-500">({item.convictionScore}%)</span>
-                      </div>
-                      <span className="text-xs font-mono text-slate-400">${item.price?.toFixed(2)}</span>
+                <div key={item.symbol} onClick={() => setSelectedStock(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[260px] ${selectedStock?.symbol === item.symbol ? 'border-rose-500 bg-rose-500/10 shadow-[0_0_40px_rgba(244,63,94,0.15)] ring-1 ring-rose-500/30' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
+                    <div className="flex justify-between items-center mb-1 pointer-events-none">
+                        <div className="flex items-center gap-3">
+                        <span className="text-[8px] font-black text-slate-600 uppercase">#{idx + 1}</span>
+                        <div className="flex items-baseline gap-2">
+                            <h4 className="text-3xl font-black text-white italic uppercase tracking-tighter leading-none">{item.symbol}</h4>
+                            <span className="text-xl font-black text-rose-500 italic">({item.convictionScore?.toFixed(0)}%)</span>
+                        </div>
+                        </div>
+                        <span className="text-[10px] font-mono font-black text-white bg-white/10 px-3 py-1 rounded-lg border border-white/10 shadow-sm">${item.price?.toFixed(2)}</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4">{cleanMarkdown(item.sectorTheme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center">
-                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-xs font-black text-white">${item.supportLevel?.toFixed(1)}</p></div>
-                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-xs font-black text-white">${item.resistanceLevel?.toFixed(1)}</p></div>
-                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-xs font-black text-white">${item.stopLoss?.toFixed(1)}</p></div>
+                    <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest truncate mb-3 border-b border-white/5 pb-2 pointer-events-none">{cleanMarkdown(item.sectorTheme)}</p>
+                    
+                    <div className="grid grid-cols-3 gap-2 py-5 bg-black/50 rounded-2xl px-1 border border-white/10 flex-grow pointer-events-none shadow-inner items-center">
+                        <div className="text-center flex flex-col justify-center"><p className="text-[8px] font-black text-emerald-500 uppercase mb-1 tracking-tighter">Entry</p><p className="text-[13px] font-mono font-black text-white tracking-tighter leading-none">${item.supportLevel?.toFixed(1)}</p></div>
+                        <div className="text-center border-x border-white/10 flex flex-col justify-center"><p className="text-[8px] font-black text-blue-500 uppercase mb-1 tracking-tighter">Target</p><p className="text-[13px] font-mono font-black text-white tracking-tighter leading-none">${item.resistanceLevel?.toFixed(1)}</p></div>
+                        <div className="text-center flex flex-col justify-center"><p className="text-[8px] font-black text-rose-500 uppercase mb-1 tracking-tighter">Stop</p><p className="text-[13px] font-mono font-black text-white tracking-tighter leading-none">${item.stopLoss?.toFixed(1)}</p></div>
                     </div>
-                    <div className="flex justify-between items-center mt-3">
-                      <span className="text-[10px] font-black text-emerald-400">{cleanMarkdown(item.expectedReturn)}</span>
-                      <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${getVerdictStyle(item.aiVerdict)}`}>{cleanMarkdown(item.aiVerdict)}</span>
+
+                    <div className="flex justify-between items-end mt-3 pointer-events-none">
+                        <div className="w-[60%]">{renderExpectedReturnBlock(item.expectedReturn)}</div>
+                        <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style} mb-1 shadow-md whitespace-nowrap`}>{verdictInfo.text}</span>
                     </div>
-                  </div>
-                );
-              }) : <div className="col-span-full py-20 text-center opacity-30 text-xs font-black uppercase tracking-[0.5em]">Awaiting Analysis Signal...</div>}
-            </div>
+                </div>
+                )}) : (
+                <div className="col-span-full flex flex-col items-center justify-center py-24 opacity-20 space-y-4">
+                    <div className="w-12 h-12 border-2 border-dashed border-slate-600 rounded-full animate-pulse flex items-center justify-center"><div className="w-4 h-4 bg-slate-600 rounded-full"></div></div>
+                    <p className="text-[9px] font-black uppercase tracking-[0.5em] text-slate-400">{loading ? 'Executing Neural Analysis...' : 'Awaiting Discovery Protocol...'}</p>
+                </div>
+                )}
+              </div>
           ) : (
-            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-               <div className="flex gap-4">
-                  <button onClick={() => handleRunMatrixAudit(ApiProvider.GEMINI)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white border-emerald-500' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white'}`}>
-                    {matrixLoading && matrixBrain === ApiProvider.GEMINI ? 'Auditing...' : 'Audit via Gemini'}
-                  </button>
-                  <button onClick={() => handleRunMatrixAudit(ApiProvider.PERPLEXITY)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white border-cyan-500' : 'bg-cyan-600/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-600 hover:text-white'}`}>
-                    {matrixLoading && matrixBrain === ApiProvider.PERPLEXITY ? 'Auditing...' : 'Audit via Sonar'}
-                  </button>
-               </div>
-               
-               {matrixReports[matrixBrain] ? (
-                 <div className="prose-report bg-black/30 p-8 rounded-[40px] border border-white/5 min-h-[400px]">
-                   <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                            Report by {matrixBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Perplexity Sonar'}
-                        </span>
-                        <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
-                   </div>
-                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{matrixReports[matrixBrain]}</ReactMarkdown>
-                 </div>
-               ) : (
-                 <div className="min-h-[300px] flex items-center justify-center text-slate-600 uppercase text-[10px] font-black tracking-widest italic">
-                    Select a Model above to generate Portfolio Matrix
-                 </div>
-               )}
-            </div>
+              <div className="flex flex-col items-center justify-center min-h-[300px] animate-in fade-in slide-in-from-right-4 duration-500">
+                  {!matrixReport ? (
+                      <div className="text-center space-y-6">
+                          <div className="w-20 h-20 bg-indigo-500/10 rounded-full flex items-center justify-center mx-auto border border-indigo-500/20">
+                              <svg className="w-8 h-8 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                          </div>
+                          <div>
+                              <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter">AI Auditor Matrix</h3>
+                              <p className="text-xs text-slate-400 mt-2 max-w-md mx-auto leading-relaxed">Generate a comprehensive strategic report analyzing the correlation, hedging strategies, and sector dominance of the selected {currentResults.length} assets.</p>
+                          </div>
+                          <button onClick={handleRunMatrixAudit} disabled={matrixLoading || currentResults.length === 0} className={`px-12 py-5 rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-2xl transition-all ${matrixLoading || currentResults.length === 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-indigo-600 text-white hover:bg-indigo-500 hover:scale-105 active:scale-95 shadow-indigo-900/40'}`}>
+                              {matrixLoading ? 'Auditing Portfolio Matrix...' : 'Execute Matrix Audit'}
+                          </button>
+                      </div>
+                  ) : (
+                      <div className="w-full text-left space-y-6">
+                          <div className="flex justify-between items-center bg-indigo-950/30 p-4 rounded-2xl border border-indigo-500/20">
+                              <h3 className="text-lg font-black text-indigo-400 uppercase tracking-widest italic">Strategic Portfolio Matrix Report</h3>
+                              <button onClick={handleRunMatrixAudit} disabled={matrixLoading} className="px-4 py-2 bg-indigo-600/20 hover:bg-indigo-600/40 text-indigo-300 text-[9px] font-black uppercase rounded-lg transition-all border border-indigo-500/30">
+                                  {matrixLoading ? 'Regenerating...' : 'Refresh Audit'}
+                              </button>
+                          </div>
+                          <div className="prose-report bg-black/20 p-8 rounded-[40px] border border-white/5 shadow-inner min-h-[400px]">
+                              <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                  {matrixReport}
+                              </ReactMarkdown>
+                          </div>
+                      </div>
+                  )}
+              </div>
           )}
         </div>
 
         {activeTab === 'INDIVIDUAL' && selectedStock && (
-          <div key={selectedStock.symbol} className="glass-panel p-8 rounded-[50px] bg-slate-950 border-t-2 border-t-rose-600 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
-             <div className="flex flex-col lg:flex-row items-end gap-6 mb-8">
-                <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none">{selectedStock.symbol}</h3>
-                <div className="flex flex-col">
-                  <span className={`px-4 py-1.5 text-xs font-black rounded-full uppercase border w-fit mb-2 ${getVerdictStyle(selectedStock.aiVerdict)}`}>{cleanMarkdown(selectedStock.aiVerdict)}</span>
-                  <span className="text-xl font-bold text-slate-400 tracking-widest">{selectedStock.name}</span>
-                </div>
-                <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner">
-                   <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                   <p className="text-2xl font-black text-emerald-400">{selectedStock.convictionScore}%</p>
-                </div>
-             </div>
-
-             <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                <div className="lg:col-span-3 space-y-8">
-                   <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl">
-                      <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90" />
+          <div key={selectedStock.symbol} className="glass-panel p-6 md:p-8 rounded-[50px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
+             <div className="space-y-6">
+                <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
+                   <div className="flex items-end gap-6">
+                      <h3 className="text-5xl lg:text-6xl font-black text-white italic uppercase tracking-tighter leading-none">{selectedStock.symbol}</h3>
+                      <div className="flex flex-col mb-1">
+                        <span className={`px-6 py-2 ${getVerdictStyle(selectedStock.aiVerdict).style} text-sm font-black rounded-full uppercase italic tracking-widest mb-2 w-fit shadow-xl`}>
+                            {getVerdictStyle(selectedStock.aiVerdict).text}
+                        </span>
+                        <span className="text-xl font-bold text-slate-400 uppercase tracking-widest leading-none">{selectedStock.name}</span>
+                      </div>
                    </div>
-                   <div className="p-8 bg-white/5 rounded-[40px] border border-white/10">
-                      <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
-                      <div className="prose-report">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{selectedStock.investmentOutlook || "_Analyzing..._"}</ReactMarkdown>
+                   <div className="ml-auto bg-black/40 px-8 py-4 rounded-[28px] border border-white/10 text-center min-w-[150px] shadow-inner">
+                      <p className="text-[8px] font-black text-slate-500 uppercase tracking-[0.3em] mb-1">AI Confidence</p>
+                      <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore?.toFixed(1)}%</p>
+                   </div>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
+                   <div className="lg:col-span-3 space-y-6">
+                      <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative">
+                         <iframe title="Live Chart" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1&timezone=Etc%2FUTC`} className="w-full h-full border-none opacity-90" />
+                      </div>
+                      <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
+                         <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4 italic underline underline-offset-[12px]">Neural Investment Strategy</h4>
+                         <div className="prose-report min-h-[150px]">
+                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                             {removeCitations(selectedStock.investmentOutlook) || "_Strategic data is being compiled..._"}
+                           </ReactMarkdown>
+                         </div>
+                      </div>
+                   </div>
+                   <div className="lg:col-span-2 space-y-6">
+                      <div className="p-6 bg-black/30 rounded-[40px] border border-white/5">
+                         <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-[0.4em] mb-4 italic">Alpha Rationale</h4>
+                         <ul className="space-y-3">
+                            {selectedStock.selectionReasons?.map((r, i) => (
+                              <li key={i} className="flex items-start space-x-3">
+                                 <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]"></div>
+                                 <p className="text-xs font-bold text-slate-200 leading-relaxed uppercase tracking-tight">{cleanMarkdown(r)}</p>
+                              </li>
+                            ))}
+                         </ul>
+                      </div>
+                      <div className="p-6 bg-black/60 rounded-[40px] border border-white/10 border-l-8 border-l-rose-600 shadow-2xl">
+                         <h4 className="text-[9px] font-black text-slate-600 uppercase mb-3 tracking-[0.3em] italic">Engine Core Logic</h4>
+                         <p className="text-xs text-slate-400 leading-relaxed font-mono italic uppercase tracking-tighter">{cleanMarkdown(selectedStock.analysisLogic)}</p>
                       </div>
                    </div>
                 </div>
-                <div className="lg:col-span-2 space-y-6">
-                   <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
-                      <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic">Core Rationale</h4>
-                      <ul className="space-y-3">
-                         {selectedStock.selectionReasons?.map((r, i) => (
-                           <li key={i} className="flex items-start gap-3"><div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" /><p className="text-xs font-bold text-slate-200">{cleanMarkdown(r)}</p></li>
-                         ))}
-                      </ul>
+
+                <div className="pt-8 border-t border-white/10">
+                   <div className="flex justify-between items-center mb-6">
+                      <div>
+                        <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.5em] italic mb-1">Quant_Backtest_Protocol</h4>
+                        <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
+                           Simulation Period: <span className="text-emerald-400">{currentBacktest?.simulationPeriod || "Ready to Calculate"}</span>
+                        </p>
+                      </div>
+                      <button 
+                        onClick={(e) => handleRunBacktest(selectedStock, e)} 
+                        disabled={backtestLoading} 
+                        className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-2xl ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white active:scale-95'}`}
+                      >
+                        {backtestLoading ? 'Simulation_Active...' : currentBacktest ? 'Re-Run Portfolio Simulation' : 'Run Portfolio Simulation'}
+                      </button>
                    </div>
-                   <button onClick={() => handleRunBacktest(selectedStock)} disabled={backtestLoading} className="w-full py-5 bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-xl">
-                     {backtestLoading ? 'Calculating Alpha...' : 'Run Portfolio Simulation'}
-                   </button>
+                   
                    {currentBacktest && (
-                     <div className="p-6 bg-black/80 rounded-[40px] border border-white/10 shadow-2xl space-y-4">
-                        <div className="grid grid-cols-2 gap-2">
-                           {Object.entries(currentBacktest.metrics).map(([k, v]) => (
-                             <div key={k} className="p-3 bg-white/5 rounded-2xl border border-white/5"><p className="text-[7px] text-slate-500 font-black uppercase">{k.replace(/([A-Z])/g, ' $1')}</p><p className="text-sm font-black text-white">{cleanMarkdown(v)}</p></div>
-                           ))}
+                     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 animate-in slide-in-from-bottom-6 duration-700">
+                        <div className="flex flex-col gap-6">
+                            <div className="space-y-3">
+                               {[
+                                 { k: 'WIN_RATE', l: '승률 (WIN RATE)', v: currentBacktest.metrics?.winRate || 'N/A', c: 'text-emerald-400' },
+                                 { k: 'PROFIT_FACTOR', l: '손익비 (P.FACTOR)', v: currentBacktest.metrics?.profitFactor || 'N/A', c: 'text-blue-400' },
+                                 { k: 'MAX_DRAWDOWN', l: '최대낙폭 (MDD)', v: currentBacktest.metrics?.maxDrawdown || 'N/A', c: 'text-rose-400' },
+                                 { k: 'SHARPE_RATIO', l: '샤프지수 (RISK/RTN)', v: currentBacktest.metrics?.sharpeRatio || 'N/A', c: 'text-amber-400' }
+                               ].map((m, i) => (
+                                 <div 
+                                    key={i} 
+                                    onClick={() => handleMetricClick(m.k, m.v)}
+                                    className={`p-4 bg-black/40 rounded-[24px] border border-white/5 flex justify-between items-center shadow-inner group hover:border-white/20 transition-all cursor-pointer hover:bg-white/5 ${selectedMetricInfo?.title === METRIC_DEFINITIONS[m.k].title ? 'border-white/30 bg-white/10' : ''}`}
+                                 >
+                                    <span className="text-[9px] font-black text-slate-500 uppercase tracking-[0.1em]">{m.l}</span>
+                                    <span className={`text-xl font-black ${m.c} italic`}>{cleanMarkdown(m.v)}</span>
+                                 </div>
+                               ))}
+                            </div>
+                            
+                            <div className="p-6 bg-blue-500/5 rounded-[30px] border border-blue-500/10 shadow-inner flex-1 flex flex-col justify-center min-h-[150px]">
+                                {selectedMetricInfo ? (
+                                    <div className="animate-in fade-in slide-in-from-left-4 duration-300">
+                                        <div className="flex items-center gap-3 mb-3">
+                                            <span className="text-[10px] font-black text-blue-400 uppercase tracking-[0.2em] italic">{selectedMetricInfo.title}</span>
+                                            <span className="text-xs font-black text-white bg-white/10 px-2 py-0.5 rounded">{selectedMetricInfo.value}</span>
+                                        </div>
+                                        <div className="text-xs text-slate-300 leading-relaxed font-medium italic">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MetricMarkdownComponents}>
+                                                {selectedMetricInfo.desc}
+                                            </ReactMarkdown>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    <div className="flex flex-col items-center justify-center h-full text-slate-600 space-y-2 opacity-60">
+                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                        <p className="text-[8px] uppercase tracking-widest text-center">Select a metric above</p>
+                                    </div>
+                                )}
+                            </div>
                         </div>
-                        <div className="prose-report text-xs opacity-80"><ReactMarkdown remarkPlugins={[remarkGfm]}>{currentBacktest.historicalContext}</ReactMarkdown></div>
+
+                        <div className="lg:col-span-2 flex flex-col gap-6">
+                           <div className="w-full bg-black/80 rounded-[40px] border border-white/10 p-6 relative overflow-hidden shadow-3xl min-h-[350px]">
+                              {isChartReady ? (
+                                <ResponsiveContainer width="100%" height={350}>
+                                   <AreaChart 
+                                     key={`backtest-${selectedStock.symbol}-${currentBacktest.timestamp || 0}`}
+                                     data={currentBacktest.equityCurve} 
+                                     margin={{ top: 20, right: 20, left: -10, bottom: 0 }}
+                                   >
+                                      <defs>
+                                         <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                                            <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                                            <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                         </linearGradient>
+                                      </defs>
+                                      <CartesianGrid strokeDasharray="3 3" stroke="#ffffff03" vertical={false} />
+                                      <XAxis dataKey="period" stroke="#334155" fontSize={9} tickLine={false} axisLine={false} dy={15} />
+                                      <YAxis stroke="#334155" fontSize={9} tickLine={false} axisLine={false} tickFormatter={(v) => `${(v || 0)}%`} domain={['auto', 'auto']} />
+                                      <Tooltip 
+                                        contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '16px', fontSize: '11px', color: '#fff', fontWeight: '900', boxShadow: '0 20px 50px rgba(0,0,0,0.5)' }}
+                                        labelFormatter={(label) => `기간: ${label}`}
+                                        formatter={(val: any) => [`${Number(val || 0).toFixed(2)}%`, '누적 수익률']}
+                                      />
+                                      <Area 
+                                        type="monotone" 
+                                        dataKey="value" 
+                                        stroke="#10b981" 
+                                        strokeWidth={4} 
+                                        fillOpacity={1} 
+                                        fill="url(#colorVal)" 
+                                        isAnimationActive={false} 
+                                      />
+                                   </AreaChart>
+                                </ResponsiveContainer>
+                              ) : (
+                                <div className="flex flex-col items-center justify-center h-full text-slate-800 space-y-6 py-20">
+                                  <div className="w-12 h-12 border-4 border-slate-700 rounded-full border-t-emerald-500 animate-spin"></div>
+                                  <div className="text-center">
+                                    <p className="font-mono text-[10px] uppercase tracking-[0.5em] text-slate-500 animate-pulse">Quant_Stream Integrity Verification...</p>
+                                    <p className="text-[8px] text-slate-700 mt-2 uppercase tracking-widest">Compiling Neural Data Points</p>
+                                  </div>
+                                </div>
+                              )}
+                           </div>
+                           
+                           <div className="p-8 bg-emerald-500/5 rounded-[40px] border border-emerald-500/10 shadow-inner min-h-[150px] flex flex-col justify-center">
+                               <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
+                               <div className="prose-report">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                    {removeCitations(currentBacktest.historicalContext) || "_Calculating strategic insight..._"}
+                                  </ReactMarkdown>
+                               </div>
+                           </div>
+                        </div>
                      </div>
                    )}
                 </div>
@@ -351,10 +675,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
-          <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
+          <div className="flex items-center justify-between mb-8 px-2">
+            <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic">Alpha_Terminal</h3>
+          </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400 shadow-[0_0_10px_rgba(16,185,129,0.1)]' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
