@@ -14,7 +14,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING },
       marketCapClass: { type: Type.STRING },
       sectorTheme: { type: Type.STRING },
-      investmentOutlook: { type: Type.STRING, description: "Markdown format. [STRICT]: Focus ONLY on this specific asset's unique catalysts, technical structure, and potential. Do not summarize the whole portfolio." },
+      investmentOutlook: { type: Type.STRING, description: "Markdown format. [CRITICAL]: Analyze ONLY this specific stock's catalysts, technicals, and financials. DO NOT write a portfolio summary or mention other stocks. Focus strictly on this asset." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING } },
       convictionScore: { type: Type.NUMBER },
       expectedReturn: { type: Type.STRING },
@@ -87,10 +87,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `[퀀트 분석가 모드]
-대상: ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
-미션: 상위 6개를 선정하고 investmentOutlook에는 **반드시 각 종목의 개별 호재와 타점**만 작성하세요. 포트폴리오 전체 요약은 금지합니다.
-한국어로 응답하고 오직 JSON 배열만 반환하세요.`;
+  const prompt = `[월가 일류 퀀트 전략가 모드]
+대상 종목: ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
+지침: 가장 완벽한 유망주 6개를 선정하고, investmentOutlook에는 **반드시 해당 종목의 개별 호재, 수급, 기술적 타점**에 대해서만 상세히 분석하십시오. 절대로 "이 포트폴리오는..." 과 같은 전체 요약 문구를 포함하지 마십시오. 각 종목에 대한 독립적인 심층 보고서여야 합니다.
+한국어로 응답하고 오직 JSON만 반환하세요.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -100,6 +100,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
+      // Using .text property to extract output string
       return { data: sanitizeAndParseJson(result.text) };
     }
 
@@ -109,7 +110,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           const res = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-            body: JSON.stringify({ model, messages: [{ role: "system", content: "당신은 월가 퀀트입니다. 각 종목의 개별 분석에 집중하고 포트폴리오 요약은 무시하십시오." }, { role: "user", content: prompt }], temperature: 0.1 })
+            body: JSON.stringify({ model, messages: [{ role: "system", content: "당신은 월가 퀀트입니다. 각 종목의 개별 분석에만 집중하고 포트폴리오 전체 요약을 하지 마십시오." }, { role: "user", content: prompt }], temperature: 0.1 })
           });
           if (res.ok) {
             const json = await res.json();
@@ -127,7 +128,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
-  const prompt = `[백테스트] ${stock.symbol}에 대한 최근 24개월 시뮬레이션을 수행하십시오. 누적 수익률과 전략 분석을 Markdown으로 포함하세요. JSON으로 응답하십시오.`;
+  const prompt = `[백테스트 엔진] 종목 ${stock.symbol}에 대한 최근 24개월 시뮬레이션을 수행하십시오. 누적 수익률(%)과 전문적인 전략 분석(Markdown)을 포함하십시오. JSON으로 응답하세요.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -137,6 +138,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
+      // Using .text property to extract output string
       return { data: sanitizeAndParseJson(result.text) };
     }
     return { data: null, error: "NOT_SUPPORTED" };
@@ -153,13 +155,14 @@ export async function analyzePipelineStatus(data: {
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "API_KEY_MISSING";
 
-  const context = data.recommendedData ? `포트폴리오: ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, theme: d.sectorTheme})))}` : "데이터 없음";
-  const prompt = `[전략가] 포트폴리오를 종합 분석하십시오. 상관관계, 섹터 주도권, 헷징 전략을 Markdown으로 상세히 작성하세요. 대상: ${context}`;
+  const context = data.recommendedData ? `전체 포트폴리오(6개 종목): ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore, theme: d.sectorTheme})))}` : "데이터 없음";
+  const prompt = `[월가 시니어 전략가] 다음 포트폴리오를 종합 분석하십시오. 상관관계 분석, 섹터 주도권, 전체 헷징 전략을 Markdown으로 상세히 작성하십시오. 대상: ${context}`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const response = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt }));
+      // Using .text property to extract output string
       return response.text || "생성 실패";
     }
     if (provider === ApiProvider.PERPLEXITY) {
