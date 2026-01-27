@@ -14,7 +14,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING },
       marketCapClass: { type: Type.STRING },
       sectorTheme: { type: Type.STRING },
-      investmentOutlook: { type: Type.STRING, description: "Markdown format. [CRITICAL]: Analyze ONLY this specific stock's catalysts, technicals, and financials. DO NOT write a portfolio summary or mention other stocks. Focus strictly on this asset." },
+      investmentOutlook: { type: Type.STRING, description: "Markdown format. [CRITICAL]: Analyze ONLY this specific stock's catalysts, technicals, and financials. DO NOT write a portfolio summary. Focus strictly on this asset." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING } },
       convictionScore: { type: Type.NUMBER },
       expectedReturn: { type: Type.STRING },
@@ -96,18 +96,17 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
-      // Using .text property to extract output string
       return { data: sanitizeAndParseJson(result.text) };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
       for (const model of PERPLEXITY_MODELS) {
         try {
-          const res = await fetch('https://api.perplexity.ai/chat/completions', {
+          const res = await fetch('/api/perplexity', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
             body: JSON.stringify({ model, messages: [{ role: "system", content: "당신은 월가 퀀트입니다. 각 종목의 개별 분석에만 집중하고 포트폴리오 전체 요약을 하지 마십시오." }, { role: "user", content: prompt }], temperature: 0.1 })
@@ -138,7 +137,6 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
-      // Using .text property to extract output string
       return { data: sanitizeAndParseJson(result.text) };
     }
     return { data: null, error: "NOT_SUPPORTED" };
@@ -161,15 +159,14 @@ export async function analyzePipelineStatus(data: {
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
-      const response = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt }));
-      // Using .text property to extract output string
+      const response = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-pro-preview', contents: prompt }));
       return response.text || "생성 실패";
     }
     if (provider === ApiProvider.PERPLEXITY) {
-      const res = await fetch('https://api.perplexity.ai/chat/completions', {
+      const res = await fetch('/api/perplexity', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: prompt }] })
+        body: JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: prompt }] })
       });
       const json = await res.json();
       return json.choices?.[0]?.message?.content || "생성 실패";
