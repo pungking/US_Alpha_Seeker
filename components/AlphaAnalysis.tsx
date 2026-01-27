@@ -47,19 +47,19 @@ interface Props {
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
-    desc: "전체 매매 횟수 중 수익을 낸 매매의 비율입니다. 60% 이상이면 훌륭한 전략으로 간주되며, 승률이 낮더라도 손익비가 높으면 수익을 낼 수 있습니다."
+    desc: "**수익 거래의 비율**을 의미합니다.\n\n- **60% 이상**: 매우 안정적인 전략\n- **40~50%**: 손익비(Profit Factor)가 1.5 이상이어야 수익 가능\n- **40% 미만**: 추세 추종형 전략에서 흔하며, 높은 손익비가 필수적임"
   },
   PROFIT_FACTOR: {
     title: "손익비 (Profit Factor)",
-    desc: "총 수익을 총 손실로 나눈 값입니다. 1.0보다 커야 수익이 나는 전략이며, 1.5 이상은 준수, 2.0 이상은 매우 뛰어난 전략으로 평가받습니다."
+    desc: "**총 수익 / 총 손실**의 비율입니다.\n\n- **1.0 초과**: 수익 발생 구간\n- **1.5 이상**: 이상적인 우상향 계좌\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략"
   },
   MAX_DRAWDOWN: {
     title: "최대 낙폭 (MDD)",
-    desc: "특정 기간 동안 고점 대비 가장 많이 하락한 비율입니다. 이 수치가 낮을수록(-10% 이내) 심리적으로 견디기 쉬운 안정적인 전략임을 의미합니다."
+    desc: "**최고점 대비 최대 하락률**로 심리적 고통을 나타냅니다.\n\n- **-10% 이내**: 매우 안정적 (보수적 투자자)\n- **-20% 이내**: 공격적 성장주 전략 허용 범위\n- **-30% 초과**: 깡통 계좌 위험, 레버리지 조절 필요"
   },
   SHARPE_RATIO: {
     title: "샤프 지수 (Sharpe Ratio)",
-    desc: "위험(변동성) 대비 초과 수익률을 나타냅니다. 1.0 이상이면 위험 대비 수익이 좋은 편이며, 숫자가 높을수록 적은 변동성으로 높은 수익을 냈다는 뜻입니다."
+    desc: "**변동성 대비 초과 수익**을 측정합니다.\n\n- **1.0 이상**: 리스크 대비 수익 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 거의 완벽에 가까운 성과 (또는 데이터 과최적화 의심)"
   }
 };
 
@@ -92,11 +92,11 @@ const MarkdownComponents = {
 const MetricMarkdownComponents = {
     p: ({node, ...props}: any) => <p className="mb-2 last:mb-0" {...props} />,
     strong: ({node, ...props}: any) => <strong className="text-emerald-400 font-bold" {...props} />,
-    ul: ({node, ...props}: any) => <ul className="space-y-1 mb-1 mt-1" {...props} />,
+    ul: ({node, ...props}: any) => <ul className="space-y-1.5 mb-2 mt-2" {...props} />,
     li: ({node, ...props}: any) => (
         <li className="flex items-start gap-2 pl-1" {...props}>
-             <span className="w-1 h-1 rounded-full bg-blue-400 mt-1.5 shrink-0 opacity-80"></span>
-             <span className="flex-1 text-[11px] text-slate-400 leading-snug">{props.children}</span>
+             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0 opacity-80"></span>
+             <span className="flex-1 text-[11px] text-slate-300 leading-snug">{props.children}</span>
         </li>
     ),
 };
@@ -143,9 +143,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
+  // NEW: Helper to remove citations but keep markdown
+  const removeCitations = (text?: string) => {
+      if (!text) return '';
+      return text.replace(/\[\d+\]/g, '').trim();
+  };
+
+  // UPDATED: Clean markdown now also removes citations
   const cleanMarkdown = (text?: string) => {
       if (!text) return '';
-      return text.replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
+      // Remove citations first, then strip markdown chars
+      return text.replace(/\[\d+\]/g, '').replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
   };
 
   const handleSwitchBrain = (brain: ApiProvider) => {
@@ -511,7 +519,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-4 italic underline underline-offset-[12px]">Neural Investment Strategy</h4>
                          <div className="prose-report min-h-[150px]">
                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                             {cleanMarkdown(selectedStock.investmentOutlook) || "_Strategic data is being compiled..._"}
+                             {removeCitations(selectedStock.investmentOutlook) || "_Strategic data is being compiled..._"}
                            </ReactMarkdown>
                          </div>
                       </div>
@@ -644,7 +652,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-[0.4em] mb-4 italic">Simulation Intelligence Insight</p>
                                <div className="prose-report">
                                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanMarkdown(currentBacktest.historicalContext) || "_Calculating strategic insight..._"}
+                                    {removeCitations(currentBacktest.historicalContext) || "_Calculating strategic insight..._"}
                                   </ReactMarkdown>
                                </div>
                            </div>
