@@ -63,7 +63,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
-  const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Ready for execution.']);
+  const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -108,27 +108,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         setElite50(content.ict_universe || []);
-        addLog(`Vault Synchronized: Elite candidates loaded.`, "ok");
+        addLog(`Vault Access Granted: Elite Universe Sync Complete.`, "ok");
       }
-    } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
+    } catch (e: any) { addLog(`Vault Sync Failure: ${e.message}`, "err"); }
   };
 
   const handleExecuteEngine = async () => {
     if (loading) return;
     setLoading(true);
-    addLog(`Initializing Alpha Analysis via ${selectedBrain}...`, "signal");
+    addLog(`Initiating Neural Alpha Sieve via ${selectedBrain}...`, "signal");
 
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
-      // [FIX]: Ensure aiResults is an array before calling .map()
       const safeAiResults = Array.isArray(aiResults) ? aiResults : (aiResults ? [aiResults] : []);
       
       const mergedFinal = safeAiResults.map((aiData: any) => {
-        const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
-        return item ? { ...item, ...aiData } : null;
+        // Robust symbol matching (case-insensitive)
+        const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol?.trim().toUpperCase());
+        if (!item) return null;
+        
+        // Merge with defaults for missing fields
+        return {
+            ...item,
+            ...aiData,
+            convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
+            supportLevel: aiData.supportLevel || item.supportLevel || 0,
+            resistanceLevel: aiData.resistanceLevel || item.resistanceLevel || 0,
+            stopLoss: aiData.stopLoss || item.stopLoss || 0,
+        };
       }).filter(x => x !== null) as AlphaCandidate[];
 
       setResultsCache(prev => ({ ...prev, [selectedBrain]: mergedFinal }));
@@ -136,8 +146,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(mergedFinal[0]);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`${mergedFinal.length} Alpha targets identified.`, "ok");
-    } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
+      addLog(`${mergedFinal.length} High-Probability Alpha Targets mapped.`, "ok");
+    } catch (e: any) { addLog(`Neural Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
 
@@ -146,11 +156,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setMatrixBrain(brain);
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
-        addLog("Error: Individual analysis results are empty.", "err");
+        addLog("Matrix Error: Run Alpha Engine first.", "err");
         return;
     }
     setMatrixLoading(true);
-    addLog(`Generating Matrix Report via ${brain}...`, "signal");
+    addLog(`Synthesizing Portfolio Matrix via ${brain}...`, "signal");
     try {
         const report = await analyzePipelineStatus({
             currentStage: 6,
@@ -199,8 +209,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               <div>
                 <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase">Alpha_Sieve Engine</h2>
                 <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 mt-2 w-fit">
-                    <button onClick={() => setActiveTab('INDIVIDUAL')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-rose-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Individual</button>
-                    <button onClick={() => setActiveTab('MATRIX')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'MATRIX' ? 'bg-indigo-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}>Matrix</button>
+                    <button onClick={() => setActiveTab('INDIVIDUAL')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Individual</button>
+                    <button onClick={() => setActiveTab('MATRIX')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'MATRIX' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Matrix</button>
                 </div>
               </div>
             </div>
@@ -216,8 +226,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
               )}
               {activeTab === 'INDIVIDUAL' && (
-                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800' : 'bg-rose-600 text-white hover:brightness-110 shadow-rose-900/20'}`}>
-                    {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
+                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse' : 'bg-rose-600 text-white hover:brightness-110 shadow-rose-900/20'}`}>
+                    {loading ? 'Synthesizing Alpha...' : 'Execute Alpha Engine'}
                   </button>
               )}
             </div>
@@ -232,25 +242,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     {loading && isSelected && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
-                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Analyzing...</span>
+                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">Analyzing Asset...</span>
                       </div>
                     )}
                     <div className="flex justify-between items-center mb-1">
                       <div className="flex items-baseline gap-2">
                         <h4 className="text-3xl font-black text-white italic">{item.symbol}</h4>
-                        <span className="text-sm font-bold text-rose-500">({item.convictionScore}%)</span>
+                        <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
                       </div>
                       <span className="text-xs font-mono text-slate-400">${item.price?.toFixed(2)}</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4">{cleanMarkdown(item.sectorTheme)}</p>
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4">{cleanMarkdown(item.sectorTheme || item.sector)}</p>
                     <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center">
-                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-xs font-black text-white">${item.supportLevel?.toFixed(1)}</p></div>
-                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-xs font-black text-white">${item.resistanceLevel?.toFixed(1)}</p></div>
-                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-xs font-black text-white">${item.stopLoss?.toFixed(1)}</p></div>
+                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-xs font-black text-white">${item.supportLevel?.toFixed(1) || '---'}</p></div>
+                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-xs font-black text-white">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
+                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-xs font-black text-white">${item.stopLoss?.toFixed(1) || '---'}</p></div>
                     </div>
                     <div className="flex justify-between items-center mt-3">
-                      <span className="text-[10px] font-black text-emerald-400">{cleanMarkdown(item.expectedReturn)}</span>
-                      <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${getVerdictStyle(item.aiVerdict)}`}>{cleanMarkdown(item.aiVerdict)}</span>
+                      <span className="text-[10px] font-black text-emerald-400">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
+                      <span className={`px-2 py-1 rounded text-[8px] font-black uppercase border ${getVerdictStyle(item.aiVerdict)}`}>{cleanMarkdown(item.aiVerdict || "HOLD")}</span>
                     </div>
                   </div>
                 );
@@ -259,11 +269,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           ) : (
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
                <div className="flex gap-4">
-                  <button onClick={() => handleRunMatrixAudit(ApiProvider.GEMINI)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.GEMINI ? 'bg-indigo-600 text-white border-indigo-500 shadow-lg' : 'bg-indigo-600/10 border-indigo-500/30 text-indigo-400 hover:bg-indigo-600 hover:text-white'}`}>
-                    {matrixLoading && matrixBrain === ApiProvider.GEMINI ? 'Synthesizing...' : 'Audit via Gemini'}
+                  <button onClick={() => handleRunMatrixAudit(ApiProvider.GEMINI)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white border-emerald-500 shadow-lg' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white'}`}>
+                    {matrixLoading && matrixBrain === ApiProvider.GEMINI ? 'Auditing Portfolio...' : 'Audit via Gemini'}
                   </button>
                   <button onClick={() => handleRunMatrixAudit(ApiProvider.PERPLEXITY)} disabled={matrixLoading} className={`flex-1 py-4 border rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${matrixBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white border-cyan-500 shadow-lg' : 'bg-cyan-600/10 border-cyan-500/30 text-cyan-400 hover:bg-cyan-600 hover:text-white'}`}>
-                    {matrixLoading && matrixBrain === ApiProvider.PERPLEXITY ? 'Synthesizing...' : 'Audit via Sonar'}
+                    {matrixLoading && matrixBrain === ApiProvider.PERPLEXITY ? 'Auditing Portfolio...' : 'Audit via Sonar'}
                   </button>
                </div>
                
@@ -279,7 +289,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  </div>
                ) : (
                  <div className="min-h-[300px] flex items-center justify-center text-slate-600 uppercase text-[10px] font-black tracking-widest italic border border-dashed border-white/10 rounded-[40px]">
-                    Select a Model above to generate Portfolio Matrix
+                    Select a Model above to generate Portfolio Matrix Report
                  </div>
                )}
             </div>
@@ -296,7 +306,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
                 <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner">
                    <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                   <p className="text-2xl font-black text-emerald-400">{selectedStock.convictionScore}%</p>
+                   <p className="text-2xl font-black text-emerald-400">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
                 </div>
              </div>
 
@@ -307,8 +317,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    </div>
                    <div className="p-8 bg-white/5 rounded-[40px] border border-white/10">
                       <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
-                      <div className="prose-report">
-                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{selectedStock.investmentOutlook || "_Analyzing strategic datasets..._"}</ReactMarkdown>
+                      <div className="prose-report min-h-[150px]">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{selectedStock.investmentOutlook || "_Analyzing strategic neural data for this asset..._"}</ReactMarkdown>
                       </div>
                    </div>
                 </div>
@@ -316,13 +326,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                       <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic">Core Rationale</h4>
                       <ul className="space-y-3">
-                         {selectedStock.selectionReasons?.map((r, i) => (
+                         {selectedStock.selectionReasons?.length ? selectedStock.selectionReasons.map((r, i) => (
                            <li key={i} className="flex items-start gap-3"><div className="w-1.5 h-1.5 rounded-full bg-rose-500 mt-1.5 shrink-0" /><p className="text-xs font-bold text-slate-200">{cleanMarkdown(r)}</p></li>
-                         ))}
+                         )) : <li className="text-xs text-slate-500 italic">No specific reasons provided by model.</li>}
                       </ul>
                    </div>
                    <button onClick={() => handleRunBacktest(selectedStock)} disabled={backtestLoading} className="w-full py-5 bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-xl">
-                     {backtestLoading ? 'Calculating Simulation...' : 'Run Quant Protocol'}
+                     {backtestLoading ? 'Calculating Protocol Simulation...' : 'Run Quantitative Backtest'}
                    </button>
                    {currentBacktest && (
                      <div className="p-6 bg-black/80 rounded-[40px] border border-white/10 shadow-2xl space-y-4">
