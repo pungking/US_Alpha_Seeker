@@ -49,7 +49,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.3.0: Full Universe Retention Protocol.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.4.0: Adaptive Multi-Provider Protocol Online.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -71,10 +71,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
   const getInitialTargetDate = () => {
     const d = new Date();
-    d.setDate(d.getDate() - 1);
-    // Initial adjust for weekends
+    d.setDate(d.getDate() - 1); // Default to yesterday
+    
+    // Strict Weekend Skip: If Sun(0) -> Fri(-2), If Sat(6) -> Fri(-1)
     if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
     else if (d.getDay() === 6) d.setDate(d.getDate() - 1); 
+    
     return d.toISOString().split('T')[0];
   };
 
@@ -122,7 +124,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     
     const res = await fetch(url);
     if (!res.ok) {
-        if (res.status === 403) throw new Error("FMP Plan Restriction (403)");
+        if (res.status === 403) throw new Error("FMP_PLAN_LIMIT"); // Custom Error Code
         if (res.status === 429) throw new Error("FMP Rate Limit");
         throw new Error(`FMP Status ${res.status}`);
     }
@@ -155,7 +157,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (!fhRes.ok) throw new Error("Finnhub API Error");
     const fhData = await fhRes.json();
     
-    // Store ALL Finnhub symbols, not just filter them later
     const symbolMap = new Map();
     fhData.forEach((s: any) => {
         const type = s.type || 'Common Stock';
@@ -163,7 +164,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             symbolMap.set(s.symbol, { name: s.description, type });
         }
     });
-    addLog(`Finnhub: Found ${symbolMap.size} symbols. Requesting Polygon data...`, "info");
+    addLog(`Finnhub: Found ${symbolMap.size} symbols. Syncing Polygon market data...`, "info");
 
     // 2. Polygon Prices (Aggregates) with 5-Day Lookback
     let targetDate = getInitialTargetDate();
@@ -179,7 +180,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
             
             if (polyRes.status === 429) {
-                addLog(`Polygon 429 Hit on ${targetDate}. Waiting 20s...`, "warn");
+                addLog(`Polygon Rate Limit (429) on ${targetDate}. Pausing 20s...`, "warn");
                 await new Promise(r => setTimeout(r, 20000));
                 retryCount++;
                 continue; 
@@ -189,18 +190,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 const data = await polyRes.json();
                 if (data.results && data.results.length > 0) {
                     polyResults = data.results;
-                    addLog(`Polygon: Pricing data retrieved for ${targetDate}`, "ok");
+                    addLog(`Polygon: Market Data Acquired [${targetDate}]`, "ok");
                     successOnDay = true;
                 } else {
-                    addLog(`Polygon: No market data for ${targetDate} (Holiday/Weekend).`, "warn");
+                    addLog(`Polygon: Market Closed/Empty on ${targetDate}.`, "info");
                 }
                 break; 
-            } else if (polyRes.status === 403) {
-                // Treat 403 as "Date not available yet", behave like weekend
-                addLog(`Polygon 403 (Date restricted) on ${targetDate}.`, "warn");
+            } else if (polyRes.status === 403 || polyRes.status === 404) {
+                // Treat 403/404 as "Date not ready yet" rather than an error
+                addLog(`Polygon: Data not finalized for ${targetDate}. Checking previous...`, "info");
                 break; 
             } else {
-                addLog(`Polygon Error ${polyRes.status} on ${targetDate}.`, "err");
+                addLog(`Polygon Status ${polyRes.status} on ${targetDate}.`, "warn");
                 break; 
             }
         }
@@ -210,16 +211,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         // Go back 1 day
         const d = new Date(targetDate);
         d.setDate(d.getDate() - 1);
+        // Skip weekend logic inside loop too
+        if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
+        else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
+        
         targetDate = d.toISOString().split('T')[0];
         daysChecked++;
         
         if (daysChecked < 5) {
-             addLog(`Switching to previous day: ${targetDate}...`, "info");
-             await new Promise(r => setTimeout(r, 1000));
+             await new Promise(r => setTimeout(r, 500));
         }
     }
 
-    // [Fix] FULL MERGE: Keep ALL Finnhub symbols even if Polygon data is missing
+    // Merge Logic
     const results: MasterTicker[] = [];
     const polyMap = new Map(polyResults.map((p: any) => [p.T, p]));
     let matchedCount = 0;
@@ -232,14 +236,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             symbol: symbol,
             name: meta.name,
             type: meta.type,
-            price: p ? p.c : 0,    // Use 0 if no price data
+            price: p ? p.c : 0,    
             volume: p ? p.v : 0,
             change: p && p.o ? ((p.c - p.o) / p.o) * 100 : 0,
             updated: p ? targetDate : 'N/A'
         });
     });
     
-    addLog(`Merge Complete: ${matchedCount} active, ${results.length - matchedCount} inactive/untaded. Total: ${results.length}`, "ok");
+    addLog(`Data Fusion: ${matchedCount} Active / ${results.length - matchedCount} Inactive. Total: ${results.length}`, "ok");
     return results;
   };
 
@@ -291,7 +295,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             masterData = await executeFmpStrategy();
             usedProvider = "FMP (Primary)";
         } catch (fmpErr: any) {
-            addLog(`Strategy A Failed: ${fmpErr.message}. Switching to Backup...`, "warn");
+            if (fmpErr.message === "FMP_PLAN_LIMIT") {
+                addLog(`Strategy A Skipped: Free Plan Restriction. Engaging Backup...`, "info");
+            } else {
+                addLog(`Strategy A Failed: ${fmpErr.message}. Switching to Backup...`, "warn");
+            }
             
             // --- PRIORITY 2: POLYGON + FINNHUB ---
             try {
@@ -322,10 +330,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.3.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.4.0.json`;
         const payload = {
             manifest: { 
-                version: "2.3.0", 
+                version: "2.4.0", 
                 provider: usedProvider, 
                 date: new Date().toISOString(), 
                 count: masterData.length 
@@ -409,7 +417,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.3.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
