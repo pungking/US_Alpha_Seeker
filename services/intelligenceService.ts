@@ -17,7 +17,7 @@ const ALPHA_SCHEMA = {
       investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean" },
       convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
-      expectedReturn: { type: Type.STRING, description: "Target return e.g. +25.0%" },
+      expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+24.5% (6개월)')" },
       theme: { type: Type.STRING, description: "Market narrative" },
       aiSentiment: { type: Type.STRING, description: "Sentiment description in Korean" },
       analysisLogic: { type: Type.STRING, description: "Neural logic engine state description in Korean" },
@@ -123,7 +123,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 위 리스트에서 기술적/재무적/ICT 관점에서 가장 완벽한 6개 종목을 최종 선정하십시오.
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
-- selectionReasons (배열), expectedReturn
+- selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
 - investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic, chartPattern
 - supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 

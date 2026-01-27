@@ -63,19 +63,6 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   }
 };
 
-const VERDICT_MAP: { [key: string]: string } = {
-    "STRONG_BUY": "강력 매수",
-    "BUY": "매수",
-    "ACCUMULATE": "비중 확대",
-    "HOLD": "관망",
-    "NEUTRAL": "중립",
-    "REDUCE": "비중 축소",
-    "SELL": "매도",
-    "STRONG_SELL": "강력 매도",
-    "HIGH_RISK": "고위험 고수익",
-    "SPECULATIVE": "투기 등급"
-};
-
 // [CUSTOM MARKDOWN COMPONENTS] - High Readability Theme
 const MarkdownComponents = {
     h1: ({node, ...props}: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
@@ -330,29 +317,30 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     let style = 'bg-slate-800 text-slate-400 border border-white/5';
     let text = clean || 'N/A';
 
+    // COLOR CODING: Red = Up/Buy, Blue = Down/Sell (Korean Market Standard)
     if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
          text = "강력 매수";
-         style = 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] border border-rose-400 font-black animate-pulse-soft';
+         style = 'bg-red-600 text-white shadow-[0_0_15px_rgba(220,38,38,0.6)] border border-red-400 font-black animate-pulse-soft';
     } 
     else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) {
          text = "강력 매도";
-         style = 'bg-red-700 text-white shadow-[0_0_15px_rgba(185,28,28,0.6)] border border-red-500 font-black';
+         style = 'bg-blue-800 text-white shadow-[0_0_15px_rgba(30,58,138,0.6)] border border-blue-600 font-black';
     }
     else if (v.includes('HIGH') && (v.includes('RISK') || v.includes('RETURN') || v.includes('고위험'))) {
          text = "고위험 고수익";
          style = 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.6)] border border-purple-400 font-black';
     } else if (v.includes('ACCUMULATE') || v.includes('OVERWEIGHT') || v.includes('비중')) {
          text = "비중 확대";
-         style = 'bg-blue-600 text-white shadow-[0_0_15px_rgba(37,99,235,0.5)] border border-blue-400 font-bold';
+         style = 'bg-orange-500 text-white shadow-[0_0_15px_rgba(249,115,22,0.5)] border border-orange-400 font-bold';
     } else if (v.includes('BUY') || v === 'LONG' || v.includes('매수')) {
          text = "매수";
-         style = 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-emerald-400 font-bold';
+         style = 'bg-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.5)] border border-rose-400 font-bold';
     } else if (v.includes('HOLD') || v.includes('NEUTRAL') || v.includes('MARKET PERFORM') || v.includes('관망') || v.includes('중립')) {
          text = "관망";
-         style = 'bg-amber-600 text-white border border-amber-400/50 font-medium';
+         style = 'bg-slate-500 text-white border border-slate-400/50 font-medium';
     } else if (v.includes('SELL') || v.includes('SHORT') || v.includes('매도')) {
          text = "매도";
-         style = 'bg-slate-700 text-slate-300 border border-slate-500 font-medium';
+         style = 'bg-blue-600 text-white border border-blue-500 font-medium';
     }
 
     return { style, text };
@@ -364,19 +352,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     if (pctMatch) {
         const pct = pctMatch[0];
-        const isPositive = !pct.startsWith('-');
+        // Parse the remaining text as description/timeframe (e.g. "+25% (3개월)")
+        let desc = clean.replace(pct, '').trim();
+        if (desc.startsWith('(') && desc.endsWith(')')) {
+            desc = desc.substring(1, desc.length - 1);
+        }
         
+        const isPositive = !pct.startsWith('-');
+        const colorClass = isPositive ? 'text-red-400' : 'text-blue-400';
+
         return (
             <div className="flex flex-col">
                 <div className="flex items-baseline gap-2 mb-0.5">
                     <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
-                    <span className={`text-sm font-black italic tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                        {pct}
-                    </span>
                 </div>
-                <span className="text-[8px] font-bold text-slate-500 leading-tight">
-                    보유기간 상승률 예상
-                </span>
+                <div className="flex flex-col items-start">
+                     <span className={`text-xl font-black italic tracking-tighter leading-none ${colorClass}`}>
+                        {pct}
+                     </span>
+                     <span className="text-[9px] font-bold text-slate-400 leading-tight mt-0.5">
+                        {desc || "단기 목표"}
+                     </span>
+                </div>
             </div>
         );
     }
