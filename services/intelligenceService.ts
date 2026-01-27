@@ -211,12 +211,16 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 위 기간 동안 해당 종목의 역사적 변동성(Volatility)과 베타(Beta) 계수를 기반으로 가상 시뮬레이션을 수행하십시오.
 실제 틱 데이터가 없다면, 종목의 통계적 특성을 이용해 몬테카를로 시뮬레이션 결과를 생성하여 빈 값 없이 응답해야 합니다.
 
-[필수 요구사항]
+[중요 요구사항: Equity Curve 데이터 구조]
+1. equityCurve는 반드시 0 또는 100에서 시작하여 누적 수익률(%) 변화를 나타내는 숫자여야 합니다. (예: 0, 5.2, 3.1, 8.5, ...)
+2. **단순 지표값(예: 2.1)을 반복하지 마십시오.** 시간에 따른 자산 곡선을 그리십시오.
+3. 데이터 포인트는 12개 이상이어야 합니다.
+
+[필수 필드]
 1. simulationPeriod: "${periodStr}"로 고정.
 2. metrics: "N/A" 금지. 반드시 추정치라도 숫자를 포함한 문자열(예: "65.4%")을 채우십시오.
-3. equityCurve: 2년치 데이터를 2개월 단위로 요약하여 정확히 12개의 포인트를 생성하십시오.
-4. value: 누적 수익률(%)이며 순수 숫자(Number)여야 합니다. (예: 15.5)
-5. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
+3. equityCurve: [{ "period": "24.01", "value": 0 }, { "period": "24.03", "value": 12.5 }, ...] 형태의 JSON 배열.
+4. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 한국어로 작성하십시오. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
 
 반드시 JSON 스키마를 준수하여 출력하십시오.`;
 
@@ -248,7 +252,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
                     body: JSON.stringify({
                         model: model,
                         messages: [
-                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. 종합 분석(historicalContext) 작성 시 반드시 Markdown 문법을 사용하여 가독성을 높이십시오. N/A 없이 모든 필드에 시뮬레이션 수치를 채워 JSON으로 응답하십시오." },
+                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. equityCurve는 누적 수익률 곡선이어야 하며, 0에서 시작하여 변동하는 값들의 배열이어야 합니다. 단일 값을 반복하지 마십시오." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1
