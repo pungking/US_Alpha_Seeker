@@ -1,5 +1,6 @@
 {
-  "name": "US_Alpha_Seeker: Stage 0 Universe Gathering",
-  "description": "Dashboard for monitoring US stock market ticker collection, API health, and Google Drive integration for the Stage 0 data gathering phase.",
+  "name": "US_Alpha_Seeker: v1.0.0 Official",
+  "description": "Official Stable Release v1.0.0. Dashboard for monitoring US stock market ticker collection, API health, and Google Drive integration.",
+  "version": "1.0.0",
   "requestFramePermissions": []
 }
