@@ -5,7 +5,7 @@ import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
 
-// Required fields for UI mapping
+// Required fields for UI mapping to prevent empty values ($ / %)
 const ALPHA_FIELDS = [
   "symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", 
   "selectionReasons", "convictionScore", "expectedReturn", "theme", 
@@ -100,7 +100,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
 지침:
 1. 가장 유망한 6개 종목을 선정하십시오.
-2. 각 종목에 대해 반드시 다음 JSON 필드를 포함한 배열을 반환하십시오: ${ALPHA_FIELDS.join(", ")}
+2. 각 종목에 대해 반드시 다음 모든 JSON 필드를 포함한 배열을 반환하십시오: ${ALPHA_FIELDS.join(", ")}
 3. investmentOutlook에는 해당 종목의 고유한 재료와 수급 분석만 담으십시오. (포트폴리오 전체 요약 금지)
 4. 한국어로 응답하고 반드시 유효한 JSON 배열만 반환하십시오.`;
 
@@ -125,7 +125,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             body: JSON.stringify({ 
               model, 
               messages: [
-                { role: "system", content: `당신은 퀀트 전문가입니다. 반드시 JSON 배열 형식으로 응답하며, 각 객체는 다음 키를 가져야 합니다: ${ALPHA_FIELDS.join(", ")}` }, 
+                { role: "system", content: `당신은 퀀트 분석가입니다. 반드시 JSON 배열 형식으로만 응답하며, 각 객체는 다음 필드를 모두 포함해야 합니다: ${ALPHA_FIELDS.join(", ")}` }, 
                 { role: "user", content: prompt }
               ], 
               temperature: 0.1 

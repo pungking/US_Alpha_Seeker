@@ -125,21 +125,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
+      // Fix "map is not a function" by checking if aiResults is an array
       const safeAiResults = Array.isArray(aiResults) ? aiResults : (aiResults ? [aiResults] : []);
       
       const mergedFinal = safeAiResults.map((aiData: any) => {
-        // Robust symbol matching
+        // Robust symbol matching (case-insensitive and trimmed)
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol?.trim().toUpperCase());
         if (!item) return null;
         
-        // Ensure numbers and defaults
+        // Ensure numbers and defaults to prevent $--- / %0
         return {
             ...item,
             ...aiData,
             convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
-            supportLevel: aiData.supportLevel || item.supportLevel || (item.price * 0.98),
-            resistanceLevel: aiData.resistanceLevel || item.resistanceLevel || (item.price * 1.25),
-            stopLoss: aiData.stopLoss || item.stopLoss || (item.price * 0.94),
+            supportLevel: aiData.supportLevel || (item.price * 0.98),
+            resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
+            stopLoss: aiData.stopLoss || (item.price * 0.94),
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
@@ -249,7 +250,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     )}
                     <div className="flex justify-between items-center mb-1">
                       <div className="flex items-baseline gap-2">
-                        <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase">{item.symbol}</h4>
+                        <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{item.symbol}</h4>
                         <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
                       </div>
                       <span className="text-xs font-mono font-black text-slate-400">${item.price?.toFixed(2)}</span>
