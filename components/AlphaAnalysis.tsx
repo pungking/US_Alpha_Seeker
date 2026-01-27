@@ -286,8 +286,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const getVerdictStyle = (v?: string) => {
     const text = cleanMarkdown(v).toUpperCase();
-    if (text.includes('BUY') || text.includes('매수')) return 'bg-rose-600 text-white border-rose-400';
-    if (text.includes('SELL') || text.includes('매도')) return 'bg-blue-600 text-white border-blue-400';
+    if (text.includes('STRONG') || text.includes('강력')) return 'bg-red-600 text-white border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)] font-black tracking-wider';
+    if (text.includes('BUY') || text.includes('매수')) return 'bg-rose-500 text-white border-rose-400 shadow-md font-bold';
+    if (text.includes('ACCUMULATE') || text.includes('HOLD') || text.includes('비중') || text.includes('보유') || text.includes('관망')) return 'bg-slate-500 text-white border-slate-400 font-bold';
+    if (text.includes('RISK') || text.includes('고위험') || text.includes('SPECULATIVE')) return 'bg-violet-600 text-white border-violet-500 shadow-md font-bold';
+    if (text.includes('SELL') || text.includes('매도')) return 'bg-blue-600 text-white border-blue-500 font-bold';
     return 'bg-slate-700 text-slate-300 border-slate-600';
   };
 
@@ -371,11 +374,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
                 <div className="flex justify-between items-center bg-black/40 p-2 rounded-2xl border border-white/5">
                     <div className="flex gap-2">
-                        <button onClick={() => setMatrixBrain(ApiProvider.PERPLEXITY)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${matrixBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
-                            Sonar Pro
-                        </button>
                         <button onClick={() => setMatrixBrain(ApiProvider.GEMINI)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
                             Gemini 3 Pro
+                        </button>
+                        <button onClick={() => setMatrixBrain(ApiProvider.PERPLEXITY)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${matrixBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
+                            Sonar Pro
                         </button>
                     </div>
                     <div className="pr-2">
