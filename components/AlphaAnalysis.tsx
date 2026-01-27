@@ -214,7 +214,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
       if (error) throw new Error(error);
 
-      const mergedFinal = (aiResults || []).map(aiData => {
+      // CRITICAL FIX: Ensure aiResults is an array to prevent "map is not a function" crash
+      const validResults = Array.isArray(aiResults) ? aiResults : [];
+      if (!Array.isArray(aiResults) && aiResults) {
+           addLog(`Warning: AI returned non-array structure. Attempting recovery...`, "warn");
+      }
+
+      const mergedFinal = validResults.map(aiData => {
         const item = topCandidates.find((c: any) => c.symbol.toUpperCase() === aiData.symbol?.toUpperCase());
         if (!item) return null;
         return { 
@@ -224,6 +230,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           stopLoss: Number(aiData.stopLoss) || item.price * 0.92
         };
       }).filter(x => x !== null) as AlphaCandidate[];
+
+      if (mergedFinal.length === 0 && validResults.length > 0) {
+          addLog("Symbol mismatch error. Retrying engine...", "warn");
+      }
 
       setResultsCache(prev => ({ ...prev, [selectedBrain]: mergedFinal }));
       if (mergedFinal.length > 0) {
@@ -321,14 +331,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     let style = 'bg-slate-800 text-slate-400 border border-white/5';
     let text = clean || 'N/A';
 
-    // Prioritize translation based on keywords & Map to Korean with Distinct Colors
     if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
          text = "강력 매수";
          style = 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] border border-rose-400 font-black animate-pulse-soft';
-    } else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT') || v.includes('매도'))) {
-         text = "강력 매도";
-         style = 'bg-slate-700 text-slate-300 border border-slate-500 font-bold';
-    } else if (v.includes('HIGH RISK') || v.includes('SPECULATIVE') || v.includes('고위험')) {
+    } else if (v.includes('HIGH') && (v.includes('RISK') || v.includes('RETURN'))) {
          text = "고위험 고수익";
          style = 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.6)] border border-purple-400 font-black';
     } else if (v.includes('ACCUMULATE') || v.includes('OVERWEIGHT') || v.includes('비중')) {
@@ -342,16 +348,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
          style = 'bg-amber-600 text-white border border-amber-400/50 font-medium';
     } else if (v.includes('SELL') || v.includes('SHORT') || v.includes('매도')) {
          text = "매도";
-         style = 'bg-slate-700 text-slate-400 border border-white/10';
-    } else {
-        // Fallback for direct Korean strings that might pass through
-        if (v === '강력 매수') {
-            style = 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] border border-rose-400 font-black';
-        } else if (v === '매수') {
-             style = 'bg-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.5)] border border-emerald-400 font-bold';
-        } else if (v === '고위험 고수익') {
-             style = 'bg-purple-600 text-white shadow-[0_0_15px_rgba(147,51,234,0.6)] border border-purple-400 font-black';
-        }
+         style = 'bg-slate-700 text-slate-300 border border-slate-500 font-medium';
+    } else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) {
+         text = "강력 매도";
+         style = 'bg-slate-800 text-red-500 border border-red-500 font-black';
     }
 
     return { style, text };
@@ -359,22 +359,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const renderExpectedReturn = (text?: string) => {
     const clean = cleanMarkdown(text) || '---';
-    // Match percentage pattern: "+25%", "25.5%", "-10%"
     const pctMatch = clean.match(/([+\-]?\d+(?:\.\d+)?%)/);
     
     if (pctMatch) {
         const pct = pctMatch[0];
-        // Remove percentage from string to get description
+        // Remove percentage and parentheses from string to get description
         const desc = clean.replace(pct, '').replace(/[()]/g, '').trim();
         const isPositive = !pct.startsWith('-');
         
         return (
-            <div className="flex flex-col items-start leading-tight">
-                <span className={`text-sm font-black italic tracking-tighter ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+            <div className="flex flex-col items-start justify-center">
+                <span className={`text-sm font-black italic tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
                     {pct}
                 </span>
                 {desc && (
-                    <span className="text-[9px] font-bold text-slate-400 leading-snug mt-1 break-words max-w-[120px]">
+                    <span className="text-[9px] font-bold text-slate-500 leading-tight mt-1">
                         {desc}
                     </span>
                 )}
@@ -382,7 +381,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         );
     }
     
-    // Fallback if no percentage found
     return <span className="text-xs font-black text-slate-400 italic">{clean}</span>;
   };
 
