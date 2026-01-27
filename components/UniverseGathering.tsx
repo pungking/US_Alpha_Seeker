@@ -49,7 +49,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.2.0: Historical Lookback Protocol Restored.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.3.0: Full Universe Retention Protocol.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -155,6 +155,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     if (!fhRes.ok) throw new Error("Finnhub API Error");
     const fhData = await fhRes.json();
     
+    // Store ALL Finnhub symbols, not just filter them later
     const symbolMap = new Map();
     fhData.forEach((s: any) => {
         const type = s.type || 'Common Stock';
@@ -174,7 +175,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         let retryCount = 0;
         let successOnDay = false;
         
-        // Retry logic for 429 on specific day
         while (retryCount < 3) {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
             
@@ -182,7 +182,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 addLog(`Polygon 429 Hit on ${targetDate}. Waiting 20s...`, "warn");
                 await new Promise(r => setTimeout(r, 20000));
                 retryCount++;
-                continue; // Retry same date
+                continue; 
             }
 
             if (polyRes.ok) {
@@ -194,14 +194,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 } else {
                     addLog(`Polygon: No market data for ${targetDate} (Holiday/Weekend).`, "warn");
                 }
-                break; // Exit retry loop (success or empty data)
+                break; 
+            } else if (polyRes.status === 403) {
+                // Treat 403 as "Date not available yet", behave like weekend
+                addLog(`Polygon 403 (Date restricted) on ${targetDate}.`, "warn");
+                break; 
             } else {
                 addLog(`Polygon Error ${polyRes.status} on ${targetDate}.`, "err");
-                break; // Exit retry loop
+                break; 
             }
         }
 
-        if (successOnDay && polyResults.length > 0) break; // Found data, break day loop
+        if (successOnDay && polyResults.length > 0) break;
 
         // Go back 1 day
         const d = new Date(targetDate);
@@ -215,41 +219,27 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         }
     }
 
-    // [Fix] Graceful Degradation: If Polygon fails after 5 days, use Symbol Map only (Price 0)
-    if (polyResults.length === 0) {
-        addLog("Polygon Pricing Failed (All 5 days checked). Proceeding with Symbol List only (Price $0).", "warn");
-        const fallbackResults: MasterTicker[] = [];
-        symbolMap.forEach((val, key) => {
-            fallbackResults.push({
-                symbol: key,
-                name: val.name,
-                type: val.type,
-                price: 0, 
-                volume: 0,
-                change: 0,
-                updated: new Date().toISOString().split('T')[0]
-            });
-        });
-        return fallbackResults;
-    }
-
-    // Merge
+    // [Fix] FULL MERGE: Keep ALL Finnhub symbols even if Polygon data is missing
     const results: MasterTicker[] = [];
-    polyResults.forEach((p: any) => {
-        if (symbolMap.has(p.T)) {
-            const meta = symbolMap.get(p.T);
-            results.push({
-                symbol: p.T,
-                name: meta.name,
-                type: meta.type,
-                price: p.c,
-                volume: p.v,
-                change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
-                updated: targetDate
-            });
-        }
+    const polyMap = new Map(polyResults.map((p: any) => [p.T, p]));
+    let matchedCount = 0;
+
+    symbolMap.forEach((meta, symbol) => {
+        const p = polyMap.get(symbol);
+        if (p) matchedCount++;
+        
+        results.push({
+            symbol: symbol,
+            name: meta.name,
+            type: meta.type,
+            price: p ? p.c : 0,    // Use 0 if no price data
+            volume: p ? p.v : 0,
+            change: p && p.o ? ((p.c - p.o) / p.o) * 100 : 0,
+            updated: p ? targetDate : 'N/A'
+        });
     });
     
+    addLog(`Merge Complete: ${matchedCount} active, ${results.length - matchedCount} inactive/untaded. Total: ${results.length}`, "ok");
     return results;
   };
 
@@ -306,9 +296,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             // --- PRIORITY 2: POLYGON + FINNHUB ---
             try {
                 masterData = await executePolygonStrategy();
-                // Check if we got pricing or just symbols
-                const hasPrice = masterData.some(d => d.price > 0);
-                usedProvider = hasPrice ? "Polygon+Finnhub" : "Finnhub (Symbol Only)";
+                usedProvider = "Polygon+Finnhub";
             } catch (polyErr: any) {
                  addLog(`Strategy B Failed: ${polyErr.message}. Switching to Deep Backup...`, "warn");
                  
@@ -334,10 +322,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.0.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.3.0.json`;
         const payload = {
             manifest: { 
-                version: "2.2.0", 
+                version: "2.3.0", 
                 provider: usedProvider, 
                 date: new Date().toISOString(), 
                 count: masterData.length 
@@ -421,7 +409,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.2.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.3.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
