@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -27,7 +26,7 @@ const PreliminaryFilter: React.FC = () => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); // UI 표시용
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.1.0: Macro-Liquidity Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.2.0: Resilience Protocol Active.']);
   
   // 필터 상태
   const [minPrice, setMinPrice] = useState(2.0);
@@ -136,47 +135,84 @@ const PreliminaryFilter: React.FC = () => {
       let aiResult = null;
       let usedProvider = '';
 
-      // 1. Try Gemini
+      // 1. Try Gemini with Smart Retry
       try {
           setActiveAi('Gemini 3 Pro');
           addLog("Requesting analysis from Gemini 3...", "info");
           const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
           const ai = new GoogleGenAI({ apiKey: geminiKey });
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-          });
+
+          // Recursive Retry Function
+          const generateWithRetry = async (attempts = 0): Promise<any> => {
+              try {
+                  return await ai.models.generateContent({
+                    model: 'gemini-3-flash-preview',
+                    contents: prompt,
+                    config: { responseMimeType: "application/json" }
+                  });
+              } catch (e: any) {
+                  // Retry only on Quota (429) or Overloaded (503) errors
+                  if (attempts < 1 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
+                      const waitTime = 10000; // 10 seconds wait
+                      addLog(`Gemini Quota/Load Limit. Retrying in ${waitTime/1000}s...`, "warn");
+                      await new Promise(r => setTimeout(r, waitTime));
+                      return generateWithRetry(attempts + 1);
+                  }
+                  throw e;
+              }
+          };
+
+          const response = await generateWithRetry();
           aiResult = sanitizeJson(response.text);
           usedProvider = 'Gemini 3 Pro';
       } catch (e: any) {
-          addLog(`Gemini Failed (${e.message}). Switching to Perplexity Fallback...`, "warn");
+          addLog(`Gemini Failed: ${e.message.substring(0, 40)}... Switching to Fallback...`, "warn");
       }
 
-      // 2. Try Perplexity (if Gemini failed)
+      // 2. Try Perplexity (if Gemini failed) with Proxy Fallback
       if (!aiResult) {
           try {
               setActiveAi('Sonar Pro (Fallback)');
               addLog("Requesting analysis from Perplexity Sonar...", "info");
               const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-              const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${perplexityKey}`,
-                    'Accept': 'application/json' 
-                },
-                body: JSON.stringify({
+              
+              const payload = {
                     model: 'sonar-pro', 
                     messages: [
                         { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
                         { role: "user", content: prompt }
                     ],
                     temperature: 0.1
-                })
-              });
-              if (!pRes.ok) throw new Error(`Status ${pRes.status}`);
-              const pJson = await pRes.json();
+              };
+
+              const callPerplexity = async (url: string) => {
+                  const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${perplexityKey}`,
+                        'Accept': 'application/json' 
+                    },
+                    body: JSON.stringify(payload)
+                  });
+                  if (!res.ok) throw new Error(`Status ${res.status}`);
+                  return res.json();
+              };
+
+              let pJson;
+              try {
+                  // Attempt 1: Direct Call
+                  pJson = await callPerplexity('https://api.perplexity.ai/chat/completions');
+              } catch (directErr: any) {
+                  // Attempt 2: Proxy Call (fixes CORS)
+                  if (directErr.message.includes('Failed to fetch') || directErr.message.includes('Load failed')) {
+                      addLog("CORS blocked direct call. Trying internal proxy...", "warn");
+                      pJson = await callPerplexity('/api/perplexity');
+                  } else {
+                      throw directErr;
+                  }
+              }
+
               aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
               usedProvider = 'Perplexity Sonar';
           } catch (e: any) {
@@ -280,7 +316,7 @@ const PreliminaryFilter: React.FC = () => {
                 <svg className={`w-6 h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.1.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.2.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Analyzing via ${activeAi}...` : activeAi !== 'Standby' ? `Active Brain: ${activeAi}` : 'System Standby'}
