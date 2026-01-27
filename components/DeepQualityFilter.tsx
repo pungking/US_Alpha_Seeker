@@ -41,7 +41,7 @@ const DeepQualityFilter: React.FC = () => {
   // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.6: AI Feedback Loop Optimization.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.8: Multi-AI Fallback Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -242,6 +242,10 @@ const DeepQualityFilter: React.FC = () => {
     Return JSON: { "dominantSector": "string", "insight": "string (Korean)" }
     `;
     
+    let result = null;
+    let usedProvider = '';
+
+    // Step A: Attempt Gemini with Smart Retry
     try {
         setActiveBrain("Gemini 3 Flash");
         const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
@@ -250,33 +254,97 @@ const DeepQualityFilter: React.FC = () => {
         if (!apiKey) throw new Error("Gemini API Key Missing");
 
         const ai = new GoogleGenAI({ apiKey });
-        const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-        });
         
-        const result = sanitizeJson(response.text);
-        
-        // 2. Success State Update
-        if (result && result.insight) {
-            const msg = `[${result.dominantSector}] ${result.insight}`;
-            setAiAnalysis(msg);
-            setAiStatus('SUCCESS');
-            addLog(`AI Analysis Success: ${msg}`, "ok");
-        } else {
-            // Fallback
-            const rawMsg = response.text ? response.text.substring(0, 100) + "..." : "No text returned";
-            setAiAnalysis("Analysis Note: " + rawMsg);
-            setAiStatus('SUCCESS'); // Still consider success even if format is off
-            addLog("AI output format mismatch, used raw text.", "warn");
-        }
+        const callGemini = async (retries = 1): Promise<any> => {
+            try {
+                return await ai.models.generateContent({
+                    model: 'gemini-3-flash-preview',
+                    contents: prompt,
+                    config: { responseMimeType: "application/json" }
+                });
+            } catch (e: any) {
+                // Retry only on Quota (429) or Overloaded (503) errors
+                if (retries > 0 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
+                     const waitTime = 10000;
+                     addLog(`Gemini Quota Hit. Retrying in ${waitTime/1000}s...`, "warn");
+                     await new Promise(r => setTimeout(r, waitTime));
+                     return callGemini(retries - 1);
+                }
+                throw e;
+            }
+        };
+
+        const response = await callGemini();
+        result = sanitizeJson(response.text);
+        usedProvider = "Gemini 3.0";
     } catch (e: any) {
-        // 3. Error State Update
-        const errMsg = e.message || "Unknown Connection Error";
-        setAiAnalysis(`⚠️ Analysis Failed: ${errMsg.slice(0, 50)}...`);
+        addLog(`Gemini Failed: ${e.message.slice(0,40)}... Switching to Fallback.`, "warn");
+    }
+
+    // Step B: Fallback to Perplexity (if Gemini failed)
+    if (!result) {
+        try {
+            setActiveBrain("Perplexity Sonar Pro");
+            setAiAnalysis("📡 Switching to Perplexity Sonar Pro...");
+            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+            
+            if (!perplexityKey) throw new Error("Perplexity Key Missing");
+
+            const callPerplexity = async (url: string) => {
+                  const res = await fetch(url, {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${perplexityKey}`,
+                        'Accept': 'application/json' 
+                    },
+                    body: JSON.stringify({
+                        model: 'sonar-pro', 
+                        messages: [
+                            { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
+                            { role: "user", content: prompt }
+                        ],
+                        temperature: 0.1
+                    })
+                  });
+                  if (!res.ok) throw new Error(`Status ${res.status}`);
+                  return res.json();
+            };
+
+            let pData;
+            try {
+                // Attempt 1: Direct Call
+                pData = await callPerplexity('https://api.perplexity.ai/chat/completions');
+            } catch (err: any) {
+                // Attempt 2: Proxy Call (fixes CORS)
+                if (err.message.includes('Failed to fetch') || err.message.includes('Load failed')) {
+                     addLog("CORS Blocked. Using Internal Proxy...", "warn");
+                     pData = await callPerplexity('/api/perplexity');
+                } else {
+                    throw err;
+                }
+            }
+            
+            result = sanitizeJson(pData.choices?.[0]?.message?.content);
+            usedProvider = "Perplexity Sonar Pro";
+
+        } catch (e: any) {
+            addLog(`Perplexity Failed: ${e.message}`, "err");
+        }
+    }
+
+    // Step C: Finalize
+    if (result && result.insight) {
+        const msg = `[${result.dominantSector}] ${result.insight}`;
+        setAiAnalysis(`${usedProvider}: ${msg}`);
+        setAiStatus('SUCCESS');
+        addLog(`Analysis Complete via ${usedProvider}`, "ok");
+    } else {
+        // Ultimate Fallback
+        const rawMsg = "Analysis unavailable due to network/quota limits.";
+        setAiAnalysis("⚠️ " + rawMsg);
         setAiStatus('FAILED');
-        addLog(`AI Error: ${errMsg}`, "err");
+        addLog("All AI Providers Exhausted.", "err");
     }
   };
 
@@ -411,7 +479,7 @@ const DeepQualityFilter: React.FC = () => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.6", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
+        manifest: { version: "4.9.8", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -469,7 +537,7 @@ const DeepQualityFilter: React.FC = () => {
                  <svg className={`w-6 h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.6</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.8</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
