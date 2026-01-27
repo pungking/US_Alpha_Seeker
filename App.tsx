@@ -103,7 +103,8 @@ const App: React.FC = () => {
     }
   };
 
-  const currentReport = selectedStock ? stockAuditCache[selectedStock.symbol] : null;
+  // Safe access for the report, fallback to null/empty string if not ready
+  const currentReport = selectedStock?.symbol ? stockAuditCache[selectedStock.symbol] : null;
 
   const copyReport = () => {
     if (currentReport) {
@@ -241,11 +242,11 @@ const App: React.FC = () => {
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
                <div className="mb-4 flex items-center justify-between border-b border-emerald-500/20 pb-4">
                   <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
-                     Deep Audit for {selectedStock.symbol} via {auditBrain === ApiProvider.GEMINI ? 'Gemini Pro' : 'Sonar Pro'}
+                     Deep Audit for {selectedStock?.symbol || 'Target'} via {auditBrain === ApiProvider.GEMINI ? 'Gemini Pro' : 'Sonar Pro'}
                   </span>
                   <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                </div>
-               <ReactMarkdown remarkPlugins={[remarkGfm]}>{currentReport}</ReactMarkdown>
+               <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(currentReport || "")}</ReactMarkdown>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">

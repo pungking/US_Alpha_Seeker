@@ -115,7 +115,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
   
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
-  // Default Matrix Brain set to PERPLEXITY
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
@@ -265,7 +264,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const { data, error } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
       
-      // CRITICAL: Robust validation to prevent Black Screen of Death
       if (!data) throw new Error("AI returned empty data structure");
       if (!data.metrics || !data.equityCurve) throw new Error("Invalid Simulation Data: Missing Metrics/Equity");
 
@@ -288,7 +286,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (info) setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value });
   };
 
-  // Helper for cleaning verdict text
   const cleanVerdict = (v?: string) => {
       if (!v) return "";
       return v.replace(/[\*\_\[\]]/g, '').trim().toUpperCase().replace(/\s/g, '');
@@ -317,7 +314,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (text.includes('SELL') || text.includes('매도') || text.includes('청산')) 
         return 'bg-blue-700 text-white border-blue-500 font-bold';
 
-    // Fallback
     return 'bg-slate-700 text-slate-300 border-slate-600';
   };
 
@@ -571,32 +567,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      <svg className="w-48 h-48 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
                                  </div>
                                  {isChartReady ? (
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <AreaChart data={currentBacktest.equityCurve}>
-                                            <defs>
-                                                <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
-                                                    <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
-                                                    <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
-                                                </linearGradient>
-                                            </defs>
-                                            <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                            <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} />
-                                            <YAxis domain={['auto', 'auto']} hide />
-                                            <Tooltip 
-                                                contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
-                                                itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
-                                                labelStyle={{ display: 'none' }}
-                                            />
-                                            <Area 
-                                                type="monotone" 
-                                                dataKey="value" 
-                                                stroke="#10b981" 
-                                                strokeWidth={3} 
-                                                fillOpacity={1} 
-                                                fill="url(#colorVal)" 
-                                            />
-                                        </AreaChart>
-                                    </ResponsiveContainer>
+                                    <div className="flex-1 w-full min-h-[200px] relative z-10">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={currentBacktest.equityCurve}>
+                                                <defs>
+                                                    <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
+                                                        <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
+                                                    </linearGradient>
+                                                </defs>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
+                                                <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} />
+                                                <YAxis domain={['auto', 'auto']} hide />
+                                                <Tooltip 
+                                                    contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
+                                                    itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
+                                                    labelStyle={{ display: 'none' }}
+                                                />
+                                                <Area 
+                                                    type="monotone" 
+                                                    dataKey="value" 
+                                                    stroke="#10b981" 
+                                                    strokeWidth={3} 
+                                                    fillOpacity={1} 
+                                                    fill="url(#colorVal)" 
+                                                />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
                                  ) : (
                                      <div className="flex items-center justify-center h-full text-slate-600 text-xs italic">Waiting for simulation data...</div>
                                  )}
