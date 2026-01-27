@@ -342,10 +342,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   // CRITICAL: Sanitize chart data to prevent crashes (Black Screen) if data is malformed
   const chartData = useMemo(() => {
     if (!currentBacktest?.equityCurve) return [];
-    return currentBacktest.equityCurve.map(item => ({
-      period: item.period,
-      value: typeof item.value === 'number' ? item.value : parseFloat(String(item.value).replace(/[^0-9.-]/g, '')) || 0
-    }));
+    
+    return currentBacktest.equityCurve.map((item) => {
+      // 1. Convert value to string first
+      const valStr = String(item.value);
+      
+      // 2. Remove any currency symbols, commas, or non-numeric chars (except dot and minus)
+      // e.g. "$1,200.50" -> "1200.50"
+      const cleanVal = valStr.replace(/[^0-9.-]/g, '');
+      
+      // 3. Parse to float
+      const val = parseFloat(cleanVal);
+      
+      return {
+        period: item.period,
+        value: isNaN(val) ? 0 : val
+      };
+    });
   }, [currentBacktest]);
 
   const isChartReady = chartData.length > 1;
@@ -610,7 +623,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
                                                 <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} dy={10} interval="preserveStartEnd" />
-                                                <YAxis domain={['auto', 'auto']} hide width={0} />
+                                                <YAxis domain={['dataMin', 'dataMax']} hide width={0} />
                                                 <Tooltip 
                                                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
                                                     itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
