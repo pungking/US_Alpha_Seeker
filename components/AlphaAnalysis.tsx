@@ -101,7 +101,7 @@ const MarkdownComponents = {
     ),
 };
 
-// [CUSTOM MARKDOWN COMPONENTS] - Small Metrics (MISSING FIX)
+// [CUSTOM MARKDOWN COMPONENTS] - Small Metrics
 const MetricMarkdownComponents = {
     p: ({node, ...props}: any) => <p className="mb-2 last:mb-0" {...props} />,
     strong: ({node, ...props}: any) => <strong className="text-emerald-400 font-bold" {...props} />,
@@ -330,15 +330,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     let style = 'bg-slate-800 text-slate-400 border border-white/5';
     let text = clean || 'N/A';
 
-    // Prioritize specific keywords with Distinct Colors
     if (v.includes('STRONG') && (v.includes('BUY') || v.includes('LONG') || v.includes('매수'))) {
          text = "강력 매수";
          style = 'bg-rose-600 text-white shadow-[0_0_15px_rgba(225,29,72,0.6)] border border-rose-400 font-black animate-pulse-soft';
     } 
-    // Fix: Check STRONG SELL before regular SELL
     else if (v.includes('STRONG') && (v.includes('SELL') || v.includes('SHORT'))) {
          text = "강력 매도";
-         style = 'bg-slate-800 text-red-500 border border-red-500 font-black';
+         style = 'bg-red-700 text-white shadow-[0_0_15px_rgba(185,28,28,0.6)] border border-red-500 font-black';
     }
     else if (v.includes('HIGH') && (v.includes('RISK') || v.includes('RETURN') || v.includes('고위험'))) {
          text = "고위험 고수익";
@@ -360,31 +358,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return { style, text };
   };
 
-  const renderExpectedReturn = (text?: string) => {
+  const renderExpectedReturnBlock = (text?: string) => {
     const clean = cleanMarkdown(text) || '---';
     const pctMatch = clean.match(/([+\-]?\d+(?:\.\d+)?%)/);
     
     if (pctMatch) {
         const pct = pctMatch[0];
-        // Remove percentage and parentheses from string to get description
-        const desc = clean.replace(pct, '').replace(/[()]/g, '').trim();
         const isPositive = !pct.startsWith('-');
         
         return (
-            <div className="flex flex-col items-start justify-center">
-                <span className={`text-sm font-black italic tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
-                    {pct}
-                </span>
-                {desc && (
-                    <span className="text-[9px] font-bold text-slate-500 leading-tight mt-1 max-w-[120px] truncate">
-                        {desc}
+            <div className="flex flex-col">
+                <div className="flex items-baseline gap-2 mb-0.5">
+                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em]">EXP. RETURN</span>
+                    <span className={`text-sm font-black italic tracking-tighter leading-none ${isPositive ? 'text-emerald-400' : 'text-rose-400'}`}>
+                        {pct}
                     </span>
-                )}
+                </div>
+                <span className="text-[8px] font-bold text-slate-500 leading-tight">
+                    보유기간 상승률 예상
+                </span>
             </div>
         );
     }
     
-    return <span className="text-xs font-black text-slate-400 italic">{clean}</span>;
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">EXP. RETURN</span>
+            <span className="text-xs font-black text-slate-400 italic">{clean}</span>
+        </div>
+    );
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
@@ -463,9 +465,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   </div>
 
                   <div className="flex justify-between items-end mt-3 pointer-events-none">
-                     <div className="flex flex-col gap-1 w-[60%]">
-                        <span className="text-[7px] font-black text-slate-500 uppercase tracking-[0.2em] mb-1">EXP. RETURN</span>
-                        {renderExpectedReturn(item.expectedReturn)}
+                     <div className="w-[60%]">
+                        {renderExpectedReturnBlock(item.expectedReturn)}
                      </div>
                      <span className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase tracking-tighter ${verdictInfo.style} mb-1 shadow-md whitespace-nowrap`}>
                        {verdictInfo.text}
