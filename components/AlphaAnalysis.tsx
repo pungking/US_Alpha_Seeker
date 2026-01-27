@@ -408,14 +408,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
+        <div className={`glass-panel p-5 md:p-8 rounded-[32px] md:rounded-[40px] border-t-2 shadow-2xl bg-slate-900/40 relative transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
-                 <svg className={`w-5 h-5 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              <div className="w-12 h-12 md:w-14 md:h-14 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10">
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.9</h2>
+                <h2 className="text-xl md:text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Discovery v9.9.9</h2>
                 <p className="text-[7px] font-black text-slate-500 uppercase tracking-widest mt-1 italic">Neural Optimization Terminal</p>
               </div>
             </div>
@@ -439,7 +439,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             </button>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
              {currentResults.length > 0 ? currentResults.map((item, idx) => {
                const verdictInfo = getVerdictStyle(item.aiVerdict);
                return (
@@ -497,8 +497,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           <div className="glass-panel p-6 md:p-8 rounded-[50px] bg-slate-950/90 border-t-2 border-t-rose-500 animate-in fade-in duration-700 shadow-3xl">
              <div className="space-y-6">
                 <div className="flex flex-col lg:flex-row items-start lg:items-center gap-6">
-                   <div className="flex items-end gap-6">
-                      <h3 className="text-5xl lg:text-6xl font-black text-white italic uppercase tracking-tighter leading-none">{selectedStock.symbol}</h3>
+                   <div className="flex flex-col md:flex-row items-start md:items-end gap-6">
+                      <h3 className="text-4xl md:text-5xl lg:text-6xl font-black text-white italic uppercase tracking-tighter leading-none">{selectedStock.symbol}</h3>
                       <div className="flex flex-col mb-1">
                         <span className={`px-6 py-2 ${getVerdictStyle(selectedStock.aiVerdict).style} text-sm font-black rounded-full uppercase italic tracking-widest mb-2 w-fit shadow-xl`}>
                             {getVerdictStyle(selectedStock.aiVerdict).text}
@@ -546,7 +546,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
 
                 <div className="pt-8 border-t border-white/10">
-                   <div className="flex justify-between items-center mb-6">
+                   <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-6 gap-4">
                       <div>
                         <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.5em] italic mb-1">Quant_Backtest_Protocol</h4>
                         <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">
@@ -556,7 +556,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <button 
                         onClick={(e) => handleRunBacktest(selectedStock, e)} 
                         disabled={backtestLoading} 
-                        className={`px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-2xl ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white active:scale-95'}`}
+                        className={`w-full md:w-auto px-10 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest border transition-all shadow-2xl ${backtestLoading ? 'bg-slate-800 text-slate-500 border-white/5 cursor-not-allowed' : 'bg-emerald-600/10 border-emerald-500/30 text-emerald-400 hover:bg-emerald-600 hover:text-white active:scale-95'}`}
                       >
                         {backtestLoading ? 'Simulation_Active...' : 'Run Portfolio Simulation'}
                       </button>
@@ -668,7 +668,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
+        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic">Alpha_Terminal</h3>
           </div>

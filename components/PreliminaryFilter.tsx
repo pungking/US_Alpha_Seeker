@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -308,15 +309,15 @@ const PreliminaryFilter: React.FC = () => {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-emerald-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
+        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-emerald-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-14 h-14 rounded-3xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                <svg className={`w-6 h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/20 ${loading ? 'animate-pulse' : ''}`}>
+                <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.2.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Analyzing via ${activeAi}...` : activeAi !== 'Standby' ? `Active Brain: ${activeAi}` : 'System Standby'}
@@ -329,28 +330,28 @@ const PreliminaryFilter: React.FC = () => {
                 </div>
               </div>
             </div>
-            <div className="flex gap-4">
+            <div className="flex gap-4 w-full lg:w-auto">
               <button 
                 onClick={syncAndAnalyzeMarket} 
                 disabled={loading}
-                className={`px-8 py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
+                className={`flex-1 lg:flex-none px-6 py-4 md:px-8 md:py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
               >
                 {isAnalyzing ? 'Thinking...' : 'Sync & AI Analysis'}
               </button>
               <button 
                 onClick={commitPurification} 
                 disabled={loading || rawUniverse.length === 0}
-                className={`px-12 py-5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50`}
+                className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50`}
               >
                 {loading ? 'Processing...' : 'Commit Filter'}
               </button>
             </div>
           </div>
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8 mb-10">
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
             {/* Price Filter */}
-            <div className="bg-black/40 p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
-              <div className="flex justify-between items-center mb-8">
+            <div className="bg-black/40 p-6 md:p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
+              <div className="flex justify-between items-center mb-6 md:mb-8">
                  <div>
                    <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Price Floor Matrix</p>
                    <p className="text-2xl font-black text-white italic tracking-tighter">${minPrice.toFixed(2)}</p>
@@ -378,8 +379,8 @@ const PreliminaryFilter: React.FC = () => {
             </div>
 
             {/* Volume Filter */}
-            <div className="bg-black/40 p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
-              <div className="flex justify-between items-center mb-8">
+            <div className="bg-black/40 p-6 md:p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
+              <div className="flex justify-between items-center mb-6 md:mb-8">
                  <div>
                    <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Volume Threshold</p>
                    <p className="text-2xl font-black text-white italic tracking-tighter">{(minVolume/1000).toFixed(0)}k</p>
@@ -408,30 +409,30 @@ const PreliminaryFilter: React.FC = () => {
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
-            <div className="lg:col-span-2 bg-gradient-to-br from-emerald-600/10 to-transparent p-10 rounded-3xl border border-emerald-500/10 relative">
+            <div className="lg:col-span-2 bg-gradient-to-br from-emerald-600/10 to-transparent p-6 md:p-10 rounded-3xl border border-emerald-500/10 relative">
               <p className="text-[8px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-4">Targeted Alpha Universe</p>
-              <div className="flex items-baseline space-x-6">
-                <span className="text-6xl font-black text-white italic tracking-tighter">{filteredCount.toLocaleString()}</span>
+              <div className="flex flex-col sm:flex-row items-start sm:items-baseline space-y-2 sm:space-y-0 sm:space-x-6">
+                <span className="text-4xl md:text-6xl font-black text-white italic tracking-tighter">{filteredCount.toLocaleString()}</span>
                 <div className="flex flex-col">
                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-widest italic">Purified Assets</span>
                    <span className="text-emerald-500/40 text-[8px] font-mono mt-1">Sieving {rawUniverse.length.toLocaleString()} Initial Tickers</span>
                 </div>
               </div>
               {isManual && (
-                <button onClick={resetToAi} className="absolute top-8 right-8 text-[7px] font-black text-amber-500 border border-amber-500/20 px-3 py-1.5 rounded-full bg-amber-500/5 hover:bg-amber-500 hover:text-white transition-all uppercase tracking-widest">
+                <button onClick={resetToAi} className="absolute top-6 right-6 md:top-8 md:right-8 text-[7px] font-black text-amber-500 border border-amber-500/20 px-3 py-1.5 rounded-full bg-amber-500/5 hover:bg-amber-500 hover:text-white transition-all uppercase tracking-widest">
                   Reset to AI Baseline
                 </button>
               )}
             </div>
-            <div className="bg-black/20 p-10 rounded-3xl border border-white/5 flex flex-col justify-center items-center">
+            <div className="bg-black/20 p-6 md:p-10 rounded-3xl border border-white/5 flex flex-col justify-center items-center">
               <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4 italic">Liquidity Purge</p>
-              <p className="text-4xl font-black text-rose-500/80 italic tracking-tighter">-{((rawUniverse.length - filteredCount) / (rawUniverse.length || 1) * 100).toFixed(1)}%</p>
+              <p className="text-3xl md:text-4xl font-black text-rose-500/80 italic tracking-tighter">-{((rawUniverse.length - filteredCount) / (rawUniverse.length || 1) * 100).toFixed(1)}%</p>
               <p className="text-[8px] text-slate-600 uppercase mt-4 font-bold tracking-widest">{rawUniverse.length - filteredCount} Assets Excluded</p>
             </div>
           </div>
 
           {(aiProposal || aiError) && (
-            <div className={`p-10 rounded-[32px] border animate-in fade-in slide-in-from-top-4 duration-500 ${aiError ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
+            <div className={`p-6 md:p-10 rounded-[32px] border animate-in fade-in slide-in-from-top-4 duration-500 ${aiError ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
                <div className="flex items-center justify-between mb-6">
                   <div className="flex items-center space-x-3">
                     <div className={`w-2 h-2 rounded-full animate-pulse ${aiError ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
@@ -449,7 +450,7 @@ const PreliminaryFilter: React.FC = () => {
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[720px] rounded-[40px] bg-slate-950 border-l-4 border-l-emerald-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-emerald-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Purification_Terminal</h3>
           </div>

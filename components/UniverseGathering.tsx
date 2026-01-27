@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -390,11 +391,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-8 md:p-10 rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
+        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
           {showConfig && (
-            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl z-50 p-10 flex flex-col justify-center items-center text-center">
-               <div className="max-w-md space-y-6">
+            <div className="absolute inset-0 bg-slate-950/90 backdrop-blur-xl z-50 p-6 md:p-10 flex flex-col justify-center items-center text-center">
+               <div className="max-w-md w-full space-y-6">
                  <h3 className="text-2xl font-black text-white italic tracking-tighter uppercase">Infrastructure Node</h3>
                  <input 
                   type="text" 
@@ -411,13 +412,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             </div>
           )}
 
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-10 gap-6">
-            <div className="flex items-center space-x-6">
-              <div className={`w-14 h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isEngineRunning ? 'animate-pulse' : ''}`}>
-                <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
+            <div className="flex items-center space-x-4 md:space-x-6">
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isEngineRunning ? 'animate-pulse' : ''}`}>
+                <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
@@ -429,18 +430,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             <button 
               onClick={startEngine} 
               disabled={isEngineRunning || cooldown > 0}
-              className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
+              className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
             >
               {isEngineRunning ? 'Acquiring Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
           </div>
 
-          <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
+          <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
               <span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span>
             </div>
-            <div className="flex gap-4">
+            <div className="flex flex-col md:flex-row gap-4">
               <input 
                 type="text" 
                 placeholder="Verify Ticker (e.g. AAPL, TSLA)"
@@ -448,7 +449,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
               />
-              <div className={`flex-1 flex items-center px-6 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
+              <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
                 {searchResult ? (
                   <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
                     <span className="truncate">{searchResult.name || searchResult.symbol}</span>
@@ -461,16 +462,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             </div>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
               { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
               { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
               { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
             ].map((s, i) => (
-              <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
+              <div key={i} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
-                <p className={`text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
+                <p className={`text-lg md:text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
               </div>
             ))}
           </div>
@@ -485,7 +486,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[680px] rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
+        <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
           <div className="flex items-center justify-between mb-8">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
           </div>
