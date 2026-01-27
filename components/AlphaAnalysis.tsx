@@ -35,6 +35,7 @@ interface BacktestResult {
   equityCurve: { period: string; value: number }[];
   metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; };
   historicalContext: string;
+  timestamp?: number;
 }
 
 interface Props {
@@ -143,17 +144,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
-  // NEW: Helper to remove citations but keep markdown
-  const removeCitations = (text?: string) => {
-      if (!text) return '';
-      return text.replace(/\[\d+\]/g, '').trim();
+  // NEW: Helper to remove citations but keep markdown, handles non-string inputs safely
+  const removeCitations = (text?: any) => {
+      if (text === null || text === undefined) return '';
+      return String(text).replace(/\[\d+\]/g, '').trim();
   };
 
-  // UPDATED: Clean markdown now also removes citations
-  const cleanMarkdown = (text?: string) => {
-      if (!text) return '';
-      // Remove citations first, then strip markdown chars
-      return text.replace(/\[\d+\]/g, '').replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
+  // UPDATED: Clean markdown now also removes citations and handles non-string inputs safely
+  const cleanMarkdown = (text?: any) => {
+      if (text === null || text === undefined) return '';
+      // Ensure text is a string before calling replace
+      return String(text).replace(/\[\d+\]/g, '').replace(/\*\*/g, '').replace(/__/g, '').replace(/\*/g, '').trim();
   };
 
   const handleSwitchBrain = (brain: ApiProvider) => {
@@ -291,7 +292,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           simulationPeriod: safePeriod,
           equityCurve: curve,
           metrics: safeMetrics,
-          historicalContext: safeContext
+          historicalContext: safeContext,
+          timestamp: Date.now() // Forcing chart update safely
         } 
       }));
       addLog(`Backtest Confirmed: Simulation for [${safePeriod}] complete.`, "ok");
@@ -608,7 +610,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               {isChartReady ? (
                                 <ResponsiveContainer width="100%" height={350}>
                                    <AreaChart 
-                                     key={`backtest-${selectedStock.symbol}-${Math.random()}`}
+                                     key={`backtest-${selectedStock.symbol}-${currentBacktest.timestamp || 0}`}
                                      data={currentBacktest.equityCurve} 
                                      margin={{ top: 20, right: 20, left: -10, bottom: 0 }}
                                    >
