@@ -284,33 +284,55 @@ export async function analyzePipelineStatus(data: {
   apiStatuses: any[];
   symbols?: string[] | null;
   recommendedData?: any[] | null;
+  targetStock?: any; // For Single Stock Audit
+  mode?: 'PORTFOLIO' | 'SINGLE_STOCK' | 'SYSTEM';
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const symbolsContext = data.recommendedData ? `추천 종목 포트폴리오(6개): ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, v: d.aiVerdict, score: d.convictionScore, theme: d.sectorTheme})))}` : "분석 데이터 없음";
+  let prompt = "";
   
-  const prompt = `[페르소나: 월가 최고의 헤지펀드 시니어 전략 분석가]
-당신은 현재 선정된 6개 종목에 대해 포트폴리오 매니저에게 보고할 최종 통합 전략 리포트를 작성해야 합니다.
+  if (data.mode === 'SINGLE_STOCK' && data.targetStock) {
+      const s = data.targetStock;
+      prompt = `[ALPHA AUDITOR: DEEP DIVE]
+분석 기준일: ${today}
+대상 종목: ${s.symbol} (${s.name})
+현재가: $${s.price}
+AI 확신도: ${s.convictionScore}%
+전망: ${s.aiVerdict}
 
-현지 시간: ${today}
-대상 포트폴리오 자산: ${symbolsContext}
+위 종목에 대해 다음 항목을 포함한 심층 감사(Audit) 리포트를 작성하십시오:
+1. **투자 핵심 논거 (Alpha Thesis)**: 왜 이 종목이 지금 매수 적기인가? (매크로, 섹터 트렌드 결합)
+2. **리스크 요인 (Risk Factors)**: 잠재적인 하락 리스크와 기술적 붕괴 지점.
+3. **목표가 검증**: 제시된 목표가($${s.resistanceLevel})와 손절가($${s.stopLoss})의 적정성 평가.
+4. **기관 수급 분석**: 최근 기관/내부자 거래 동향 추정 및 수급 해석.
 
-[보고서 작성 필수 지침]
-1. 언어: 100% 한글로만 작성하십시오.
-2. 태도: 확신에 찬 분석을 내놓으십시오.
-3. 리포트 상단: "분석 기준일: ${today}"를 명시하십시오.
-4. 분석 범위: 포트폴리오 내의 6개 종목 전체에 대해 상관관계 분석과 섹터 주도권 분석을 포함하십시오.
-5. 리스크 관리: 종목별 진입/손절 전략뿐만 아니라 전체 포트폴리오 차원의 헷징 전략을 작성하십시오.
-6. 가독성: ## 헤더, **강조**, - 리스트 등의 Markdown 문법을 적극 활용하십시오.`;
+반드시 한국어로 작성하고, ## 헤더, **강조**, - 불렛 포인트를 사용하여 가독성 높은 Markdown 형식으로 출력하십시오.`;
+  } else if (data.mode === 'PORTFOLIO') {
+      const context = data.recommendedData ? `포트폴리오: ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, theme: d.sectorTheme})))}` : "데이터 없음";
+      prompt = `[STRATEGIC PORTFOLIO MATRIX]
+분석 기준일: ${today}
+다음 6개 종목으로 구성된 포트폴리오의 최종 전략 리포트를 작성하십시오.
+데이터: ${context}
+
+포함할 내용:
+1. **섹터 주도권 분석**: 어떤 테마가 시장을 이끄는가?
+2. **상관관계 리스크**: 종목 간 분산 투자 효과 분석.
+3. **종합 운용 전략**: 비중 조절 및 헷징 가이드.
+
+반드시 한국어로 Markdown 형식을 사용하여 작성하십시오.`;
+  } else {
+      // System Audit Fallback
+      prompt = `System Status Audit: Stage ${data.currentStage}. Provide a brief system health check report in Korean.`;
+  }
 
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       const response = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
       }));
       return response.text || "분석 리포트 생성 실패";
@@ -318,7 +340,6 @@ export async function analyzePipelineStatus(data: {
 
     if (provider === ApiProvider.PERPLEXITY) {
        let lastError;
-       // Multi-Model Fallback Loop
        for (const model of PERPLEXITY_MODELS) {
          try {
             const res = await fetchWithRetry(async () => {
