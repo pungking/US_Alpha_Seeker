@@ -319,7 +319,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const currentResults = resultsCache[selectedBrain] || [];
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
-  const isChartReady = useMemo(() => !!currentBacktest?.equityCurve && currentBacktest.equityCurve.length > 1, [currentBacktest]);
+
+  // CRITICAL: Sanitize chart data to prevent crashes (Black Screen) if data is malformed
+  const chartData = useMemo(() => {
+    if (!currentBacktest?.equityCurve) return [];
+    return currentBacktest.equityCurve.map(item => ({
+      period: item.period,
+      value: typeof item.value === 'number' ? item.value : parseFloat(String(item.value).replace(/[^0-9.-]/g, '')) || 0
+    }));
+  }, [currentBacktest]);
+
+  const isChartReady = chartData.length > 1;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
@@ -386,7 +396,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
                     </div>
                     <div className="flex justify-between items-center mt-3">
-                      <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
+                      <div className="flex flex-col">
+                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">Exp. Return</span>
+                        <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
+                      </div>
                       <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{cleanMarkdown(item.aiVerdict || "HOLD")}</span>
                     </div>
                   </div>
@@ -567,9 +580,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      <svg className="w-48 h-48 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
                                  </div>
                                  {isChartReady ? (
-                                    <div className="flex-1 w-full min-h-[200px] relative z-10">
+                                    <div className="w-full h-[320px] mt-auto relative z-10">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={currentBacktest.equityCurve}>
+                                            <AreaChart data={chartData}>
                                                 <defs>
                                                     <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
@@ -577,7 +590,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     </linearGradient>
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                                <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} />
+                                                <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} dy={10} />
                                                 <YAxis domain={['auto', 'auto']} hide />
                                                 <Tooltip 
                                                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
@@ -596,7 +609,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         </ResponsiveContainer>
                                     </div>
                                  ) : (
-                                     <div className="flex items-center justify-center h-full text-slate-600 text-xs italic">Waiting for simulation data...</div>
+                                     <div className="flex-1 flex items-center justify-center text-slate-600 text-xs italic">Waiting for simulation data...</div>
                                  )}
                              </div>
                         </div>
