@@ -88,25 +88,132 @@ function sanitizeAndParseJson(text: string): any | null {
   }
 }
 
-// Retry logic handles network blips, but model fallback is handled in the main functions
 async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000): Promise<any> {
   try { return await fn(); } catch (error: any) {
     const msg = (error.message || JSON.stringify(error)).toLowerCase();
-    
-    // Auth/Payment errors should NOT retry
-    if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized')) {
-        throw error; 
-    }
-
-    if (msg.includes('load failed') || msg.includes('failed to fetch')) {
-      throw new Error("CORS/Network Error. Browser blocked the request.");
-    }
-
+    if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized')) throw error; 
+    if (msg.includes('load failed') || msg.includes('failed to fetch')) throw new Error("CORS/Network Error. Browser blocked the request.");
     if (retries > 0) {
       await new Promise(r => setTimeout(r, delay));
       return fetchWithRetry(fn, retries - 1, delay * 2); 
     }
     throw error;
+  }
+}
+
+// [NEW] Real Data Backtesting Engine
+async function runDeterministicBacktest(stock: any): Promise<any | null> {
+  try {
+      const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+      if (!polygonKey) return null;
+
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setFullYear(endDate.getFullYear() - 2); // 2 Years back
+
+      const from = startDate.toISOString().split('T')[0];
+      const to = endDate.toISOString().split('T')[0];
+      
+      const url = `https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
+      const res = await fetch(url);
+      
+      if (!res.ok) return null; // Fallback to AI if API fails (e.g. Rate Limit)
+      const json = await res.json();
+      if (!json.results || json.results.length === 0) return null;
+
+      const candles = json.results; // {c, h, l, o, t, v}
+      
+      // Strategy Parameters
+      const entry = stock.supportLevel || stock.price * 0.95;
+      const target = stock.resistanceLevel || stock.price * 1.10;
+      const stop = stock.stopLoss || stock.price * 0.90;
+      
+      let balance = 100; // Start with 100%
+      let position: { entryPrice: number, quantity: number } | null = null;
+      let wins = 0;
+      let losses = 0;
+      let maxDrawdown = 0;
+      let peakBalance = 100;
+      
+      const equityCurve = [];
+      let lastMonth = '';
+
+      // Simulation Loop
+      for (const candle of candles) {
+          const date = new Date(candle.t);
+          const monthStr = `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+          
+          // Trading Logic (Simplified Swing)
+          // 1. Check Exit
+          if (position) {
+              // Check Stop Loss
+              if (candle.l <= stop) {
+                  const exitPrice = Math.min(candle.o, stop); // Slippage assumption: exit at stop or open
+                  balance = position.quantity * exitPrice;
+                  position = null;
+                  losses++;
+              } 
+              // Check Target Profit
+              else if (candle.h >= target) {
+                  const exitPrice = Math.max(candle.o, target);
+                  balance = position.quantity * exitPrice;
+                  position = null;
+                  wins++;
+              }
+          }
+          
+          // 2. Check Entry
+          if (!position) {
+              // Buy if price dips to entry zone
+              if (candle.l <= entry && candle.h >= entry) {
+                  position = { entryPrice: entry, quantity: balance / entry };
+              }
+          }
+          
+          // 3. Update Metrics
+          let currentEquity = balance;
+          if (position) {
+              currentEquity = position.quantity * candle.c;
+          }
+          
+          if (currentEquity > peakBalance) peakBalance = currentEquity;
+          const dd = (peakBalance - currentEquity) / peakBalance * 100;
+          if (dd > maxDrawdown) maxDrawdown = dd;
+
+          // Record Curve (Monthly sampling for chart)
+          if (monthStr !== lastMonth) {
+              equityCurve.push({ period: monthStr, value: Number((currentEquity - 100).toFixed(1)) });
+              lastMonth = monthStr;
+          }
+      }
+
+      // Finalize Stats
+      const totalTrades = wins + losses;
+      const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+      const finalReturn = balance - 100;
+      const profitFactor = losses > 0 ? (wins * (target - entry)) / (losses * (entry - stop)) : wins > 0 ? 99 : 0; // Simplified PF
+      
+      return {
+          simulationPeriod: `${from} ~ ${to}`,
+          equityCurve: equityCurve.slice(-12), // Last 12 points
+          metrics: {
+              winRate: `${winRate.toFixed(1)}%`,
+              profitFactor: profitFactor.toFixed(2),
+              maxDrawdown: `-${maxDrawdown.toFixed(1)}%`,
+              sharpeRatio: (finalReturn / (maxDrawdown || 1)).toFixed(2) // Rough Sharpe approximation
+          },
+          historicalContext: `### Real-Data Backtest Analysis
+**Confirmed Strategy Performance** via Polygon.io Data.
+- **Accuracy**: Based on ${totalTrades} hypothetical trades over 2 years.
+- **Risk Assessment**: Maximum drawdown was ${maxDrawdown.toFixed(1)}%.
+- **Strategy Logic**: Entry @ $${entry.toFixed(2)}, Target @ $${target.toFixed(2)}, Stop @ $${stop.toFixed(2)}.
+
+This is a deterministic simulation using actual historical OHLCV data. The results reflect what *would have happened* if strict limit orders were executed.`
+      };
+
+  } catch (e) {
+      console.error("Deterministic Backtest Failed:", e);
+      return null;
   }
 }
 
@@ -193,7 +300,19 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   } catch (error: any) { return { data: null, error: error.message }; }
 }
 
-export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string}> {
+export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
+  
+  // 1. Attempt Deterministic Backtest (Real Data) First
+  try {
+      const realData = await runDeterministicBacktest(stock);
+      if (realData) {
+          return { data: realData, isRealData: true };
+      }
+  } catch (e) {
+      console.warn("Real-Data Backtest failed, falling back to AI...", e);
+  }
+
+  // 2. Fallback to AI Simulation
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
@@ -232,7 +351,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
-      return { data: sanitizeAndParseJson(result.text) };
+      return { data: sanitizeAndParseJson(result.text), isRealData: false };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
@@ -269,7 +388,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
             const json = await res.json();
             const parsed = sanitizeAndParseJson(json.choices?.[0]?.message?.content);
-            if (parsed) return { data: parsed };
+            if (parsed) return { data: parsed, isRealData: false };
 
         } catch (e: any) {
             console.warn(`Model ${model} failed: ${e.message}`);

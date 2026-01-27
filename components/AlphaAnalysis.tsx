@@ -36,6 +36,7 @@ interface BacktestResult {
   metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; };
   historicalContext: string;
   timestamp?: number;
+  isRealData?: boolean;
 }
 
 interface Props {
@@ -279,7 +280,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     addLog(`Simulating Quant Protocol for ${stock.symbol}...`, "signal");
 
     try {
-      const { data, error } = await runAiBacktest(stock, selectedBrain);
+      const { data, error, isRealData } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
       
       if (!data) throw new Error("AI returned empty data structure");
@@ -293,10 +294,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         [stock.symbol]: { 
             ...data, 
             historicalContext: safeContext, 
-            timestamp: Date.now() 
+            timestamp: Date.now(),
+            isRealData: !!isRealData
         } 
       }));
-      addLog(`Simulation complete for ${stock.symbol}.`, "ok");
+      addLog(`Simulation complete for ${stock.symbol} ${isRealData ? '(Real Data)' : '(AI Sim)'}.`, "ok");
     } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
     finally { setBacktestLoading(false); }
   };
@@ -604,9 +606,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="flex flex-col md:flex-row md:items-center gap-2 mt-1">
                              <p className="text-[9px] font-bold text-slate-500 uppercase tracking-widest">Simulation Period: {currentBacktest.simulationPeriod || "2024.01-26 ~ 2026-01-26"}</p>
                              <span className="hidden md:inline text-[8px] text-slate-700">|</span>
-                             <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-2 py-0.5 rounded border border-white/5 w-fit">
-                                Note: This is an AI Probabilistic Simulation (Monte Carlo), not Historical Tick Replay.
-                             </p>
+                             {currentBacktest.isRealData ? (
+                                <p className="text-[8px] font-black text-emerald-400 uppercase tracking-widest bg-emerald-500/10 border border-emerald-500/20 px-2 py-0.5 rounded w-fit animate-pulse">
+                                   Verifiable Backtest: Based on Real Historical Data
+                                </p>
+                             ) : (
+                                <p className="text-[8px] font-bold text-slate-500 uppercase tracking-widest bg-slate-800/50 px-2 py-0.5 rounded border border-white/5 w-fit">
+                                   Note: This is an AI Probabilistic Simulation (Monte Carlo), not Historical Tick Replay.
+                                </p>
+                             )}
                         </div>
                     </div>
                     
