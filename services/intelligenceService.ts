@@ -302,6 +302,7 @@ export async function analyzePipelineStatus(data: {
 
   const isPortfolio = data.mode === 'PORTFOLIO';
   const stock = data.targetStock;
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
   // Custom Prompts based on Persona & Mode
   let systemPrompt = "";
@@ -316,25 +317,53 @@ export async function analyzePipelineStatus(data: {
   if (isPortfolio) {
       userPrompt = `
       [PORTFOLIO MATRIX AUDIT]
-      Analyze this set of top alpha candidates: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
+      대상 종목: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
+      분석 일자: ${today}
       
-      Provide a strategic summary in Korean Markdown:
-      1. **Sector Allocation Risk**: Are we too concentrated?
-      2. **Alpha Correlation**: Do these stocks move together?
-      3. **Macro Exposure**: How sensitive is this portfolio to interest rates?
-      4. **Final Verdict**: 'Aggressive', 'Balanced', or 'Defensive'?
+      다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오:
+      
+      ### 📅 분석 일자: ${today}
+      
+      1. **섹터 집중 리스크**: 포트폴리오가 특정 테마에 쏠려있는가?
+      2. **알파 상관관계**: 종목들이 함께 움직이는 경향이 있는가?
+      3. **매크로 민감도**: 금리/환율 변동에 얼마나 취약한가?
+      4. **최종 포트폴리오 성향**: '공격형', '밸런스형', '방어형' 중 선택 및 이유.
       `;
   } else {
       userPrompt = `
-      [SINGLE ASSET DEEP DIVE]
-      Target: ${stock.symbol}
-      Data: Price $${stock.price}, Score ${stock.convictionScore || stock.compositeAlpha}, Verdict ${stock.aiVerdict}.
+      [SINGLE ASSET DEEP DIVE AUDIT]
+      대상: ${stock.symbol}
+      데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
+      분석 일자: ${today}
+
+      당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
+      이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
       
-      Perform a 'Red Team' audit in Korean Markdown:
-      1. **Bear Case**: Why might this trade fail? (Be critical)
-      2. **Technical Trap**: Where is the fake-out zone?
-      3. **Institutional Footprint**: Is smart money buying or selling?
-      4. **Final Audit Opinion**: Confirm or Reject the buy signal.
+      반드시 다음 형식을 준수하십시오:
+      
+      ### 📅 분석 일자: ${today}
+      ### 🚨 실전 투자자 체크포인트 (Deep Audit)
+      
+      1. **리스크 시나리오 (Red Team Analysis)**:
+         - 이 트레이딩이 실패한다면 원인은 무엇인가? (구체적인 악재나 기술적 붕괴 지점)
+         - "세력"이 개미를 털어내는 속임수(Fake-out) 패턴 예상 지점.
+         
+      2. **기관 수급 추적 (Smart Money Flow)**:
+         - 현재 구간에서 기관/세력은 매집 중인가, 차익 실현 중인가?
+         - 거래량 분석을 통한 "진짜 돈"의 흐름 포착.
+         
+      3. **실전 매매 가이드**:
+         - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대)
+         - **필수 손절 라인**: 추세 붕괴로 간주하는 가격.
+         - **청산 목표가**: 1차/2차 저항 라인.
+         
+      4. **최종 감사 의견 (Final Verdict)**:
+         - 매수 승인 / 보류 / 즉시 청산 중 하나를 선택하고 그 이유를 한 문장으로 요약.
+
+      작성 원칙:
+      - 모호한 표현 지양 (예: "상황을 봐서 대응" -> 금지).
+      - 명확한 가격과 대응책 제시.
+      - 전문적이지만 이해하기 쉬운 한국어 사용.
       `;
   }
 

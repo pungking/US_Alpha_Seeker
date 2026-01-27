@@ -285,9 +285,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       if (!data) throw new Error("AI returned empty data structure");
       
-      // Even if AI returns broken chart data, we will fix it in the chartData memo.
-      // We accept metrics as the source of truth if chart data is missing.
-
       const safeContext = data.historicalContext || "Analysis data unavailable.";
       setBacktestData(prev => ({ 
         ...prev, 
@@ -311,6 +308,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const cleanVerdict = (v?: string) => {
       if (!v) return "";
       return v.replace(/[\*\_\[\]]/g, '').trim().toUpperCase().replace(/\s/g, '');
+  };
+
+  const translateVerdict = (v?: string) => {
+    const text = cleanVerdict(v);
+    if (text.includes('STRONGBUY') || text.includes('강력매수')) return '강력 매수';
+    if (text === 'BUY' || text === '매수') return '매수';
+    if (text.includes('ACCUMULATE') || text.includes('비중')) return '비중 확대';
+    if (text.includes('HOLD') || text.includes('NEUTRAL') || text.includes('관망') || text.includes('보유')) return '관망';
+    if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
+    if (text === 'SELL' || text === '매도') return '매도';
+    if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기')) return '고위험';
+    return v || "대기";
   };
 
   const getVerdictStyle = (v?: string) => {
@@ -347,11 +356,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const winRate = parseFloat(String(metrics?.winRate).replace(/[^0-9.]/g, '')) || 60;
       const profitFactor = parseFloat(String(metrics?.profitFactor).replace(/[^0-9.]/g, '')) || 1.8;
       
-      // Starting from 0 cumulative return
       let value = 0;
       const data = [];
       const now = new Date();
-      // Generate 24 months of data
       for (let i = 24; i >= 0; i--) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -359,16 +366,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (i === 24) {
               data.push({ period, value: 0 });
           } else {
-              // Monte Carlo step
               const isWin = Math.random() * 100 < winRate;
-              // Volatility factor: ~3% to 8% move per month
               const vol = 3 + Math.random() * 5; 
-              
               const move = isWin ? (vol * (Math.random() * 0.5 + 0.8)) : -(vol * (Math.random() * 0.5 + 0.8) / profitFactor);
-              
-              // Apply trend bias (Profit Factor > 1.2 implies drift)
               const drift = profitFactor > 1.2 ? 0.5 : 0;
-              
               value += (move + drift);
               data.push({ period, value: Number(value.toFixed(1)) });
           }
@@ -376,14 +377,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return data;
   };
 
-  // [CHART DATA PROCESSING]
-  // CRITICAL FIX: Ensure chart data is never empty/flat to prevent black screen
   const chartData = useMemo(() => {
     if (!currentBacktest) return [];
     
     let rawData = [];
-
-    // 1. Try to use AI provided equity curve
     if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length > 2) {
         rawData = currentBacktest.equityCurve.map((item) => {
             const valStr = String(item.value);
@@ -396,25 +393,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         });
     }
 
-    // 2. Validate Data Quality
     const values = rawData.map(d => d.value);
     const min = Math.min(...values);
     const max = Math.max(...values);
     const isFlat = max === min;
     const isTooShort = rawData.length < 3;
 
-    // 3. Fallback to Synthetic if AI data is garbage (Black Screen Prevention)
     if (isFlat || isTooShort) {
-        // console.warn("AI Chart Data Invalid (Flat/Short). Generating Synthetic Simulation.");
         return generateSyntheticData(currentBacktest.metrics);
     }
-
     return rawData;
   }, [currentBacktest]);
 
   const isChartReady = chartData.length > 1;
-
-  // Determine chart color based on final return
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
@@ -487,7 +478,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">예상 수익률 (Exp. Return)</span>
                         <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
                       </div>
-                      <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{cleanMarkdown(item.aiVerdict || "HOLD")}</span>
+                      <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
                     </div>
                   </div>
                 );
@@ -547,7 +538,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              <div className="flex flex-col lg:flex-row items-end gap-6 mb-8">
                 <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStock.symbol}</h3>
                 <div className="flex flex-col">
-                  <span className={`px-5 py-2 text-xs font-black rounded-full uppercase border w-fit mb-2 shadow-xl ${getVerdictStyle(selectedStock.aiVerdict)}`}>{cleanMarkdown(selectedStock.aiVerdict)}</span>
+                  <span className={`px-5 py-2 text-xs font-black rounded-full uppercase border w-fit mb-2 shadow-xl ${getVerdictStyle(selectedStock.aiVerdict)}`}>{translateVerdict(selectedStock.aiVerdict)}</span>
                   <span className="text-xl font-bold text-slate-400 tracking-widest uppercase">{selectedStock.name}</span>
                 </div>
                 <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner min-w-[160px]">
@@ -569,7 +560,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </ReactMarkdown>
                       </div>
                    </div>
-                   {/* BUTTON MOVED HERE BELOW OUTLOOK */}
                    <button onClick={(e) => handleRunBacktest(selectedStock, e)} disabled={backtestLoading} className="w-full py-5 bg-emerald-600/10 border border-emerald-500/20 text-emerald-400 rounded-3xl text-[10px] font-black uppercase tracking-widest hover:bg-emerald-600 hover:text-white transition-all shadow-xl active:scale-95 flex items-center justify-center gap-2">
                      {backtestLoading ? (
                         <>
@@ -602,7 +592,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
              </div>
 
-             {/* BACKTEST RESULTS - Full Width Section */}
              {currentBacktest && (
                  <div className="mt-8 animate-in fade-in slide-in-from-right-4">
                     <div className="mb-4">
@@ -624,31 +613,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     
                     <div className="p-6 md:p-8 bg-black/80 rounded-[40px] border border-white/10 shadow-2xl">
                         <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 mb-8">
-                             {/* Left Metrics Column - Vertical Stack */}
                              <div className="lg:col-span-1 flex flex-col h-full">
                                  <div className="flex-1 flex flex-col gap-3 justify-center">
-                                     {/* Win Rate */}
                                      <div onClick={() => handleMetricClick('WIN_RATE', String(currentBacktest.metrics?.winRate || "0%"))} 
                                           className="p-4 bg-emerald-950/10 border border-emerald-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-emerald-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-emerald-400 uppercase tracking-widest transition-colors">승률 (WIN RATE)</span>
                                         <span className="text-xl font-black text-emerald-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.winRate || "0%")}</span>
                                      </div>
 
-                                     {/* Profit Factor */}
                                      <div onClick={() => handleMetricClick('PROFIT_FACTOR', String(currentBacktest.metrics?.profitFactor || "0.00"))} 
                                           className="p-4 bg-blue-950/10 border border-blue-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-blue-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-blue-400 uppercase tracking-widest transition-colors">손익비 (P.FACTOR)</span>
                                         <span className="text-xl font-black text-blue-400 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.profitFactor || "0.00")}</span>
                                      </div>
 
-                                     {/* MDD */}
                                      <div onClick={() => handleMetricClick('MAX_DRAWDOWN', String(currentBacktest.metrics?.maxDrawdown || "0%"))} 
                                           className="p-4 bg-rose-950/10 border border-rose-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-rose-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-rose-400 uppercase tracking-widest transition-colors">최대낙폭 (MDD)</span>
                                         <span className="text-xl font-black text-rose-500 italic tracking-tighter">{cleanMarkdown(currentBacktest.metrics?.maxDrawdown || "0%")}</span>
                                      </div>
 
-                                     {/* Sharpe */}
                                      <div onClick={() => handleMetricClick('SHARPE_RATIO', String(currentBacktest.metrics?.sharpeRatio || "0.00"))} 
                                           className="p-4 bg-amber-950/10 border border-amber-500/20 rounded-2xl flex justify-between items-center cursor-pointer hover:bg-amber-900/20 transition-all group">
                                         <span className="text-[8px] font-black text-slate-500 group-hover:text-amber-400 uppercase tracking-widest transition-colors">샤프지수 (RISK/RTN)</span>
@@ -656,7 +640,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      </div>
                                  </div>
 
-                                 {/* Metric Description Area (Fixed Height) */}
                                  <div className="mt-4 min-h-[120px]">
                                      {selectedMetricInfo ? (
                                          <div className="p-4 bg-slate-900/90 rounded-2xl border border-white/10 animate-in fade-in slide-in-from-bottom-2">
@@ -673,7 +656,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                  </div>
                              </div>
 
-                             {/* Right Chart Column */}
                              <div className="lg:col-span-2 bg-gradient-to-br from-emerald-900/5 to-black rounded-[32px] border border-white/5 p-6 relative overflow-hidden flex flex-col min-h-[400px]">
                                  <div className="absolute top-0 right-0 p-8 opacity-10">
                                      <svg className="w-48 h-48 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
@@ -723,7 +705,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     strokeWidth={3} 
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`}
-                                                    baseValue={0} // Fill area from 0, not minimum
+                                                    baseValue={0} 
                                                 />
                                             </AreaChart>
                                         </ResponsiveContainer>
@@ -734,7 +716,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                              </div>
                         </div>
 
-                        {/* Bottom Report Section */}
                         <div className="bg-slate-900/40 rounded-[32px] border border-white/5 p-8 relative">
                              <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-6 italic">Simulation Intelligence Insight</h4>
                              <div className="prose-report text-xs opacity-90 leading-relaxed text-slate-300">
