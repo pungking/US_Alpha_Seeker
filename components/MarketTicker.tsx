@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
@@ -9,6 +8,14 @@ interface MarketItem {
   price: number;
   change: number;
   isIndex: boolean;
+  isEtfFallback?: boolean;
+}
+
+interface PolygonTicker {
+  T: string;
+  c: number;
+  o: number;
+  v: number;
 }
 
 const MarketTicker: React.FC = () => {
@@ -18,29 +25,32 @@ const MarketTicker: React.FC = () => {
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const retryTimeoutRef = useRef<number | null>(null);
 
-  const tickers = [
-    { s: 'SPY', l: 'S&P 500', i: true },
-    { s: 'QQQ', l: 'NASDAQ', i: true },
-    { s: 'AAPL', l: 'APPLE', i: false },
-    { s: 'MSFT', l: 'MICROSOFT', i: false },
-    { s: 'NVDA', l: 'NVIDIA', i: false },
-    { s: 'TSLA', l: 'TESLA', i: false },
-    { s: 'AMZN', l: 'AMAZON', i: false },
+  // Configuration for Market Indices & Stocks
+  // Request: Swap Nasdaq & S&P, Add Dow to right of S&P.
+  // Order: Nasdaq -> S&P 500 -> Dow Jones -> Stocks
+  const indexConfig = [
+    { id: 'NASDAQ', indexSymbol: 'I:NDX', etfSymbol: 'QQQ', label: 'NASDAQ 100' },
+    { id: 'SP500', indexSymbol: 'I:SPX', etfSymbol: 'SPY', label: 'S&P 500' },
+    { id: 'DOW', indexSymbol: 'I:DJI', etfSymbol: 'DIA', label: 'DOW JONES' },
+  ];
+
+  const stockConfig = [
+    { symbol: 'AAPL', label: 'APPLE' },
+    { symbol: 'MSFT', label: 'MICROSOFT' },
+    { symbol: 'NVDA', label: 'NVIDIA' },
+    { symbol: 'TSLA', label: 'TESLA' },
+    { symbol: 'AMZN', label: 'AMAZON' },
   ];
 
   const getLatestTradingDate = () => {
     const d = new Date();
-    // Go back at least one day
     d.setDate(d.getDate() - 1);
-    // If Sunday, go back to Friday
     if (d.getDay() === 0) d.setDate(d.getDate() - 2);
-    // If Saturday, go back to Friday
     else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
     return d.toISOString().split('T')[0];
   };
 
   const fetchMarketData = async () => {
-    // If the data gathering engine is running, pause ticker to save quota
     if (document.body.getAttribute('data-engine-running') === 'true') {
       setIsPaused(true);
       return;
@@ -51,47 +61,81 @@ const MarketTicker: React.FC = () => {
 
     try {
       const targetDate = getLatestTradingDate();
-      const response = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
       
-      if (response.status === 429) {
-        throw new Error("Throttled");
+      // 1. Fetch Stocks (US Equities)
+      const stocksPromise = fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+      
+      // 2. Fetch Indices (Global Indices) - Requires specific Polygon plan, fallback handled below
+      const indicesPromise = fetch(`https://api.polygon.io/v2/aggs/grouped/locale/global/market/indices/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+
+      const [stocksRes, indicesRes] = await Promise.all([stocksPromise, indicesPromise]);
+
+      if (stocksRes.status === 429) throw new Error("Throttled");
+
+      const stocksData = await stocksRes.json();
+      const indicesData = indicesRes.ok ? await indicesRes.json() : { results: [] };
+
+      // Map Results
+      const stockMap = new Map<string, PolygonTicker>((stocksData.results || []).map((r: any) => [r.T, r]));
+      const indexMap = new Map<string, PolygonTicker>((indicesData.results || []).map((r: any) => [r.T, r]));
+
+      const finalItems: MarketItem[] = [];
+
+      // Process Indices (Priority: Real Index -> ETF Fallback)
+      indexConfig.forEach(cfg => {
+        let tickerData = indexMap.get(cfg.indexSymbol);
+        let isFallback = false;
+        
+        // If Index data missing (common on free tier), try ETF
+        if (!tickerData) {
+            tickerData = stockMap.get(cfg.etfSymbol);
+            isFallback = true;
+        }
+
+        if (tickerData) {
+            finalItems.push({
+                symbol: isFallback ? cfg.etfSymbol : cfg.indexSymbol,
+                label: cfg.label,
+                price: tickerData.c || 0,
+                change: tickerData.o ? ((tickerData.c - tickerData.o) / tickerData.o) * 100 : 0,
+                isIndex: true,
+                isEtfFallback: isFallback
+            });
+        }
+      });
+
+      // Process Stocks
+      stockConfig.forEach(cfg => {
+          const r = stockMap.get(cfg.symbol);
+          if (r) {
+              finalItems.push({
+                  symbol: cfg.symbol,
+                  label: cfg.label,
+                  price: r.c || 0,
+                  change: r.o ? ((r.c - r.o) / r.o) * 100 : 0,
+                  isIndex: false
+              });
+          }
+      });
+
+      if (finalItems.length > 0) {
+        setData(finalItems);
+        setErrorCount(0);
+      } else {
+          // If totally empty, maybe market holiday or data not ready
+          console.warn("Market Data Empty");
       }
 
-      const res = await response.json();
-      
-      if (res.results && Array.isArray(res.results)) {
-        const resultMap = new Map(res.results.map((r: any) => [r.T, r]));
-        const merged = tickers.map(t => {
-          const r: any = resultMap.get(t.s);
-          return {
-            symbol: t.s,
-            label: t.l,
-            price: r?.c || 0,
-            change: r?.o ? ((r.c - r.o) / r.o) * 100 : 0,
-            isIndex: t.i
-          };
-        });
-        const validData = merged.filter(d => d.price > 0);
-        if (validData.length > 0) {
-          setData(validData);
-          setErrorCount(0); // Reset error count on success
-        }
-      }
     } catch (e) {
       console.warn("Market pulse fetch error:", e);
       setErrorCount(prev => prev + 1);
-      // If failed, wait longer for the next attempt
     }
   };
 
   useEffect(() => {
     fetchMarketData();
-    // Safety interval: 5 minutes to stay well within free tier limits
-    const interval = setInterval(fetchMarketData, 300000); 
-    return () => {
-      clearInterval(interval);
-      if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
-    };
+    const interval = setInterval(fetchMarketData, 300000); // 5 min refresh
+    return () => clearInterval(interval);
   }, [polygonKey]);
 
   return (
@@ -104,7 +148,7 @@ const MarketTicker: React.FC = () => {
         >
           <div className="flex flex-col">
             <span className={`text-[7px] font-black uppercase tracking-widest ${item.isIndex ? 'text-indigo-400' : 'text-slate-500'}`}>
-              {item.isIndex ? 'Index' : 'Equity'}
+              {item.isIndex ? (item.isEtfFallback ? 'Index (ETF)' : 'Market Index') : 'Equity'}
             </span>
             <span className="text-[10px] font-black text-white italic tracking-tighter">{item.label}</span>
           </div>
@@ -119,13 +163,13 @@ const MarketTicker: React.FC = () => {
         </div>
       )) : (
         <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">
-          {errorCount > 2 ? 'API QUOTA EXCEEDED - WAITING' : 'Synchronizing Market Pulse...'}
+          {errorCount > 2 ? 'MARKET DATA DELAYED' : 'Synchronizing Market Pulse...'}
         </div>
       )}
       <div className="flex-1 h-[1px] bg-white/5 ml-4"></div>
       <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic ml-4 whitespace-nowrap">
         <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : errorCount > 0 ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`}></span>
-        <span>{isPaused ? 'Pulse_Paused_For_Sync' : errorCount > 0 ? 'Pulse_Connection_Retry' : 'Market_Pulse_Safe_Mode'}</span>
+        <span>{isPaused ? 'Pulse_Paused' : 'Realtime_Indices_Active'}</span>
       </div>
     </div>
   );
