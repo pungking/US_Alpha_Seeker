@@ -30,7 +30,8 @@ const App: React.FC = () => {
 
   // New State for Single Stock Audit
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
-  const [stockAuditCache, setStockAuditCache] = useState<{ [symbol: string]: string }>({});
+  // Cache key format: "SYMBOL-PROVIDER" (e.g., "AAPL-Perplexity")
+  const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
   useEffect(() => {
@@ -79,6 +80,10 @@ const App: React.FC = () => {
     
     setIsAiLoading(true);
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
+    
+    // Capture current brain for consistency
+    const targetBrain = auditBrain;
+    const cacheKey = `${selectedStock.symbol}-${targetBrain}`;
 
     try {
       const report = await analyzePipelineStatus({
@@ -87,12 +92,12 @@ const App: React.FC = () => {
         symbols: [selectedStock.symbol],
         targetStock: selectedStock,
         mode: 'SINGLE_STOCK'
-      }, auditBrain);
+      }, targetBrain);
       
-      setStockAuditCache(prev => ({ ...prev, [selectedStock.symbol]: report }));
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
     } catch (err: any) {
       console.error(err);
-      setStockAuditCache(prev => ({ ...prev, [selectedStock.symbol]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
       setAnalyzingStocks(prev => {
@@ -103,8 +108,8 @@ const App: React.FC = () => {
     }
   };
 
-  // Safe access for the report, fallback to null/empty string if not ready
-  const currentReport = selectedStock?.symbol ? stockAuditCache[selectedStock.symbol] : null;
+  // Safe access for the report using composite key
+  const currentReport = selectedStock?.symbol ? stockAuditCache[`${selectedStock.symbol}-${auditBrain}`] : null;
 
   const copyReport = () => {
     if (currentReport) {
@@ -122,7 +127,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.0.0 (Stable)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.0.1 (Hotfix)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>

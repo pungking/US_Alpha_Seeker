@@ -1,6 +1,6 @@
 {
-  "name": "US_Alpha_Seeker: v1.0.0 Official",
-  "description": "Official Stable Release v1.0.0. Dashboard for monitoring US stock market ticker collection, API health, and Google Drive integration.",
-  "version": "1.0.0",
+  "name": "US_Alpha_Seeker: v1.0.1 Hotfix",
+  "description": "Official Stable Release v1.0.1. Includes fix for Auditor Matrix state ghosting issue.",
+  "version": "1.0.1",
   "requestFramePermissions": []
 }
