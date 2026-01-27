@@ -170,15 +170,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const cleanInsightText = (text: string) => {
     if (!text) return "";
     return text
-      .replace(/[\u{1F600}-\u{1F64F}]/gu, "")
-      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "")
-      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "")
-      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "")
-      .replace(/[\u{2600}-\u{26FF}]/gu, "")
-      .replace(/[\u{2700}-\u{27BF}]/gu, "")
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "")
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️]/g, "") 
-      .replace(/\[\d+\]/g, '')
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") // Emoticons
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") // Misc Symbols and Pictographs
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") // Transport and Map Symbols
+      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") // Supplemental Symbols and Pictographs
+      .replace(/[\u{2600}-\u{26FF}]/gu, "")   // Misc Symbols
+      .replace(/[\u{2700}-\u{27BF}]/gu, "")   // Dingbats
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") // Flags
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲]/g, "") // Specific Icons
+      .replace(/\[\d+\]/g, '') // Citations
       .trim();
   };
 
@@ -599,7 +599,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      <svg className="w-48 h-48 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
                                  </div>
                                  {isChartReady ? (
-                                    <div className="flex-1 w-full relative z-10 min-h-[300px]" key={`chart-container-${selectedStock?.symbol}-${currentBacktest?.timestamp}`}>
+                                    <div className="w-full h-[320px] mt-auto relative z-10" key={`chart-container-${selectedStock?.symbol}-${currentBacktest?.timestamp}`}>
                                         <ResponsiveContainer width="100%" height="100%">
                                             <AreaChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                                                 <defs>
@@ -610,7 +610,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
                                                 <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} dy={10} interval="preserveStartEnd" />
-                                                <YAxis domain={['auto', 'auto']} hide />
+                                                <YAxis domain={['auto', 'auto']} hide width={0} />
                                                 <Tooltip 
                                                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
                                                     itemStyle={{ color: '#10b981', fontWeight: 'bold' }}
@@ -623,6 +623,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     strokeWidth={3} 
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`}
+                                                    baseValue="dataMin"
                                                 />
                                             </AreaChart>
                                         </ResponsiveContainer>
