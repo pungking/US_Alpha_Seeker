@@ -235,22 +235,183 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
   }
 }
 
+export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
+  // 1. Try Deterministic Backtest First (Stage 1)
+  const realData = await runDeterministicBacktest(stock);
+  if (realData) {
+      return { data: realData, isRealData: true };
+  }
+
+  // 2. Fallback to AI Simulation (Stage 2)
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
+
+  const prompt = `
+  [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
+  Technical Context: Score=${stock.technicalScore}, Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
+  
+  Return a JSON object matching this schema:
+  {
+      "simulationPeriod": "2023.01 ~ 2025.01",
+      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 12 monthly points ...],
+      "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
+      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown."
+  }
+  `;
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      const result = await fetchWithRetry(() => ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
+      }));
+      return { data: sanitizeAndParseJson(result.text), isRealData: false };
+    }
+    
+    // Perplexity Fallback
+    const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
+        })
+    });
+    const data = await pRes.json();
+    return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content), isRealData: false };
+    
+  } catch (e: any) {
+    return { data: null, error: e.message };
+  }
+}
+
+export async function analyzePipelineStatus(data: {
+  currentStage: number;
+  apiStatuses: any[];
+  symbols?: string[];
+  targetStock?: any;
+  mode: 'SINGLE_STOCK' | 'PORTFOLIO';
+  recommendedData?: any[];
+}, provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "AUDIT_ERROR: API Key Missing";
+
+  const isPortfolio = data.mode === 'PORTFOLIO';
+  const stock = data.targetStock;
+  
+  // Custom Prompts based on Persona & Mode
+  let systemPrompt = "";
+  let userPrompt = "";
+
+  if (provider === ApiProvider.GEMINI) {
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety.";
+  } else {
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events.";
+  }
+
+  if (isPortfolio) {
+      userPrompt = `
+      [PORTFOLIO MATRIX AUDIT]
+      Analyze this set of top alpha candidates: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
+      
+      Provide a strategic summary in Korean Markdown:
+      1. **Sector Allocation Risk**: Are we too concentrated?
+      2. **Alpha Correlation**: Do these stocks move together?
+      3. **Macro Exposure**: How sensitive is this portfolio to interest rates?
+      4. **Final Verdict**: 'Aggressive', 'Balanced', or 'Defensive'?
+      `;
+  } else {
+      userPrompt = `
+      [SINGLE ASSET DEEP DIVE]
+      Target: ${stock.symbol}
+      Data: Price $${stock.price}, Score ${stock.convictionScore || stock.compositeAlpha}, Verdict ${stock.aiVerdict}.
+      
+      Perform a 'Red Team' audit in Korean Markdown:
+      1. **Bear Case**: Why might this trade fail? (Be critical)
+      2. **Technical Trap**: Where is the fake-out zone?
+      3. **Institutional Footprint**: Is smart money buying or selling?
+      4. **Final Audit Opinion**: Confirm or Reject the buy signal.
+      `;
+  }
+
+  try {
+    // 1. Gemini Execution
+    if (provider === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: userPrompt,
+            config: { systemInstruction: systemPrompt }
+        }));
+        return result.text;
+    }
+
+    // 2. Perplexity Execution
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
+        },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ],
+            temperature: 0.1
+        })
+    });
+    
+    if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
+    const json = await res.json();
+    return json.choices?.[0]?.message?.content || "No analysis returned.";
+
+  } catch (error: any) {
+    return `AUDIT_FAILURE: ${error.message}`;
+  }
+}
+
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  const prompt = `[시스템 미션: 월가 일류 퀀트 전략가]
+  
+  // [PERSONA DEFINITION]
+  // Distinct personalities for each AI to ensure diverse results
+  const GEMINI_PERSONA = `
+    [ROLE: Traditional Wall Street Quant & Technical Analyst]
+    - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
+    - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
+    - Style: Conservative but accurate. "Don't lose money" is rule #1.
+  `;
+
+  const PERPLEXITY_PERSONA = `
+    [ROLE: Aggressive Hedge Fund Manager & Trend Follower]
+    - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
+    - Preference: High growth potential, viral themes, sector rotation leaders.
+    - Style: High Risk / High Reward. "Trend is your friend".
+  `;
+
+  const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
+
+  const prompt = `${currentPersona}
 현재 날짜: ${today}
 분석 대상 종목(TOP 12): ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
 
-위 리스트에서 기술적/재무적/ICT 관점에서 가장 완벽한 6개 종목을 최종 선정하십시오.
+위 리스트에서 당신의 투자 철학(Persona)에 가장 부합하는 **완벽한 6개 종목**을 최종 선정하십시오.
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
-- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic, chartPattern
-- supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
+- chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
 
@@ -316,224 +477,4 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) { return { data: null, error: error.message }; }
-}
-
-export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
-  
-  // 1. Attempt Deterministic Backtest (Real Data) First
-  try {
-      const realData = await runDeterministicBacktest(stock);
-      if (realData) {
-          return { data: realData, isRealData: true };
-      }
-  } catch (e) {
-      console.warn("Real-Data Backtest failed, falling back to AI...", e);
-  }
-
-  // 2. Fallback to AI Simulation
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
-  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
-
-  const endDate = new Date();
-  const startDate = new Date();
-  startDate.setFullYear(endDate.getFullYear() - 2);
-  const periodStr = `${startDate.toISOString().split('T')[0]} ~ ${endDate.toISOString().split('T')[0]}`;
-
-  const prompt = `[퀀트 백테스트 시뮬레이션 요청]
-대상: ${stock.symbol}
-설정 기간: ${periodStr} (정확히 최근 24개월)
-전략: 진입가 ${stock.supportLevel} / 목표가 ${stock.resistanceLevel} 기준 스윙 트레이딩
-
-위 기간 동안 해당 종목의 역사적 변동성(Volatility)과 베타(Beta) 계수를 기반으로 가상 시뮬레이션을 수행하십시오.
-실제 틱 데이터가 없다면, 종목의 통계적 특성을 이용해 몬테카를로 시뮬레이션 결과를 생성하여 빈 값 없이 응답해야 합니다.
-
-[중요 요구사항: Equity Curve 데이터 구조]
-1. equityCurve는 반드시 0에서 시작하여 시간 흐름에 따른 '누적 수익률(%)'을 나타내는 숫자여야 합니다. (예: 0, 5.2, -3.1, 8.5, ...)
-2. 'value' 필드는 절대 계좌 잔고가 아닌 **수익률 퍼센트**입니다.
-3. 데이터 포인트는 12개 이상이어야 합니다.
-
-[필수 필드]
-1. simulationPeriod: "${periodStr}"로 고정.
-2. metrics: "N/A" 금지. 값이 없으면 "0%" 또는 "0.00"으로 채우십시오.
-3. equityCurve: [{ "period": "24.01", "value": 0 }, { "period": "24.03", "value": 12.5 }, ...] 형태의 JSON 배열.
-4. historicalContext: 백테스팅 결과에 대한 **종합 분석**을 반드시 **한국어**로 작성하십시오. 영어 사용을 엄격히 금지합니다. 반드시 Markdown 문법(## 소제목, **강조**, - 리스트)을 사용하여 가독성을 극대화하십시오.
-
-반드시 JSON 스키마를 준수하여 출력하십시오.`;
-
-  try {
-    if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-      const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
-      }));
-      return { data: sanitizeAndParseJson(result.text), isRealData: false };
-    }
-
-    if (provider === ApiProvider.PERPLEXITY) {
-      let lastError;
-      // Multi-Model Fallback Loop
-      for (const model of PERPLEXITY_MODELS) {
-        try {
-            const res = await fetchWithRetry(async () => {
-                const r = await fetch('https://api.perplexity.ai/chat/completions', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Accept': 'application/json'
-                    },
-                    referrerPolicy: 'no-referrer',
-                    body: JSON.stringify({
-                        model: model,
-                        messages: [
-                            { role: "system", content: "당신은 전문 퀀트 엔진입니다. equityCurve는 누적 수익률(%) 곡선이어야 하며, 0에서 시작하여 변동하는 값들의 배열이어야 합니다. 분석 내용은 반드시 한국어로 출력하십시오." },
-                            { role: "user", content: prompt }
-                        ],
-                        temperature: 0.1
-                    })
-                });
-
-                if (!r.ok) {
-                    const errText = await r.text();
-                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                }
-                return r;
-            }, 1, 1000);
-
-            const json = await res.json();
-            const parsed = sanitizeAndParseJson(json.choices?.[0]?.message?.content);
-            if (parsed) return { data: parsed, isRealData: false };
-
-        } catch (e: any) {
-            console.warn(`Model ${model} failed: ${e.message}`);
-            lastError = e;
-            if (e.message.includes('CRITICAL_AUTH_ERROR')) break;
-        }
-      }
-      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Simulation Failed"}` };
-    }
-    return { data: null, error: "NOT_SUPPORTED" };
-  } catch (error: any) { return { data: null, error: error.message }; }
-}
-
-export async function analyzePipelineStatus(data: {
-  currentStage: number;
-  apiStatuses: any[];
-  symbols?: string[] | null;
-  recommendedData?: any[] | null;
-  targetStock?: any; // For Single Stock Audit
-  mode?: 'PORTFOLIO' | 'SINGLE_STOCK' | 'SYSTEM';
-}, provider: ApiProvider): Promise<string> {
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
-  if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
-
-  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  let prompt = "";
-  
-  if (data.mode === 'SINGLE_STOCK' && data.targetStock) {
-      const s = data.targetStock;
-      prompt = `[ALPHA AUDITOR: DEEP DIVE]
-분석 기준일: ${today}
-대상 종목: ${s.symbol} (${s.name})
-현재가: $${s.price}
-AI 확신도: ${s.convictionScore}%
-전망: ${s.aiVerdict}
-
-위 종목에 대해 다음 항목을 포함한 심층 감사(Audit) 리포트를 작성하십시오:
-1. **투자 핵심 논거 (Alpha Thesis)**: 왜 이 종목이 지금 매수 적기인가? (매크로, 섹터 트렌드 결합)
-2. **리스크 요인 (Risk Factors)**: 잠재적인 하락 리스크와 기술적 붕괴 지점.
-3. **목표가 검증**: 제시된 목표가($${s.resistanceLevel})와 손절가($${s.stopLoss})의 적정성 평가.
-4. **기관 수급 분석**: 최근 기관/내부자 거래 동향 추정 및 수급 해석.
-
-반드시 한국어로 작성하고, ## 헤더, **강조**, - 불렛 포인트를 사용하여 가독성 높은 Markdown 형식으로 출력하십시오.`;
-  } else if (data.mode === 'PORTFOLIO') {
-      const context = data.recommendedData ? `포트폴리오: ${JSON.stringify(data.recommendedData.map(d => ({s: d.symbol, theme: d.sectorTheme})))}` : "데이터 없음";
-      prompt = `[STRATEGIC PORTFOLIO MATRIX]
-분석 기준일: ${today}
-다음 6개 종목으로 구성된 포트폴리오의 최종 전략 리포트를 작성하십시오.
-데이터: ${context}
-
-포함할 내용:
-1. **섹터 주도권 분석**: 어떤 테마가 시장을 이끄는가?
-2. **상관관계 리스크**: 종목 간 분산 투자 효과 분석.
-3. **종합 운용 전략**: 비중 조절 및 헷징 가이드.
-
-반드시 한국어로 Markdown 형식을 사용하여 작성하십시오.`;
-  } else {
-      // System Audit Fallback
-      prompt = `System Status Audit: Stage ${data.currentStage}. Provide a brief system health check report in Korean.`;
-  }
-
-  try {
-    if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-      
-      // Attempt Primary Model (Pro)
-      try {
-          // Attempt with Pro model first
-          const response = await fetchWithRetry(() => ai.models.generateContent({
-            model: 'gemini-3-pro-preview',
-            contents: prompt,
-          }));
-          return response.text || "분석 리포트 생성 실패";
-      } catch (proError: any) {
-          const errorMsg = (proError.message || "").toLowerCase();
-          // Fallback Strategy for Quota/Rate Limits (429 Resource Exhausted)
-          if (errorMsg.includes("429") || errorMsg.includes("exhausted") || errorMsg.includes("quota")) {
-              console.warn("Gemini Pro Quota Exceeded. Falling back to Flash...");
-              const fallbackResponse = await fetchWithRetry(() => ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
-                  contents: prompt + "\n(Note: Generated via Flash model due to high load on Pro)",
-              }));
-              return fallbackResponse.text || "분석 리포트 생성 실패 (Fallback)";
-          }
-          throw proError;
-      }
-    }
-
-    if (provider === ApiProvider.PERPLEXITY) {
-       let lastError;
-       for (const model of PERPLEXITY_MODELS) {
-         try {
-            const res = await fetchWithRetry(async () => {
-                const r = await fetch('https://api.perplexity.ai/chat/completions', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Accept': 'application/json' 
-                    },
-                    referrerPolicy: 'no-referrer',
-                    body: JSON.stringify({
-                        model: model,
-                        messages: [{ role: "user", content: prompt }],
-                        temperature: 0.2
-                    })
-                });
-                if (!r.ok) {
-                    const errText = await r.text();
-                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                }
-                return r;
-            }, 1, 1000);
-            
-            const json = await res.json();
-            const text = json.choices?.[0]?.message?.content;
-            if (text) return text;
-         } catch (e: any) {
-            console.warn(`Model ${model} failed: ${e.message}`);
-            lastError = e;
-            if (e.message.includes('CRITICAL_AUTH_ERROR')) break;
-         }
-       }
-       return `AUDIT_NODE_OFFLINE: ${lastError?.message || "All models unresponsive"}`;
-    }
-    return "INVALID_PROVIDER";
-  } catch (error: any) { return `AUDIT_NODE_FAILURE: ${error.message}`; }
 }

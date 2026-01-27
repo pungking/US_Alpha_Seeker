@@ -1,6 +1,6 @@
 {
-  "name": "US_Alpha_Seeker: v1.0.1 Hotfix",
-  "description": "Official Stable Release v1.0.1. Includes fix for Auditor Matrix state ghosting issue.",
-  "version": "1.0.1",
+  "name": "US_Alpha_Seeker: v1.0.3",
+  "description": "Official Stable Release v1.0.3. Fixed Auditor Ghosting and added Dual AI Personas.",
+  "version": "1.0.3",
   "requestFramePermissions": []
 }
