@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -21,6 +20,8 @@ interface MasterTicker {
   change: number;
   updated: string;
   type?: string; 
+  marketCap?: number;
+  sector?: string;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
@@ -30,6 +31,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
+  // API Keys
+  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
 
@@ -41,10 +44,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     synced: 0,
     target: 10000,
     elapsed: 0,
+    provider: 'Idle',
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v1.9.7: High-Frequency Equity Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.0.0: Multi-Provider Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -66,13 +70,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
 
   const getInitialTargetDate = () => {
     const d = new Date();
-    // Default to yesterday to ensure market close data is available
     d.setDate(d.getDate() - 1);
-    
-    // Adjust for weekends
-    if (d.getDay() === 0) d.setDate(d.getDate() - 2); // If Sunday, go to Friday
-    else if (d.getDay() === 6) d.setDate(d.getDate() - 1); // If Saturday, go to Friday
-    
+    if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
+    else if (d.getDay() === 6) d.setDate(d.getDate() - 1); 
     return d.toISOString().split('T')[0];
   };
 
@@ -111,10 +111,114 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     runAggregatedPipeline(token);
   };
 
+  // --- STRATEGY 1: FMP (Primary) ---
+  const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
+    if (!fmpKey) throw new Error("FMP Key missing");
+    addLog("Strategy A: FMP Bulk Screener (Primary)...", "info");
+    
+    // Fetch NYSE, NASDAQ, AMEX stocks with some volume to filter trash immediately
+    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=12000&apikey=${fmpKey}`;
+    
+    const res = await fetch(url);
+    if (!res.ok) {
+        if (res.status === 429) throw new Error("FMP Rate Limit");
+        throw new Error(`FMP Status ${res.status}`);
+    }
+
+    const data = await res.json();
+    if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
+
+    addLog(`FMP: Retrieved ${data.length} assets.`, "ok");
+    
+    return data.map((item: any) => ({
+        symbol: item.symbol,
+        name: item.companyName,
+        price: item.price,
+        volume: item.volume,
+        change: item.changesPercentage || 0,
+        marketCap: item.marketCap,
+        sector: item.sector,
+        type: 'Common Stock',
+        updated: new Date().toISOString().split('T')[0]
+    }));
+  };
+
+  // --- STRATEGY 2: Finnhub + Polygon (Fallback) ---
+  const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
+    if (!finnhubKey || !polygonKey) throw new Error("Finnhub or Polygon Key missing");
+    addLog("Strategy B: Finnhub Discovery + Polygon Pricing (Fallback)...", "info");
+
+    // 1. Finnhub Symbols
+    const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`);
+    if (!fhRes.ok) throw new Error("Finnhub API Error");
+    const fhData = await fhRes.json();
+    
+    const symbolMap = new Map();
+    fhData.forEach((s: any) => {
+        const type = s.type || 'Common Stock';
+        if (['Common Stock', 'ADR', 'REIT'].includes(type)) {
+            symbolMap.set(s.symbol, { name: s.description, type });
+        }
+    });
+    addLog(`Finnhub: Found ${symbolMap.size} symbols. Requesting Polygon data...`, "info");
+
+    // 2. Polygon Prices (Aggregates)
+    let targetDate = getInitialTargetDate();
+    let polyResults: any[] = [];
+    let attempts = 0;
+    
+    while (attempts < 3) {
+        const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+        
+        if (polyRes.status === 429) {
+            addLog("Polygon 429 Hit. Waiting 5s...", "warn");
+            await new Promise(r => setTimeout(r, 5000));
+            attempts++;
+            continue;
+        }
+
+        if (polyRes.ok) {
+            const data = await polyRes.json();
+            if (data.results && data.results.length > 0) {
+                polyResults = data.results;
+                addLog(`Polygon: Pricing data retrieved for ${targetDate}`, "ok");
+                break;
+            }
+        }
+        
+        // Go back 1 day if empty or failed
+        const d = new Date(targetDate);
+        d.setDate(d.getDate() - 1);
+        targetDate = d.toISOString().split('T')[0];
+        attempts++;
+        await new Promise(r => setTimeout(r, 1500));
+    }
+
+    if (polyResults.length === 0) throw new Error("Polygon pricing failed after retries.");
+
+    // Merge
+    const results: MasterTicker[] = [];
+    polyResults.forEach((p: any) => {
+        if (symbolMap.has(p.T)) {
+            const meta = symbolMap.get(p.T);
+            results.push({
+                symbol: p.T,
+                name: meta.name,
+                type: meta.type,
+                price: p.c,
+                volume: p.v,
+                change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
+                updated: targetDate
+            });
+        }
+    });
+    
+    return results;
+  };
+
   const runAggregatedPipeline = async (token: string) => {
     setIsEngineRunning(true);
     const startTime = Date.now();
-    const newRegistry = new Map<string, MasterTicker>();
     
     setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0 }));
     
@@ -122,126 +226,59 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
       setStats(prev => ({ ...prev, elapsed: Math.floor((Date.now() - startTime) / 1000) }));
     }, 1000);
 
+    let masterData: MasterTicker[] = [];
+    let usedProvider = "None";
+
     try {
-      // --- STEP 1: FINNHUB SYMBOL DISCOVERY ---
-      addLog("Step 1: Identifying Global Equities (Finnhub)...", "info");
-      const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`).then(r => r.json());
-      
-      if (!Array.isArray(fhRes)) {
-         throw new Error(`Finnhub API did not return an array. Check API Key quota. Response: ${JSON.stringify(fhRes).substring(0, 50)}...`);
-      }
+        // --- PRIORITY 1: FMP ---
+        try {
+            masterData = await executeFmpStrategy();
+            usedProvider = "FMP (Primary)";
+        } catch (fmpErr: any) {
+            addLog(`Strategy A Failed: ${fmpErr.message}. Switching to Backup...`, "warn");
+            
+            // --- PRIORITY 2: POLYGON ---
+            try {
+                masterData = await executePolygonStrategy();
+                usedProvider = "Polygon+Finnhub (Backup)";
+            } catch (polyErr: any) {
+                 addLog(`Strategy B Failed: ${polyErr.message}.`, "err");
+                 throw new Error("All Market Data Providers Failed.");
+            }
+        }
 
-      if (Array.isArray(fhRes)) {
-        let filteredCount = 0;
-        fhRes.forEach((s: any) => {
-          const allowedTypes = ['Common Stock', 'ADR', 'REIT', 'MLP'];
-          // Finnhub sometimes returns type as null/undefined, usually implies common stock
-          const type = s.type || 'Common Stock';
-          if (allowedTypes.includes(type)) {
-            newRegistry.set(s.symbol, {
-              symbol: s.symbol,
-              name: s.description,
-              price: 0,
-              volume: 0,
-              change: 0,
-              updated: new Date().toISOString(),
-              type: type
-            });
-          } else {
-            filteredCount++;
-          }
-        });
-        addLog(`Refined ${newRegistry.size} primary tickers. Excluded ${filteredCount} non-equity assets.`, "ok");
-      }
+        if (masterData.length === 0) throw new Error("Zero Assets Found.");
 
-      setStats(prev => ({ ...prev, found: newRegistry.size, phase: 'Mapping' }));
+        // Data Processing
+        setStats(prev => ({ ...prev, found: masterData.length, provider: usedProvider, phase: 'Mapping' }));
+        const registryMap = new Map(masterData.map(i => [i.symbol, i]));
+        setRegistry(registryMap);
 
-      // Throttle slightly to avoid hitting limits immediately
-      await new Promise(r => setTimeout(r, 1500));
+        // Upload to Drive
+        addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
+        setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-      // --- STEP 2: POLYGON PRICE AGGREGATION (WITH HOLIDAY FALLBACK) ---
-      let targetDate = getInitialTargetDate();
-      let polyResults: any[] = [];
-      let foundData = false;
-      let attempts = 0;
-      const maxAttempts = 5;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.0.0.json`;
+        const payload = {
+            manifest: { 
+                version: "2.0.0", 
+                provider: usedProvider, 
+                date: new Date().toISOString(), 
+                count: masterData.length 
+            },
+            universe: masterData
+        };
 
-      while (!foundData && attempts < maxAttempts) {
-          addLog(`Step 2: Merging Price Aggregates (${targetDate})... (Attempt ${attempts + 1})`, "info");
-          
-          const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-          
-          if (polyRes.status === 429) {
-            addLog("API QUOTA EXCEEDED (429). Initiating 60s cooldown.", "err");
-            setCooldown(60);
-            setStats(prev => ({ ...prev, phase: 'Cooldown' }));
-            throw new Error("Rate limit hit");
-          }
-
-          if (polyRes.ok) {
-              const polyData = await polyRes.json();
-              if (polyData.results && polyData.results.length > 0) {
-                  polyResults = polyData.results;
-                  foundData = true;
-                  addLog(`Successfully retrieved market data for ${targetDate}.`, "ok");
-              } else {
-                  addLog(`Market data empty for ${targetDate}. Market likely closed. Checking previous day...`, "warn");
-                  // Go back 1 day
-                  const d = new Date(targetDate);
-                  d.setDate(d.getDate() - 1);
-                  targetDate = d.toISOString().split('T')[0];
-                  attempts++;
-                  await new Promise(r => setTimeout(r, 1000));
-              }
-          } else {
-             // Handle non-200 errors (e.g., 401, 403)
-             addLog(`Polygon API Error: ${polyRes.status} ${polyRes.statusText}`, "err");
-             break;
-          }
-      }
-
-      if (!foundData) {
-         addLog("Warning: Could not retrieve price data after multiple attempts. Saving universe with base metadata only.", "warn");
-      }
-
-      if (foundData && polyResults.length > 0) {
-        let matchCount = 0;
-        polyResults.forEach((r: any) => {
-          if (newRegistry.has(r.T)) {
-            const current = newRegistry.get(r.T)!;
-            newRegistry.set(r.T, {
-              ...current,
-              price: r.c,
-              volume: r.v,
-              change: r.o ? ((r.c - r.o) / r.o) * 100 : 0,
-              updated: targetDate
-            });
-            matchCount++;
-          }
-        });
-        addLog(`Fusion: ${matchCount} active prices synced with master map.`, "ok");
-      }
-
-      setRegistry(new Map(newRegistry));
-      setStats(prev => ({ ...prev, phase: 'Commit' }));
-
-      // Drive Sync
-      const masterData = Array.from(newRegistry.values());
-      const fileName = `STAGE0_MASTER_UNIVERSE_v1.9.7.json`;
-      const payload = {
-        manifest: { version: "1.9.7", data_date: targetDate, total: masterData.length, mode: "Equity_Focus" },
-        universe: masterData
-      };
-
-      const folderId = await ensureFolder(token);
-      if (folderId) {
-        await uploadFile(token, folderId, fileName, payload);
-        setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
-        addLog("System: Cloud Vault Sync Complete.", "ok");
-      }
+        const folderId = await ensureFolder(token);
+        if (folderId) {
+            await uploadFile(token, folderId, fileName, payload);
+            setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
+            addLog(`System: Cloud Vault Sync Complete via ${usedProvider}.`, "ok");
+        }
 
     } catch (e: any) {
-      if (e.message !== "Rate limit hit") addLog(`Fatal Error: ${e.message}`, "err");
+      addLog(`Fatal Error: ${e.message}`, "err");
+      setStats(prev => ({ ...prev, phase: 'Idle' }));
     } finally {
       if (timerRef.current) clearInterval(timerRef.current);
       setIsEngineRunning(false);
@@ -308,10 +345,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v1.9.7</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.0.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Quota_Lock: ${cooldown}s` : 'Equity_Protocol_Active'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
                 </div>
@@ -322,7 +359,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               disabled={isEngineRunning || cooldown > 0}
               className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
             >
-              {isEngineRunning ? 'Synthesizing Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
+              {isEngineRunning ? 'Acquiring Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
             </button>
           </div>
 
@@ -342,8 +379,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
               <div className={`flex-1 flex items-center px-6 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
                 {searchResult ? (
                   <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
-                    <span className="truncate">{searchResult.name || searchResult.symbol} ({searchResult.type})</span>
-                    <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 ml-4">${searchResult.price.toFixed(2)}</span>
+                    <span className="truncate">{searchResult.name || searchResult.symbol}</span>
+                    <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 ml-4">${searchResult.price?.toFixed(2) || '0.00'}</span>
                   </div>
                 ) : (
                   <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
@@ -355,13 +392,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
               { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Asset Type', val: 'EQUITY_NODES', color: 'text-indigo-400' },
+              { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
-              { label: 'Engine Mode', val: 'V1.9.7_CORE', color: 'text-blue-400' }
+              { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
             ].map((s, i) => (
               <div key={i} className="bg-black/40 p-6 rounded-3xl border border-white/5">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
-                <p className={`text-xl font-mono font-black italic ${s.color}`}>{s.val}</p>
+                <p className={`text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
               </div>
             ))}
           </div>
