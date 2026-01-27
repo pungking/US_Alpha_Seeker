@@ -331,11 +331,27 @@ AI 확신도: ${s.convictionScore}%
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-      const response = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-pro-preview',
-        contents: prompt,
-      }));
-      return response.text || "분석 리포트 생성 실패";
+      
+      // Attempt Primary Model (Pro)
+      try {
+          const response = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-pro-preview',
+            contents: prompt,
+          }));
+          return response.text || "분석 리포트 생성 실패";
+      } catch (proError: any) {
+          const errorMsg = (proError.message || "").toLowerCase();
+          // Fallback Strategy for Quota/Rate Limits
+          if (errorMsg.includes("429") || errorMsg.includes("exhausted") || errorMsg.includes("quota")) {
+              console.warn("Gemini Pro Quota Exceeded. Falling back to Flash...");
+              const fallbackResponse = await fetchWithRetry(() => ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: prompt + "\n(Note: Generated via Flash model due to high load)",
+              }));
+              return fallbackResponse.text || "분석 리포트 생성 실패 (Fallback)";
+          }
+          throw proError;
+      }
     }
 
     if (provider === ApiProvider.PERPLEXITY) {

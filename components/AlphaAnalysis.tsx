@@ -288,7 +288,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const text = cleanMarkdown(v).toUpperCase();
     if (text.includes('STRONG') || text.includes('강력')) return 'bg-red-600 text-white border-red-500 shadow-[0_0_15px_rgba(220,38,38,0.5)] font-black tracking-wider';
     if (text.includes('BUY') || text.includes('매수')) return 'bg-rose-500 text-white border-rose-400 shadow-md font-bold';
-    if (text.includes('ACCUMULATE') || text.includes('HOLD') || text.includes('비중') || text.includes('보유') || text.includes('관망')) return 'bg-slate-500 text-white border-slate-400 font-bold';
+    if (text.includes('ACCUMULATE') || text.includes('HOLD') || text.includes('비중') || text.includes('보유') || text.includes('관망') || text.includes('물량') || text.includes('중립')) return 'bg-slate-500 text-white border-slate-400 font-bold';
     if (text.includes('RISK') || text.includes('고위험') || text.includes('SPECULATIVE')) return 'bg-violet-600 text-white border-violet-500 shadow-md font-bold';
     if (text.includes('SELL') || text.includes('매도')) return 'bg-blue-600 text-white border-blue-500 font-bold';
     return 'bg-slate-700 text-slate-300 border-slate-600';
