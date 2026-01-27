@@ -35,6 +35,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
 
   const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
@@ -48,7 +49,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.0.0: Multi-Provider Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.1.0: Robust Fallback Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -121,6 +122,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     
     const res = await fetch(url);
     if (!res.ok) {
+        if (res.status === 403) throw new Error("FMP Plan Restriction (403)");
         if (res.status === 429) throw new Error("FMP Rate Limit");
         throw new Error(`FMP Status ${res.status}`);
     }
@@ -171,8 +173,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
         
         if (polyRes.status === 429) {
-            addLog("Polygon 429 Hit. Waiting 5s...", "warn");
-            await new Promise(r => setTimeout(r, 5000));
+            // [Fix] Increase wait time for free tier (5 req/min -> 12s+ delay needed)
+            addLog("Polygon 429 Hit. Waiting 20s for quota...", "warn");
+            await new Promise(r => setTimeout(r, 20000));
             attempts++;
             continue;
         }
@@ -194,7 +197,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         await new Promise(r => setTimeout(r, 1500));
     }
 
-    if (polyResults.length === 0) throw new Error("Polygon pricing failed after retries.");
+    // [Fix] Graceful Degradation: If Polygon fails, use Symbol Map only (Price 0)
+    if (polyResults.length === 0) {
+        addLog("Polygon Pricing Failed. Proceeding with Symbol List only (Price $0).", "warn");
+        const fallbackResults: MasterTicker[] = [];
+        symbolMap.forEach((val, key) => {
+            fallbackResults.push({
+                symbol: key,
+                name: val.name,
+                type: val.type,
+                price: 0, // Zero price indicates missing data
+                volume: 0,
+                change: 0,
+                updated: new Date().toISOString().split('T')[0]
+            });
+        });
+        return fallbackResults;
+    }
 
     // Merge
     const results: MasterTicker[] = [];
@@ -214,6 +233,35 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     });
     
     return results;
+  };
+
+  // --- STRATEGY 3: Twelve Data (Backup) ---
+  const executeTwelveDataStrategy = async (): Promise<MasterTicker[]> => {
+    if (!twelveDataKey) throw new Error("Twelve Data Key missing");
+    addLog("Strategy C: Twelve Data Symbol List (Deep Backup)...", "info");
+
+    const [nasdaq, nyse] = await Promise.all([
+        fetch(`https://api.twelvedata.com/stocks?exchange=NASDAQ&country=US&apikey=${twelveDataKey}`),
+        fetch(`https://api.twelvedata.com/stocks?exchange=NYSE&country=US&apikey=${twelveDataKey}`)
+    ]);
+
+    const d1 = await nasdaq.json();
+    const d2 = await nyse.json();
+
+    const all = [...(d1.data || []), ...(d2.data || [])];
+    if (all.length === 0) throw new Error("Twelve Data returned 0 symbols.");
+
+    addLog(`Twelve Data: Found ${all.length} symbols.`, "ok");
+
+    return all.map((item: any) => ({
+        symbol: item.symbol,
+        name: item.name,
+        price: 0,
+        volume: 0,
+        change: 0,
+        type: item.type || 'Common Stock',
+        updated: new Date().toISOString().split('T')[0]
+    }));
   };
 
   const runAggregatedPipeline = async (token: string) => {
@@ -237,13 +285,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
         } catch (fmpErr: any) {
             addLog(`Strategy A Failed: ${fmpErr.message}. Switching to Backup...`, "warn");
             
-            // --- PRIORITY 2: POLYGON ---
+            // --- PRIORITY 2: POLYGON + FINNHUB ---
             try {
                 masterData = await executePolygonStrategy();
-                usedProvider = "Polygon+Finnhub (Backup)";
+                // Check if we got pricing or just symbols
+                const hasPrice = masterData.some(d => d.price > 0);
+                usedProvider = hasPrice ? "Polygon+Finnhub" : "Finnhub (Symbol Only)";
             } catch (polyErr: any) {
-                 addLog(`Strategy B Failed: ${polyErr.message}.`, "err");
-                 throw new Error("All Market Data Providers Failed.");
+                 addLog(`Strategy B Failed: ${polyErr.message}. Switching to Deep Backup...`, "warn");
+                 
+                 // --- PRIORITY 3: TWELVE DATA ---
+                 try {
+                     masterData = await executeTwelveDataStrategy();
+                     usedProvider = "Twelve Data (List Only)";
+                 } catch (tdErr: any) {
+                     addLog(`Strategy C Failed: ${tdErr.message}.`, "err");
+                     throw new Error("All Market Data Providers Exhausted.");
+                 }
             }
         }
 
@@ -345,7 +403,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
                 <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.0.0</h2>
+                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.1.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
