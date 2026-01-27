@@ -309,9 +309,9 @@ export async function analyzePipelineStatus(data: {
   let userPrompt = "";
 
   if (provider === ApiProvider.GEMINI) {
-      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety.";
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. Return clean Markdown without emojis.";
   } else {
-      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events.";
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. Return clean Markdown without emojis.";
   }
 
   if (isPortfolio) {
@@ -320,8 +320,9 @@ export async function analyzePipelineStatus(data: {
       대상 종목: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
       분석 일자: ${today}
       
-      다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오:
-      
+      다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오.
+      **주의: 이모티콘(🚀, 📈 등)을 절대 사용하지 마십시오.**
+
       ### 📅 분석 일자: ${today}
       
       1. **섹터 집중 리스크**: 포트폴리오가 특정 테마에 쏠려있는가?
@@ -338,6 +339,11 @@ export async function analyzePipelineStatus(data: {
 
       당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
+      
+      **작성 원칙**:
+      1. **불필요한 이모티콘(🚀, 💎 등) 사용 금지**. 깔끔한 텍스트로만 작성.
+      2. Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성 극대화.
+      3. 전문적이고 냉철한 어조 유지.
       
       반드시 다음 형식을 준수하십시오:
       
@@ -359,11 +365,6 @@ export async function analyzePipelineStatus(data: {
          
       4. **최종 감사 의견 (Final Verdict)**:
          - 매수 승인 / 보류 / 즉시 청산 중 하나를 선택하고 그 이유를 한 문장으로 요약.
-
-      작성 원칙:
-      - 모호한 표현 지양 (예: "상황을 봐서 대응" -> 금지).
-      - 명확한 가격과 대응책 제시.
-      - 전문적이지만 이해하기 쉬운 한국어 사용.
       `;
   }
 
