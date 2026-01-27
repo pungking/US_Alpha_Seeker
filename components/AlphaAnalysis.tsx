@@ -122,6 +122,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
+  // Unique ID for gradient to prevent conflicts and ensure rendering
+  const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
+
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
@@ -161,6 +164,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const removeCitations = (text?: any) => {
       if (text === null || text === undefined) return '';
       return String(text).replace(/\[\d+\]/g, '').trim();
+  };
+
+  // Improved text cleaner that removes Emojis and Symbols
+  const cleanInsightText = (text: string) => {
+    if (!text) return "";
+    return text
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, "")
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "")
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "")
+      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "")
+      .replace(/[\u{2600}-\u{26FF}]/gu, "")
+      .replace(/[\u{2700}-\u{27BF}]/gu, "")
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "")
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️]/g, "") 
+      .replace(/\[\d+\]/g, '')
+      .trim();
   };
 
   const cleanMarkdown = (text?: any) => {
@@ -397,7 +416,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                     <div className="flex justify-between items-center mt-3">
                       <div className="flex flex-col">
-                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">Exp. Return</span>
+                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">예상 수익률 (Exp. Return)</span>
                         <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
                       </div>
                       <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{cleanMarkdown(item.aiVerdict || "HOLD")}</span>
@@ -580,17 +599,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      <svg className="w-48 h-48 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M3.5 18.49l6-6.01 4 4L22 6.92l-1.41-1.41-7.09 7.97-4-4L2 16.99z"/></svg>
                                  </div>
                                  {isChartReady ? (
-                                    <div className="w-full h-[320px] mt-auto relative z-10">
+                                    <div className="flex-1 w-full relative z-10 min-h-[300px]" key={`chart-container-${selectedStock?.symbol}-${currentBacktest?.timestamp}`}>
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartData}>
+                                            <AreaChart data={chartData} margin={{ top: 20, right: 10, left: 0, bottom: 0 }}>
                                                 <defs>
-                                                    <linearGradient id="colorVal" x1="0" y1="0" x2="0" y2="1">
+                                                    <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor="#10b981" stopOpacity={0.6}/>
                                                         <stop offset="95%" stopColor="#10b981" stopOpacity={0}/>
                                                     </linearGradient>
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#ffffff05" vertical={false} />
-                                                <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} dy={10} />
+                                                <XAxis dataKey="period" tick={{fontSize: 9, fill: '#64748b'}} axisLine={false} tickLine={false} dy={10} interval="preserveStartEnd" />
                                                 <YAxis domain={['auto', 'auto']} hide />
                                                 <Tooltip 
                                                     contentStyle={{ backgroundColor: '#000', borderColor: '#333', borderRadius: '12px', fontSize: '12px' }}
@@ -603,7 +622,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     stroke="#10b981" 
                                                     strokeWidth={3} 
                                                     fillOpacity={1} 
-                                                    fill="url(#colorVal)" 
+                                                    fill={`url(#${uniqueChartId})`}
                                                 />
                                             </AreaChart>
                                         </ResponsiveContainer>
@@ -619,7 +638,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                              <h4 className="text-[10px] font-black text-emerald-500 uppercase tracking-[0.4em] mb-6 italic">Simulation Intelligence Insight</h4>
                              <div className="prose-report text-xs opacity-90 leading-relaxed text-slate-300">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {removeCitations(currentBacktest.historicalContext)}
+                                    {cleanInsightText(removeCitations(currentBacktest.historicalContext))}
                                 </ReactMarkdown>
                             </div>
                         </div>
