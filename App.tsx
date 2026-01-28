@@ -21,6 +21,12 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
+  // AI Usage State
+  const [aiUsage, setAiUsage] = useState<any>({ 
+    gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
+    perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
+  });
+  
   // Data State
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
@@ -44,6 +50,15 @@ const App: React.FC = () => {
     setAuditBrain(selectedBrain);
   }, [selectedBrain]);
 
+  const loadUsageStats = () => {
+      const raw = sessionStorage.getItem('US_ALPHA_SEEKER_AI_USAGE');
+      if (raw) {
+          try {
+              setAiUsage(JSON.parse(raw));
+          } catch(e) {}
+      }
+  };
+
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
@@ -53,6 +68,10 @@ const App: React.FC = () => {
       const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
       geminiActive = !!geminiConfig?.key;
     }
+    
+    // Refresh Usage Stats
+    loadUsageStats();
+
     setApiStatuses(() => {
       const orderedConfigs = [
         ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
@@ -77,7 +96,12 @@ const App: React.FC = () => {
     setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
     refreshApiStatuses();
     const interval = setInterval(refreshApiStatuses, 5000);
-    return () => clearInterval(interval);
+    // Listen for custom usage update event
+    window.addEventListener('storage-usage-update', loadUsageStats);
+    return () => {
+        clearInterval(interval);
+        window.removeEventListener('storage-usage-update', loadUsageStats);
+    };
   }, [refreshApiStatuses]);
 
   const runStockAudit = async () => {
@@ -113,6 +137,7 @@ const App: React.FC = () => {
           next.delete(selectedStock.symbol);
           return next;
       });
+      loadUsageStats(); // Force refresh usage after audit
     }
   };
 
@@ -153,6 +178,38 @@ const App: React.FC = () => {
           <p className="text-blue-500 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic">US Alpha Seeker Infrastructure</p>
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
         </div>
+
+        {/* AI Resource Monitor Widget */}
+        <div className="glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-4 w-full md:w-auto">
+             <div className="flex flex-col border-r border-white/5 pr-4">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Resource Monitor</span>
+                 <div className="flex items-center gap-3">
+                     <div className="flex flex-col">
+                         <div className="flex items-center gap-1.5">
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.gemini.status === 'OK' ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`}></div>
+                             <span className="text-[8px] font-bold text-slate-300">GEMINI</span>
+                         </div>
+                         <span className="text-[9px] font-mono text-emerald-400">{aiUsage.gemini.tokens.toLocaleString()} Tks</span>
+                     </div>
+                     <div className="flex flex-col">
+                         <div className="flex items-center gap-1.5">
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.perplexity.status === 'OK' ? 'bg-cyan-500' : 'bg-red-500 animate-pulse'}`}></div>
+                             <span className="text-[8px] font-bold text-slate-300">SONAR</span>
+                         </div>
+                         <span className="text-[9px] font-mono text-cyan-400">{aiUsage.perplexity.tokens.toLocaleString()} Tks</span>
+                     </div>
+                 </div>
+             </div>
+             <div className="text-[8px] text-slate-500 font-mono flex flex-col justify-center min-w-[80px]">
+                 {aiUsage.gemini.status === 'ERR' || aiUsage.perplexity.status === 'ERR' ? (
+                     <span className="text-red-400 font-bold animate-pulse">QUOTA EXCEEDED</span>
+                 ) : (
+                     <span className="text-emerald-500/50">SYSTEM HEALTHY</span>
+                 )}
+                 <span>Reqs: {aiUsage.gemini.requests + aiUsage.perplexity.requests}</span>
+             </div>
+        </div>
+
         <div className="flex items-center space-x-3 glass-panel px-4 py-2.5 rounded-xl border-white/5 w-full md:w-auto justify-between md:justify-end">
            <div className="text-right">
              <p className="text-[7px] text-slate-500 font-black uppercase">Architect</p>

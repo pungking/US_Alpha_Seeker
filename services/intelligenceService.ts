@@ -5,6 +5,34 @@ import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
 
+// [NEW] Usage Tracking System
+const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
+
+export const trackUsage = (provider: string, tokens: number, isError: boolean = false, errorMsg: string = '') => {
+  try {
+    const currentRaw = sessionStorage.getItem(USAGE_KEY);
+    const current = currentRaw ? JSON.parse(currentRaw) : { 
+      gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
+      perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
+    };
+
+    const key = provider === ApiProvider.GEMINI ? 'gemini' : 'perplexity';
+    
+    if (current[key]) {
+      current[key].tokens += tokens;
+      if (!isError) current[key].requests += 1;
+      current[key].status = isError ? 'ERR' : 'OK';
+      current[key].lastError = errorMsg;
+    }
+
+    sessionStorage.setItem(USAGE_KEY, JSON.stringify(current));
+    // Trigger a custom event for UI updates
+    window.dispatchEvent(new Event('storage-usage-update'));
+  } catch (e) {
+    console.error("Usage Tracking Error:", e);
+  }
+};
+
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
   items: {
@@ -268,6 +296,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
+      // [TRACKING]
+      trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text), isRealData: false };
     }
     
@@ -280,10 +310,17 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
             messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
         })
     });
+    
     const data = await pRes.json();
+    // [TRACKING]
+    if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+    
+    if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
+
     return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content), isRealData: false };
     
   } catch (e: any) {
+    trackUsage(provider, 0, true, e.message);
     return { data: null, error: e.message };
   }
 }
@@ -413,6 +450,8 @@ export async function analyzePipelineStatus(data: {
             contents: userPrompt,
             config: { systemInstruction: systemPrompt }
         }));
+        // [TRACKING]
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         return result.text;
     }
 
@@ -434,11 +473,16 @@ export async function analyzePipelineStatus(data: {
         })
     });
     
-    if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
     const json = await res.json();
+    
+    // [TRACKING]
+    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+
+    if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
     return json.choices?.[0]?.message?.content || "No analysis returned.";
 
   } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
     return `AUDIT_FAILURE: ${error.message}`;
   }
 }
@@ -451,7 +495,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
   // [PERSONA DEFINITION]
-  // Distinct personalities for each AI to ensure diverse results
   const GEMINI_PERSONA = `
     [ROLE: Traditional Wall Street Quant & Technical Analyst]
     - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
@@ -495,6 +538,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
+      // [TRACKING]
+      trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text) };
     }
 
@@ -532,6 +577,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             }, 1, 1000); // Low retry inside loop, rely on model switching
 
             const data = await res.json();
+            // [TRACKING]
+            if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+            
             const content = data.choices?.[0]?.message?.content;
             const parsed = sanitizeAndParseJson(content);
             if (parsed) return { data: parsed };
@@ -539,6 +587,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         } catch (e: any) {
             console.warn(`Model ${model} failed: ${e.message}`);
             lastError = e;
+            trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
             if (e.message.includes('CRITICAL_AUTH_ERROR')) break; // Don't try other models if no money
         }
       }
