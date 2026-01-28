@@ -229,21 +229,25 @@ const App: React.FC = () => {
              
              {/* Section 1: AI Brains */}
              <div className="flex flex-col border-r border-white/5 pr-5">
-                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Neural Load</span>
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Session Load</span>
                  <div className="flex items-center gap-3">
                      <div className="flex flex-col">
                          <div className="flex items-center gap-1.5">
-                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.gemini.status === 'OK' ? 'bg-emerald-500' : 'bg-red-500 animate-pulse'}`}></div>
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.gemini.status === 'OK' ? 'bg-emerald-500' : 'bg-red-500 animate-ping'}`}></div>
                              <span className="text-[8px] font-bold text-slate-300">GEMINI</span>
                          </div>
-                         <span className="text-[9px] font-mono text-emerald-400">{aiUsage.gemini.tokens.toLocaleString()} Tks</span>
+                         <span className={`text-[9px] font-mono ${aiUsage.gemini.status === 'OK' ? 'text-emerald-400' : 'text-red-400 font-black animate-pulse'}`}>
+                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                         </span>
                      </div>
                      <div className="flex flex-col">
                          <div className="flex items-center gap-1.5">
-                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.perplexity.status === 'OK' ? 'bg-cyan-500' : 'bg-red-500 animate-pulse'}`}></div>
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.perplexity.status === 'OK' ? 'bg-cyan-500' : 'bg-red-500 animate-ping'}`}></div>
                              <span className="text-[8px] font-bold text-slate-300">SONAR</span>
                          </div>
-                         <span className="text-[9px] font-mono text-cyan-400">{aiUsage.perplexity.tokens.toLocaleString()} Tks</span>
+                         <span className={`text-[9px] font-mono ${aiUsage.perplexity.status === 'OK' ? 'text-cyan-400' : 'text-red-400 font-black animate-pulse'}`}>
+                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                         </span>
                      </div>
                  </div>
              </div>

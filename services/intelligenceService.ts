@@ -21,6 +21,8 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
     if (current[key]) {
       current[key].tokens += tokens;
       if (!isError) current[key].requests += 1;
+      // If error, force status to ERR. If success, revert to OK only if it was previously OK or we want to clear it.
+      // Here we allow clearing error state on success.
       current[key].status = isError ? 'ERR' : 'OK';
       current[key].lastError = errorMsg;
     }
@@ -594,5 +596,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };
     }
     return { data: null, error: "INVALID_PROVIDER" };
-  } catch (error: any) { return { data: null, error: error.message }; }
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return { data: null, error: error.message }; 
+  }
 }
