@@ -359,7 +359,7 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            disabled={isAutoPilot} // [LOCK] Disable all manual nav when Auto Pilot is Active
+            disabled={isAutoPilot} // [LOCK] Completely disable nav when Auto Pilot is ON
             className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
               isAutoPilot 
                 ? 'opacity-30 cursor-not-allowed border-transparent bg-slate-900 text-slate-600' 
