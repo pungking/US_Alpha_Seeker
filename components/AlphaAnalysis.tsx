@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ApiProvider } from '../types';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus } from '../services/intelligenceService';
+import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief } from '../services/intelligenceService';
 
 interface AlphaCandidate {
   symbol: string;
@@ -166,16 +166,32 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // Step 3: Complete
+  // Step 3: Complete with Brief Summary
   useEffect(() => {
-      // Triggered when Matrix audit finishes
-      const hasReport = matrixReports[selectedBrain];
-      if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
-          addLog("AUTO-PILOT: Alpha Protocol Complete. Relaying Report...", "ok");
-          setAutoPhase('DONE');
-          if (onComplete) onComplete(hasReport);
-      }
-  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain]);
+      const finishAutoPilot = async () => {
+          const hasReport = matrixReports[selectedBrain];
+          const currentResults = resultsCache[selectedBrain] || [];
+          
+          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
+              addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
+              
+              // Generate concise summary for Telegram
+              let telegramPayload = hasReport; // Default fall back
+              try {
+                  const brief = await generateTelegramBrief(currentResults, selectedBrain);
+                  telegramPayload = brief;
+                  addLog("Brief Generated. Relaying...", "ok");
+              } catch (e) {
+                  addLog("Brief Gen Failed. Sending full report.", "err");
+              }
+
+              setAutoPhase('DONE');
+              if (onComplete) onComplete(telegramPayload);
+          }
+      };
+      
+      finishAutoPilot();
+  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
 
 
   useEffect(() => {

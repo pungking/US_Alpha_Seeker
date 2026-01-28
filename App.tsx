@@ -81,7 +81,8 @@ const App: React.FC = () => {
                   setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               }
               
-              alert("✅ Auto Pilot Complete: Alpha Report Ready.");
+              // [UX CHANGE] Removed Alert for seamless automation
+              console.log("✅ Auto Pilot Complete: Alpha Report Processed.");
           }
       }, 3000); 
   };

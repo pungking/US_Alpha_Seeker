@@ -327,6 +327,76 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
+export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  const topPick = candidates[0]; // Assumes sorted list
+
+  const prompt = `
+  [Role: Hedge Fund Manager]
+  Task: Create a highly concise, professional Telegram Alert for high-net-worth clients.
+  Date: ${today}
+  Top Pick: ${JSON.stringify(topPick)}
+  Portfolio Context: ${JSON.stringify(candidates.slice(0, 5).map(c => c.symbol))}
+
+  [Strict Format Requirement - Korean Markdown]
+  Do not add introduction or conclusion. Output exactly this structure:
+
+  📅 **${today} | [핵심 시장 분위기/투심 (한줄 요약)]**
+  
+  📊 **Macro / VIX Check**
+  - **[공포/탐욕 단계 추정]** | [시장의 핵심 이슈 한줄 요약]
+  
+  💎 **TOP PICK: ${topPick.symbol}**
+  - 🎯 **진입**: $${topPick.supportLevel?.toFixed(2) || 'Current'} | **목표**: $${topPick.resistanceLevel?.toFixed(2) || 'Open'} | **손절**: $${topPick.stopLoss?.toFixed(2) || 'Tight'}
+  - ⏳ **기간**: [보유기간] | **예상**: ${topPick.expectedReturn}
+  - 🏗 **펀더멘털**: [핵심 재무/성장 지표 간단 요약]
+  - 💡 **추천근거**: [기술적/재료적 핵심 이유 한줄]
+  
+  ⚠️ **Risk / Verdict**
+  - [리스크 요인] / [최종 종합평 한줄]
+
+  **Tone**: Professional, Cold, Direct. No excessive emojis except standard bullet points provided above.
+  `;
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        return result.text;
+    }
+
+    // Perplexity
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
+        },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [{ role: "user", content: prompt }]
+        })
+    });
+    
+    const json = await res.json();
+    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+    return json.choices?.[0]?.message?.content || "Brief generation failed.";
+
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return `BRIEF_GEN_FAILURE: ${error.message}`;
+  }
+}
+
 export async function analyzePipelineStatus(data: {
   currentStage: number;
   apiStatuses: any[];
