@@ -106,9 +106,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return;
     }
 
-    document.body.setAttribute('data-engine-running', 'true');
-    let token = accessToken;
-    if (!token) {
+    // 1. Check Auth First
+    if (!accessToken) {
+      document.body.setAttribute('data-engine-running', 'true'); // Pause ticker during auth
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
@@ -118,7 +118,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              runAggregatedPipeline(res.access_token);
+              
+              // [UX CHANGE] Do NOT run immediately. Let user click the blue button.
+              addLog("Cloud Vault Linked. Ready to Execute Fusion.", "ok");
+              document.body.removeAttribute('data-engine-running'); 
             }
           },
         });
@@ -129,7 +132,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
       return;
     }
-    runAggregatedPipeline(token);
+
+    // 2. If Auth exists, Run Pipeline
+    document.body.setAttribute('data-engine-running', 'true');
+    runAggregatedPipeline(accessToken);
   };
 
   // ... (Strategies remain the same) ...
@@ -326,9 +332,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             <button 
               onClick={startEngine} 
               disabled={isEngineRunning || cooldown > 0}
-              className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
+              className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  isEngineRunning || cooldown > 0 
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                    : !accessToken 
+                        ? 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20' // Login State
+                        : 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' // Execute State
+              }`}
             >
-              {isEngineRunning ? 'Acquiring Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : 'Execute Data Fusion'}
+              {isEngineRunning 
+                ? 'Acquiring Universe...' 
+                : cooldown > 0 
+                    ? `Wait ${cooldown}s` 
+                    : !accessToken 
+                        ? 'Connect Cloud Vault' 
+                        : 'Execute Data Fusion'}
             </button>
           </div>
           
