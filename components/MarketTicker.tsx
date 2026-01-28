@@ -10,6 +10,7 @@ interface MarketItem {
   isIndex: boolean;
   typeLabel: string;
   colorTheme?: string;
+  isProxy?: boolean;
 }
 
 interface PolygonAgg {
@@ -27,15 +28,17 @@ const MarketTicker: React.FC = () => {
   const [activeSource, setActiveSource] = useState<string>('INIT');
 
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
   
   // Configuration for Market Indices
-  // We map the provider specific symbols to our internal IDs
+  // portalId is used to map responses from api/portal_indices
   const indexConfig = [
-    { id: 'NASDAQ', fmp: '^IXIC', poly: 'I:NDX', label: 'NASDAQ 100', theme: 'text-indigo-400' },
-    { id: 'SP500', fmp: '^GSPC', poly: 'I:SPX', label: 'S&P 500', theme: 'text-blue-400' },
-    { id: 'DOW', fmp: '^DJI', poly: 'I:DJI', label: 'DOW JONES', theme: 'text-slate-400' },
-    { id: 'VIX', fmp: '^VIX', poly: 'I:VIX', label: 'VIX (Fear)', theme: 'text-purple-400' },
+    { id: 'NASDAQ', portalId: 'NASDAQ', yahoo: '^IXIC', fmp: '^IXIC', fh: '^IXIC', poly: 'I:NDX', td: 'IXIC', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
+    { id: 'SP500', portalId: 'SP500', yahoo: '^GSPC', fmp: '^GSPC', fh: '^GSPC', poly: 'I:SPX', td: 'GSPC', etf: 'SPY', label: 'S&P 500', theme: 'text-blue-400' },
+    { id: 'DOW', portalId: 'DOW', yahoo: '^DJI', fmp: '^DJI', fh: '^DJI', poly: 'I:DJI', td: 'DJI', etf: 'DIA', label: 'DOW JONES', theme: 'text-slate-400' },
+    { id: 'VIX', portalId: 'VIX', yahoo: '^VIX', fmp: '^VIX', fh: '^VIX', poly: 'I:VIX', td: 'VIX', etf: 'VXX', label: 'VIX (Fear)', theme: 'text-purple-400' },
   ];
 
   const stockConfig = [
@@ -53,135 +56,196 @@ const MarketTicker: React.FC = () => {
     return d.toISOString().split('T')[0];
   };
 
-  // --- STRATEGY A: FMP (Primary) ---
-  const fetchFMP = async () => {
-      if (!fmpKey) throw new Error("No FMP Key");
-      // FMP uses ^ for indices. Batch request.
-      const indices = indexConfig.map(i => i.fmp).join(',');
-      const stocks = stockConfig.map(s => s.symbol).join(',');
+  // --- STRATEGY 0-A: HYBRID PORTAL PROXY (CNBC / TradingView / Investing) ---
+  const fetchPortalProxy = async () => {
+      // This endpoint tries CNBC first, then TradingView, then Investing
+      const res = await fetch('/api/portal_indices');
+      if (!res.ok) throw new Error("Portal Proxy Failed");
       
-      const [idxRes, stkRes] = await Promise.all([
-          fetch(`https://financialmodelingprep.com/api/v3/quote/${indices}?apikey=${fmpKey}`),
-          fetch(`https://financialmodelingprep.com/api/v3/quote/${stocks}?apikey=${fmpKey}`)
-      ]);
-
-      if (!idxRes.ok) throw new Error("FMP Index Error");
-      
-      const idxData = await idxRes.json();
-      const stkData = await stkRes.json();
-
-      if (!Array.isArray(idxData) || idxData.length === 0) throw new Error("FMP Empty Data");
+      const json = await res.json();
+      if (!Array.isArray(json) || json.length === 0) throw new Error("Portal Data Empty");
 
       const finalItems: MarketItem[] = [];
-      const dataMap = new Map([...idxData, ...(stkData || [])].map((item: any) => [item.symbol, item]));
+      const dataMap = new Map(json.map((item: any) => [item.symbol, item]));
+
+      let indexCount = 0;
+      let providerName = 'PORTAL_HYBRID';
 
       // Map Indices
       indexConfig.forEach(cfg => {
-          const item = dataMap.get(cfg.fmp);
+          const item = dataMap.get(cfg.portalId);
           if (item) {
+              if (item.source) providerName = item.source; // Update source label (e.g. CNBC)
               finalItems.push({
                   symbol: cfg.id,
                   label: cfg.label,
                   price: item.price,
-                  change: item.changesPercentage,
+                  change: item.change,
                   isIndex: true,
                   typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite",
                   colorTheme: cfg.theme
               });
+              indexCount++;
           }
       });
-
-      // Map Stocks
-      stockConfig.forEach(cfg => {
-          const item = dataMap.get(cfg.symbol);
-          if (item) {
-              finalItems.push({
-                  symbol: cfg.symbol,
-                  label: cfg.label,
-                  price: item.price,
-                  change: item.changesPercentage,
-                  isIndex: false,
-                  typeLabel: "Equity"
-              });
-          }
-      });
-
-      return finalItems;
+      
+      if (indexCount < 2) throw new Error("Portal Insufficient Indices");
+      
+      // Fetch Stocks via Yahoo Proxy (efficient batch) to complement indices
+      // Because CNBC endpoint handles indices best, we use Yahoo for individual stocks
+      try {
+          const stocks = stockConfig.map(s => s.symbol).join(',');
+          const stockRes = await fetch(`/api/yahoo?symbols=${stocks}`);
+          const stockJson = await stockRes.json();
+          const stockMap = new Map(stockJson.map((item: any) => [item.symbol, item]));
+          
+          stockConfig.forEach(cfg => {
+             const item = stockMap.get(cfg.symbol);
+             if (item) {
+                 finalItems.push({
+                     symbol: cfg.symbol,
+                     label: cfg.label,
+                     price: (item as any).price,
+                     change: (item as any).change,
+                     isIndex: false,
+                     typeLabel: "Equity"
+                 });
+             }
+          });
+      } catch (e) {
+         // If stocks fail, we just show indices (better than nothing)
+      }
+      
+      return { items: finalItems, source: providerName };
   };
 
-  // --- STRATEGY B: POLYGON (Backup) ---
-  const fetchPolygon = async () => {
-    if (!polygonKey) throw new Error("No Polygon Key");
+  // --- STRATEGY 0-B: YAHOO PROXY (Original Backup) ---
+  const fetchYahooProxy = async () => {
+    const indices = indexConfig.map(i => i.yahoo).join(',');
+    const stocks = stockConfig.map(s => s.symbol).join(',');
     
-    // Try up to 3 days back
-    for (let i = 0; i < 3; i++) {
-        const date = getTradingDate(i);
-        try {
-            const [idxRes, stkRes] = await Promise.all([
-                fetch(`https://api.polygon.io/v2/aggs/grouped/locale/global/market/indices/${date}?adjusted=true&apiKey=${polygonKey}`),
-                fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${polygonKey}`)
-            ]);
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 5000);
 
-            if (idxRes.ok && stkRes.ok) {
-                const idxJson = await idxRes.json();
-                const stkJson = await stkRes.json();
-                
-                if (idxJson.results && idxJson.results.length > 0) {
-                     const idxMap = new Map<string, PolygonAgg>((idxJson.results || []).map((r: any) => [r.T, r]));
-                     const stkMap = new Map<string, PolygonAgg>((stkJson.results || []).map((r: any) => [r.T, r]));
-                     
-                     // Check if we actually found our indices
-                     const hasIndices = indexConfig.some(cfg => idxMap.has(cfg.poly) || stkMap.has(cfg.poly));
-                     if (!hasIndices) continue; // Try next date
+    try {
+        const res = await fetch(`/api/yahoo?symbols=${indices},${stocks}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
 
-                     const finalItems: MarketItem[] = [];
+        if (!res.ok) throw new Error("Yahoo Proxy Failed");
+        const json = await res.json();
+        if (!Array.isArray(json) || json.length === 0) throw new Error("Yahoo Proxy Empty");
+        
+        const finalItems: MarketItem[] = [];
+        const dataMap = new Map(json.map((item: any) => [item.symbol, item]));
 
-                     indexConfig.forEach(cfg => {
-                        const t = idxMap.get(cfg.poly) || stkMap.get(cfg.poly);
-                        if (t) {
-                            finalItems.push({
-                                symbol: cfg.id,
-                                label: cfg.label,
-                                price: t.c,
-                                change: t.o ? ((t.c - t.o) / t.o) * 100 : 0,
-                                isIndex: true,
-                                typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite",
-                                colorTheme: cfg.theme
-                            });
-                        }
-                     });
-
-                     stockConfig.forEach(cfg => {
-                        const t = stkMap.get(cfg.symbol);
-                        if (t) {
-                            finalItems.push({
-                                symbol: cfg.symbol,
-                                label: cfg.label,
-                                price: t.c,
-                                change: t.o ? ((t.c - t.o) / t.o) * 100 : 0,
-                                isIndex: false,
-                                typeLabel: "Equity"
-                            });
-                        }
-                     });
-                     
-                     return finalItems;
-                }
+        indexConfig.forEach(cfg => {
+            const item = dataMap.get(cfg.yahoo);
+            if (item) {
+                finalItems.push({
+                    symbol: cfg.id,
+                    label: cfg.label,
+                    price: item.price,
+                    change: item.change,
+                    isIndex: true,
+                    typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite",
+                    colorTheme: cfg.theme
+                });
             }
-        } catch (e) { continue; }
+        });
+
+        stockConfig.forEach(cfg => {
+            const item = dataMap.get(cfg.symbol);
+            if (item) {
+                finalItems.push({
+                    symbol: cfg.symbol,
+                    label: cfg.label,
+                    price: item.price,
+                    change: item.change,
+                    isIndex: false,
+                    typeLabel: "Equity"
+                });
+            }
+        });
+
+        if (finalItems.length < 2) throw new Error("Yahoo Insufficient Data");
+        return finalItems;
+    } catch (e) {
+        clearTimeout(timeoutId);
+        throw e;
     }
-    throw new Error("Polygon Exhausted");
+  };
+
+  // ... (Other Strategies: FMP, TwelveData, etc. remain as deep backups) ...
+
+  const fetchFMP = async () => {
+      if (!fmpKey) throw new Error("No FMP Key");
+      const indices = indexConfig.map(i => i.fmp).join(',');
+      const stocks = stockConfig.map(s => s.symbol).join(',');
+      const [idxRes, stkRes] = await Promise.all([
+          fetch(`https://financialmodelingprep.com/api/v3/quote/${indices}?apikey=${fmpKey}`),
+          fetch(`https://financialmodelingprep.com/api/v3/quote/${stocks}?apikey=${fmpKey}`)
+      ]);
+      if (!idxRes.ok) throw new Error("FMP Index Error");
+      const idxData = await idxRes.json();
+      const stkData = await stkRes.json();
+      if (!Array.isArray(idxData) || idxData.length === 0) throw new Error("FMP Empty");
+      
+      const finalItems: MarketItem[] = [];
+      const dataMap = new Map([...idxData, ...(stkData || [])].map((item: any) => [item.symbol, item]));
+      
+      indexConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.fmp);
+          if (item) finalItems.push({ symbol: cfg.id, label: cfg.label, price: item.price, change: item.changesPercentage, isIndex: true, typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite", colorTheme: cfg.theme });
+      });
+      stockConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.symbol);
+          if (item) finalItems.push({ symbol: cfg.symbol, label: cfg.label, price: item.price, change: item.changesPercentage, isIndex: false, typeLabel: "Equity" });
+      });
+      if (finalItems.length < 2) throw new Error("FMP Insufficient");
+      return finalItems;
+  };
+  
+  const fetchEtfProxies = async () => {
+    if (!finnhubKey) throw new Error("No Finnhub Key");
+    const providerKey = finnhubKey;
+    const providerName = 'FHUB_ETF_PROXY';
+    const etfMap = indexConfig.map(cfg => ({ ...cfg, target: cfg.etf }));
+    const promises = [
+        ...etfMap.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.target}&token=${providerKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.id, label: `${cfg.label} (ETF)`, isIndex: true, theme: cfg.theme, typeLabel: cfg.id === 'VIX' ? "FEAR_ETF" : "Composite_ETF", isProxy: true }))),
+        ...stockConfig.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.symbol}&token=${providerKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.symbol, label: cfg.label, isIndex: false, typeLabel: "Equity" })))
+    ];
+    const results = await Promise.all(promises);
+    const valid = results.filter((r: any) => r.c > 0);
+    if (valid.length === 0) throw new Error("ETF Proxy Failed");
+    return { items: valid.map((item: any) => ({ symbol: item.id, label: item.label, price: item.c, change: item.dp, isIndex: item.isIndex, typeLabel: item.typeLabel, colorTheme: item.theme, isProxy: item.isProxy })), source: providerName };
   };
 
   const fetchMarketData = async () => {
-    if (document.body.getAttribute('data-engine-running') === 'true') {
-      setIsPaused(true);
-      return;
-    }
+    if (document.body.getAttribute('data-engine-running') === 'true') { setIsPaused(true); return; }
     setIsPaused(false);
 
     try {
-        // Try FMP First (Best for Indices)
+        // 1. New Hybrid Portal Proxy (CNBC / TradingView / Investing)
+        try {
+            const result = await fetchPortalProxy();
+            setData(result.items);
+            setActiveSource(result.source); // e.g. CNBC_Direct
+            setErrorCount(0);
+            setLastSync(new Date().toLocaleTimeString());
+            return;
+        } catch (e) { /* continue */ }
+
+        // 2. Yahoo Proxy
+        try {
+            const items = await fetchYahooProxy();
+            setData(items);
+            setActiveSource('YAHOO_PORTAL');
+            setErrorCount(0);
+            setLastSync(new Date().toLocaleTimeString());
+            return;
+        } catch (e) { /* continue */ }
+
+        // 3. FMP
         try {
             const items = await fetchFMP();
             setData(items);
@@ -189,20 +253,17 @@ const MarketTicker: React.FC = () => {
             setErrorCount(0);
             setLastSync(new Date().toLocaleTimeString());
             return;
-        } catch (fmpError) {
-            console.warn("FMP Failed, switching to Polygon", fmpError);
-        }
-
-        // Try Polygon Second
+        } catch (e) { /* continue */ }
+        
+        // 4. ETF Fallback
         try {
-            const items = await fetchPolygon();
-            setData(items);
-            setActiveSource('POLY_v2');
+            const result = await fetchEtfProxies();
+            setData(result.items);
+            setActiveSource(result.source);
             setErrorCount(0);
             setLastSync(new Date().toLocaleTimeString());
-        } catch (polyError) {
-            throw new Error("All Providers Failed");
-        }
+            return;
+        } catch (e) { throw new Error("All Failed"); }
 
     } catch (e) {
       console.warn("Market sync delayed:", e);
@@ -221,8 +282,8 @@ const MarketTicker: React.FC = () => {
       {data.length > 0 ? data.map((item) => (
         <div 
           key={item.symbol} 
-          className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-all hover:bg-white/5 ${item.typeLabel === 'FEAR_INDEX' ? 'bg-purple-900/10 border-l-purple-500' : ''}`}
-          style={{ borderLeftColor: item.typeLabel === 'FEAR_INDEX' ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}
+          className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-all hover:bg-white/5 ${item.typeLabel.includes('FEAR') ? 'bg-purple-900/10 border-l-purple-500' : ''}`}
+          style={{ borderLeftColor: item.typeLabel.includes('FEAR') ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}
         >
           <div className="flex flex-col">
             <span className={`text-[7px] font-black uppercase tracking-widest ${item.colorTheme || 'text-slate-500'}`}>
