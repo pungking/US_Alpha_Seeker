@@ -48,6 +48,15 @@ const App: React.FC = () => {
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
+  // [NEW] GITHUB ACTION HOOK: Check for ?auto=true in URL to start immediately
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auto') === 'true' && isGdriveConnected && viewMode === 'MANUAL') {
+          console.log("Headless Automation Triggered via URL");
+          toggleViewMode();
+      }
+  }, [isGdriveConnected]);
+
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = (stageId: number) => {
       if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
@@ -72,15 +81,17 @@ const App: React.FC = () => {
   const toggleViewMode = () => {
       if (viewMode === 'MANUAL') {
           if (!isGdriveConnected) {
+              // Alert is okay here as it signals a configuration error preventing start
               alert("Error: Cloud Vault (Google Drive) Connection Required for Automation Mode.");
               return;
           }
-          if (confirm("⚠️ Execute AUTO PILOT PIPELINE?\n\n- Sequence: Stage 0 -> 6 (Single Pass)\n- Mode: Fully Autonomous\n- Navigation: LOCKED")) {
-              setViewMode('AUTO');
-              setIsAutoPilotRunning(true);
-              setCurrentStage(0);
-              setAutoStatusMessage("AUTO PILOT ENGAGED");
-          }
+          
+          // [MODIFIED] Removed 'confirm' dialog to support seamless Headless Automation
+          setViewMode('AUTO');
+          setIsAutoPilotRunning(true);
+          setCurrentStage(0);
+          setAutoStatusMessage("AUTO PILOT ENGAGED");
+          
       } else {
           setViewMode('MANUAL');
           setIsAutoPilotRunning(false);
