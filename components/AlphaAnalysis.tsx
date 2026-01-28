@@ -216,9 +216,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return String(text).replace(/\[\d+\]/g, '').trim();
   };
 
-  const cleanInsightText = (text: string) => {
+  const cleanInsightText = (text: any) => {
     if (!text) return "";
-    return text
+    const str = String(text); // [SAFE GUARD] Force string type
+    return str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
       .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
@@ -308,6 +309,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
     setMatrixBrain(brain);
+    // Use the results of the currently active 'selectedBrain' as the data source for matrix audit
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -322,10 +324,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             recommendedData: currentResults,
             mode: 'PORTFOLIO'
         }, brain);
-        setMatrixReports(prev => ({ ...prev, [brain]: report }));
+        
+        // Ensure report is a string before setting state to prevent rendering crashes
+        const safeReport = String(report || "No analysis returned from neural engine.");
+        setMatrixReports(prev => ({ ...prev, [brain]: safeReport }));
+        
         addLog("Portfolio Matrix Audit complete.", "ok");
-    } catch (e: any) { addLog(`Matrix Error: ${e.message}`, "err"); }
-    finally { setMatrixLoading(false); }
+    } catch (e: any) { 
+        addLog(`Matrix Error: ${e.message}`, "err"); 
+    } finally { 
+        setMatrixLoading(false); 
+    }
   };
 
   const handleManualTelegramSend = async () => {
