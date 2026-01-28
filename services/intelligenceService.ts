@@ -333,33 +333,91 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-  const topPick = candidates[0]; // Assumes sorted list
+  
+  // 1. Fetch Real-time Index Data for Macro/VIX context
+  let macroContext = "";
+  try {
+      const indexRes = await fetch('/api/portal_indices');
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          // Extract specific values
+          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
+          const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
+          
+          macroContext = `
+          Real-time Index Data:
+          - VIX: ${vix?.price || 'N/A'} (Change: ${vix?.change || 0}%)
+          - S&P 500: ${spx?.price || 'N/A'}
+          - NASDAQ: ${ndx?.price || 'N/A'}
+          `;
+      }
+  } catch (e) {
+      console.warn("Index fetch failed for Telegram Brief", e);
+      macroContext = "Market Index Data Unavailable";
+  }
+
+  // 2. Select Top 6 Candidates
+  const top6 = candidates.slice(0, 6).map(c => ({
+      symbol: c.symbol,
+      verdict: c.aiVerdict, // e.g. STRONG_BUY
+      entry: c.supportLevel,
+      target: c.resistanceLevel,
+      stop: c.stopLoss,
+      reason: c.selectionReasons?.[0] || "High Alpha Potential",
+      expReturn: c.expectedReturn
+  }));
 
   const prompt = `
-  [Role: Hedge Fund Manager]
-  Task: Create a highly concise, professional Telegram Alert for high-net-worth clients.
+  [Role: Senior Hedge Fund Manager]
+  Task: Create a premium "Alpha Daily Briefing" for Telegram.
   Date: ${today}
-  Top Pick: ${JSON.stringify(topPick)}
-  Portfolio Context: ${JSON.stringify(candidates.slice(0, 5).map(c => c.symbol))}
+  
+  ${macroContext}
+  
+  Top 6 Alpha Picks (Sorted by Conviction):
+  ${JSON.stringify(top6)}
 
   [Strict Format Requirement - Korean Markdown]
-  Do not add introduction or conclusion. Output exactly this structure:
+  Output exactly this structure with line breaks between sections.
+  
+  📅 **${today} | Daily Alpha Insight**
+  
+  📊 **Market Pulse**
+  **Macro**: [공포/탐욕 단계 추정 및 시장 분위기 한줄 요약] (S&P500: [Value] | NASDAQ: [Value])
+  **VIX**: [VIX Value] ([VIX 상태 해석 - 예: 안정/공포/패닉])
+  
+  💎 **Alpha Top 6 Selections**
 
-  📅 **${today} | [핵심 시장 분위기/투심 (한줄 요약)]**
-  
-  📊 **Macro / VIX Check**
-  - **[공포/탐욕 단계 추정]** | [시장의 핵심 이슈 한줄 요약]
-  
-  💎 **TOP PICK: ${topPick.symbol}**
-  - 🎯 **진입**: $${topPick.supportLevel?.toFixed(2) || 'Current'} | **목표**: $${topPick.resistanceLevel?.toFixed(2) || 'Open'} | **손절**: $${topPick.stopLoss?.toFixed(2) || 'Tight'}
-  - ⏳ **기간**: [보유기간] | **예상**: ${topPick.expectedReturn}
-  - 🏗 **펀더멘털**: [핵심 재무/성장 지표 간단 요약]
-  - 💡 **추천근거**: [기술적/재료적 핵심 이유 한줄]
-  
-  ⚠️ **Risk / Verdict**
-  - [리스크 요인] / [최종 종합평 한줄]
+  1. **${top6[0].symbol}** (${top6[0].verdict})
+     - 🎯 **Plan**: 진입 $${top6[0].entry?.toFixed(2)} | 목표 $${top6[0].target?.toFixed(2)} | 손절 $${top6[0].stop?.toFixed(2)}
+     - 💡 **Logic**: ${top6[0].reason}
+     
+  2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'})
+     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'}
+     - 💡 **Logic**: ${top6[1]?.reason || '-'}
 
-  **Tone**: Professional, Cold, Direct. No excessive emojis except standard bullet points provided above.
+  3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'})
+     - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'}
+     - 💡 **Logic**: ${top6[2]?.reason || '-'}
+
+  4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[3]?.target?.toFixed(2) || '0'} (${top6[3]?.expReturn})
+     - 💡 **Why**: ${top6[3]?.reason || '-'}
+
+  5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[4]?.target?.toFixed(2) || '0'} (${top6[4]?.expReturn})
+     - 💡 **Why**: ${top6[4]?.reason || '-'}
+
+  6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[5]?.target?.toFixed(2) || '0'} (${top6[5]?.expReturn})
+     - 💡 **Why**: ${top6[5]?.reason || '-'}
+  
+  ⚠️ **Risk Note**: [시장 리스크 한줄 요약]
+
+  **Tone**: Professional, Direct, High-Value. Use the emojis provided.
+  Translate "STRONG_BUY" to "강력 매수", "BUY" to "매수", "ACCUMULATE" to "비중 확대".
+  If S&P500/NASDAQ values are 'N/A' in context, omit them from the Macro line.
   `;
 
   try {
