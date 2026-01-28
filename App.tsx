@@ -13,6 +13,7 @@ import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
 import { analyzePipelineStatus } from './services/intelligenceService';
+import { sendTelegramReport } from './services/telegramService';
 
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
@@ -58,21 +59,28 @@ const App: React.FC = () => {
   }, [isGdriveConnected]);
 
   // Stage Completion Handler (Single Run Logic)
-  const handleStageComplete = (stageId: number) => {
+  const handleStageComplete = async (stageId: number, reportPayload?: string) => {
       if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
 
       const nextStage = stageId + 1;
       
       // Delay transition for visual confirmation
-      setTimeout(() => {
+      setTimeout(async () => {
           if (nextStage <= 6) {
               setCurrentStage(nextStage);
               setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
           } else {
               // ALL STAGES COMPLETED (Stage 6 finished)
               setIsAutoPilotRunning(false);
-              setAutoStatusMessage("ALL PIPELINES EXECUTED.");
-              // Optionally trigger Github Action / Telegram Alert logic here in future
+              
+              if (reportPayload) {
+                  setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
+                  const sent = await sendTelegramReport(reportPayload);
+                  setAutoStatusMessage(sent ? "ALL PIPELINES EXECUTED." : "TELEGRAM SEND FAILED.");
+              } else {
+                  setAutoStatusMessage("ALL PIPELINES EXECUTED.");
+              }
+              
               alert("✅ Auto Pilot Complete: Alpha Report Ready.");
           }
       }, 3000); 
@@ -423,7 +431,7 @@ const App: React.FC = () => {
             onStockSelected={setSelectedStock}
             analyzingSymbols={analyzingStocks}
             autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
-            onComplete={() => handleStageComplete(6)}
+            onComplete={(report) => handleStageComplete(6, report)}
           />
         </div>
       </main>

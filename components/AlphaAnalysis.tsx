@@ -45,7 +45,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
   analyzingSymbols?: Set<string>;
   autoStart?: boolean;
-  onComplete?: () => void;
+  onComplete?: (reportContent?: string) => void;
 }
 
 // [HELPER] Metric Definitions
@@ -90,18 +90,6 @@ const MarkdownComponents: any = {
         inline 
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
-    ),
-};
-
-const MetricMarkdownComponents: any = {
-    p: (props: any) => <p className="mb-2 last:mb-0" {...props} />,
-    strong: (props: any) => <strong className="text-emerald-400 font-bold" {...props} />,
-    ul: (props: any) => <ul className="space-y-1.5 mb-2 mt-2" {...props} />,
-    li: (props: any) => (
-        <li className="flex items-start gap-2 pl-1" {...props}>
-             <span className="w-1.5 h-1.5 rounded-full bg-blue-500 mt-1.5 shrink-0 opacity-80"></span>
-             <span className="flex-1 text-[11px] text-slate-300 leading-snug">{props.children}</span>
-        </li>
     ),
 };
 
@@ -183,9 +171,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       // Triggered when Matrix audit finishes
       const hasReport = matrixReports[selectedBrain];
       if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
-          addLog("AUTO-PILOT: Alpha Protocol Complete.", "ok");
+          addLog("AUTO-PILOT: Alpha Protocol Complete. Relaying Report...", "ok");
           setAutoPhase('DONE');
-          if (onComplete) onComplete();
+          if (onComplete) onComplete(hasReport);
       }
   }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain]);
 
