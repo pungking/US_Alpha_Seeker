@@ -1,6 +1,6 @@
 {
-  "name": "US_Alpha_Seeker: v1.1.1",
-  "description": "Official Genesis Stable Release v1.1.1. Secured with RapidAPI CNBC Proxy for redundant market data resilience.",
-  "version": "1.1.1",
+  "name": "US_Alpha_Seeker: v1.2.0",
+  "description": "Phase 1 Complete: Integrity Validation & Deep Alpha Audit Pipeline Operational.",
+  "version": "1.2.0",
   "requestFramePermissions": []
 }

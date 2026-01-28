@@ -135,7 +135,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.1.1 (RapidAPI Secured)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.2.0 (Phase 1 Complete)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
