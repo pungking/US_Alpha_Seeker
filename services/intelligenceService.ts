@@ -316,35 +316,38 @@ export async function analyzePipelineStatus(data: {
   }
 
   if (isIntegrityCheck) {
-      systemPrompt = "You are the Gatekeeper of a high-end investment pipeline. Your job is to verify asset legitimacy and filter out scams or dead assets. Use Korean Markdown.";
+      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자입니다. 분석 파이프라인에 진입하려는 종목의 '법적/재무적 무결성'을 검증합니다. 스캠이나 잡주를 냉철하게 걸러내십시오. **이모티콘 절대 사용 금지**. 전문적인 한국어 Markdown 형식을 사용하십시오.";
       userPrompt = `
       [GLOBAL INTEGRITY VALIDATOR]
-      Target: ${stock.symbol} (${stock.name || 'Unknown'})
-      Current Price: $${stock.price}
-      Analysis Date: ${today}
+      대상: ${stock.symbol} (${stock.name || 'Unknown'})
+      현재가: $${stock.price}
+      분석 일자: ${today}
 
-      Please conduct a preliminary integrity check to see if this asset is safe to enter the analysis pipeline.
+      이 종목이 심층 분석(Deep Dive) 단계로 넘어갈 자격이 있는지 무결성을 검증하십시오.
+
+      **작성 원칙**:
+      1. **이모티콘(🛡️, 🚨, ✅ 등) 절대 사용 금지**. 텍스트와 기호(-, *, #)만 사용.
+      2. 날짜를 반드시 상단에 명시.
+      3. 어조는 매우 보수적이고 비판적이어야 함.
       
-      **Writing Rules**:
-      1. **NO EMOJIS**. Use only text, numbers, and Markdown symbols (##, -, **).
-      2. Be concise and critical.
+      **필수 보고서 양식**:
       
-      Required Format:
-      ### 🛡️ Integrity Audit Report: ${stock.symbol}
+      ### 분석 일자: ${today}
+      ### 무결성 검증 감사 (Integrity Audit)
       
-      1. **Corporate Legitimacy (Business Reality)**:
-         - Is this a real, operating business with verifiable products/services?
+      1. **기업 실체 및 펀더멘털 (Corporate Reality)**:
+         - 페이퍼 컴퍼니 여부 및 실제 비즈니스 영위 여부 확인.
          
-      2. **Major Risk Flags (Red Flags)**:
-         - Check for recent bankruptcy rumors, delisting warnings, or massive dilution events.
-         - Is the stock manipulation-prone (Penny stock risk)?
+      2. **주요 위험 신호 (Red Flags)**:
+         - 상장폐지 위험, 최근의 과도한 주식 희석, 회계 부정 이슈 점검.
+         - '동전주(Penny Stock)' 투기 위험성 경고.
          
-      3. **Market Consensus**:
-         - Brief summary of recent news or market sentiment.
+      3. **시장 신뢰도 (Market Consensus)**:
+         - 기관 투자자의 참여도 및 시장 평판.
          
-      4. **Gatekeeper Verdict**:
-         - **PASS** (Safe to Analyze) or **REJECT** (High Risk/Scam).
-         - One sentence reason.
+      4. **최종 승인 여부 (Verdict)**:
+         - **[분석 승인]** 또는 **[거절/부적격]** 으로 명확히 표기.
+         - 판단 근거를 한 문장으로 요약.
       `;
   } else if (isPortfolio) {
       userPrompt = `
