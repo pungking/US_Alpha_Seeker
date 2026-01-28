@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ApiProvider } from '../types';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief } from '../services/intelligenceService';
+import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
   symbol: string;
@@ -98,6 +100,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [matrixLoading, setMatrixLoading] = useState(false);
+  const [sendingTelegram, setSendingTelegram] = useState(false);
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
@@ -325,6 +328,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     finally { setMatrixLoading(false); }
   };
 
+  const handleManualTelegramSend = async () => {
+    if (sendingTelegram) return;
+    const currentResults = resultsCache[selectedBrain] || [];
+    if (currentResults.length === 0) {
+        addLog("No data to transmit. Run Alpha Engine first.", "err");
+        return;
+    }
+
+    setSendingTelegram(true);
+    addLog("Manual Command: Generating Telegram Brief...", "signal");
+
+    try {
+        const brief = await generateTelegramBrief(currentResults, selectedBrain);
+        const success = await sendTelegramReport(brief);
+        if (success) addLog("Telegram Transmission Successful.", "ok");
+        else addLog("Telegram Transmission Failed.", "err");
+    } catch (e: any) {
+        addLog(`Telegram Error: ${e.message}`, "err");
+    } finally {
+        setSendingTelegram(false);
+    }
+  };
+
   const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
     if (e) { e.preventDefault(); e.stopPropagation(); }
     if (backtestLoading) return;
@@ -533,10 +559,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             Sonar Pro
                         </button>
                     </div>
-                    <div className="pr-2">
-                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
+                    <div className="pr-2 flex items-center gap-4">
+                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest hidden md:inline-block">
                             Active Matrix Node: {matrixBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}
                         </span>
+                        {/* MANUAL TELEGRAM BUTTON */}
+                         {currentResults.length > 0 && (
+                            <button 
+                                onClick={handleManualTelegramSend} 
+                                disabled={sendingTelegram}
+                                className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${sendingTelegram ? 'bg-blue-900 border-blue-700 text-blue-400 animate-pulse' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-500 shadow-lg'}`}
+                            >
+                                {sendingTelegram ? (
+                                    <><span>Transmitting...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></>
+                                ) : (
+                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>
+                                )}
+                            </button>
+                        )}
                     </div>
                 </div>
                {matrixReports[matrixBrain] ? (
