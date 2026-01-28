@@ -36,6 +36,27 @@ export interface GatheringStats {
   estimatedTimeRemaining: string;
 }
 
+// [NEW] RapidAPI Future Expansion Types
+export interface MarketNews {
+  id: string;
+  headline: string;
+  description: string;
+  publishedTime: string;
+  source: string;
+  url: string;
+  relatedSymbols: string[];
+  sentimentScore?: number; // AI Calculated (-100 to 100)
+}
+
+export interface EarningsEvent {
+  symbol: string;
+  date: string;
+  estimate: number;
+  actual: number;
+  surprisePercent: number;
+  timeOfDay: 'BMO' | 'AMC'; // Before Market Open / After Market Close
+}
+
 export enum AnalysisStage {
   STAGE_0 = 'Universe Gathering',
   STAGE_2 = 'Quality Filter',

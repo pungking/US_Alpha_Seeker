@@ -1,6 +1,6 @@
 export default async function handler(req: any, res: any) {
-  // Portal Proxy v3: Unified "Magic Bullet" for Indices AND Major Stocks
-  // Priority: 1. CNBC (API) -> 2. TradingView (Scanner API) -> 3. Investing.com (Scraper - Indices Only Fallback)
+  // Portal Proxy v4: "Ironclad" Strategy with RapidAPI Integration
+  // Priority: 1. CNBC Direct (Speed) -> 2. RapidAPI CNBC (Stability/Proxy) -> 3. TradingView (Backup) -> 4. Investing (Last Resort)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,10 +17,9 @@ export default async function handler(req: any, res: any) {
     return parseFloat(String(str).replace(/,/g, '').replace(/%/g, ''));
   };
 
-  // --- STRATEGY A: CNBC API (High Reliability) ---
+  // --- STRATEGY A: CNBC DIRECT (Fastest, No Quota) ---
   const fetchCNBC = async () => {
     try {
-        // Indices (.IXIC) + Stocks (AAPL, etc.)
         const symbols = ".IXIC|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
         const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?partnerId=2&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json&players=null&symbols=${symbols}`;
         
@@ -30,44 +29,80 @@ export default async function handler(req: any, res: any) {
             }
         });
 
-        if (!response.ok) throw new Error(`CNBC Status ${response.status}`);
+        if (!response.ok) throw new Error(`CNBC Direct Status ${response.status}`);
         const data = await response.json();
-        
         const quotes = data.QuickQuoteResult?.QuickQuote;
-        if (!quotes || !Array.isArray(quotes)) throw new Error("CNBC Empty Data");
+        if (!quotes || !Array.isArray(quotes)) throw new Error("CNBC Direct Empty");
 
-        const map: Record<string, string> = {
-            ".IXIC": "NASDAQ",
-            ".SPX": "SP500",
-            ".DJI": "DOW",
-            ".VIX": "VIX",
-            "AAPL": "AAPL",
-            "NVDA": "NVDA",
-            "TSLA": "TSLA",
-            "MSFT": "MSFT"
-        };
-
-        const results = quotes.map((q: any) => {
-            const internalSymbol = map[q.symbol] || q.symbol; // Fallback to raw symbol if mapped
-            
-            return {
-                symbol: internalSymbol,
-                price: parseValue(q.last),
-                change: parseValue(q.change_pct),
-                source: 'CNBC_Direct'
-            };
-        }).filter(item => item !== null);
-
-        if (results.length < 2) throw new Error("CNBC Insufficient Data");
-        return results;
-
+        return normalizeQuotes(quotes, 'CNBC_Direct');
     } catch (e) {
-        console.error("CNBC Fail:", e);
+        console.error("Strategy A (Direct) Fail:", e);
         return null;
     }
   };
 
-  // --- STRATEGY B: TRADINGVIEW SCANNER (Backup) ---
+  // --- STRATEGY B: RAPID API CNBC (Reliable Proxy - NEW) ---
+  const fetchRapidCNBC = async () => {
+    try {
+        const RAPID_KEY = '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e';
+        const RAPID_HOST = 'cnbc.p.rapidapi.com';
+        const symbols = ".IXIC|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
+        
+        // This endpoint mimics the official CNBC structure via RapidAPI proxy
+        const url = `https://${RAPID_HOST}/market/get-quote?symbol=${encodeURIComponent(symbols)}&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json`;
+
+        const response = await fetch(url, {
+            method: 'GET',
+            headers: {
+                'X-RapidAPI-Key': RAPID_KEY,
+                'X-RapidAPI-Host': RAPID_HOST
+            }
+        });
+
+        if (!response.ok) throw new Error(`RapidAPI Status ${response.status}`);
+        
+        const data = await response.json();
+        // RapidAPI usually wraps the same structure
+        const quotes = data.QuickQuoteResult?.QuickQuote;
+        
+        if (!quotes || !Array.isArray(quotes)) throw new Error("RapidAPI Empty Data");
+
+        return normalizeQuotes(quotes, 'CNBC_RapidAPI');
+
+    } catch (e) {
+        console.error("Strategy B (RapidAPI) Fail:", e);
+        return null;
+    }
+  };
+
+  // Helper to normalize CNBC-style responses (used by Strategy A & B)
+  const normalizeQuotes = (quotes: any[], sourceLabel: string) => {
+    const map: Record<string, string> = {
+        ".IXIC": "NASDAQ",
+        ".SPX": "SP500",
+        ".DJI": "DOW",
+        ".VIX": "VIX",
+        "AAPL": "AAPL",
+        "NVDA": "NVDA",
+        "TSLA": "TSLA",
+        "MSFT": "MSFT"
+    };
+
+    const results = quotes.map((q: any) => {
+        const internalSymbol = map[q.symbol] || q.symbol;
+        return {
+            symbol: internalSymbol,
+            price: parseValue(q.last),
+            change: parseValue(q.change_pct),
+            source: sourceLabel
+        };
+    }).filter(item => item !== null);
+
+    if (results.length < 2) throw new Error("Insufficient Data Parsed");
+    return results;
+  };
+
+  // --- STRATEGY C: TRADINGVIEW SCANNER (Backup) ---
   const fetchTradingView = async () => {
     try {
       const response = await fetch('https://scanner.tradingview.com/america/scan', {
@@ -101,18 +136,18 @@ export default async function handler(req: any, res: any) {
       };
 
       return json.data.map((item: any) => ({
-           symbol: map[item.s] || item.s.split(':')[1] || item.s, // Handle NASDAQ:AAPL -> AAPL
+           symbol: map[item.s] || item.s.split(':')[1] || item.s, 
            price: item.d[0],
            change: item.d[1],
            source: 'TradingView'
       }));
     } catch (e) {
-      console.error("TradingView Fail:", e);
+      console.error("Strategy C (TV) Fail:", e);
       return null;
     }
   };
 
-  // --- STRATEGY C: INVESTING.COM SCRAPER (Deep Backup - Indices Only) ---
+  // --- STRATEGY D: INVESTING.COM SCRAPER (Deep Backup) ---
   const fetchInvestingCom = async () => {
     try {
       const response = await fetch('https://www.investing.com/indices/major-indices', {
@@ -142,19 +177,25 @@ export default async function handler(req: any, res: any) {
       if (results.length < 2) throw new Error("Investing Parsing Failed");
       return results;
     } catch (e) {
-      console.error("Investing.com Fail:", e);
+      console.error("Strategy D (Investing) Fail:", e);
       return null;
     }
   };
 
   try {
-    // 1. Try CNBC First (Includes Indices + Stocks)
+    // 1. Try CNBC Direct First (Fastest)
     let data = await fetchCNBC();
 
-    // 2. Try TradingView (Includes Indices + Stocks)
+    // 2. Try RapidAPI CNBC (New High-Quality Backup)
+    if (!data) {
+        console.log("Switching to Strategy B: RapidAPI...");
+        data = await fetchRapidCNBC();
+    }
+
+    // 3. Try TradingView
     if (!data) data = await fetchTradingView();
 
-    // 3. Try Investing.com (Indices Only - Better than nothing)
+    // 4. Try Investing.com
     if (!data) data = await fetchInvestingCom();
 
     if (!data) return res.status(500).json({ error: "All Index Providers Failed" });
