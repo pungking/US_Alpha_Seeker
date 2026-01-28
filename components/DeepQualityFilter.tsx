@@ -202,7 +202,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const roeScore = (metrics.roe || 0) * 2.0; 
       const debtPenalty = (metrics.debt || 0) * 0.5;
-      const mktCapBonus = Math.min(20, Math.log10(target.marketValue || 1000000) * 2); 
+      
+      // [SAFE MATH] Prevent log10(0) or log10(undefined) crash
+      const safeMarketValue = (target.marketValue || (target.price * target.volume)) || 1000000; // Default to 1M if missing
+      const mktCapBonus = Math.min(20, Math.log10(safeMarketValue) * 2); 
       
       const qScore = roeScore - debtPenalty + mktCapBonus;
 
@@ -211,7 +214,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         name: profileData.name || target.name || "N/A",
         price: target.price, 
         volume: target.volume, 
-        marketValue: target.marketValue || (target.price * target.volume),
+        marketValue: safeMarketValue,
         type: "Equity", 
         per: metrics.per,
         pbr: metrics.pbr, 
@@ -416,6 +419,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
+      let batchRetryCount = 0; // [FIX] Prevent infinite loop
 
       while (currentIndex < totalCandidates) {
           setNetworkStatus(fmpDepleted 
@@ -444,6 +448,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               });
 
               currentIndex += BATCH_SIZE;
+              batchRetryCount = 0; // [FIX] Reset retry count on success
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
               
               const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
@@ -454,12 +459,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   addLog(`FMP Limit Hit! Engaging Safe Mode (Finnhub)...`, "warn");
                   setFmpDepleted(true); 
                   await new Promise(r => setTimeout(r, 1000));
+                  // [FIX] Increment retry, but don't skip yet unless excessive
+                  batchRetryCount++;
               } else if (e.message === "FINNHUB_LIMIT") {
                   addLog(`Finnhub Limit. Cooling down (10s)...`, "warn");
                   await new Promise(r => setTimeout(r, 10000));
+                  batchRetryCount++;
               } else {
                   addLog(`Batch Error: ${e.message}`, "err");
+                  currentIndex += BATCH_SIZE; // Skip batch on generic error
+                  batchRetryCount = 0;
+              }
+
+              // [FIX] Circuit Breaker: If same batch fails 3 times, SKIP IT
+              if (batchRetryCount > 3) {
+                  addLog("Batch Failed 3x (Limits). Skipping to prevent crash.", "err");
                   currentIndex += BATCH_SIZE;
+                  batchRetryCount = 0;
               }
           }
       }
