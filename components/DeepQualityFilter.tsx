@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -22,7 +21,12 @@ interface QualityTicker {
   source?: string; // Data source for audit
 }
 
-const DeepQualityFilter: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -83,8 +87,16 @@ const DeepQualityFilter: React.FC = () => {
     return () => clearInterval(interval);
   }, [loading, progress]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
+  // AUTO START LOGIC
+  useEffect(() => {
+    if (autoStart && !loading) {
+        addLog("AUTO-PILOT: Initiating Deep Quality Scan...", "signal");
+        executeDeepQualityScan();
+    }
+  }, [autoStart]);
+
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
@@ -264,7 +276,6 @@ const DeepQualityFilter: React.FC = () => {
                     config: { responseMimeType: "application/json" }
                 });
             } catch (e: any) {
-                // Retry only on Quota (429) or Overloaded (503) errors
                 if (retries > 0 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
                      const waitTime = 40000; // Increased to 40s to satisfy 36s requirement
                      addLog(`Gemini Quota Hit. Retrying in ${waitTime/1000}s...`, "warn");
@@ -314,10 +325,8 @@ const DeepQualityFilter: React.FC = () => {
 
             let pData;
             try {
-                // Attempt 1: Direct Call
                 pData = await callPerplexity('https://api.perplexity.ai/chat/completions');
             } catch (err: any) {
-                // Attempt 2: Proxy Call (fixes CORS)
                 if (err.message.includes('Failed to fetch') || err.message.includes('Load failed')) {
                      addLog("CORS Blocked. Using Internal Proxy...", "warn");
                      pData = await callPerplexity('/api/perplexity');
@@ -341,7 +350,6 @@ const DeepQualityFilter: React.FC = () => {
         setAiStatus('SUCCESS');
         addLog(`Analysis Complete via ${usedProvider}`, "ok");
     } else {
-        // Ultimate Fallback
         const rawMsg = "Analysis unavailable due to network/quota limits.";
         setAiAnalysis("⚠️ " + rawMsg);
         setAiStatus('FAILED');
@@ -349,7 +357,6 @@ const DeepQualityFilter: React.FC = () => {
     }
   };
 
-  // Manual Trigger Wrapper
   const handleManualAnalysis = () => {
       if (processedData.length > 0) {
           analyzeSectorDistribution(processedData);
@@ -467,13 +474,11 @@ const DeepQualityFilter: React.FC = () => {
       addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
       setNetworkStatus("Status: Scan Complete");
 
-      // AI Analysis Trigger - Await to ensure it runs
-      // Set initial status to show activity in UI
+      // AI Analysis Trigger
       setAiStatus('ANALYZING');
       setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
       addLog("Triggering AI Sector Analysis...", "info");
       
-      // Do not await to allow main thread to finish loading state
       analyzeSectorDistribution(eliteSurvivors);
 
       // Upload
@@ -495,6 +500,8 @@ const DeepQualityFilter: React.FC = () => {
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
 
+      if (onComplete) onComplete();
+
     } catch (e: any) {
       addLog(`Critical Error: ${e.message}`, "err");
     } finally {
@@ -502,7 +509,7 @@ const DeepQualityFilter: React.FC = () => {
       setActiveBrain('Standby');
       setNetworkStatus('Standby');
       setFmpDepleted(false);
-      startTimeRef.current = 0; // Reset timer
+      startTimeRef.current = 0; 
     }
   };
 
@@ -551,8 +558,8 @@ const DeepQualityFilter: React.FC = () => {
                         }`}>
                             {networkStatus}
                         </span>
+                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
-                   
                    {/* Time Stats */}
                    {loading && (
                      <div className="flex items-center space-x-2 mt-0.5">
@@ -565,7 +572,6 @@ const DeepQualityFilter: React.FC = () => {
                        </span>
                      </div>
                    )}
-                   
                    {fmpDepleted && (
                        <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1 mt-1">
                            <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
@@ -626,7 +632,7 @@ const DeepQualityFilter: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-blue-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
                 {l}
               </div>
             ))}

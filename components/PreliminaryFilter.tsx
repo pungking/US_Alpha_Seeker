@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -21,7 +20,12 @@ interface AiProposal {
   reasoning: string;
 }
 
-const PreliminaryFilter: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeAi, setActiveAi] = useState<string>('Standby'); // UI 표시용
@@ -50,8 +54,25 @@ const PreliminaryFilter: React.FC = () => {
     }
   }, [minPrice, minVolume, rawUniverse]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
+  // AUTO START LOGIC
+  useEffect(() => {
+    const runAutoPilot = async () => {
+        if (autoStart && !loading && !isAnalyzing) {
+            addLog("AUTO-PILOT: Initiating Preliminary Filter Sequence...", "signal");
+            await syncAndAnalyzeMarket();
+            
+            // Wait slightly for state to settle then commit
+            setTimeout(async () => {
+                await commitPurification();
+                if (onComplete) onComplete();
+            }, 5000);
+        }
+    };
+    runAutoPilot();
+  }, [autoStart]);
+
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
@@ -327,6 +348,7 @@ const PreliminaryFilter: React.FC = () => {
                        AI_OFFLINE
                      </span>
                    )}
+                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
@@ -456,7 +478,7 @@ const PreliminaryFilter: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-emerald-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400 bg-amber-500/5' : 'border-blue-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400 bg-amber-500/5' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
                 {l}
               </div>
             ))}

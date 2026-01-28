@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider, ApiStatus } from './types';
@@ -21,6 +21,13 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
+  // --- HYBRID MODE STATE ---
+  const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL'); // 'MANUAL' = Original, 'AUTO' = Mirror
+  const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
+  const [loopCount, setLoopCount] = useState(0);
+  const [nextRunTime, setNextRunTime] = useState<number | null>(null);
+  const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
+  
   // AI Usage State
   const [aiUsage, setAiUsage] = useState<any>({ 
     gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
@@ -38,15 +45,76 @@ const App: React.FC = () => {
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
-  // Unified Target State (Used by both Stage 0 & Stage 6)
+  // Unified Target State
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
+  // --- AUTO PILOT LOGIC (Active only in AUTO mode) ---
+  useEffect(() => {
+    let timer: any;
+    // Only run timer if we are in AUTO mode and AutoPilot is officially running
+    if (viewMode === 'AUTO' && isAutoPilotRunning && nextRunTime) {
+        timer = setInterval(() => {
+            const diff = nextRunTime - Date.now();
+            if (diff <= 0) {
+                setNextRunTime(null);
+                setCurrentStage(0); // Restart Loop
+                setLoopCount(prev => prev + 1);
+                setAutoStatusMessage("INITIATING NEW CYCLE...");
+            } else {
+                setAutoStatusMessage(`COOLDOWN: ${(diff / 1000).toFixed(0)}s`);
+            }
+        }, 1000);
+    }
+    return () => clearInterval(timer);
+  }, [viewMode, isAutoPilotRunning, nextRunTime]);
+
+  const handleStageComplete = (stageId: number) => {
+      // Only advance automatically if in AUTO mode and running
+      if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
+
+      const nextStage = stageId + 1;
+      
+      setTimeout(() => {
+          if (nextStage < 7) {
+              setCurrentStage(nextStage);
+              setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
+          } else {
+              // Cycle Complete
+              const sleepDuration = 30 * 60 * 1000; // 30 Minutes Sleep
+              setNextRunTime(Date.now() + sleepDuration);
+              setAutoStatusMessage("CYCLE COMPLETE. COOLING DOWN...");
+          }
+      }, 5000); 
+  };
+
+  const toggleViewMode = () => {
+      if (viewMode === 'MANUAL') {
+          if (!isGdriveConnected) {
+              alert("Error: Cloud Vault (Google Drive) Connection Required for Automation Mode.");
+              return;
+          }
+          if (confirm("⚠️ Switch to AUTOMATION MIRROR MODE?\n\n- Navigation will be LOCKED.\n- System will run indefinitely.\n- UI will switch to Monitor View.")) {
+              setViewMode('AUTO');
+              setIsAutoPilotRunning(true);
+              setLoopCount(1);
+              setCurrentStage(0);
+              setAutoStatusMessage("AUTO PILOT ENGAGED");
+          }
+      } else {
+          // Switch back to Manual
+          setViewMode('MANUAL');
+          setIsAutoPilotRunning(false);
+          setNextRunTime(null);
+          setAutoStatusMessage("MANUAL OVERRIDE");
+      }
+  };
+
   // Cleanup on Stage Change
   useEffect(() => {
     setSelectedStock(null);
-    setStockAuditCache({}); // Clear cache to prevent "residue"
+    setStockAuditCache({}); 
   }, [currentStage]);
 
   useEffect(() => {
@@ -131,17 +199,11 @@ const App: React.FC = () => {
   useEffect(() => {
     setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
     refreshApiStatuses();
-    
-    // Initial Drive Check
     fetchDriveQuota();
-
     const interval = setInterval(() => {
         refreshApiStatuses();
-        // Check Drive Quota periodically (every 30s to avoid API spam)
         if (new Date().getSeconds() < 5) fetchDriveQuota(); 
     }, 5000);
-
-    // Listen for custom usage update event
     window.addEventListener('storage-usage-update', loadUsageStats);
     return () => {
         clearInterval(interval);
@@ -151,15 +213,10 @@ const App: React.FC = () => {
 
   const runStockAudit = async () => {
     if (!selectedStock) return;
-    
     setIsAiLoading(true);
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
-    
     const targetBrain = auditBrain;
-    // Distinct cache key including Stage to separate Integrity Check vs Deep Audit
     const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
-
-    // Determine Mode based on Stage
     const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
 
     try {
@@ -168,12 +225,10 @@ const App: React.FC = () => {
         apiStatuses,
         symbols: [selectedStock.symbol],
         targetStock: selectedStock,
-        mode: mode // Pass the mode
+        mode: mode
       }, targetBrain);
-      
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
     } catch (err: any) {
-      console.error(err);
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
@@ -182,13 +237,12 @@ const App: React.FC = () => {
           next.delete(selectedStock.symbol);
           return next;
       });
-      loadUsageStats(); // Force refresh usage after audit
+      loadUsageStats(); 
     }
   };
 
   const currentReportKey = selectedStock ? `${selectedStock.symbol}-${auditBrain}-STAGE${currentStage}` : '';
   const currentReport = stockAuditCache[currentReportKey];
-
   const copyReport = () => {
     if (currentReport) {
       navigator.clipboard.writeText(currentReport);
@@ -196,16 +250,19 @@ const App: React.FC = () => {
     }
   };
 
+  const isMirror = viewMode === 'AUTO';
+
   return (
-    <div className="min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden">
-      <div className="flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap">
+    <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
+      {/* HEADER STATUS BAR */}
+      <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
-          <div className={`w-1.5 h-1.5 rounded-full ${isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
-          <span>{isProd ? 'Production_Node' : 'Development_Node'}</span>
+          <div className={`w-1.5 h-1.5 rounded-full ${isMirror ? 'bg-rose-500 animate-ping' : isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
+          <span className={isMirror ? 'text-rose-500 font-bold' : ''}>{isMirror ? 'AUTOMATION_NODE_ACTIVE' : isProd ? 'Production_Node' : 'Development_Node'}</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.2.0 (Phase 1 Complete)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.4.0 (Hybrid Core)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
@@ -213,19 +270,22 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
-          <span>Pipeline_State: Stage_{currentStage}</span>
+          <span>Pipeline: Stage_{currentStage}</span>
         </div>
         <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
         <div>
-          <p className="text-blue-500 text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic">US Alpha Seeker Infrastructure</p>
-          <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
+          <p className={`text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic ${isMirror ? 'text-rose-500' : 'text-blue-500'}`}>US Alpha Seeker Infrastructure</p>
+          <div className="flex items-center gap-4">
+             <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
+             {isMirror && <span className="px-3 py-1 bg-rose-600 text-white text-[10px] font-black uppercase rounded animate-pulse shadow-[0_0_15px_rgba(225,29,72,0.6)]">MIRROR ACTIVE</span>}
+          </div>
         </div>
 
         {/* AI Resource & Drive Monitor Widget */}
-        <div className="glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto">
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto ${isMirror ? 'border-rose-500/20' : ''}`}>
              
              {/* Section 1: AI Brains */}
              <div className="flex flex-col border-r border-white/5 pr-5">
@@ -275,12 +335,23 @@ const App: React.FC = () => {
 
         </div>
 
-        <div className="flex items-center space-x-3 glass-panel px-4 py-2.5 rounded-xl border-white/5 w-full md:w-auto justify-between md:justify-end">
-           <div className="text-right">
-             <p className="text-[7px] text-slate-500 font-black uppercase">Architect</p>
-             <p className="text-xs font-black text-white italic uppercase">InnocentBae</p>
+        {/* HYBRID MODE CONTROLLER */}
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border flex flex-col justify-center items-end min-w-[180px] transition-all ${isMirror ? 'border-rose-500 bg-rose-950/20' : 'border-blue-500/30'}`}>
+           <div className="flex items-center gap-2 mb-1">
+               <span className={`text-[8px] font-black uppercase ${isMirror ? 'text-rose-400 animate-pulse' : 'text-slate-500'}`}>
+                   {isMirror ? autoStatusMessage : "MANUAL CONTROL"}
+               </span>
+               <button 
+                  onClick={toggleViewMode}
+                  className={`w-10 h-5 rounded-full transition-colors relative flex items-center border ${isMirror ? 'bg-rose-600 border-rose-400' : 'bg-slate-800 border-slate-600'}`}
+               >
+                   <div className={`absolute w-3 h-3 bg-white rounded-full transition-all shadow-md ${isMirror ? 'left-6' : 'left-1'}`}></div>
+               </button>
            </div>
-           <div className="w-9 h-9 rounded-lg bg-blue-600 flex items-center justify-center text-white font-black text-xs">IB</div>
+           <div className="flex items-center gap-3">
+               <span className={`text-[7px] font-black uppercase ${isMirror ? 'text-rose-300' : 'text-slate-500'}`}>{isMirror ? `Loop Cycle: #${loopCount}` : 'Standard Mode'}</span>
+               {isMirror && nextRunTime && <span className="text-[7px] font-mono text-emerald-400">{new Date(nextRunTime).toLocaleTimeString()}</span>}
+           </div>
         </div>
       </header>
 
@@ -298,8 +369,13 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
+            disabled={isMirror} // [LOCK] Disable manual nav in Auto Mode
             className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
-              currentStage === stage.id ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
+              isMirror 
+                ? 'opacity-40 cursor-not-allowed border-transparent bg-slate-900 text-slate-600' // Locked Style
+                : currentStage === stage.id 
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' 
+                    : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
             }`}
           >
             {stage.label}
@@ -308,28 +384,46 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
+        {/* Pass autoStart (true only if Mirror + currentStage matches) and onComplete handler */}
         <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
           <UniverseGathering 
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
             onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
-            onStockSelected={setSelectedStock} // Pass the selection handler
+            onStockSelected={setSelectedStock}
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
+            onComplete={() => handleStageComplete(0)}
           />
         </div>
         <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
-          <PreliminaryFilter />
+          <PreliminaryFilter 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
+            onComplete={() => handleStageComplete(1)}
+          />
         </div>
         <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
-          <DeepQualityFilter />
+          <DeepQualityFilter 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
+            onComplete={() => handleStageComplete(2)}
+          />
         </div>
         <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
-          <FundamentalAnalysis />
+          <FundamentalAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
+            onComplete={() => handleStageComplete(3)}
+          />
         </div>
         <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
-          <TechnicalAnalysis />
+          <TechnicalAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
+            onComplete={() => handleStageComplete(4)}
+          />
         </div>
         <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
-          <IctAnalysis />
+          <IctAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
+            onComplete={() => handleStageComplete(5)}
+          />
         </div>
         <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
           <AlphaAnalysis 
@@ -341,10 +435,13 @@ const App: React.FC = () => {
             }}
             onStockSelected={setSelectedStock}
             analyzingSymbols={analyzingStocks}
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
+            onComplete={() => handleStageComplete(6)}
           />
         </div>
       </main>
 
+      {/* Detail Section (Preserved for visual debugging) */}
       <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
