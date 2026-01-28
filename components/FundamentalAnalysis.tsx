@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -15,7 +14,12 @@ interface ScoredTicker {
   scoringEngine?: string; // AI or Algo
 }
 
-const FundamentalAnalysis: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
@@ -23,10 +27,21 @@ const FundamentalAnalysis: React.FC = () => {
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
+  const hasRunAuto = useRef(false);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // AUTO START LOGIC
+  useEffect(() => {
+      if (autoStart && !loading && !hasRunAuto.current && accessToken) {
+          hasRunAuto.current = true;
+          addLog("AUTO START SIGNAL RECEIVED", "ok");
+          executeIntegratedAudit();
+      }
+      if (!autoStart) hasRunAuto.current = false;
+  }, [autoStart, accessToken]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -209,6 +224,10 @@ const FundamentalAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      
+      // Auto Complete Callback
+      if (onComplete) onComplete();
+
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {

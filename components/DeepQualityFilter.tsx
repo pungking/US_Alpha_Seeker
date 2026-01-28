@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -15,14 +14,19 @@ interface QualityTicker {
   pbr?: number;
   debtToEquity?: number;
   roe?: number;
-  qualityScore?: number; // New Quality Metric
+  qualityScore?: number; 
   sector?: string;
   industry?: string;
   lastUpdate: string;
-  source?: string; // Data source for audit
+  source?: string;
 }
 
-const DeepQualityFilter: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -50,6 +54,7 @@ const DeepQualityFilter: React.FC = () => {
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
+  const hasRunAuto = useRef(false);
 
   // [ADAPTIVE STRATEGY]
   const BATCH_SIZE = 5; 
@@ -60,6 +65,16 @@ const DeepQualityFilter: React.FC = () => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // AUTO START LOGIC
+  useEffect(() => {
+      if (autoStart && !loading && !hasRunAuto.current && accessToken) {
+          hasRunAuto.current = true;
+          addLog("AUTO START SIGNAL RECEIVED", "ok");
+          executeDeepQualityScan();
+      }
+      if (!autoStart) hasRunAuto.current = false;
+  }, [autoStart, accessToken]);
 
   // Timer Effect
   useEffect(() => {
@@ -494,6 +509,9 @@ const DeepQualityFilter: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      
+      // Auto Complete Callback
+      if (onComplete) onComplete();
 
     } catch (e: any) {
       addLog(`Critical Error: ${e.message}`, "err");

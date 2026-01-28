@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -17,6 +16,8 @@ interface Props {
   isActive: boolean;
   apiStatuses: ApiStatus[];
   onStockSelected?: (stock: any) => void;
+  autoStart?: boolean;
+  onComplete?: () => void;
 }
 
 interface MasterTicker {
@@ -31,7 +32,7 @@ interface MasterTicker {
   sector?: string;
 }
 
-const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected }) => {
+const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -46,6 +47,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
+  const hasRunAuto = useRef(false);
   
   const [stats, setStats] = useState({
     found: 0,
@@ -70,6 +72,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return () => clearTimeout(timer);
     }
   }, [cooldown]);
+
+  // AUTO START LOGIC
+  useEffect(() => {
+      if (autoStart && !isEngineRunning && !hasRunAuto.current && isActive && accessToken) {
+          hasRunAuto.current = true;
+          addLog("AUTO START SIGNAL RECEIVED", "ok");
+          startEngine();
+      }
+      if (!autoStart) {
+          hasRunAuto.current = false; // Reset when auto mode is off or stage changed
+      }
+  }, [autoStart, isActive, accessToken]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -353,6 +367,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             await uploadFile(token, folderId, fileName, payload);
             setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
             addLog(`System: Cloud Vault Sync Complete via ${usedProvider}.`, "ok");
+            
+            // Call Auto Complete Callback
+            if (onComplete) onComplete();
         }
 
     } catch (e: any) {

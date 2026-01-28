@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -21,10 +20,15 @@ interface AiProposal {
   reasoning: string;
 }
 
-const PreliminaryFilter: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activeAi, setActiveAi] = useState<string>('Standby'); // UI 표시용
+  const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
   const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.2.0: Resilience Protocol Active.']);
@@ -38,6 +42,7 @@ const PreliminaryFilter: React.FC = () => {
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
+  const hasRunAuto = useRef(false);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -49,6 +54,24 @@ const PreliminaryFilter: React.FC = () => {
       setFilteredCount(count);
     }
   }, [minPrice, minVolume, rawUniverse]);
+
+  // AUTOMATION LOGIC
+  useEffect(() => {
+      if (autoStart && !loading && !hasRunAuto.current && accessToken) {
+          hasRunAuto.current = true;
+          addLog("AUTO-PILOT: Initiating Sequence...", "ok");
+          executeAutoSequence();
+      }
+      if (!autoStart) hasRunAuto.current = false;
+  }, [autoStart, accessToken]);
+
+  const executeAutoSequence = async () => {
+      await syncAndAnalyzeMarket(true);
+      // Wait a moment for state updates
+      setTimeout(() => {
+          commitPurification(true);
+      }, 2000);
+  };
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
@@ -65,7 +88,7 @@ const PreliminaryFilter: React.FC = () => {
     } catch (e) { return null; }
   };
 
-  const syncAndAnalyzeMarket = async () => {
+  const syncAndAnalyzeMarket = async (isAuto = false) => {
     if (!accessToken) {
       addLog("Cloud link required. Check Auth Status.", "warn");
       return;
@@ -240,7 +263,7 @@ const PreliminaryFilter: React.FC = () => {
       setAiError(e.message);
       addLog(`Critical Error: ${e.message}`, "err");
     } finally {
-      setLoading(false);
+      if (!isAuto) setLoading(false); // Keep loading true if auto chaining
       setIsAnalyzing(false);
     }
   };
@@ -260,9 +283,17 @@ const PreliminaryFilter: React.FC = () => {
     }
   };
 
-  const commitPurification = async () => {
-    if (!accessToken || rawUniverse.length === 0) return;
+  const commitPurification = async (isAuto = false) => {
+    if (!accessToken || rawUniverse.length === 0) {
+        if (isAuto) setLoading(false);
+        return;
+    }
     setLoading(true);
+    // Determine filters (Use State which might be updated by AI)
+    // IMPORTANT: State updates are async. In Auto Mode, we rely on the fact that syncAndAnalyze updated state.
+    // However, to be safe in auto mode, we might need to use refs or pass values. 
+    // Here we rely on React's batching or the delay we added in executeAutoSequence.
+    
     addLog(`Phase 2: Purifying Universe... (P: $${minPrice}, V: ${minVolume})`, "info");
 
     try {
@@ -285,6 +316,9 @@ const PreliminaryFilter: React.FC = () => {
       });
 
       addLog(`Purification Success: ${filtered.length} assets committed.`, "ok");
+      
+      if (isAuto && onComplete) onComplete();
+
     } catch (e: any) {
       addLog(`Vault Error: ${e.message}`, "err");
     } finally {
@@ -332,14 +366,14 @@ const PreliminaryFilter: React.FC = () => {
             </div>
             <div className="flex gap-4 w-full lg:w-auto">
               <button 
-                onClick={syncAndAnalyzeMarket} 
+                onClick={() => syncAndAnalyzeMarket(false)} 
                 disabled={loading}
                 className={`flex-1 lg:flex-none px-6 py-4 md:px-8 md:py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
               >
                 {isAnalyzing ? 'Thinking...' : 'Sync & AI Analysis'}
               </button>
               <button 
-                onClick={commitPurification} 
+                onClick={() => commitPurification(false)} 
                 disabled={loading || rawUniverse.length === 0}
                 className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50`}
               >
