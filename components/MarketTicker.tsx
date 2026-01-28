@@ -59,6 +59,7 @@ const MarketTicker: React.FC = () => {
   // --- STRATEGY 0-A: HYBRID PORTAL PROXY (CNBC / TradingView / Investing) ---
   const fetchPortalProxy = async () => {
       // This endpoint tries CNBC first, then TradingView, then Investing
+      // It now returns both Indices AND Stocks (AAPL, NVDA...)
       const res = await fetch('/api/portal_indices');
       if (!res.ok) throw new Error("Portal Proxy Failed");
       
@@ -71,11 +72,11 @@ const MarketTicker: React.FC = () => {
       let indexCount = 0;
       let providerName = 'PORTAL_HYBRID';
 
-      // Map Indices
+      // 1. Map Indices
       indexConfig.forEach(cfg => {
           const item = dataMap.get(cfg.portalId);
           if (item) {
-              if (item.source) providerName = item.source; // Update source label (e.g. CNBC)
+              if (item.source) providerName = item.source; // Update source label
               finalItems.push({
                   symbol: cfg.id,
                   label: cfg.label,
@@ -89,33 +90,23 @@ const MarketTicker: React.FC = () => {
           }
       });
       
+      // 2. Map Stocks (Now sourced from the same Portal Proxy)
+      stockConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.symbol);
+          if (item) {
+              finalItems.push({
+                  symbol: cfg.symbol,
+                  label: cfg.label,
+                  price: item.price,
+                  change: item.change,
+                  isIndex: false,
+                  typeLabel: "Equity"
+              });
+          }
+      });
+      
       if (indexCount < 2) throw new Error("Portal Insufficient Indices");
-      
-      // Fetch Stocks via Yahoo Proxy (efficient batch) to complement indices
-      // Because CNBC endpoint handles indices best, we use Yahoo for individual stocks
-      try {
-          const stocks = stockConfig.map(s => s.symbol).join(',');
-          const stockRes = await fetch(`/api/yahoo?symbols=${stocks}`);
-          const stockJson = await stockRes.json();
-          const stockMap = new Map(stockJson.map((item: any) => [item.symbol, item]));
-          
-          stockConfig.forEach(cfg => {
-             const item = stockMap.get(cfg.symbol);
-             if (item) {
-                 finalItems.push({
-                     symbol: cfg.symbol,
-                     label: cfg.label,
-                     price: (item as any).price,
-                     change: (item as any).change,
-                     isIndex: false,
-                     typeLabel: "Equity"
-                 });
-             }
-          });
-      } catch (e) {
-         // If stocks fail, we just show indices (better than nothing)
-      }
-      
+
       return { items: finalItems, source: providerName };
   };
 

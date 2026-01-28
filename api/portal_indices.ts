@@ -1,6 +1,6 @@
 export default async function handler(req: any, res: any) {
-  // Portal Proxy v2: CNBC "Magic Bullet" Strategy
-  // Priority: 1. CNBC (API) -> 2. TradingView (Scanner API) -> 3. Investing.com (Scraper)
+  // Portal Proxy v3: Unified "Magic Bullet" for Indices AND Major Stocks
+  // Priority: 1. CNBC (API) -> 2. TradingView (Scanner API) -> 3. Investing.com (Scraper - Indices Only Fallback)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,11 +17,12 @@ export default async function handler(req: any, res: any) {
     return parseFloat(String(str).replace(/,/g, '').replace(/%/g, ''));
   };
 
-  // --- STRATEGY A: CNBC API (The "Magic Bullet" - High Success Rate) ---
+  // --- STRATEGY A: CNBC API (High Reliability) ---
   const fetchCNBC = async () => {
     try {
-        // Symbols: .IXIC (Nasdaq), .SPX (S&P), .DJI (Dow), .VIX (Vix)
-        const url = "https://quote.cnbc.com/quote-html-webservice/quote.htm?partnerId=2&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json&players=null&symbols=.IXIC|.SPX|.DJI|.VIX";
+        // Indices (.IXIC) + Stocks (AAPL, etc.)
+        const symbols = ".IXIC|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
+        const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?partnerId=2&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json&players=null&symbols=${symbols}`;
         
         const response = await fetch(url, {
             headers: {
@@ -39,13 +40,16 @@ export default async function handler(req: any, res: any) {
             ".IXIC": "NASDAQ",
             ".SPX": "SP500",
             ".DJI": "DOW",
-            ".VIX": "VIX"
+            ".VIX": "VIX",
+            "AAPL": "AAPL",
+            "NVDA": "NVDA",
+            "TSLA": "TSLA",
+            "MSFT": "MSFT"
         };
 
         const results = quotes.map((q: any) => {
-            const internalSymbol = map[q.symbol];
-            if (!internalSymbol) return null;
-
+            const internalSymbol = map[q.symbol] || q.symbol; // Fallback to raw symbol if mapped
+            
             return {
                 symbol: internalSymbol,
                 price: parseValue(q.last),
@@ -71,7 +75,10 @@ export default async function handler(req: any, res: any) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           symbols: {
-            tickers: ["TVC:NDX", "TVC:SPX", "TVC:DJI", "TVC:VIX"]
+            tickers: [
+                "TVC:NDX", "TVC:SPX", "TVC:DJI", "TVC:VIX",
+                "NASDAQ:AAPL", "NASDAQ:NVDA", "NASDAQ:TSLA", "NASDAQ:MSFT"
+            ]
           },
           columns: ["close", "change|1"] 
         })
@@ -86,11 +93,15 @@ export default async function handler(req: any, res: any) {
         "TVC:NDX": "NASDAQ",
         "TVC:SPX": "SP500",
         "TVC:DJI": "DOW",
-        "TVC:VIX": "VIX"
+        "TVC:VIX": "VIX",
+        "NASDAQ:AAPL": "AAPL",
+        "NASDAQ:NVDA": "NVDA",
+        "NASDAQ:TSLA": "TSLA",
+        "NASDAQ:MSFT": "MSFT"
       };
 
       return json.data.map((item: any) => ({
-           symbol: map[item.s] || item.s,
+           symbol: map[item.s] || item.s.split(':')[1] || item.s, // Handle NASDAQ:AAPL -> AAPL
            price: item.d[0],
            change: item.d[1],
            source: 'TradingView'
@@ -101,12 +112,12 @@ export default async function handler(req: any, res: any) {
     }
   };
 
-  // --- STRATEGY C: INVESTING.COM SCRAPER (Deep Backup) ---
+  // --- STRATEGY C: INVESTING.COM SCRAPER (Deep Backup - Indices Only) ---
   const fetchInvestingCom = async () => {
     try {
       const response = await fetch('https://www.investing.com/indices/major-indices', {
         headers: {
-          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+            'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
         }
       });
       if (!response.ok) throw new Error(`Investing Status ${response.status}`);
@@ -137,13 +148,13 @@ export default async function handler(req: any, res: any) {
   };
 
   try {
-    // 1. Try CNBC First (Best for Indices)
+    // 1. Try CNBC First (Includes Indices + Stocks)
     let data = await fetchCNBC();
 
-    // 2. Try TradingView
+    // 2. Try TradingView (Includes Indices + Stocks)
     if (!data) data = await fetchTradingView();
 
-    // 3. Try Investing.com
+    // 3. Try Investing.com (Indices Only - Better than nothing)
     if (!data) data = await fetchInvestingCom();
 
     if (!data) return res.status(500).json({ error: "All Index Providers Failed" });
