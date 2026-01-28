@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -44,8 +45,6 @@ interface Props {
   onFinalSymbolsDetected?: (symbols: string[], fullData?: any[]) => void;
   onStockSelected?: (stock: any) => void;
   analyzingSymbols?: Set<string>;
-  autoStart?: boolean;
-  onComplete?: () => void;
 }
 
 // [HELPER] Metric Definitions
@@ -105,7 +104,7 @@ const MetricMarkdownComponents: any = {
     ),
 };
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set() }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -123,7 +122,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
-  const hasRunAuto = useRef(false);
 
   // Unique ID for gradient to prevent conflicts and ensure rendering
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
@@ -131,17 +129,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
-
-  // AUTO START LOGIC
-  useEffect(() => {
-      // In Stage 6, we wait for data to load first, then run Engine
-      if (autoStart && !loading && !hasRunAuto.current && accessToken && elite50.length > 0) {
-          hasRunAuto.current = true;
-          addLog("AUTO START SIGNAL RECEIVED", "ok");
-          handleExecuteEngine(true);
-      }
-      if (!autoStart) hasRunAuto.current = false;
-  }, [autoStart, accessToken, elite50]);
 
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
@@ -183,20 +170,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const cleanInsightText = (text: string) => {
     if (!text) return "";
     return text
-      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
-      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
-      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
-      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") 
-      .replace(/[\u{2600}-\u{26FF}]/gu, "")   
-      .replace(/[\u{2700}-\u{27BF}]/gu, "")   
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲👍👎👉👈]/g, "") 
-      .replace(/\[\d+\]/g, '') 
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") // Emoticons
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") // Misc Symbols and Pictographs
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") // Transport and Map
+      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") // Supplemental Symbols and Pictographs
+      .replace(/[\u{2600}-\u{26FF}]/gu, "")   // Misc Symbols
+      .replace(/[\u{2700}-\u{27BF}]/gu, "")   // Dingbats
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") // Flags
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲👍👎👉👈]/g, "") // Common specific emojis
+      .replace(/\[\d+\]/g, '') // Citations like [1]
       .trim();
   };
 
   const cleanMarkdown = (text?: any) => {
       if (text === null || text === undefined) return '';
+      // Aggressively clean up markdown for compact views (like list items)
       return String(text)
         .replace(/\[\d+\]/g, '')
         .replace(/\*\*/g, '')
@@ -228,7 +216,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
 
-  const handleExecuteEngine = async (isAuto = false) => {
+  const handleExecuteEngine = async () => {
     if (loading) return;
     setLoading(true);
     addLog(`Initiating Neural Alpha Sieve via ${selectedBrain}...`, "signal");
@@ -265,9 +253,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
       addLog(`${mergedFinal.length} Alpha targets identified and mapped.`, "ok");
-      
-      if (isAuto && onComplete) onComplete();
-
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
@@ -461,7 +446,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
               )}
               {activeTab === 'INDIVIDUAL' && (
-                  <button onClick={() => handleExecuteEngine(false)} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse text-slate-500' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
+                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse text-slate-500' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
                     {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
                   </button>
               )}
@@ -537,7 +522,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                    </div>
                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                        {cleanInsightText(removeCitations(selectedStock?.investmentOutlook || matrixReports[matrixBrain]))}
+                        {cleanInsightText(matrixReports[matrixBrain])}
                    </ReactMarkdown>
                  </div>
                ) : (
