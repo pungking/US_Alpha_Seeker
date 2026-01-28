@@ -20,21 +20,27 @@ const App: React.FC = () => {
   const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
+  
+  // Data State
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
   
+  // Brain State
   const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
-  // Independent brain state for the bottom Auditor Panel
   const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
 
-  // New State for Single Stock Audit
+  // Unified Target State (Used by both Stage 0 & Stage 6)
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
-  // Cache key format: "SYMBOL-PROVIDER" (e.g., "AAPL-Perplexity")
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
+  // Cleanup on Stage Change
   useEffect(() => {
-    // Sync default audit brain with top brain initially
+    setSelectedStock(null);
+    setStockAuditCache({}); // Clear cache to prevent "residue"
+  }, [currentStage]);
+
+  useEffect(() => {
     setAuditBrain(selectedBrain);
   }, [selectedBrain]);
 
@@ -80,9 +86,12 @@ const App: React.FC = () => {
     setIsAiLoading(true);
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
     
-    // Capture current brain for consistency
     const targetBrain = auditBrain;
-    const cacheKey = `${selectedStock.symbol}-${targetBrain}`;
+    // Distinct cache key including Stage to separate Integrity Check vs Deep Audit
+    const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
+
+    // Determine Mode based on Stage
+    const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
 
     try {
       const report = await analyzePipelineStatus({
@@ -90,7 +99,7 @@ const App: React.FC = () => {
         apiStatuses,
         symbols: [selectedStock.symbol],
         targetStock: selectedStock,
-        mode: 'SINGLE_STOCK'
+        mode: mode // Pass the mode
       }, targetBrain);
       
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
@@ -107,13 +116,13 @@ const App: React.FC = () => {
     }
   };
 
-  // Safe access for the report using composite key
-  const currentReport = selectedStock?.symbol ? stockAuditCache[`${selectedStock.symbol}-${auditBrain}`] : null;
+  const currentReportKey = selectedStock ? `${selectedStock.symbol}-${auditBrain}-STAGE${currentStage}` : '';
+  const currentReport = stockAuditCache[currentReportKey];
 
   const copyReport = () => {
     if (currentReport) {
       navigator.clipboard.writeText(currentReport);
-      alert('전략 보고서가 클립보드에 복사되었습니다.');
+      alert('보고서가 클립보드에 복사되었습니다.');
     }
   };
 
@@ -181,7 +190,8 @@ const App: React.FC = () => {
           <UniverseGathering 
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
-            onAuthSuccess={(status) => setIsGdriveConnected(status)} 
+            onAuthSuccess={(status) => setIsGdriveConnected(status)}
+            onStockSelected={setSelectedStock} // Pass the selection handler
           />
         </div>
         <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
@@ -248,13 +258,13 @@ const App: React.FC = () => {
           {isAiLoading ? (
             <div className="absolute inset-0 flex flex-col items-center justify-center space-y-6">
               <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
-              <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Running Deep Dive Audit Protocol...</p>
+              <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Running {currentStage === 0 ? 'Integrity Validation' : 'Deep Dive Audit'} Protocol...</p>
             </div>
           ) : currentReport ? (
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
                <div className="mb-4 flex items-center justify-between border-b border-emerald-500/20 pb-4">
                   <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
-                     Deep Audit for {selectedStock?.symbol || 'Target'} via {auditBrain === ApiProvider.GEMINI ? 'Gemini Pro' : 'Sonar Pro'}
+                     {currentStage === 0 ? 'Integrity Validation' : 'Deep Audit'} for {selectedStock?.symbol || 'Target'} via {auditBrain === ApiProvider.GEMINI ? 'Gemini Pro' : 'Sonar Pro'}
                   </span>
                   <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                </div>
@@ -264,7 +274,10 @@ const App: React.FC = () => {
             <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">
               <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
               <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic text-center">
-                 {selectedStock ? `Ready to Audit ${selectedStock.symbol}. Click 'Audit ${selectedStock.symbol}' to begin.` : 'Select a stock from Stage 6 (Alpha Analysis) to begin Audit.'}
+                 {selectedStock ? `Ready to Audit ${selectedStock.symbol}. Click 'Audit ${selectedStock.symbol}' to begin.` : 
+                  currentStage === 0 
+                    ? 'Search a ticker above and click "Set Target" to verify integrity.' 
+                    : 'Select a stock from Stage 6 (Alpha Analysis) to begin Deep Audit.'}
               </p>
             </div>
           )}
