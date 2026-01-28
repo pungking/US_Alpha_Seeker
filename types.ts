@@ -7,6 +7,7 @@ export enum ApiProvider {
   FMP = 'Financial Modeling Prep',
   TWELVE_DATA = 'Twelve Data',
   POLYGON = 'Polygon',
+  RAPID_API = 'RapidAPI',
   GOOGLE_DRIVE = 'Google Drive',
   GEMINI = 'Google Gemini'
 }

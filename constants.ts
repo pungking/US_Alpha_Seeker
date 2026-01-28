@@ -11,7 +11,8 @@ export interface ApiConfig {
 }
 
 export const API_CONFIGS: ApiConfig[] = [
-  // Acquisition Node
+  // Acquisition Node (Data Feeders)
+  { provider: ApiProvider.RAPID_API, key: '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e', category: 'Acquisition' },
   { provider: ApiProvider.POLYGON, key: 'ArKrr9dmI2FxH71B_YTSWk8YXC2AG9KQ', category: 'Acquisition' },
   { provider: ApiProvider.ALPACA, key: 'PKHWDYDOEWWLYZKMUG9L', category: 'Acquisition' },
   { provider: ApiProvider.FINNHUB, key: 'd2pjjgpr01qnf9nlc7ngd2pjjgpr01qnf9nlc7o0', category: 'Acquisition' },
@@ -19,11 +20,11 @@ export const API_CONFIGS: ApiConfig[] = [
   { provider: ApiProvider.TWELVE_DATA, key: '5ef1dfe22fe7463688783c6787e8f2bf', category: 'Acquisition' },
   { provider: ApiProvider.ALPHA_VANTAGE, key: '8PBTS3IDZM85B3QE', category: 'Acquisition' },
   
-  // Intelligence Node
+  // Intelligence Node (AI Brains)
   { provider: ApiProvider.GEMINI, key: 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc', category: 'Intelligence' },
   { provider: ApiProvider.PERPLEXITY, key: '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', category: 'Intelligence' },
   
-  // Infrastructure Node
+  // Infrastructure Node (Storage)
   { provider: ApiProvider.GOOGLE_DRIVE, key: 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY', category: 'Infrastructure' }
 ];
 
