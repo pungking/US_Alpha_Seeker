@@ -359,9 +359,13 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            disabled={isAutoPilot && nextRunTime !== null} // Disable manual nav during sleep
+            disabled={isAutoPilot} // [LOCK] Disable all manual nav when Auto Pilot is Active
             className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
-              currentStage === stage.id ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
+              isAutoPilot 
+                ? 'opacity-30 cursor-not-allowed border-transparent bg-slate-900 text-slate-600' 
+                : currentStage === stage.id 
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' 
+                    : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
             }`}
           >
             {stage.label}
