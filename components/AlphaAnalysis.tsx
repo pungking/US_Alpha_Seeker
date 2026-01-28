@@ -121,6 +121,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
+  
+  // INTERNAL AUTOMATION STATE
+  const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
+
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -149,17 +153,42 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // AUTO START LOGIC
+  // --- AUTO START PIPELINE SEQUENCE ---
   useEffect(() => {
-    if (autoStart && !loading && elite50.length > 0) {
+    // Step 1: Start Engine
+    if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
-        handleExecuteEngine().then(() => {
-             // For Alpha Stage, we consider it 'Complete' after synthesis is done.
-             // The loop finishes here (or restarts).
-             if (onComplete) onComplete();
-        });
+        setAutoPhase('ENGINE');
+        handleExecuteEngine();
     }
-  }, [autoStart, elite50]);
+  }, [autoStart, autoPhase, loading, elite50]);
+
+  // Step 2: Switch to Matrix
+  useEffect(() => {
+      // Triggered when Engine finishes and populates resultsCache
+      const hasResults = resultsCache[selectedBrain]?.length;
+      if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
+          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
+          setActiveTab('MATRIX');
+          setAutoPhase('MATRIX');
+          // Short delay to allow UI to switch
+          setTimeout(() => {
+              handleRunMatrixAudit(selectedBrain);
+          }, 1000);
+      }
+  }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
+
+  // Step 3: Complete
+  useEffect(() => {
+      // Triggered when Matrix audit finishes
+      const hasReport = matrixReports[selectedBrain];
+      if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
+          addLog("AUTO-PILOT: Alpha Protocol Complete.", "ok");
+          setAutoPhase('DONE');
+          if (onComplete) onComplete();
+      }
+  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain]);
+
 
   useEffect(() => {
     setSelectedMetricInfo(null);

@@ -28,17 +28,20 @@ interface Props {
 const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
-  const [activeAi, setActiveAi] = useState<string>('Standby'); // UI 표시용
+  const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
   const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.2.0: Resilience Protocol Active.']);
   
-  // 필터 상태
+  // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
   const [minVolume, setMinVolume] = useState(500000);
   const [isManual, setIsManual] = useState(false);
   const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
+  
+  // Automation Internal State
+  const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'COMMITTING' | 'DONE'>('IDLE');
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -56,20 +59,24 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   // AUTO START LOGIC
   useEffect(() => {
-    const runAutoPilot = async () => {
-        if (autoStart && !loading && !isAnalyzing) {
-            addLog("AUTO-PILOT: Initiating Preliminary Filter Sequence...", "signal");
-            await syncAndAnalyzeMarket();
-            
-            // Wait slightly for state to settle then commit
-            setTimeout(async () => {
-                await commitPurification();
-                if (onComplete) onComplete();
-            }, 5000);
-        }
-    };
-    runAutoPilot();
-  }, [autoStart]);
+    if (autoStart && autoStep === 'IDLE' && !loading) {
+        addLog("AUTO-PILOT: Initiating Preliminary Filter Sequence...", "signal");
+        setAutoStep('ANALYZING');
+        syncAndAnalyzeMarket();
+    }
+  }, [autoStart, autoStep, loading]);
+
+  // Step 2: Auto Commit after Analysis
+  useEffect(() => {
+      if (autoStart && autoStep === 'ANALYZING' && !loading && !isAnalyzing && (aiProposal || aiError)) {
+          // Wait briefly for state to settle then commit
+          const timer = setTimeout(() => {
+              setAutoStep('COMMITTING');
+              commitPurification();
+          }, 2000);
+          return () => clearTimeout(timer);
+      }
+  }, [autoStart, autoStep, loading, isAnalyzing, aiProposal, aiError]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -89,6 +96,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const syncAndAnalyzeMarket = async () => {
     if (!accessToken) {
       addLog("Cloud link required. Check Auth Status.", "warn");
+      setLoading(false);
+      setIsAnalyzing(false);
       return;
     }
     setLoading(true);
@@ -115,7 +124,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setRawUniverse(data);
       addLog(`Matrix Synced: ${data.length} assets. Calculating distribution stats...`, "ok");
 
-      // 통계 계산 (AI 프롬프트용)
+      // AI Analysis Logic...
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
       const volumes = data.map((s: any) => s.volume).filter((v: any) => v > 0).sort((a: any, b: any) => a - b);
       
@@ -149,100 +158,47 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       Determine optimal 'Price Floor' and 'Volume Threshold' to filter out junk/illiquid assets while keeping high-potential runners.
       - Typically Price Floor is between $1.5 and $5.0.
       - Typically Volume Threshold is between 100,000 and 1,000,000.
-      - Use the provided distribution stats to justify your choice. (e.g., if P25 price is high, raise the floor).
+      - Use the provided distribution stats to justify your choice.
 
-      Return ONLY JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string (e.g. High Volatility)", "reasoning": "string (Korean)" }
+      Return ONLY JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean)" }
       `;
 
       let aiResult = null;
       let usedProvider = '';
 
-      // 1. Try Gemini with Smart Retry
+      // Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
-          addLog("Requesting analysis from Gemini 3...", "info");
           const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
           const ai = new GoogleGenAI({ apiKey: geminiKey });
-
-          // Recursive Retry Function
-          const generateWithRetry = async (attempts = 0): Promise<any> => {
-              try {
-                  return await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: prompt,
-                    config: { responseMimeType: "application/json" }
-                  });
-              } catch (e: any) {
-                  // Retry only on Quota (429) or Overloaded (503) errors
-                  if (attempts < 1 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
-                      const waitTime = 10000; // 10 seconds wait
-                      addLog(`Gemini Quota/Load Limit. Retrying in ${waitTime/1000}s...`, "warn");
-                      await new Promise(r => setTimeout(r, waitTime));
-                      return generateWithRetry(attempts + 1);
-                  }
-                  throw e;
-              }
-          };
-
-          const response = await generateWithRetry();
+          const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+          });
           aiResult = sanitizeJson(response.text);
           usedProvider = 'Gemini 3 Pro';
-      } catch (e: any) {
-          addLog(`Gemini Failed: ${e.message.substring(0, 40)}... Switching to Fallback...`, "warn");
-      }
+      } catch (e: any) { /* Fallback handled below */ }
 
-      // 2. Try Perplexity (if Gemini failed) with Proxy Fallback
+      // Try Perplexity if Gemini failed
       if (!aiResult) {
           try {
               setActiveAi('Sonar Pro (Fallback)');
-              addLog("Requesting analysis from Perplexity Sonar...", "info");
               const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-              
-              const payload = {
-                    model: 'sonar-pro', 
-                    messages: [
-                        { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
-                        { role: "user", content: prompt }
-                    ],
-                    temperature: 0.1
-              };
-
-              const callPerplexity = async (url: string) => {
-                  const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${perplexityKey}`,
-                        'Accept': 'application/json' 
-                    },
-                    body: JSON.stringify(payload)
-                  });
-                  if (!res.ok) throw new Error(`Status ${res.status}`);
-                  return res.json();
-              };
-
-              let pJson;
-              try {
-                  // Attempt 1: Direct Call
-                  pJson = await callPerplexity('https://api.perplexity.ai/chat/completions');
-              } catch (directErr: any) {
-                  // Attempt 2: Proxy Call (fixes CORS)
-                  if (directErr.message.includes('Failed to fetch') || directErr.message.includes('Load failed')) {
-                      addLog("CORS blocked direct call. Trying internal proxy...", "warn");
-                      pJson = await callPerplexity('/api/perplexity');
-                  } else {
-                      throw directErr;
-                  }
-              }
-
+              const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                  body: JSON.stringify({
+                      model: 'sonar-pro', 
+                      messages: [{ role: "user", content: prompt + " Return JSON only." }]
+                  })
+              });
+              const pJson = await pRes.json();
               aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
               usedProvider = 'Perplexity Sonar';
-          } catch (e: any) {
-              addLog(`Perplexity Failed (${e.message}). Using Default Protocol.`, "err");
-          }
+          } catch (e: any) {}
       }
 
-      // 3. Process Result
       if (aiResult) {
           setAiProposal(aiResult);
           setMinPrice(aiResult.suggestedPrice);
@@ -250,8 +206,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           addLog(`Strategy Generated by ${usedProvider}: [${aiResult.regime}]`, "ok");
           setActiveAi(usedProvider);
       } else {
-          // Default Fallback
-          setAiError("All AI Nodes Unresponsive. Default filters applied.");
+          setAiError("AI Nodes Unresponsive. Default filters applied.");
           setMinPrice(2.0);
           setMinVolume(500000);
           setActiveAi('Default Logic');
@@ -282,7 +237,16 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const commitPurification = async () => {
-    if (!accessToken || rawUniverse.length === 0) return;
+    // Ensure rawUniverse is populated before committing
+    if (!accessToken || rawUniverse.length === 0) {
+        if (autoStart && autoStep === 'COMMITTING') {
+             // Retry later if somehow data isn't ready
+             console.warn("Commit delayed: Data not ready");
+             return; 
+        }
+        return;
+    }
+    
     setLoading(true);
     addLog(`Phase 2: Purifying Universe... (P: $${minPrice}, V: ${minVolume})`, "info");
 
@@ -306,6 +270,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       });
 
       addLog(`Purification Success: ${filtered.length} assets committed.`, "ok");
+      
+      if (autoStart) {
+          setAutoStep('DONE');
+          if (onComplete) onComplete();
+      }
+
     } catch (e: any) {
       addLog(`Vault Error: ${e.message}`, "err");
     } finally {

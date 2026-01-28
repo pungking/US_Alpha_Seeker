@@ -22,10 +22,8 @@ const App: React.FC = () => {
   const [isProd, setIsProd] = useState(false);
   
   // --- HYBRID MODE STATE ---
-  const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL'); // 'MANUAL' = Original, 'AUTO' = Mirror
+  const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
-  const [loopCount, setLoopCount] = useState(0);
-  const [nextRunTime, setNextRunTime] = useState<number | null>(null);
   const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
   
   // AI Usage State
@@ -50,43 +48,25 @@ const App: React.FC = () => {
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
-  // --- AUTO PILOT LOGIC (Active only in AUTO mode) ---
-  useEffect(() => {
-    let timer: any;
-    // Only run timer if we are in AUTO mode and AutoPilot is officially running
-    if (viewMode === 'AUTO' && isAutoPilotRunning && nextRunTime) {
-        timer = setInterval(() => {
-            const diff = nextRunTime - Date.now();
-            if (diff <= 0) {
-                setNextRunTime(null);
-                setCurrentStage(0); // Restart Loop
-                setLoopCount(prev => prev + 1);
-                setAutoStatusMessage("INITIATING NEW CYCLE...");
-            } else {
-                setAutoStatusMessage(`COOLDOWN: ${(diff / 1000).toFixed(0)}s`);
-            }
-        }, 1000);
-    }
-    return () => clearInterval(timer);
-  }, [viewMode, isAutoPilotRunning, nextRunTime]);
-
+  // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = (stageId: number) => {
-      // Only advance automatically if in AUTO mode and running
       if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
 
       const nextStage = stageId + 1;
       
+      // Delay transition for visual confirmation
       setTimeout(() => {
-          if (nextStage < 7) {
+          if (nextStage <= 6) {
               setCurrentStage(nextStage);
               setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
           } else {
-              // Cycle Complete
-              const sleepDuration = 30 * 60 * 1000; // 30 Minutes Sleep
-              setNextRunTime(Date.now() + sleepDuration);
-              setAutoStatusMessage("CYCLE COMPLETE. COOLING DOWN...");
+              // ALL STAGES COMPLETED (Stage 6 finished)
+              setIsAutoPilotRunning(false);
+              setAutoStatusMessage("ALL PIPELINES EXECUTED.");
+              // Optionally trigger Github Action / Telegram Alert logic here in future
+              alert("✅ Auto Pilot Complete: Alpha Report Ready.");
           }
-      }, 5000); 
+      }, 3000); 
   };
 
   const toggleViewMode = () => {
@@ -95,18 +75,15 @@ const App: React.FC = () => {
               alert("Error: Cloud Vault (Google Drive) Connection Required for Automation Mode.");
               return;
           }
-          if (confirm("⚠️ Switch to AUTOMATION MIRROR MODE?\n\n- Navigation will be LOCKED.\n- System will run indefinitely.\n- UI will switch to Monitor View.")) {
+          if (confirm("⚠️ Execute AUTO PILOT PIPELINE?\n\n- Sequence: Stage 0 -> 6 (Single Pass)\n- Mode: Fully Autonomous\n- Navigation: LOCKED")) {
               setViewMode('AUTO');
               setIsAutoPilotRunning(true);
-              setLoopCount(1);
               setCurrentStage(0);
               setAutoStatusMessage("AUTO PILOT ENGAGED");
           }
       } else {
-          // Switch back to Manual
           setViewMode('MANUAL');
           setIsAutoPilotRunning(false);
-          setNextRunTime(null);
           setAutoStatusMessage("MANUAL OVERRIDE");
       }
   };
@@ -258,11 +235,11 @@ const App: React.FC = () => {
       <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isMirror ? 'bg-rose-500 animate-ping' : isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
-          <span className={isMirror ? 'text-rose-500 font-bold' : ''}>{isMirror ? 'AUTOMATION_NODE_ACTIVE' : isProd ? 'Production_Node' : 'Development_Node'}</span>
+          <span className={isMirror ? 'text-rose-500 font-bold' : ''}>{isMirror ? (isAutoPilotRunning ? 'AUTOMATION_RUNNING' : 'AUTOMATION_COMPLETE') : isProd ? 'Production_Node' : 'Development_Node'}</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.4.0 (Hybrid Core)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.5.0 (Pipeline Core)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
@@ -338,7 +315,7 @@ const App: React.FC = () => {
         {/* HYBRID MODE CONTROLLER */}
         <div className={`glass-panel px-4 py-2.5 rounded-xl border flex flex-col justify-center items-end min-w-[180px] transition-all ${isMirror ? 'border-rose-500 bg-rose-950/20' : 'border-blue-500/30'}`}>
            <div className="flex items-center gap-2 mb-1">
-               <span className={`text-[8px] font-black uppercase ${isMirror ? 'text-rose-400 animate-pulse' : 'text-slate-500'}`}>
+               <span className={`text-[8px] font-black uppercase ${isMirror ? (isAutoPilotRunning ? 'text-rose-400 animate-pulse' : 'text-emerald-400') : 'text-slate-500'}`}>
                    {isMirror ? autoStatusMessage : "MANUAL CONTROL"}
                </span>
                <button 
@@ -349,8 +326,7 @@ const App: React.FC = () => {
                </button>
            </div>
            <div className="flex items-center gap-3">
-               <span className={`text-[7px] font-black uppercase ${isMirror ? 'text-rose-300' : 'text-slate-500'}`}>{isMirror ? `Loop Cycle: #${loopCount}` : 'Standard Mode'}</span>
-               {isMirror && nextRunTime && <span className="text-[7px] font-mono text-emerald-400">{new Date(nextRunTime).toLocaleTimeString()}</span>}
+               <span className={`text-[7px] font-black uppercase ${isMirror ? 'text-rose-300' : 'text-slate-500'}`}>{isMirror ? 'Single Pass Mode' : 'Standard Mode'}</span>
            </div>
         </div>
       </header>
@@ -369,9 +345,9 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            disabled={isMirror} // [LOCK] Disable manual nav in Auto Mode
+            disabled={isMirror && isAutoPilotRunning} // [LOCK] Disable manual nav only while running
             className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
-              isMirror 
+              isMirror && isAutoPilotRunning
                 ? 'opacity-40 cursor-not-allowed border-transparent bg-slate-900 text-slate-600' // Locked Style
                 : currentStage === stage.id 
                     ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' 
@@ -384,7 +360,7 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
-        {/* Pass autoStart (true only if Mirror + currentStage matches) and onComplete handler */}
+        {/* Pass autoStart (true only if Mirror + running + currentStage matches) and onComplete handler */}
         <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
           <UniverseGathering 
             isActive={currentStage === 0} 
@@ -441,7 +417,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
-      {/* Detail Section (Preserved for visual debugging) */}
+      {/* Detail Section */}
       <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
