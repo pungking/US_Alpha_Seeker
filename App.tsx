@@ -90,8 +90,9 @@ const App: React.FC = () => {
   const toggleViewMode = () => {
       if (viewMode === 'MANUAL') {
           if (!isGdriveConnected) {
-              // Alert is okay here as it signals a configuration error preventing start
-              alert("Error: Cloud Vault (Google Drive) Connection Required for Automation Mode.");
+              // [UX UPGRADE] Replaced alert with inline status warning
+              setAutoStatusMessage("⚠️ CONNECT CLOUD VAULT");
+              setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 3000);
               return;
           }
           
@@ -105,6 +106,7 @@ const App: React.FC = () => {
           setViewMode('MANUAL');
           setIsAutoPilotRunning(false);
           setAutoStatusMessage("MANUAL OVERRIDE");
+          setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
       }
   };
 
@@ -248,6 +250,7 @@ const App: React.FC = () => {
   };
 
   const isMirror = viewMode === 'AUTO';
+  const showWarning = !isMirror && autoStatusMessage !== "SYSTEM STANDBY";
 
   return (
     <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
@@ -333,14 +336,14 @@ const App: React.FC = () => {
         </div>
 
         {/* HYBRID MODE CONTROLLER */}
-        <div className={`glass-panel px-4 py-2.5 rounded-xl border flex flex-col justify-center items-end min-w-[180px] transition-all ${isMirror ? 'border-rose-500 bg-rose-950/20' : 'border-blue-500/30'}`}>
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border flex flex-col justify-center items-end min-w-[180px] transition-all ${isMirror ? 'border-rose-500 bg-rose-950/20' : showWarning ? 'border-amber-500 bg-amber-950/20' : 'border-blue-500/30'}`}>
            <div className="flex items-center gap-2 mb-1">
-               <span className={`text-[8px] font-black uppercase ${isMirror ? (isAutoPilotRunning ? 'text-rose-400 animate-pulse' : 'text-emerald-400') : 'text-slate-500'}`}>
-                   {isMirror ? autoStatusMessage : "MANUAL CONTROL"}
+               <span className={`text-[8px] font-black uppercase ${isMirror ? (isAutoPilotRunning ? 'text-rose-400 animate-pulse' : 'text-emerald-400') : showWarning ? 'text-amber-500 animate-pulse' : 'text-slate-500'}`}>
+                   {isMirror ? autoStatusMessage : (showWarning ? autoStatusMessage : "MANUAL CONTROL")}
                </span>
                <button 
                   onClick={toggleViewMode}
-                  className={`w-10 h-5 rounded-full transition-colors relative flex items-center border ${isMirror ? 'bg-rose-600 border-rose-400' : 'bg-slate-800 border-slate-600'}`}
+                  className={`w-10 h-5 rounded-full transition-colors relative flex items-center border ${isMirror ? 'bg-rose-600 border-rose-400' : showWarning ? 'bg-amber-600 border-amber-400' : 'bg-slate-800 border-slate-600'}`}
                >
                    <div className={`absolute w-3 h-3 bg-white rounded-full transition-all shadow-md ${isMirror ? 'left-6' : 'left-1'}`}></div>
                </button>
