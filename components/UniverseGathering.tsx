@@ -1,7 +1,10 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import { ApiProvider } from '../types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { analyzePipelineStatus } from '../services/intelligenceService';
 
 declare global {
   interface Window {
@@ -11,6 +14,8 @@ declare global {
 
 interface Props {
   onAuthSuccess?: (status: boolean) => void;
+  isActive: boolean;
+  apiStatuses: ApiStatus[];
 }
 
 interface MasterTicker {
@@ -25,13 +30,18 @@ interface MasterTicker {
   sector?: string;
 }
 
-const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
+const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
+  // Integrity Audit State
+  const [auditReport, setAuditReport] = useState<string | null>(null);
+  const [isAuditing, setIsAuditing] = useState(false);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+
   // API Keys
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -57,6 +67,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  useEffect(() => {
+    // Residue Clean-up: Reset audit result when user leaves Stage 0
+    if (!isActive) {
+      setAuditReport(null);
+      // We do not clear search term to allow quick navigation back, but report is cleared.
+    }
+  }, [isActive]);
 
   useEffect(() => {
     if (cooldown > 0) {
@@ -388,6 +406,25 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
     return registry.get(searchTerm.toUpperCase());
   }, [searchTerm, registry]);
 
+  const runIntegrityAudit = async () => {
+    if (!searchResult) return;
+    setIsAuditing(true);
+    setAuditReport(null); // Clear previous
+    try {
+        const report = await analyzePipelineStatus({
+            currentStage: 0,
+            apiStatuses,
+            targetStock: searchResult,
+            mode: 'INTEGRITY_CHECK' 
+        }, auditBrain);
+        setAuditReport(report);
+    } catch(e: any) {
+        setAuditReport(`### AUDIT FAILED\n> Error: ${e.message}`);
+    } finally {
+        setIsAuditing(false);
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -436,29 +473,75 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess }) => {
             </button>
           </div>
 
+          {/* Global Integrity Validator Section */}
           <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-              <span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span>
-            </div>
-            <div className="flex flex-col md:flex-row gap-4">
-              <input 
-                type="text" 
-                placeholder="Verify Ticker (e.g. AAPL, TSLA)"
-                className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
-                {searchResult ? (
-                  <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
-                    <span className="truncate">{searchResult.name || searchResult.symbol}</span>
-                    <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300 ml-4">${searchResult.price?.toFixed(2) || '0.00'}</span>
-                  </div>
-                ) : (
-                  <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
+              <div className="flex items-center gap-2">
+                <span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span>
+                {searchResult && (
+                    <div className="flex bg-slate-800 p-0.5 rounded-lg border border-white/5">
+                        <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-2 py-0.5 rounded-md text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar</button>
+                        <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-2 py-0.5 rounded-md text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini</button>
+                    </div>
                 )}
               </div>
+            </div>
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row gap-4">
+                  <input 
+                    type="text" 
+                    placeholder="Verify Ticker (e.g. AAPL, TSLA)"
+                    className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
+                    {searchResult ? (
+                      <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
+                        <span className="truncate">{searchResult.name || searchResult.symbol}</span>
+                        <div className="flex items-center gap-3">
+                            <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
+                            <button 
+                                onClick={runIntegrityAudit}
+                                disabled={isAuditing}
+                                className={`px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all ${isAuditing ? 'bg-slate-700 text-slate-500 border-slate-600' : 'bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg'}`}
+                            >
+                                {isAuditing ? 'Auditing...' : 'Run Target Audit'}
+                            </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
+                    )}
+                  </div>
+                </div>
+
+                {/* AI TARGET AUDIT MATRIX (Stage 0 Local) */}
+                {auditReport && (
+                    <div className="relative overflow-hidden rounded-[24px] border border-white/10 bg-slate-950 animate-in fade-in slide-in-from-top-4 duration-500">
+                        <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-rose-600 via-purple-600 to-blue-600"></div>
+                        <div className="p-6 md:p-8">
+                             <div className="flex items-center justify-between mb-6 border-b border-white/5 pb-4">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-8 h-8 rounded-lg bg-rose-500/10 flex items-center justify-center border border-rose-500/20">
+                                        <svg className="w-4 h-4 text-rose-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    </div>
+                                    <div>
+                                        <h4 className="text-[10px] font-black text-white uppercase tracking-[0.2em]">Target Integrity Audit</h4>
+                                        <p className="text-[8px] text-slate-500 font-bold uppercase mt-0.5">Powered by {auditBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}</p>
+                                    </div>
+                                </div>
+                                <button onClick={() => setAuditReport(null)} className="text-slate-500 hover:text-white transition-colors">
+                                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                </button>
+                             </div>
+                             <div className="prose-report text-xs text-slate-300 leading-relaxed font-medium">
+                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{auditReport}</ReactMarkdown>
+                             </div>
+                        </div>
+                    </div>
+                )}
             </div>
           </div>
 

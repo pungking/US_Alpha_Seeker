@@ -178,7 +178,11 @@ const App: React.FC = () => {
 
       <main className="min-h-[450px]">
         <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
-          <UniverseGathering onAuthSuccess={(status) => setIsGdriveConnected(status)} />
+          <UniverseGathering 
+            isActive={currentStage === 0} 
+            apiStatuses={apiStatuses}
+            onAuthSuccess={(status) => setIsGdriveConnected(status)} 
+          />
         </div>
         <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
           <PreliminaryFilter />

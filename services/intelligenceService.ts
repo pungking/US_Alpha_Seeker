@@ -293,7 +293,7 @@ export async function analyzePipelineStatus(data: {
   apiStatuses: any[];
   symbols?: string[];
   targetStock?: any;
-  mode: 'SINGLE_STOCK' | 'PORTFOLIO';
+  mode: 'SINGLE_STOCK' | 'PORTFOLIO' | 'INTEGRITY_CHECK';
   recommendedData?: any[];
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
@@ -301,6 +301,7 @@ export async function analyzePipelineStatus(data: {
   if (!apiKey) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
+  const isIntegrityCheck = data.mode === 'INTEGRITY_CHECK';
   const stock = data.targetStock;
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
@@ -314,7 +315,38 @@ export async function analyzePipelineStatus(data: {
       systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
   }
 
-  if (isPortfolio) {
+  if (isIntegrityCheck) {
+      systemPrompt = "You are the Gatekeeper of a high-end investment pipeline. Your job is to verify asset legitimacy and filter out scams or dead assets. Use Korean Markdown.";
+      userPrompt = `
+      [GLOBAL INTEGRITY VALIDATOR]
+      Target: ${stock.symbol} (${stock.name || 'Unknown'})
+      Current Price: $${stock.price}
+      Analysis Date: ${today}
+
+      Please conduct a preliminary integrity check to see if this asset is safe to enter the analysis pipeline.
+      
+      **Writing Rules**:
+      1. **NO EMOJIS**. Use only text, numbers, and Markdown symbols (##, -, **).
+      2. Be concise and critical.
+      
+      Required Format:
+      ### 🛡️ Integrity Audit Report: ${stock.symbol}
+      
+      1. **Corporate Legitimacy (Business Reality)**:
+         - Is this a real, operating business with verifiable products/services?
+         
+      2. **Major Risk Flags (Red Flags)**:
+         - Check for recent bankruptcy rumors, delisting warnings, or massive dilution events.
+         - Is the stock manipulation-prone (Penny stock risk)?
+         
+      3. **Market Consensus**:
+         - Brief summary of recent news or market sentiment.
+         
+      4. **Gatekeeper Verdict**:
+         - **PASS** (Safe to Analyze) or **REJECT** (High Risk/Scam).
+         - One sentence reason.
+      `;
+  } else if (isPortfolio) {
       userPrompt = `
       [PORTFOLIO MATRIX AUDIT]
       대상 종목: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
