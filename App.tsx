@@ -26,6 +26,9 @@ const App: React.FC = () => {
     gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
     perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
   });
+
+  // Drive Usage State
+  const [driveUsage, setDriveUsage] = useState<{ limit: number, usage: number, percent: number } | null>(null);
   
   // Data State
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
@@ -56,6 +59,39 @@ const App: React.FC = () => {
           try {
               setAiUsage(JSON.parse(raw));
           } catch(e) {}
+      }
+  };
+
+  const formatBytes = (bytes: number, decimals = 1) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  const fetchDriveQuota = async () => {
+      const token = sessionStorage.getItem('gdrive_access_token');
+      if (!token) {
+          setDriveUsage(null);
+          return;
+      }
+      try {
+          const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=storageQuota', {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+              const data = await res.json();
+              if (data.storageQuota) {
+                  const limit = parseInt(data.storageQuota.limit || '0');
+                  const usage = parseInt(data.storageQuota.usage || '0');
+                  const percent = limit > 0 ? (usage / limit) * 100 : 0;
+                  setDriveUsage({ limit, usage, percent });
+              }
+          }
+      } catch (e) {
+          console.error("Drive Quota Fetch Error", e);
       }
   };
 
@@ -95,7 +131,16 @@ const App: React.FC = () => {
   useEffect(() => {
     setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
     refreshApiStatuses();
-    const interval = setInterval(refreshApiStatuses, 5000);
+    
+    // Initial Drive Check
+    fetchDriveQuota();
+
+    const interval = setInterval(() => {
+        refreshApiStatuses();
+        // Check Drive Quota periodically (every 30s to avoid API spam)
+        if (new Date().getSeconds() < 5) fetchDriveQuota(); 
+    }, 5000);
+
     // Listen for custom usage update event
     window.addEventListener('storage-usage-update', loadUsageStats);
     return () => {
@@ -179,10 +224,12 @@ const App: React.FC = () => {
           <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
         </div>
 
-        {/* AI Resource Monitor Widget */}
-        <div className="glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-4 w-full md:w-auto">
-             <div className="flex flex-col border-r border-white/5 pr-4">
-                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Resource Monitor</span>
+        {/* AI Resource & Drive Monitor Widget */}
+        <div className="glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto">
+             
+             {/* Section 1: AI Brains */}
+             <div className="flex flex-col border-r border-white/5 pr-5">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Neural Load</span>
                  <div className="flex items-center gap-3">
                      <div className="flex flex-col">
                          <div className="flex items-center gap-1.5">
@@ -200,14 +247,28 @@ const App: React.FC = () => {
                      </div>
                  </div>
              </div>
-             <div className="text-[8px] text-slate-500 font-mono flex flex-col justify-center min-w-[80px]">
-                 {aiUsage.gemini.status === 'ERR' || aiUsage.perplexity.status === 'ERR' ? (
-                     <span className="text-red-400 font-bold animate-pulse">QUOTA EXCEEDED</span>
+
+             {/* Section 2: Vault (Drive) Storage */}
+             <div className="flex flex-col min-w-[100px]">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Vault Storage</span>
+                 {driveUsage ? (
+                     <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-end">
+                            <span className="text-[9px] font-mono font-bold text-white">{formatBytes(driveUsage.usage)}</span>
+                            <span className="text-[7px] text-slate-500">/ {formatBytes(driveUsage.limit)}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div 
+                                className={`h-full rounded-full transition-all duration-500 ${driveUsage.percent > 90 ? 'bg-red-500' : driveUsage.percent > 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                style={{ width: `${driveUsage.percent}%` }}
+                            ></div>
+                        </div>
+                     </div>
                  ) : (
-                     <span className="text-emerald-500/50">SYSTEM HEALTHY</span>
+                     <span className="text-[9px] font-black text-slate-600 uppercase">Not Connected</span>
                  )}
-                 <span>Reqs: {aiUsage.gemini.requests + aiUsage.perplexity.requests}</span>
              </div>
+
         </div>
 
         <div className="flex items-center space-x-3 glass-panel px-4 py-2.5 rounded-xl border-white/5 w-full md:w-auto justify-between md:justify-end">
@@ -247,7 +308,7 @@ const App: React.FC = () => {
           <UniverseGathering 
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
-            onAuthSuccess={(status) => setIsGdriveConnected(status)}
+            onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
             onStockSelected={setSelectedStock} // Pass the selection handler
           />
         </div>
