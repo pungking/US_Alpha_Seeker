@@ -1,3 +1,4 @@
+
 name: US Alpha Seeker Autopilot
 
 on:
@@ -5,7 +6,6 @@ on:
     # Run at 10:30 UTC and 11:30 UTC every weekday (Mon-Fri)
     # 10:30 UTC = 19:30 KST (Start time for DST 20:30 delivery)
     # 11:30 UTC = 20:30 KST (Start time for STD 21:30 delivery)
-    # The script run_autopilot.js handles the logic to pick the correct slot.
     - cron: '30 10,11 * * 1-5'
   
   # Allow manual trigger for testing
@@ -23,10 +23,12 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: '20'
-          cache: 'npm'
+          # CRITICAL: Cache disabled to support manual uploads without package-lock.json
+          # cache: 'npm' 
 
       - name: Install Dependencies
-        run: npm ci
+        # Use npm install to generate lockfile if missing
+        run: npm install
 
       - name: Execute Alpha Seeker Engine
         env:
