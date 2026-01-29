@@ -327,6 +327,134 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
+export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  
+  // 1. Fetch Real-time Index Data for Macro/VIX context
+  let macroContext = "";
+  try {
+      const indexRes = await fetch('/api/portal_indices');
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          // Extract specific values
+          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
+          const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
+          
+          macroContext = `
+          Real-time Index Data:
+          - VIX: ${vix?.price || 'N/A'} (Change: ${vix?.change || 0}%)
+          - S&P 500: ${spx?.price || 'N/A'}
+          - NASDAQ: ${ndx?.price || 'N/A'}
+          `;
+      }
+  } catch (e) {
+      console.warn("Index fetch failed for Telegram Brief", e);
+      macroContext = "Market Index Data Unavailable";
+  }
+
+  // 2. Select Top 6 Candidates
+  const top6 = candidates.slice(0, 6).map(c => ({
+      symbol: c.symbol,
+      verdict: c.aiVerdict, // e.g. STRONG_BUY
+      entry: c.supportLevel,
+      target: c.resistanceLevel,
+      stop: c.stopLoss,
+      reason: c.selectionReasons?.[0] || "High Alpha Potential",
+      expReturn: c.expectedReturn
+  }));
+
+  const prompt = `
+  [Role: Senior Hedge Fund Manager]
+  Task: Create a premium "Alpha Daily Briefing" for Telegram.
+  Date: ${today}
+  
+  ${macroContext}
+  
+  Top 6 Alpha Picks (Sorted by Conviction):
+  ${JSON.stringify(top6)}
+
+  [Strict Format Requirement - Korean Markdown]
+  Output exactly this structure with line breaks between sections.
+  
+  📅 **${today} | Daily Alpha Insight**
+  
+  📊 **Market Pulse**
+  **Macro**: [공포/탐욕 단계 추정 및 시장 분위기 한줄 요약] (S&P500: [Value] | NASDAQ: [Value])
+  **VIX**: [VIX Value] ([VIX 상태 해석 - 예: 안정/공포/패닉])
+  
+  💎 **Alpha Top 6 Selections**
+
+  1. **${top6[0].symbol}** (${top6[0].verdict})
+     - 🎯 **Plan**: 진입 $${top6[0].entry?.toFixed(2)} | 목표 $${top6[0].target?.toFixed(2)} | 손절 $${top6[0].stop?.toFixed(2)}
+     - 💡 **Logic**: ${top6[0].reason}
+     
+  2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'})
+     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'}
+     - 💡 **Logic**: ${top6[1]?.reason || '-'}
+
+  3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'})
+     - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'}
+     - 💡 **Logic**: ${top6[2]?.reason || '-'}
+
+  4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[3]?.target?.toFixed(2) || '0'} (${top6[3]?.expReturn})
+     - 💡 **Why**: ${top6[3]?.reason || '-'}
+
+  5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[4]?.target?.toFixed(2) || '0'} (${top6[4]?.expReturn})
+     - 💡 **Why**: ${top6[4]?.reason || '-'}
+
+  6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[5]?.target?.toFixed(2) || '0'} (${top6[5]?.expReturn})
+     - 💡 **Why**: ${top6[5]?.reason || '-'}
+  
+  ⚠️ **Risk Note**: [시장 리스크 한줄 요약]
+
+  **Tone**: Professional, Direct, High-Value. Use the emojis provided.
+  Translate "STRONG_BUY" to "강력 매수", "BUY" to "매수", "ACCUMULATE" to "비중 확대".
+  If S&P500/NASDAQ values are 'N/A' in context, omit them from the Macro line.
+  `;
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        return result.text;
+    }
+
+    // Perplexity
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
+        },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [{ role: "user", content: prompt }]
+        })
+    });
+    
+    const json = await res.json();
+    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+    return json.choices?.[0]?.message?.content || "Brief generation failed.";
+
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return `BRIEF_GEN_FAILURE: ${error.message}`;
+  }
+}
+
 export async function analyzePipelineStatus(data: {
   currentStage: number;
   apiStatuses: any[];
