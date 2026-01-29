@@ -1,11 +1,9 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ApiProvider } from '../types';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief } from '../services/intelligenceService';
-import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
   symbol: string;
@@ -100,7 +98,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [matrixLoading, setMatrixLoading] = useState(false);
-  const [sendingTelegram, setSendingTelegram] = useState(false);
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
@@ -216,10 +213,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return String(text).replace(/\[\d+\]/g, '').trim();
   };
 
-  const cleanInsightText = (text: any) => {
+  const cleanInsightText = (text: string) => {
     if (!text) return "";
-    const str = String(text); // [SAFE GUARD] Force string type
-    return str
+    return text
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
       .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
@@ -284,37 +280,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
         if (!item) return null;
         
-        // [FIX] Round scores to integers for UI cleanliness
-        const score = Math.round(aiData.convictionScore || item.compositeAlpha || 0);
-        
-        // [FIX] Fallback for missing AI data
-        let verdict = aiData.aiVerdict;
-        if (!verdict) {
-            if (score >= 80) verdict = "STRONG_BUY";
-            else if (score >= 60) verdict = "BUY";
-            else verdict = "HOLD";
-        }
-
-        const entry = aiData.supportLevel || (item.price * 0.98);
-        const target = aiData.resistanceLevel || (item.price * 1.25);
-        const stop = aiData.stopLoss || (item.price * 0.94);
-
-        // [FIX] Calculate Expected Return if missing
-        let expReturn = aiData.expectedReturn;
-        if (!expReturn && entry > 0 && target > 0) {
-            const pct = ((target - entry) / entry) * 100;
-            expReturn = `+${pct.toFixed(1)}% (3개월)`;
-        }
-
         return {
             ...item,
             ...aiData,
-            convictionScore: score,
-            aiVerdict: verdict,
-            expectedReturn: expReturn,
-            supportLevel: entry,
-            resistanceLevel: target,
-            stopLoss: stop,
+            convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
+            supportLevel: aiData.supportLevel || (item.price * 0.98),
+            resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
+            stopLoss: aiData.stopLoss || (item.price * 0.94),
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
@@ -333,7 +305,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
     setMatrixBrain(brain);
-    // Use the results of the currently active 'selectedBrain' as the data source for matrix audit
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -348,40 +319,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             recommendedData: currentResults,
             mode: 'PORTFOLIO'
         }, brain);
-        
-        // Ensure report is a string before setting state to prevent rendering crashes
-        const safeReport = String(report || "No analysis returned from neural engine.");
-        setMatrixReports(prev => ({ ...prev, [brain]: safeReport }));
-        
+        setMatrixReports(prev => ({ ...prev, [brain]: report }));
         addLog("Portfolio Matrix Audit complete.", "ok");
-    } catch (e: any) { 
-        addLog(`Matrix Error: ${e.message}`, "err"); 
-    } finally { 
-        setMatrixLoading(false); 
-    }
-  };
-
-  const handleManualTelegramSend = async () => {
-    if (sendingTelegram) return;
-    const currentResults = resultsCache[selectedBrain] || [];
-    if (currentResults.length === 0) {
-        addLog("No data to transmit. Run Alpha Engine first.", "err");
-        return;
-    }
-
-    setSendingTelegram(true);
-    addLog("Manual Command: Generating Telegram Brief...", "signal");
-
-    try {
-        const brief = await generateTelegramBrief(currentResults, selectedBrain);
-        const success = await sendTelegramReport(brief);
-        if (success) addLog("Telegram Transmission Successful.", "ok");
-        else addLog("Telegram Transmission Failed.", "err");
-    } catch (e: any) {
-        addLog(`Telegram Error: ${e.message}`, "err");
-    } finally {
-        setSendingTelegram(false);
-    }
+    } catch (e: any) { addLog(`Matrix Error: ${e.message}`, "err"); }
+    finally { setMatrixLoading(false); }
   };
 
   const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
@@ -592,24 +533,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             Sonar Pro
                         </button>
                     </div>
-                    <div className="pr-2 flex items-center gap-4">
-                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest hidden md:inline-block">
+                    <div className="pr-2">
+                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">
                             Active Matrix Node: {matrixBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}
                         </span>
-                        {/* MANUAL TELEGRAM BUTTON */}
-                         {currentResults.length > 0 && (
-                            <button 
-                                onClick={handleManualTelegramSend} 
-                                disabled={sendingTelegram}
-                                className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${sendingTelegram ? 'bg-blue-900 border-blue-700 text-blue-400 animate-pulse' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-500 shadow-lg'}`}
-                            >
-                                {sendingTelegram ? (
-                                    <><span>Transmitting...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></>
-                                ) : (
-                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>
-                                )}
-                            </button>
-                        )}
                     </div>
                 </div>
                {matrixReports[matrixBrain] ? (
@@ -654,7 +581,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     {/* ... Rest of details ... */}
                      <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore}%</p>
+                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
                     </div>
                  </div>
                  {/* ... Charts and Metrics ... */}

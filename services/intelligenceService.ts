@@ -21,11 +21,14 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
     if (current[key]) {
       current[key].tokens += tokens;
       if (!isError) current[key].requests += 1;
+      // If error, force status to ERR. If success, revert to OK only if it was previously OK or we want to clear it.
+      // Here we allow clearing error state on success.
       current[key].status = isError ? 'ERR' : 'OK';
       current[key].lastError = errorMsg;
     }
 
     sessionStorage.setItem(USAGE_KEY, JSON.stringify(current));
+    // Trigger a custom event for UI updates
     window.dispatchEvent(new Event('storage-usage-update'));
   } catch (e) {
     console.error("Usage Tracking Error:", e);
@@ -136,7 +139,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setFullYear(endDate.getFullYear() - 2); 
+      startDate.setFullYear(endDate.getFullYear() - 2); // 2 Years back
 
       const from = startDate.toISOString().split('T')[0];
       const to = endDate.toISOString().split('T')[0];
@@ -144,17 +147,18 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const url = `https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
       const res = await fetch(url);
       
-      if (!res.ok) return null; 
+      if (!res.ok) return null; // Fallback to AI if API fails (e.g. Rate Limit)
       const json = await res.json();
       if (!json.results || json.results.length === 0) return null;
 
-      const candles = json.results; 
+      const candles = json.results; // {c, h, l, o, t, v}
       
+      // Strategy Parameters
       const entry = stock.supportLevel || stock.price * 0.95;
       const target = stock.resistanceLevel || stock.price * 1.10;
       const stop = stock.stopLoss || stock.price * 0.90;
       
-      let balance = 100; 
+      let balance = 100; // Start with 100%
       let position: { entryPrice: number, quantity: number } | null = null;
       let wins = 0;
       let losses = 0;
@@ -165,18 +169,23 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const equityCurve = [];
       let lastMonth = '';
 
+      // Simulation Loop
       for (const candle of candles) {
           const date = new Date(candle.t);
           const monthStr = `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1).toString().padStart(2, '0')}`;
           
+          // Trading Logic (Simplified Swing)
+          // 1. Check Exit
           if (position) {
+              // Check Stop Loss
               if (candle.l <= stop) {
-                  const exitPrice = Math.min(candle.o, stop); 
+                  const exitPrice = Math.min(candle.o, stop); // Slippage assumption: exit at stop or open
                   balance = position.quantity * exitPrice;
                   position = null;
                   losses++;
                   tradeCount++;
               } 
+              // Check Target Profit
               else if (candle.h >= target) {
                   const exitPrice = Math.max(candle.o, target);
                   balance = position.quantity * exitPrice;
@@ -186,12 +195,15 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
               }
           }
           
+          // 2. Check Entry
           if (!position) {
+              // Buy if price dips to entry zone
               if (candle.l <= entry && candle.h >= entry) {
                   position = { entryPrice: entry, quantity: balance / entry };
               }
           }
           
+          // 3. Update Metrics
           let currentEquity = balance;
           if (position) {
               currentEquity = position.quantity * candle.c;
@@ -201,30 +213,36 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
           const dd = (peakBalance - currentEquity) / peakBalance * 100;
           if (dd > maxDrawdown) maxDrawdown = dd;
 
+          // Record Curve (Monthly sampling for chart)
           if (monthStr !== lastMonth) {
               equityCurve.push({ period: monthStr, value: Number((currentEquity - 100).toFixed(1)) });
               lastMonth = monthStr;
           }
       }
 
+      // Safe Division & Formatting
       const totalTrades = wins + losses;
       const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+      const finalReturn = balance - 100;
       
+      // Calculate Profit Factor Safely
       let profitFactor = 0;
       if (losses === 0) {
           profitFactor = wins > 0 ? 99.99 : 0;
       } else {
+          // Approximate calculation for simulation speed
           const avgWin = wins > 0 ? (target - entry) : 0;
           const avgLoss = losses > 0 ? (entry - stop) : 0;
           profitFactor = (wins * avgWin) / (losses * avgLoss);
       }
       
-      const finalReturn = balance - 100;
+      // Calculate Sharpe Safely
       const sharpeRatio = maxDrawdown > 0 ? (finalReturn / maxDrawdown) : (finalReturn > 0 ? 3.0 : 0);
 
+      // KOREAN TEMPLATE FOR DETERMINISTIC RESULTS
       return {
           simulationPeriod: `${from} ~ ${to}`,
-          equityCurve: equityCurve.slice(-12), 
+          equityCurve: equityCurve.slice(-12), // Last 12 points
           metrics: {
               winRate: `${winRate.toFixed(1)}%`,
               profitFactor: profitFactor.toFixed(2),
@@ -238,7 +256,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 - **리스크 진단**: 해당 기간 동안 발생한 최대 낙폭(MDD)은 ${maxDrawdown.toFixed(1)}% 입니다.
 - **매매 전략**: 진입 $${entry.toFixed(2)} / 목표 $${target.toFixed(2)} / 손절 $${stop.toFixed(2)}
 
-이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다.`
+이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다. 지정가 주문이 100% 체결되었다는 가정하에 산출되었습니다.`
       };
 
   } catch (e) {
@@ -248,25 +266,27 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
+  // 1. Try Deterministic Backtest First (Stage 1)
   const realData = await runDeterministicBacktest(stock);
   if (realData) {
       return { data: realData, isRealData: true };
   }
 
+  // 2. Fallback to AI Simulation (Stage 2)
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
-  [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol}.
-  Technical Context: Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
+  [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
+  Technical Context: Score=${stock.technicalScore}, Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
   
   Return a JSON object matching this schema:
   {
       "simulationPeriod": "2023.01 ~ 2025.01",
-      "equityCurve": [{ "period": "23.01", "value": 0 }, ...],
+      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 12 monthly points ...],
       "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
-      "historicalContext": "Write a realistic analysis in Korean Markdown. DO NOT USE EMOJIS."
+      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown. DO NOT USE EMOJIS."
   }
   `;
 
@@ -278,10 +298,12 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
+      // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text), isRealData: false };
     }
     
+    // Perplexity Fallback
     const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -292,7 +314,9 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     });
     
     const data = await pRes.json();
+    // [TRACKING]
     if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+    
     if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
 
     return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content), isRealData: false };
@@ -310,89 +334,90 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
+  // 1. Fetch Real-time Index Data for Macro/VIX context
   let macroContext = "";
   try {
       const indexRes = await fetch('/api/portal_indices');
       if (indexRes.ok) {
           const indices = await indexRes.json();
+          // Extract specific values
           const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
           const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
           const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
-          macroContext = `Real-time Index: VIX=${vix?.price}(${vix?.change}%), SPX=${spx?.price}, NDX=${ndx?.price}`;
+          
+          macroContext = `
+          Real-time Index Data:
+          - VIX: ${vix?.price || 'N/A'} (Change: ${vix?.change || 0}%)
+          - S&P 500: ${spx?.price || 'N/A'}
+          - NASDAQ: ${ndx?.price || 'N/A'}
+          `;
       }
   } catch (e) {
-      macroContext = "Market Index Unavailable";
+      console.warn("Index fetch failed for Telegram Brief", e);
+      macroContext = "Market Index Data Unavailable";
   }
 
-  // Pre-process candidates to avoid undefined values in the prompt
-  const top6 = candidates.slice(0, 6).map(c => {
-      const entry = c.entryPrice || c.supportLevel || c.price * 0.98;
-      const target = c.targetPrice || c.resistanceLevel || c.price * 1.25;
-      const stop = c.stopLoss || c.price * 0.94;
-      
-      // Auto-calculate return percentage if missing
-      let expReturn = c.expectedReturn;
-      if (!expReturn && entry > 0 && target > 0) {
-          const returnPct = ((target - entry) / entry) * 100;
-          expReturn = `+${returnPct.toFixed(1)}% (3개월)`;
-      }
+  // 2. Select Top 6 Candidates
+  const top6 = candidates.slice(0, 6).map(c => ({
+      symbol: c.symbol,
+      verdict: c.aiVerdict, // e.g. STRONG_BUY
+      entry: c.supportLevel,
+      target: c.resistanceLevel,
+      stop: c.stopLoss,
+      reason: c.selectionReasons?.[0] || "High Alpha Potential",
+      expReturn: c.expectedReturn
+  }));
 
-      // Ensure verdict is not undefined
-      let verdict = c.aiVerdict;
-      if (!verdict || verdict === 'undefined' || verdict === '-') {
-          const score = c.convictionScore || c.compositeAlpha || 0;
-          verdict = score >= 80 ? 'STRONG_BUY' : score >= 60 ? 'BUY' : 'HOLD';
-      }
-
-      return {
-          symbol: c.symbol,
-          verdict: verdict, 
-          entry: entry,
-          target: target,
-          stop: stop,
-          reason: c.selectionReasons?.[0] || c.analysisLogic || "Technical Momentum Pattern Detected",
-          expReturn: expReturn || "N/A"
-      };
-  });
-
-  // [PROMPT ENGINEERING] Strict Formatting & Data Injection
   const prompt = `
-  [SYSTEM_INSTRUCTION]
-  You are a 'Financial Data Formatter'.
-  Your ONLY task is to translate and format the provided raw data into a specific Korean briefing structure.
-  
-  **RULES (STRICT COMPLIANCE REQUIRED):**
-  1. **DATE:** Use the provided date: "${today}". DO NOT generate a future date (e.g., 2026).
-  2. **FORMAT:** You MUST use the exact format below. Do not merge 'Plan' and 'Return' lines.
-  3. **NO REFUSALS:** Do not provide investment advice disclaimers. You are formatting simulated data.
-  4. **KOREAN ONLY:** Translate "STRONG_BUY" -> "강력 매수", "BUY" -> "매수", "HOLD" -> "관망".
-  
-  [INPUT DATA]
+  [Role: Senior Hedge Fund Manager]
+  Task: Create a premium "Alpha Daily Briefing" for Telegram.
   Date: ${today}
+  
   ${macroContext}
-  Candidates: ${JSON.stringify(top6)}
+  
+  Top 6 Alpha Picks (Sorted by Conviction):
+  ${JSON.stringify(top6)}
 
-  [REQUIRED OUTPUT FORMAT]
-  📅 **${today} | Alpha Daily Brief**
+  [Strict Format Requirement - Korean Markdown]
+  Output exactly this structure with line breaks between sections.
+  
+  📅 **${today} | Daily Alpha Insight**
   
   📊 **Market Pulse**
-  **Macro**: [Translate/Summarize Market Vibe in Korean based on VIX/Index data]
+  **Macro**: [공포/탐욕 단계 추정 및 시장 분위기 한줄 요약] (S&P500: [Value] | NASDAQ: [Value])
+  **VIX**: [VIX Value] ([VIX 상태 해석 - 예: 안정/공포/패닉])
   
-  💎 **Alpha Top Picks**
+  💎 **Alpha Top 6 Selections**
 
   1. **${top6[0].symbol}** (${top6[0].verdict})
      - 🎯 **Plan**: 진입 $${top6[0].entry?.toFixed(2)} | 목표 $${top6[0].target?.toFixed(2)} | 손절 $${top6[0].stop?.toFixed(2)}
-     - 💰 **Return**: ${top6[0].expReturn}
-     - 💡 **Logic**: [Translate rationale to Korean]
+     - 💡 **Logic**: ${top6[0].reason}
      
   2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'})
-     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'} | 손절 $${top6[1]?.stop?.toFixed(2) || '0'}
-     - 💰 **Return**: ${top6[1]?.expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate rationale to Korean]
+     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'}
+     - 💡 **Logic**: ${top6[1]?.reason || '-'}
 
-  (Repeat for all 6 items. If item is empty, skip it)
+  3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'})
+     - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'}
+     - 💡 **Logic**: ${top6[2]?.reason || '-'}
 
-  ⚠️ **Note**: 본 데이터는 알고리즘에 의해 자동 추출된 시뮬레이션 결과입니다.
+  4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[3]?.target?.toFixed(2) || '0'} (${top6[3]?.expReturn})
+     - 💡 **Why**: ${top6[3]?.reason || '-'}
+
+  5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[4]?.target?.toFixed(2) || '0'} (${top6[4]?.expReturn})
+     - 💡 **Why**: ${top6[4]?.reason || '-'}
+
+  6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'})
+     - 🎯 **Target**: $${top6[5]?.target?.toFixed(2) || '0'} (${top6[5]?.expReturn})
+     - 💡 **Why**: ${top6[5]?.reason || '-'}
+  
+  ⚠️ **Risk Note**: [시장 리스크 한줄 요약]
+
+  **Tone**: Professional, Direct, High-Value. Use the emojis provided.
+  Translate "STRONG_BUY" to "강력 매수", "BUY" to "매수", "ACCUMULATE" to "비중 확대".
+  If S&P500/NASDAQ values are 'N/A' in context, omit them from the Macro line.
   `;
 
   try {
@@ -406,6 +431,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
         return result.text;
     }
 
+    // Perplexity
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
@@ -446,41 +472,107 @@ export async function analyzePipelineStatus(data: {
   const stock = data.targetStock;
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
-  // [SAFETY OVERRIDE] Frame prompts as "Hypothetical/Academic Analysis"
-  let systemPrompt = "You are a Financial Data Analyst. You are analyzing HYPOTHETICAL SIMULATION DATA. Do not provide investment advice. Output in Korean Markdown.";
+  // Custom Prompts based on Persona & Mode
+  let systemPrompt = "";
   let userPrompt = "";
 
+  if (provider === ApiProvider.GEMINI) {
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
+  } else {
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
+  }
+
   if (isIntegrityCheck) {
+      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자입니다. 투자 전 '무결성 검증(Integrity Check)' 단계에서 스캠, 상장폐지 위험, 페이퍼 컴퍼니 가능성을 냉철하게 차단하는 역할을 수행합니다. 보고서는 금융 전문가를 위한 것이므로 이모티콘을 절대 사용하지 않으며, 건조하고 전문적인 한국어 문체를 유지해야 합니다.";
       userPrompt = `
-      [TASK] Verify Data Integrity for ticker: ${stock.symbol}.
-      Current Price (Simulated): $${stock.price}
+      [GLOBAL INTEGRITY VALIDATOR]
+      대상 종목: ${stock.symbol} (${stock.name || 'Unknown'})
+      현재 주가: $${stock.price}
+      검증 일자: ${today}
+
+      이 종목이 당사의 심층 분석 파이프라인(Deep Dive Pipeline)에 진입할 가치가 있는지 검증하는 '무결성 감사 보고서'를 작성하십시오.
+
+      **작성 원칙 (Guidelines)**:
+      1. **이모티콘 사용 절대 금지**: 텍스트와 기호(-, *, #)만 사용하여 작성하십시오.
+      2. **언어**: 전문적인 한국어(Korean)로 작성하십시오.
+      3. **서식**: Markdown 포맷을 사용하여 가독성을 높이십시오.
+      4. **날짜**: 보고서 시작 부분에 검증 일자를 명시하십시오.
+
+      **필수 보고서 양식**:
       
-      Check for:
-      1. Business Reality (Is it a real company?)
-      2. Red Flags (Delisting risks, scams)
-      3. Market Consensus
+      ### 검증 일자: ${today}
+      ### 무결성 검증 감사 (Integrity Audit)
       
-      Output a structured 'Integrity Audit Report' in Korean. No emojis.
+      1. **기업 실체 및 펀더멘털 (Corporate Reality)**:
+         - 동사가 실질적인 비즈니스를 영위하고 있는지, 페이퍼 컴퍼니 리스크는 없는지 진단하십시오.
+         
+      2. **핵심 위험 신호 (Red Flags)**:
+         - 상장폐지 가능성, 잦은 유상증자/CB발행(희석), 회계 이슈 등을 점검하십시오.
+         - '동전주(Penny Stock)' 여부와 투기적 위험성을 경고하십시오.
+         
+      3. **시장 신뢰도 (Market Consensus)**:
+         - 기관 투자자 참여도 및 시장의 평판을 요약하십시오.
+         
+      4. **최종 판정 (Gatekeeper Verdict)**:
+         - **[분석 승인]** 또는 **[부적격(반려)]** 중 하나를 선택하여 명시하십시오.
+         - 판단의 결정적 사유를 한 문장으로 요약하십시오.
       `;
   } else if (isPortfolio) {
       userPrompt = `
-      [TASK] Summarize Portfolio Composition (Simulated Data).
-      Assets: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
+      [PORTFOLIO MATRIX AUDIT]
+      대상 종목: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
+      분석 일자: ${today}
       
-      Provide a strategic summary in Korean (Risk, Correlation, Sector Balance).
-      Treat this as a theoretical portfolio review.
+      다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오.
+      **작성 원칙: 이모티콘(🚀, 📈, 💎 등)을 절대 사용하지 마십시오. 텍스트와 기호(-, *)로만 깔끔하게 작성하십시오.**
+
+      ### 📅 분석 일자: ${today}
+      
+      1. **섹터 집중 리스크**: 포트폴리오가 특정 테마에 쏠려있는가?
+      2. **알파 상관관계**: 종목들이 함께 움직이는 경향이 있는가?
+      3. **매크로 민감도**: 금리/환율 변동에 얼마나 취약한가?
+      4. **최종 포트폴리오 성향**: '공격형', '밸런스형', '방어형' 중 선택 및 이유.
       `;
   } else {
       userPrompt = `
-      [TASK] Deep Dive Technical Review for ${stock.symbol}.
-      Data: Price $${stock.price}, Conviction ${stock.convictionScore}%.
+      [SINGLE ASSET DEEP DIVE AUDIT]
+      대상: ${stock.symbol}
+      데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
+      분석 일자: ${today}
+
+      당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
+      이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
       
-      Provide a technical analysis report (Support/Resistance, Volume, Trend).
-      Output in Korean Markdown.
+      **작성 원칙**:
+      1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
+      2. 보고서의 어조는 냉철하고 전문적이어야 합니다.
+      3. 가독성을 위해 불렛 포인트와 볼드체를 적극 활용하십시오.
+      
+      반드시 다음 형식을 준수하십시오 (제목에 날짜 포함):
+      
+      ### 분석 일자: ${today}
+      ### 실전 투자자 체크포인트 (Deep Audit)
+      
+      1. **리스크 시나리오 (Red Team Analysis)**:
+         - 이 트레이딩이 실패한다면 원인은 무엇인가? (구체적인 악재나 기술적 붕괴 지점)
+         - "세력"이 개미를 털어내는 속임수(Fake-out) 패턴 예상 지점.
+         
+      2. **기관 수급 추적 (Smart Money Flow)**:
+         - 현재 구간에서 기관/세력은 매집 중인가, 차익 실현 중인가?
+         - 거래량 분석을 통한 "진짜 돈"의 흐름 포착.
+         
+      3. **실전 매매 가이드**:
+         - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대)
+         - **필수 손절 라인**: 추세 붕괴로 간주하는 가격.
+         - **청산 목표가**: 1차/2차 저항 라인.
+         
+      4. **최종 감사 의견 (Final Verdict)**:
+         - 매수 승인 / 보류 / 즉시 청산 중 하나를 선택하고 그 이유를 한 문장으로 요약.
       `;
   }
 
   try {
+    // 1. Gemini Execution
     if (provider === ApiProvider.GEMINI) {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
         const result = await fetchWithRetry(() => ai.models.generateContent({
@@ -488,10 +580,12 @@ export async function analyzePipelineStatus(data: {
             contents: userPrompt,
             config: { systemInstruction: systemPrompt }
         }));
+        // [TRACKING]
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         return result.text;
     }
 
+    // 2. Perplexity Execution
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
@@ -510,6 +604,8 @@ export async function analyzePipelineStatus(data: {
     });
     
     const json = await res.json();
+    
+    // [TRACKING]
     if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
     if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
@@ -528,21 +624,41 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
-  // [SAFETY OVERRIDE]
-  const systemPrompt = "You are a Financial Algorithm. Rank these assets based on the provided technical scores. This is a simulation. Return JSON only.";
-
-  const prompt = `
-  [CONTEXT] Simulated Market Analysis for ${today}.
-  [INPUT] Top Candidates: ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
-
-  [TASK] Select the best 6 candidates.
-  Return a JSON array matching the Alpha Schema.
-  - investmentOutlook must be in Korean Markdown (No emojis).
-  - Use the provided scores to determine conviction.
-  - Generate realistic support/resistance levels based on the price.
-  
-  Return ONLY JSON.
+  // [PERSONA DEFINITION]
+  const GEMINI_PERSONA = `
+    [ROLE: Traditional Wall Street Quant & Technical Analyst]
+    - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
+    - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
+    - Style: Conservative but accurate. "Don't lose money" is rule #1.
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
   `;
+
+  const PERPLEXITY_PERSONA = `
+    [ROLE: Aggressive Hedge Fund Manager & Trend Follower]
+    - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
+    - Preference: High growth potential, viral themes, sector rotation leaders.
+    - Style: High Risk / High Reward. "Trend is your friend".
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+  `;
+
+  const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
+
+  const prompt = `${currentPersona}
+현재 날짜: ${today}
+분석 대상 종목(TOP 12): ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
+
+위 리스트에서 당신의 투자 철학(Persona)에 가장 부합하는 **완벽한 6개 종목**을 최종 선정하십시오.
+반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
+- symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
+- selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. **이모티콘 사용 금지**), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
+- chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
+
+투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
+**주의: 출력물에 이모티콘(🚀, 💎 등)을 절대 포함하지 마십시오.**
+
+주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
+한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -552,12 +668,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
+      // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text) };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
       let lastError;
+      // Multi-Model Fallback Loop
       for (const model of PERPLEXITY_MODELS) {
         try {
             const res = await fetchWithRetry(async () => {
@@ -572,7 +690,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                     body: JSON.stringify({
                         model: model, 
                         messages: [
-                            { role: "system", content: systemPrompt },
+                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. **이모티콘 사용은 절대 금지입니다.** 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1
@@ -581,13 +699,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 
                 if (!r.ok) {
                     const errText = await r.text();
+                    // 402 Payment Required or 401 Unauthorized -> Break loop, don't fallback
                     if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
                     throw new Error(`HTTP_${r.status}: ${errText}`);
                 }
                 return r;
-            }, 1, 1000); 
+            }, 1, 1000); // Low retry inside loop, rely on model switching
 
             const data = await res.json();
+            // [TRACKING]
             if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
             
             const content = data.choices?.[0]?.message?.content;
@@ -598,7 +718,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             console.warn(`Model ${model} failed: ${e.message}`);
             lastError = e;
             trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
-            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; 
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; // Don't try other models if no money
         }
       }
       return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };
