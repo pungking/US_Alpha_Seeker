@@ -13,8 +13,8 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
   }
 
   // 1. Prepare Header
-  const today = new Date().toLocaleDateString('ko-KR', { month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-  const header = `🚀 *US Alpha Seeker Report* 🚀\n📅 ${today}\n\n`;
+  // [MODIFIED] Removed redundant date stamp as the AI report body contains the full date context.
+  const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
   
   // Clean up standard Markdown to Telegram Legacy Markdown if possible
   // Replace **bold** with *bold* for Telegram compatibility
