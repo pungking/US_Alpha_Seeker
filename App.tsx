@@ -41,9 +41,9 @@ const App: React.FC = () => {
   const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
   const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
   
-  // Brain State
-  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
-  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+  // Brain State (Defaults changed to GEMINI)
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
   // Unified Target State
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
@@ -227,8 +227,21 @@ const App: React.FC = () => {
         targetStock: selectedStock,
         mode: mode
       }, targetBrain);
+
+      // [NEW] Fallback Toggle Logic for Manual Mode
+      // If Gemini failed, switch toggle to Sonar but do NOT auto-retry (manual mode)
+      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing")) {
+         if (targetBrain === ApiProvider.GEMINI) {
+             setAuditBrain(ApiProvider.PERPLEXITY);
+             console.warn("Gemini Audit Failed. Switched toggle to Sonar.");
+         }
+      }
+
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
     } catch (err: any) {
+      if (targetBrain === ApiProvider.GEMINI) {
+         setAuditBrain(ApiProvider.PERPLEXITY);
+      }
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
@@ -462,8 +475,8 @@ const App: React.FC = () => {
                    </span>
                    {selectedStock && (
                        <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-0 md:ml-4">
-                          <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar (Default)</button>
-                          <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini</button>
+                          <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini (Default)</button>
+                          <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar</button>
                        </div>
                    )}
                 </div>

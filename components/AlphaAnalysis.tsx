@@ -108,7 +108,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
   
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
-  const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.PERPLEXITY);
+  const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
@@ -206,8 +206,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       onStockSelected?.(item);
   };
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', signal: '[AUTO]' };
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
@@ -268,16 +268,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleExecuteEngine = async () => {
     if (loading) return;
     setLoading(true);
-    addLog(`Initiating Neural Alpha Sieve via ${selectedBrain}...`, "signal");
+    let currentProvider = selectedBrain;
+    addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
 
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
 
-      const { data: aiResults, error } = await generateAlphaSynthesis(topCandidates, selectedBrain);
-      if (error) throw new Error(error);
+      let response = await generateAlphaSynthesis(topCandidates, currentProvider);
+      
+      // FALLBACK LOGIC
+      if (response.error && currentProvider === ApiProvider.GEMINI) {
+          addLog(`Gemini Engine Failed: ${response.error}`, "warn");
+          
+          // Toggle UI State
+          setSelectedBrain(ApiProvider.PERPLEXITY);
+          
+          if (autoStart) {
+              addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
+              currentProvider = ApiProvider.PERPLEXITY; 
+              response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+          } else {
+              addLog("Switched to Sonar. Please click Execute to try again.", "info");
+              setLoading(false);
+              return; 
+          }
+      }
 
-      const safeAiResults = Array.isArray(aiResults) ? aiResults : (aiResults ? [aiResults] : []);
+      if (response.error) throw new Error(response.error);
+
+      const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
       const mergedFinal = safeAiResults.map((aiData: any) => {
         if (!aiData?.symbol) return null;
@@ -294,14 +314,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
-      setResultsCache(prev => ({ ...prev, [selectedBrain]: mergedFinal }));
+      setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       if (mergedFinal.length > 0) {
         const first = mergedFinal[0];
         setSelectedStock(first);
         onStockSelected?.(first);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`${mergedFinal.length} Alpha targets identified and mapped.`, "ok");
+      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
@@ -316,18 +336,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         return;
     }
     setMatrixLoading(true);
-    addLog(`Synthesizing Portfolio Matrix via ${brain}...`, "signal");
+    let targetBrain = brain;
+    addLog(`Synthesizing Portfolio Matrix via ${targetBrain}...`, "signal");
+    
     try {
-        const report = await analyzePipelineStatus({
+        let report = await analyzePipelineStatus({
             currentStage: 6,
             apiStatuses: [],
             recommendedData: currentResults,
             mode: 'PORTFOLIO'
-        }, brain);
+        }, targetBrain);
+        
+        // FALLBACK LOGIC
+        if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
+             setMatrixBrain(ApiProvider.PERPLEXITY);
+             addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
+             
+             if (autoStart) {
+                 targetBrain = ApiProvider.PERPLEXITY;
+                 addLog("AUTO-PILOT: Retrying Matrix with Sonar...", "signal");
+                 report = await analyzePipelineStatus({
+                    currentStage: 6,
+                    apiStatuses: [],
+                    recommendedData: currentResults,
+                    mode: 'PORTFOLIO'
+                 }, targetBrain);
+             }
+        }
         
         // Ensure report is a string before setting state to prevent rendering crashes
         const safeReport = String(report || "No analysis returned from neural engine.");
-        setMatrixReports(prev => ({ ...prev, [brain]: safeReport }));
+        setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
         
         addLog("Portfolio Matrix Audit complete.", "ok");
     } catch (e: any) { 
