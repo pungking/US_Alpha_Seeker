@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -282,6 +283,9 @@ const App: React.FC = () => {
              <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
              {isMirror && <span className="px-3 py-1 bg-rose-600 text-white text-[10px] font-black uppercase rounded animate-pulse shadow-[0_0_15px_rgba(225,29,72,0.6)]">MIRROR ACTIVE</span>}
           </div>
+          <p className="text-[10px] text-slate-500 mt-1 font-medium tracking-wide animate-pulse text-right">
+            © 2026. Created & Designed by Bae Sang Min
+          </p>
         </div>
 
         {/* AI Resource & Drive Monitor Widget */}
