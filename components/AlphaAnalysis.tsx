@@ -516,7 +516,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               )}
             </div>
           </div>
-          {/* ... (Rest of the component remains similar, just the header needed update for Auto Pilot status visibility) ... */}
+          
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
@@ -557,7 +557,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               }) : <div className="col-span-full py-24 text-center opacity-30 text-xs font-black uppercase tracking-[0.6em] italic">Awaiting Alpha Protocol Signal...</div>}
             </div>
           ) : (
-            // Matrix view (simplified for brevity, logic maintained)
             <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
                <div className="flex justify-between items-center bg-black/40 p-2 rounded-2xl border border-white/5">
                     <div className="flex gap-2">
@@ -572,7 +571,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest hidden md:inline-block">
                             Active Matrix Node: {matrixBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}
                         </span>
-                        {/* MANUAL TELEGRAM BUTTON */}
                          {currentResults.length > 0 && (
                             <button 
                                 onClick={handleManualTelegramSend} 
@@ -621,25 +619,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           )}
         </div>
         
-        {/* ... (Detailed View Section - Omitted for brevity as only Header/Auto Pilot needed changes) ... */}
         {activeTab === 'INDIVIDUAL' && selectedStock && (
              <div key={selectedStock.symbol} className="glass-panel p-8 rounded-[50px] bg-slate-950 border-t-2 border-t-rose-600 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
-                 {/* ... Standard Detail View ... */}
                  <div className="flex flex-col lg:flex-row items-end gap-6 mb-8">
                     <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStock.symbol}</h3>
-                    {/* ... Rest of details ... */}
                      <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
                         <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
                     </div>
                  </div>
-                 {/* ... Charts and Metrics ... */}
+                 
                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                      <div className="lg:col-span-3 space-y-8">
                          <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative">
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
-                         {/* ... Reasonings ... */}
+                         
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
                             <div className="prose-report min-h-[200px]">
@@ -662,6 +657,92 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </ul>
                         </div>
                      </div>
+                 </div>
+
+                 {/* RESTORED BACKTEST SECTION */}
+                 <div className="mt-8 border-t border-white/5 pt-8">
+                    <div className="flex justify-between items-center mb-6">
+                        <div>
+                             <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Backtest_Protocol</h4>
+                             {currentBacktest && <p className="text-[9px] text-slate-500 font-mono font-bold">SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span></p>}
+                        </div>
+                        {!currentBacktest && (
+                             <button 
+                                onClick={(e) => handleRunBacktest(selectedStock, e)} 
+                                disabled={backtestLoading}
+                                className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
+                            >
+                                {backtestLoading ? 'Running Simulation...' : 'Run Portfolio Simulation'}
+                            </button>
+                        )}
+                    </div>
+
+                    {currentBacktest ? (
+                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                             {/* Left: Metrics (1 col) */}
+                             <div className="space-y-3">
+                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
+                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
+                                    <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
+                                </div>
+                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
+                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
+                                    <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
+                                </div>
+                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
+                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
+                                    <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
+                                </div>
+                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
+                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
+                                    <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
+                                </div>
+                             </div>
+
+                             {/* Right: Chart (3 cols) */}
+                             <div className="lg:col-span-3 bg-black/40 rounded-[30px] border border-white/5 p-6 relative">
+                                <ResponsiveContainer width="100%" height={260}>
+                                    <AreaChart data={chartData}>
+                                        <defs>
+                                            <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
+                                                <stop offset="5%" stopColor={chartColor} stopOpacity={0.4}/>
+                                                <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                                            </linearGradient>
+                                        </defs>
+                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
+                                        <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
+                                        <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dx={-10} domain={['auto', 'auto']} />
+                                        <Tooltip 
+                                            contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
+                                            itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                                            labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
+                                        />
+                                        <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                             </div>
+
+                             {/* Bottom: Insight */}
+                             <div className="lg:col-span-4 bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20">
+                                 <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                     Simulation Intelligence Insight
+                                 </h5>
+                                 <div className="prose-report text-xs text-slate-300 leading-relaxed">
+                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                        {currentBacktest.historicalContext}
+                                     </ReactMarkdown>
+                                 </div>
+                             </div>
+                        </div>
+                    ) : (
+                        <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
+                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
+                        </div>
+                    )}
                  </div>
              </div>
         )}
