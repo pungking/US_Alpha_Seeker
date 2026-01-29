@@ -359,6 +359,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   // 2. Select Top 6 Candidates
   const top6 = candidates.slice(0, 6).map(c => ({
       symbol: c.symbol,
+      name: c.name || c.symbol, // Use company name if available
       verdict: c.aiVerdict, // e.g. STRONG_BUY
       entry: c.supportLevel,
       target: c.resistanceLevel,
@@ -386,38 +387,44 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   📅 **${today} | Daily Alpha Insight**
   
   📊 **Market Pulse**
-  **Macro**: [Market Fear/Greed Stage & Summary (Korean Markdown)] (S&P500: [Value] | NASDAQ: [Value])
+  **Macro**: [Market Fear/Greed Stage & Summary (Use **Bold** for key points, - for bullets)] (S&P500: [Value] | NASDAQ: [Value])
 
   **VIX**: [VIX Value] ([VIX 상태 해석: 안정/경계/공포])
   
   💎 **Alpha Top 6 Selections**
 
-  1. **${top6[0].symbol}** (${top6[0].verdict}) : ${top6[0].theme}
+  1. **${top6[0].symbol}** (${top6[0].verdict}) : ${top6[0].name}
+     - 🏢 **Sector**: ${top6[0].theme}
      - 🎯 **Plan**: 진입 $${top6[0].entry?.toFixed(2)} | 목표 $${top6[0].target?.toFixed(2)} | 손절 $${top6[0].stop?.toFixed(2)}
      - 📈 **Exp.Return**: ${top6[0].expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
      
-  2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'}) : ${top6[1]?.theme || '-'}
+  2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'}) : ${top6[1]?.name || '-'}
+     - 🏢 **Sector**: ${top6[1]?.theme || '-'}
      - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'} | 손절 $${top6[1]?.stop?.toFixed(2) || '0'}
      - 📈 **Exp.Return**: ${top6[1]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
 
-  3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'}) : ${top6[2]?.theme || '-'}
+  3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'}) : ${top6[2]?.name || '-'}
+     - 🏢 **Sector**: ${top6[2]?.theme || '-'}
      - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'} | 손절 $${top6[2]?.stop?.toFixed(2) || '0'}
      - 📈 **Exp.Return**: ${top6[2]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
 
-  4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'}) : ${top6[3]?.theme || '-'}
+  4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'}) : ${top6[3]?.name || '-'}
+     - 🏢 **Sector**: ${top6[3]?.theme || '-'}
      - 🎯 **Plan**: 진입 $${top6[3]?.entry?.toFixed(2) || '0'} | 목표 $${top6[3]?.target?.toFixed(2) || '0'} | 손절 $${top6[3]?.stop?.toFixed(2) || '0'}
      - 📈 **Exp.Return**: ${top6[3]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
 
-  5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'}) : ${top6[4]?.theme || '-'}
+  5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'}) : ${top6[4]?.name || '-'}
+     - 🏢 **Sector**: ${top6[4]?.theme || '-'}
      - 🎯 **Plan**: 진입 $${top6[4]?.entry?.toFixed(2) || '0'} | 목표 $${top6[4]?.target?.toFixed(2) || '0'} | 손절 $${top6[4]?.stop?.toFixed(2) || '0'}
      - 📈 **Exp.Return**: ${top6[4]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
 
-  6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'}) : ${top6[5]?.theme || '-'}
+  6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'}) : ${top6[5]?.name || '-'}
+     - 🏢 **Sector**: ${top6[5]?.theme || '-'}
      - 🎯 **Plan**: 진입 $${top6[5]?.entry?.toFixed(2) || '0'} | 목표 $${top6[5]?.target?.toFixed(2) || '0'} | 손절 $${top6[5]?.stop?.toFixed(2) || '0'}
      - 📈 **Exp.Return**: ${top6[5]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
