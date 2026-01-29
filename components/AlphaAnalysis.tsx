@@ -284,13 +284,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
         if (!item) return null;
         
+        // [FIX] Round scores to integers for UI cleanliness
+        const score = Math.round(aiData.convictionScore || item.compositeAlpha || 0);
+        
+        // [FIX] Fallback for missing AI data
+        let verdict = aiData.aiVerdict;
+        if (!verdict) {
+            if (score >= 80) verdict = "STRONG_BUY";
+            else if (score >= 60) verdict = "BUY";
+            else verdict = "HOLD";
+        }
+
+        const entry = aiData.supportLevel || (item.price * 0.98);
+        const target = aiData.resistanceLevel || (item.price * 1.25);
+        const stop = aiData.stopLoss || (item.price * 0.94);
+
+        // [FIX] Calculate Expected Return if missing
+        let expReturn = aiData.expectedReturn;
+        if (!expReturn && entry > 0 && target > 0) {
+            const pct = ((target - entry) / entry) * 100;
+            expReturn = `+${pct.toFixed(1)}% (3개월)`;
+        }
+
         return {
             ...item,
             ...aiData,
-            convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
-            supportLevel: aiData.supportLevel || (item.price * 0.98),
-            resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
-            stopLoss: aiData.stopLoss || (item.price * 0.94),
+            convictionScore: score,
+            aiVerdict: verdict,
+            expectedReturn: expReturn,
+            supportLevel: entry,
+            resistanceLevel: target,
+            stopLoss: stop,
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
@@ -630,7 +654,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     {/* ... Rest of details ... */}
                      <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
+                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore}%</p>
                     </div>
                  </div>
                  {/* ... Charts and Metrics ... */}
