@@ -370,10 +370,10 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   }));
 
   const prompt = `
-  [Role: Senior Hedge Fund Manager]
-  Task: Create a premium "Alpha Daily Briefing" for Telegram.
-  Target Audience: Korean Investors.
-  Language: **KOREAN ONLY** (Translate all English inputs).
+  [Role: Senior Hedge Fund Manager & Market Strategist]
+  Task: Create a **High-Depth Alpha Daily Briefing** for Telegram.
+  Target Audience: Professional Korean Investors (requires structural logic, not simple summaries).
+  Language: **KOREAN ONLY**.
   Date: ${today}
   
   ${macroContext}
@@ -381,62 +381,47 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   Top 6 Alpha Picks (Sorted by Conviction):
   ${JSON.stringify(top6)}
 
-  [Strict Format Requirement - Korean Markdown]
-  Output exactly this structure with line breaks between sections.
+  [STRICT OUTPUT FORMAT & STYLE RULES]
+  1. **Macro Section**: Must include a summary sentence followed by **3 specific bullet points** analyzing market drivers (e.g., Sector Rotation, Rates, Earnings).
+  2. **Logic Section**:
+     - **MUST** provide 3 distinct bullet points for each stock.
+     - **FORBIDDEN**: Do not mention "Alpha Score", "High Score", "Ranking", or "Algorithm".
+     - **REQUIRED**: Focus on Structural Growth, Sector Tailwinds, and Company Fundamentals (e.g., "AI demand increase", "Margin expansion", "Market share dominance").
+     - If the provided reason is generic (e.g., "High Score"), **REWRITE IT** based on the stock's actual known fundamentals and sector themes.
+  3. **Exp.Return**: Keep it realistic (conservative).
+  4. **Tone**: Heavy, Professional, Analytical (Wall Street Report Style).
+  
+  [REQUIRED MARKDOWN OUTPUT PATTERN]
   
   📅 **${today} | Daily Alpha Insight**
   
   📊 **Market Pulse**
-  **Macro**: [Market Fear/Greed Stage & Summary (Use **Bold** for key points, - for bullets)] (S&P500: [Value] | NASDAQ: [Value])
-
-  **VIX**: [VIX Value] ([VIX 상태 해석: 안정/경계/공포])
+  **Macro**: [Summary Sentence] (S&P500: [Value] | NASDAQ: [Value])
+  - [Detailed Market Driver 1]
+  - [Detailed Market Driver 2]
+  - [Detailed Market Driver 3]
+  
+  **VIX**: [Value] ([Interpretation])
   
   💎 **Alpha Top 6 Selections**
 
-  1. **${top6[0].symbol}** (${top6[0].verdict}) : ${top6[0].name}
-     - 🏢 **Sector**: ${top6[0].theme}
-     - 🎯 **Plan**: 진입 $${top6[0].entry?.toFixed(2)} | 목표 $${top6[0].target?.toFixed(2)} | 손절 $${top6[0].stop?.toFixed(2)}
-     - 📈 **Exp.Return**: ${top6[0].expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
+  1. **[Symbol]** ([Verdict]) : [Company Name]
+     - 🏢 **Sector**: [Sector Name]
+     - 🎯 **Plan**: 진입 $[Entry] | 목표 $[Target] | 손절 $[Stop]
+     - 📈 **Exp.Return**: [Return]% ([Duration])
+     - 💡 **Logic**: 
+       - [Fundamental Reason 1]
+       - [Fundamental Reason 2]
+       - [Fundamental Reason 3]
      
-  2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'}) : ${top6[1]?.name || '-'}
-     - 🏢 **Sector**: ${top6[1]?.theme || '-'}
-     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'} | 손절 $${top6[1]?.stop?.toFixed(2) || '0'}
-     - 📈 **Exp.Return**: ${top6[1]?.expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
-
-  3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'}) : ${top6[2]?.name || '-'}
-     - 🏢 **Sector**: ${top6[2]?.theme || '-'}
-     - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'} | 손절 $${top6[2]?.stop?.toFixed(2) || '0'}
-     - 📈 **Exp.Return**: ${top6[2]?.expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
-
-  4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'}) : ${top6[3]?.name || '-'}
-     - 🏢 **Sector**: ${top6[3]?.theme || '-'}
-     - 🎯 **Plan**: 진입 $${top6[3]?.entry?.toFixed(2) || '0'} | 목표 $${top6[3]?.target?.toFixed(2) || '0'} | 손절 $${top6[3]?.stop?.toFixed(2) || '0'}
-     - 📈 **Exp.Return**: ${top6[3]?.expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
-
-  5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'}) : ${top6[4]?.name || '-'}
-     - 🏢 **Sector**: ${top6[4]?.theme || '-'}
-     - 🎯 **Plan**: 진입 $${top6[4]?.entry?.toFixed(2) || '0'} | 목표 $${top6[4]?.target?.toFixed(2) || '0'} | 손절 $${top6[4]?.stop?.toFixed(2) || '0'}
-     - 📈 **Exp.Return**: ${top6[4]?.expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
-
-  6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'}) : ${top6[5]?.name || '-'}
-     - 🏢 **Sector**: ${top6[5]?.theme || '-'}
-     - 🎯 **Plan**: 진입 $${top6[5]?.entry?.toFixed(2) || '0'} | 목표 $${top6[5]?.target?.toFixed(2) || '0'} | 손절 $${top6[5]?.stop?.toFixed(2) || '0'}
-     - 📈 **Exp.Return**: ${top6[5]?.expReturn || 'N/A'}
-     - 💡 **Logic**: [Translate reasoning to Korean short phrases (개조식)]
+  ... (Repeat for all 6) ...
   
-  ⚠️ **Risk Note**: [시장 리스크 한줄 요약 (한글)]
-
-  **Tone**: Professional, Direct, High-Value.
+  ⚠️ **Risk Note**: [Detailed Risk Warning about Macro/VIX/Rates]
+  
   **Translation Rules**:
   1. Translate "STRONG_BUY" to "강력 매수", "BUY" to "매수", "ACCUMULATE" to "비중 확대", "HOLD" to "관망".
   2. Ensure "Logic" and "Macro" sections are fully translated to natural, professional Korean.
   3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
-  4. Do not leave English sentences in the output.
   `;
 
   try {
