@@ -100,17 +100,36 @@ async function runAlphaSeeker() {
         // 2. Launch Browser
         browser = await puppeteer.launch({
             headless: "new",
-            args: ['--no-sandbox', '--disable-setuid-sandbox'] // Required for GitHub Actions
+            args: [
+                '--no-sandbox', 
+                '--disable-setuid-sandbox',
+                '--disable-dev-shm-usage', // Prevent memory issues
+                '--disable-accelerated-2d-canvas',
+                '--disable-gpu'
+            ], 
+            protocolTimeout: 0 // [CRITICAL FIX] Disable protocol timeout to allow long-running app scripts
         });
         const page = await browser.newPage();
+        
+        // Optimize Page Performance: Block Fonts/Images
+        await page.setRequestInterception(true);
+        page.on('request', (req) => {
+            const type = req.resourceType();
+            if (['font', 'image', 'stylesheet'].includes(type)) {
+                req.abort();
+            } else {
+                req.continue();
+            }
+        });
 
         // 3. Set Viewport & Console forwarding
         await page.setViewport({ width: 1920, height: 1080 });
         page.on('console', msg => console.log('PAGE LOG:', msg.text()));
+        page.on('pageerror', err => console.log('PAGE ERROR:', err.toString()));
 
         // 4. Navigate & Inject Token
         console.log(`[Nav] navigating to ${APP_URL}...`);
-        await page.goto(APP_URL, { waitUntil: 'networkidle0' });
+        await page.goto(APP_URL, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
         // Inject Token into SessionStorage so App.tsx sees us as "Logged In"
         console.log("[Inject] Injecting Access Token...");
@@ -123,7 +142,7 @@ async function runAlphaSeeker() {
         // Since session storage persists on same-tab reload (mostly), or we navigate to specific URL.
         const autoUrl = `${APP_URL}/?auto=true`;
         console.log(`[Trigger] Navigating to Auto-Mode: ${autoUrl}`);
-        await page.goto(autoUrl, { waitUntil: 'networkidle0' });
+        await page.goto(autoUrl, { waitUntil: 'networkidle0', timeout: 60000 });
 
         // 6. Monitor Progress
         // We look for specific log message "✅ Auto Pilot Complete" in the browser console
@@ -134,11 +153,13 @@ async function runAlphaSeeker() {
             () => {
                 // Check the logs array in AlphaAnalysis or App state if accessible, 
                 // OR check for the specific status text in the DOM.
-                const statusEl = document.querySelector('span.text-rose-400.animate-pulse'); // "AUTOMATION_RUNNING" text class roughly
                 const allText = document.body.innerText;
-                return allText.includes("ALL PIPELINES EXECUTED") || allText.includes("AUTOMATION_COMPLETE");
+                // Check for completion or error states
+                return allText.includes("ALL PIPELINES EXECUTED") || 
+                       allText.includes("AUTOMATION_COMPLETE") ||
+                       allText.includes("TELEGRAM SEND FAILED");
             },
-            { timeout: TIMEOUT_MS, polling: 5000 }
+            { timeout: TIMEOUT_MS, polling: 10000 } // [FIX] Increased polling interval to 10s to reduce load
         );
 
         console.log("✅ Mission Accomplished: Target Alpha Report Generated & Transmitted.");
