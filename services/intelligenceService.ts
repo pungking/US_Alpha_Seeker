@@ -386,33 +386,40 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   
   📊 **Market Pulse**
   **Macro**: [시장 공포/탐욕 단계 및 분위기 요약 (한글)] (S&P500: [Value] | NASDAQ: [Value])
+
   **VIX**: [VIX Value] ([VIX 상태 해석: 안정/경계/공포])
   
   💎 **Alpha Top 6 Selections**
 
   1. **${top6[0].symbol}** (${top6[0].verdict})
      - 🎯 **Plan**: 진입 $${top6[0].entry?.toFixed(2)} | 목표 $${top6[0].target?.toFixed(2)} | 손절 $${top6[0].stop?.toFixed(2)}
+     - 📈 **Exp.Return**: ${top6[0].expReturn || 'N/A'}
      - 💡 **Logic**: [Translate reasoning to Korean: ${top6[0].reason}]
      
   2. **${top6[1]?.symbol || 'N/A'}** (${top6[1]?.verdict || '-'})
-     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'}
+     - 🎯 **Plan**: 진입 $${top6[1]?.entry?.toFixed(2) || '0'} | 목표 $${top6[1]?.target?.toFixed(2) || '0'} | 손절 $${top6[1]?.stop?.toFixed(2) || '0'}
+     - 📈 **Exp.Return**: ${top6[1]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate to Korean: ${top6[1]?.reason || '-'}]
 
   3. **${top6[2]?.symbol || 'N/A'}** (${top6[2]?.verdict || '-'})
-     - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'}
+     - 🎯 **Plan**: 진입 $${top6[2]?.entry?.toFixed(2) || '0'} | 목표 $${top6[2]?.target?.toFixed(2) || '0'} | 손절 $${top6[2]?.stop?.toFixed(2) || '0'}
+     - 📈 **Exp.Return**: ${top6[2]?.expReturn || 'N/A'}
      - 💡 **Logic**: [Translate to Korean: ${top6[2]?.reason || '-'}]
 
   4. **${top6[3]?.symbol || 'N/A'}** (${top6[3]?.verdict || '-'})
-     - 🎯 **Target**: $${top6[3]?.target?.toFixed(2) || '0'} (${top6[3]?.expReturn})
-     - 💡 **Why**: [Translate to Korean: ${top6[3]?.reason || '-'}]
+     - 🎯 **Plan**: 진입 $${top6[3]?.entry?.toFixed(2) || '0'} | 목표 $${top6[3]?.target?.toFixed(2) || '0'} | 손절 $${top6[3]?.stop?.toFixed(2) || '0'}
+     - 📈 **Exp.Return**: ${top6[3]?.expReturn || 'N/A'}
+     - 💡 **Logic**: [Translate to Korean: ${top6[3]?.reason || '-'}]
 
   5. **${top6[4]?.symbol || 'N/A'}** (${top6[4]?.verdict || '-'})
-     - 🎯 **Target**: $${top6[4]?.target?.toFixed(2) || '0'} (${top6[4]?.expReturn})
-     - 💡 **Why**: [Translate to Korean: ${top6[4]?.reason || '-'}]
+     - 🎯 **Plan**: 진입 $${top6[4]?.entry?.toFixed(2) || '0'} | 목표 $${top6[4]?.target?.toFixed(2) || '0'} | 손절 $${top6[4]?.stop?.toFixed(2) || '0'}
+     - 📈 **Exp.Return**: ${top6[4]?.expReturn || 'N/A'}
+     - 💡 **Logic**: [Translate to Korean: ${top6[4]?.reason || '-'}]
 
   6. **${top6[5]?.symbol || 'N/A'}** (${top6[5]?.verdict || '-'})
-     - 🎯 **Target**: $${top6[5]?.target?.toFixed(2) || '0'} (${top6[5]?.expReturn})
-     - 💡 **Why**: [Translate to Korean: ${top6[5]?.reason || '-'}]
+     - 🎯 **Plan**: 진입 $${top6[5]?.entry?.toFixed(2) || '0'} | 목표 $${top6[5]?.target?.toFixed(2) || '0'} | 손절 $${top6[5]?.stop?.toFixed(2) || '0'}
+     - 📈 **Exp.Return**: ${top6[5]?.expReturn || 'N/A'}
+     - 💡 **Logic**: [Translate to Korean: ${top6[5]?.reason || '-'}]
   
   ⚠️ **Risk Note**: [시장 리스크 한줄 요약 (한글)]
 
