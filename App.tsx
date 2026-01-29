@@ -13,7 +13,7 @@ import TechnicalAnalysis from './components/TechnicalAnalysis';
 import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
-import { analyzePipelineStatus } from './services/intelligenceService';
+import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
 import { sendTelegramReport } from './services/telegramService';
 
 const App: React.FC = () => {
@@ -234,6 +234,20 @@ const App: React.FC = () => {
          if (targetBrain === ApiProvider.GEMINI) {
              setAuditBrain(ApiProvider.PERPLEXITY);
              console.warn("Gemini Audit Failed. Switched toggle to Sonar.");
+         }
+      } else {
+         // [NEW] Automatic Report Archiving
+         const token = sessionStorage.getItem('gdrive_access_token');
+         if (token) {
+             const date = new Date().toISOString().split('T')[0];
+             const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
+             const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+             const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
+             
+             // Fire and forget
+             archiveReport(token, fileName, report).then(ok => {
+                 if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
+             });
          }
       }
 
@@ -485,7 +499,7 @@ const App: React.FC = () => {
           <div className="flex gap-4 w-full lg:w-auto">
              {currentReport && <button onClick={copyReport} className="flex-1 lg:flex-none px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5">Copy Report</button>}
              <button onClick={runStockAudit} disabled={isAiLoading || !selectedStock} className={`flex-1 lg:flex-none px-8 md:px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 bg-slate-900' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30'}`}>
-                {isAiLoading ? 'Auditing...' : selectedStock ? `Audit ${selectedStock.symbol}` : 'Select Stock'}
+                {isAiLoading ? 'Auditing & Archiving...' : selectedStock ? `Audit ${selectedStock.symbol}` : 'Select Stock'}
               </button>
           </div>
         </div>

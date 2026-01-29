@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 import { ApiProvider } from '../types';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief } from '../services/intelligenceService';
+import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
@@ -368,6 +368,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const safeReport = String(report || "No analysis returned from neural engine.");
         setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
         
+        // [NEW] Automatic Report Archiving
+        const token = sessionStorage.getItem('gdrive_access_token');
+        if (token) {
+           const date = new Date().toISOString().split('T')[0];
+           const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+           // [MODIFIED] Specific Naming Rule for Portfolio Matrix
+           const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
+           
+           addLog(`Archiving Report: ${fileName}...`, "info");
+           const saved = await archiveReport(token, fileName, safeReport);
+           if (saved) addLog(`Report Archived Successfully.`, "ok");
+           else addLog(`Report Archive Failed.`, "err");
+        }
+
         addLog("Portfolio Matrix Audit complete.", "ok");
     } catch (e: any) { 
         addLog(`Matrix Error: ${e.message}`, "err"); 

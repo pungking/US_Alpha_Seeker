@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { API_CONFIGS } from "../constants";
+import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
@@ -34,6 +34,54 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
     console.error("Usage Tracking Error:", e);
   }
 };
+
+// [NEW] Report Archiving Utility
+export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
+  try {
+     const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
+     
+     // 1. Ensure Report Folder Exists
+     const q = encodeURIComponent(`name = '${reportSubFolder}' and '${rootFolderId}' in parents and trashed = false`);
+     let folderId = '';
+     
+     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+     }).then(r => r.json());
+
+     if (res.files?.length > 0) {
+        folderId = res.files[0].id;
+     } else {
+        const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+           method: 'POST',
+           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+           body: JSON.stringify({ name: reportSubFolder, parents: [rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+        }).then(r => r.json());
+        folderId = create.id;
+     }
+
+     if (!folderId) throw new Error("Failed to resolve Report folder");
+
+     // 2. Upload Markdown File
+     const meta = { name: fileName, parents: [folderId], mimeType: 'text/markdown' };
+     const form = new FormData();
+     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+     form.append('file', new Blob([content], { type: 'text/markdown' }));
+
+     const upload = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+     });
+     
+     if (!upload.ok) {
+         console.error("Archive Upload Failed", await upload.text());
+         return false;
+     }
+     
+     return true;
+  } catch (e) {
+     console.error("Archive Report System Error", e);
+     return false;
+  }
+}
 
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
