@@ -659,7 +659,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      </div>
                  </div>
 
-                 {/* RESTORED BACKTEST SECTION */}
+                 {/* RESTORED & REDESIGNED BACKTEST SECTION */}
                  <div className="mt-8 border-t border-white/5 pt-8">
                     <div className="flex justify-between items-center mb-6">
                         <div>
@@ -679,61 +679,126 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {currentBacktest ? (
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                             {/* Left: Metrics (1 col) */}
-                             <div className="space-y-3">
-                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
-                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
-                                    <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
+                             {/* Left Column: Metrics & Definition */}
+                             <div className="flex flex-col gap-4">
+                                {/* Metrics Stack */}
+                                <div className="space-y-3">
+                                    {/* Win Rate */}
+                                    <div 
+                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Win Rate') ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                    >
+                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
+                                        <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
+                                    </div>
+                                    {/* Profit Factor */}
+                                    <div 
+                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Profit Factor') ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                    >
+                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
+                                        <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
+                                    </div>
+                                    {/* MDD */}
+                                    <div 
+                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('MDD') ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                    >
+                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
+                                        <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
+                                    </div>
+                                    {/* Sharpe */}
+                                    <div 
+                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Sharpe') ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                    >
+                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
+                                        <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
+                                    </div>
                                 </div>
-                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
-                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
-                                    <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
-                                </div>
-                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
-                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
-                                    <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
-                                </div>
-                                <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex justify-between items-center">
-                                    <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
-                                    <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
+
+                                {/* Metric Info Box (Left Column Bottom) */}
+                                <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
+                                    {selectedMetricInfo ? (
+                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
+                                            <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
+                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                                                {selectedMetricInfo.title}
+                                            </h5>
+                                            <div className="text-[10px] text-slate-400 leading-relaxed whitespace-pre-line prose-sm">
+                                                <ReactMarkdown remarkPlugins={[remarkGfm]}>{selectedMetricInfo.desc}</ReactMarkdown>
+                                            </div>
+                                        </div>
+                                    ) : (
+                                        <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
+                                             <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric</p>
+                                        </div>
+                                    )}
                                 </div>
                              </div>
 
-                             {/* Right: Chart (3 cols) */}
-                             <div className="lg:col-span-3 bg-black/40 rounded-[30px] border border-white/5 p-6 relative">
-                                <ResponsiveContainer width="100%" height={260}>
-                                    <AreaChart data={chartData}>
-                                        <defs>
-                                            <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                <stop offset="5%" stopColor={chartColor} stopOpacity={0.4}/>
-                                                <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                                            </linearGradient>
-                                        </defs>
-                                        <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                        <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
-                                        <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dx={-10} domain={['auto', 'auto']} />
-                                        <Tooltip 
-                                            contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
-                                            itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                                            labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                        />
-                                        <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
-                                    </AreaChart>
-                                </ResponsiveContainer>
-                             </div>
+                             {/* Right Column: Chart & Insight */}
+                             <div className="lg:col-span-3 flex flex-col gap-6">
+                                {/* Chart Area */}
+                                <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
+                                    <div className="flex justify-between items-start mb-4">
+                                        <div>
+                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cumulative Equity Growth</p>
+                                             <div className="flex items-center gap-3 mt-1">
+                                                 <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                                                     {chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}
+                                                 </span>
+                                                 <div className="flex flex-col">
+                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Return</span>
+                                                     <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
+                                                 </div>
+                                             </div>
+                                        </div>
+                                        <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
+                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
+                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
+                                        </div>
+                                    </div>
 
-                             {/* Bottom: Insight */}
-                             <div className="lg:col-span-4 bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20">
-                                 <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                     <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                     Simulation Intelligence Insight
-                                 </h5>
-                                 <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                        {currentBacktest.historicalContext}
-                                     </ReactMarkdown>
+                                    <div className="flex-1 w-full min-h-0">
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <AreaChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                                                <defs>
+                                                    <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
+                                                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                                                        <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                                                    </linearGradient>
+                                                </defs>
+                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
+                                                <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
+                                                <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                                                <Tooltip 
+                                                    contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
+                                                    itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                                                    labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
+                                                    formatter={(value: any) => [`${value}%`, 'Return']}
+                                                />
+                                                <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
+                                                <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
+                                            </AreaChart>
+                                        </ResponsiveContainer>
+                                    </div>
+                                </div>
+
+                                {/* Insight Area (Right Column Bottom - Full Width of Right Col) */}
+                                <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
+                                     <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                         Simulation Intelligence Insight
+                                     </h5>
+                                     <div className="prose-report text-xs text-slate-300 leading-relaxed">
+                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                            {currentBacktest.historicalContext}
+                                         </ReactMarkdown>
+                                     </div>
                                  </div>
-                             </div>
+                            </div>
                         </div>
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
