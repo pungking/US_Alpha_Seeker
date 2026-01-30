@@ -37,7 +37,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
+  // [RESTORED] 기본 클라이언트 ID 자동 입력 (사용자 편의성 및 동작 보장)
+  const [clientId, setClientId] = useState<string>(() => 
+    localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com'
+  );
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
   // API Keys
@@ -129,6 +132,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
         addLog(`Auth Error: ${e.message}`, "err");
+        // [FIX] 인증 실패 시 설정창 자동 오픈 (ID 수정 기회 제공)
+        setShowConfig(true);
         document.body.removeAttribute('data-engine-running');
       }
       return;
@@ -338,9 +343,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-       {/* [MODIFIED] Configuration Modal 복구 */}
+       {/* [MODIFIED] Configuration Modal: Z-Index Increased to 9999 for visibility */}
        {showConfig && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
             <div className="flex justify-between items-center">
               <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
@@ -387,7 +392,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
                   </span>
-                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
+                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
               </div>
