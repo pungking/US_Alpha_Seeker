@@ -290,7 +290,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v2.2.0 (PRO_NODE)</span>
+          <span className="text-emerald-400 font-bold">Version: v2.3.0 (Strategic_Node)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
@@ -319,7 +319,7 @@ const App: React.FC = () => {
         <div className={`glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto ${isMirror ? 'border-rose-500/20' : ''}`}>
              
              {/* Section 1: AI Brains */}
-             <div className="flex flex-col border-r border-white/5 pr-5">
+             <div className="flex col border-r border-white/5 pr-5">
                  <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Session Load</span>
                  <div className="flex items-center gap-3">
                      <div className="flex flex-col">
