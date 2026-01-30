@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -42,7 +43,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
 
   const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
@@ -142,14 +142,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (!finnhubKey || !polygonKey) throw new Error("Finnhub or Polygon Key missing");
     const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`);
     const fhData = await fhRes.json();
-    // [FIX] Explicitly type the Map to avoid unknown type inference
     const symbolMap = new Map<string, any>();
     fhData.forEach((s: any) => symbolMap.set(s.symbol, { name: s.description, type: s.type || 'Common Stock' }));
     
     let targetDate = getInitialTargetDate();
     const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
     const data = await polyRes.json();
-    // [FIX] Explicitly type the Map to avoid unknown type inference
     const polyMap = new Map<string, any>((data.results || []).map((p: any) => [p.T, p]));
     
     const results: MasterTicker[] = [];
@@ -202,37 +200,68 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const getFolderIdByName = async (token: string, name: string, parentId?: string) => {
-    let query = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-    if (parentId) query += ` and '${parentId}' in parents`;
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    const data = await res.json();
-    return data.files?.length > 0 ? data.files[0].id : null;
+    try {
+      let query = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+      if (parentId) query += ` and '${parentId}' in parents`;
+      else query += ` and 'root' in parents`; // 루트 수준에서 검색하도록 강화
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.files?.length > 0 ? data.files[0].id : null;
+    } catch { return null; }
   };
 
   const createFolder = async (token: string, name: string, parentId?: string) => {
-    const body: any = { name, mimeType: 'application/vnd.google-apps.folder' };
-    if (parentId) body.parents = [parentId];
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify(body)
-    });
-    const data = await res.json();
-    return data.id;
+    try {
+      const body: any = { name, mimeType: 'application/vnd.google-apps.folder' };
+      if (parentId) body.parents = [parentId];
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+        method: 'POST',
+        headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+      });
+      if (!res.ok) return null;
+      const data = await res.json();
+      return data.id;
+    } catch { return null; }
   };
 
   const ensureFolder = async (token: string) => {
-    // 1. Ensure Root
-    let rootId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.rootFolderName);
-    if (!rootId) rootId = await createFolder(token, GOOGLE_DRIVE_TARGET.rootFolderName);
+    // 1. Ensure Root: constants.ts의 rootFolderId 검증
+    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
+    
+    // rootId가 유효한지 실제 API로 확인
+    if (rootId && rootId.trim() !== "") {
+      try {
+        const verifyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${rootId}?fields=id,trashed`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (!verifyRes.ok) {
+           rootId = ""; // 접근 불가하거나 존재하지 않으면 fallback
+        } else {
+           const meta = await verifyRes.json();
+           if (meta.trashed) rootId = ""; // 휴지통에 있으면 fallback
+        }
+      } catch {
+        rootId = "";
+      }
+    }
+    
+    // rootId가 없거나 유효하지 않으면 이름으로 검색/생성
+    if (!rootId || rootId.trim() === "") {
+        rootId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.rootFolderName);
+        if (!rootId) rootId = await createFolder(token, GOOGLE_DRIVE_TARGET.rootFolderName);
+    }
+
     if (!rootId) throw new Error("Could not access or create Root Folder");
 
     // 2. Ensure Subfolder
     let subId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
     if (!subId) subId = await createFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
-    if (!subId) throw new Error("Could not access or create Subfolder");
+    
+    if (!subId) throw new Error(`Could not access or create Subfolder: ${GOOGLE_DRIVE_TARGET.targetSubFolder}`);
     return subId;
   };
 
@@ -246,8 +275,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': `multipart/related; boundary=${boundary}` },
       body
     });
+    
     if (!res.ok) {
-        const err = await res.json();
+        const err = await res.json().catch(() => ({}));
         throw new Error(`Upload Failed: ${err.error?.message || res.statusText}`);
     }
   };
