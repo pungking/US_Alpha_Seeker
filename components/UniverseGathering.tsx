@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -112,7 +113,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
-          scope: 'https://www.googleapis.com/auth/drive.file',
+          scope: 'https://www.googleapis.com/auth/drive',
           callback: (res: any) => {
             if (res.access_token) {
               setAccessToken(res.access_token);
@@ -273,15 +274,43 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const ensureFolder = async (token: string) => {
-    const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    // 1. Resolve Root Folder ID dynamically (Handles deleted folder scenario)
+    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; // Fallback
+    const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
+    
+    try {
+        // Try to find the root folder by name to recover from deletion/ID change
+        const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
+        const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json());
+        
+        if (resRoot.files && resRoot.files.length > 0) {
+            rootId = resRoot.files[0].id;
+        } else {
+            // If not found (deleted), create new Root Folder
+            const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: rootName, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
+            }).then(r => r.json());
+            if (createRoot.id) rootId = createRoot.id;
+        }
+    } catch (e) {
+        console.warn("Root folder resolution failed, using default ID", e);
+    }
+
+    // 2. Ensure Target Subfolder (Stage 0) exists inside the resolved Root ID
+    const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
+    
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
   };
@@ -309,9 +338,43 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+       {/* [MODIFIED] Configuration Modal 복구 */}
+       {showConfig && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
+              <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
+              <input 
+                type="text" 
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none"
+                placeholder="Enter GDrive Client ID"
+              />
+              <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
+            </div>
+            <button 
+              onClick={() => {
+                localStorage.setItem('gdrive_client_id', clientId);
+                setShowConfig(false);
+                addLog("Infrastructure Persisted Successfully.", "ok");
+              }}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all"
+            >
+              Apply Changes
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          {/* ... (UI Config Panel omitted for brevity, same as original) ... */}
           
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-4 md:space-x-6">
@@ -350,7 +413,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             </button>
           </div>
           
-          {/* Global Integrity Validator & Stats Section - (Keep existing JSX) */}
            <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
