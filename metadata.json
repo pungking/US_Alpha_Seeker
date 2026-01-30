@@ -1,7 +1,7 @@
 {
   "name": "US_Alpha_Seeker",
-  "description": "US Stock Alpha Analysis Pipeline - Production Node",
-  "version": "1.5.2",
+  "description": "US Stock Alpha Analysis Pipeline - Production Node [SYNC_RESET]",
+  "version": "2.0.0",
   "requestFramePermissions": [
     "geolocation"
   ]
