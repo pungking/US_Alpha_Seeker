@@ -202,19 +202,45 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const getFolderIdByName = async (token: string, name: string, parentId?: string) => {
     try {
       let query = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
-      if (parentId) query += ` and '${parentId}' in parents`;
-      else query += ` and 'root' in parents`; // 루트 수준에서 검색하도록 강화
+      if (parentId) {
+        query += ` and '${parentId}' in parents`;
+      }
+      
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(query)}`, {
         headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!res.ok) return null;
+      
+      if (!res.ok) {
+        const err = await res.json();
+        addLog(`Search Error (${name}): ${err.error?.message || res.statusText}`, "err");
+        return null;
+      }
+      
       const data = await res.json();
-      return data.files?.length > 0 ? data.files[0].id : null;
-    } catch { return null; }
+      if (data.files?.length > 0) return data.files[0].id;
+
+      // Fallback: If not found with root constraint, try a broader search (might find it if drive.file scope allows)
+      if (!parentId) {
+        let broadQuery = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
+        const broadRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(broadQuery)}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        });
+        if (broadRes.ok) {
+          const broadData = await broadRes.json();
+          if (broadData.files?.length > 0) return broadData.files[0].id;
+        }
+      }
+
+      return null;
+    } catch (e: any) { 
+      addLog(`Folder Lookup Exception: ${e.message}`, "err");
+      return null; 
+    }
   };
 
   const createFolder = async (token: string, name: string, parentId?: string) => {
     try {
+      addLog(`Creating Folder: ${name}...`, "info");
       const body: any = { name, mimeType: 'application/vnd.google-apps.folder' };
       if (parentId) body.parents = [parentId];
       const res = await fetch(`https://www.googleapis.com/drive/v3/files`, {
@@ -222,10 +248,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        const error = await res.json();
+        addLog(`Folder Create Failed: ${error.error?.message || res.statusText}`, "err");
+        return null;
+      }
       const data = await res.json();
       return data.id;
-    } catch { return null; }
+    } catch (e: any) { 
+      addLog(`Folder Create Exception: ${e.message}`, "err");
+      return null; 
+    }
   };
 
   const ensureFolder = async (token: string) => {
@@ -235,14 +268,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     // rootId가 유효한지 실제 API로 확인
     if (rootId && rootId.trim() !== "") {
       try {
-        const verifyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${rootId}?fields=id,trashed`, {
+        const verifyRes = await fetch(`https://www.googleapis.com/drive/v3/files/${rootId}?fields=id,trashed,mimeType`, {
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!verifyRes.ok) {
-           rootId = ""; // 접근 불가하거나 존재하지 않으면 fallback
+           addLog(`Hardcoded Root ID (${rootId}) is inaccessible. Falling back to Name Search.`, "warn");
+           rootId = ""; 
         } else {
            const meta = await verifyRes.json();
-           if (meta.trashed) rootId = ""; // 휴지통에 있으면 fallback
+           if (meta.trashed) {
+             addLog(`Root Folder is in Trash. Creating New.`, "warn");
+             rootId = "";
+           }
         }
       } catch {
         rootId = "";
@@ -251,15 +288,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     
     // rootId가 없거나 유효하지 않으면 이름으로 검색/생성
     if (!rootId || rootId.trim() === "") {
+        addLog(`Searching for Root Folder by Name: ${GOOGLE_DRIVE_TARGET.rootFolderName}...`, "info");
         rootId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.rootFolderName);
-        if (!rootId) rootId = await createFolder(token, GOOGLE_DRIVE_TARGET.rootFolderName);
+        if (!rootId) {
+            rootId = await createFolder(token, GOOGLE_DRIVE_TARGET.rootFolderName);
+        }
     }
 
-    if (!rootId) throw new Error("Could not access or create Root Folder");
+    if (!rootId) throw new Error("Could not access or create Root Folder. Check OAuth Scopes.");
 
     // 2. Ensure Subfolder
+    addLog(`Searching for Subfolder: ${GOOGLE_DRIVE_TARGET.targetSubFolder}...`, "info");
     let subId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
-    if (!subId) subId = await createFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
+    if (!subId) {
+        subId = await createFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
+    }
     
     if (!subId) throw new Error(`Could not access or create Subfolder: ${GOOGLE_DRIVE_TARGET.targetSubFolder}`);
     return subId;
