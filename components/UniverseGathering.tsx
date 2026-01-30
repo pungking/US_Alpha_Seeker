@@ -37,7 +37,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
+  
+  // 새로운 클라이언트 ID 반영
+  const NEW_CLIENT_ID = "741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com";
+  const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || NEW_CLIENT_ID);
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -219,7 +222,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const data = await res.json();
       if (data.files?.length > 0) return data.files[0].id;
 
-      // Fallback: If not found with root constraint, try a broader search (might find it if drive.file scope allows)
+      // broader search if no parent specified
       if (!parentId) {
         let broadQuery = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
         const broadRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(broadQuery)}`, {
@@ -272,7 +275,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!verifyRes.ok) {
-           addLog(`Hardcoded Root ID (${rootId}) is inaccessible. Falling back to Name Search.`, "warn");
+           addLog(`Hardcoded Root ID is inaccessible. Searching by Name: ${GOOGLE_DRIVE_TARGET.rootFolderName}`, "warn");
            rootId = ""; 
         } else {
            const meta = await verifyRes.json();
@@ -288,17 +291,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     
     // rootId가 없거나 유효하지 않으면 이름으로 검색/생성
     if (!rootId || rootId.trim() === "") {
-        addLog(`Searching for Root Folder by Name: ${GOOGLE_DRIVE_TARGET.rootFolderName}...`, "info");
         rootId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.rootFolderName);
         if (!rootId) {
             rootId = await createFolder(token, GOOGLE_DRIVE_TARGET.rootFolderName);
         }
     }
 
-    if (!rootId) throw new Error("Could not access or create Root Folder. Check OAuth Scopes.");
+    if (!rootId) throw new Error("Could not access or create Root Folder. Check OAuth Scopes or Client ID.");
 
     // 2. Ensure Subfolder
-    addLog(`Searching for Subfolder: ${GOOGLE_DRIVE_TARGET.targetSubFolder}...`, "info");
     let subId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
     if (!subId) {
         subId = await createFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
