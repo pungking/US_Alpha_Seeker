@@ -43,6 +43,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Automation Internal State
   const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'COMMITTING' | 'DONE'>('IDLE');
   
+  // [FIX] Using process.env.API_KEY directly as per @google/genai guidelines
+  const geminiApiKey = process.env.API_KEY as string;
+
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -169,13 +172,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
-          const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          // [FIX] Initialize GoogleGenAI strictly with process.env.API_KEY as per guidelines
+          const ai = new GoogleGenAI({ apiKey: geminiApiKey });
           const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: { responseMimeType: "application/json" }
           });
+          // [FIX] Accessing response.text as a property
           aiResult = sanitizeJson(response.text);
           usedProvider = 'Gemini 3 Pro';
       } catch (e: any) { /* Fallback handled below */ }

@@ -37,7 +37,7 @@ export const API_CONFIGS: ApiConfig[] = [
 export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
   rootFolderName: 'US_Alpha_Seeker',
-  rootFolderId: '', // 삭제된 프로젝트 ID이므로 비워둠으로써 자동 재생성 유도
+  rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
   targetSubFolder: 'Stage0_Universe_Data',
   stage1SubFolder: 'Stage1_Quality_Data',
   stage2SubFolder: 'Stage2_Deep_Quality',
