@@ -1,7 +1,8 @@
+
 {
-  "name": "RECOVERY_NODE_ALPHA_V4",
-  "description": "Critical Sync Recovery Node - Emergency Identity Reset",
-  "version": "4.0.0",
+  "name": "ALPHA_SEEKER_RESYNC_Z",
+  "description": "US Stock Alpha Analysis Pipeline - Strategic Identity Reset [ID: 1139620490]",
+  "version": "6.0.0",
   "requestFramePermissions": [
     "geolocation"
   ]
