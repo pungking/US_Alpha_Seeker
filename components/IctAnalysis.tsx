@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -17,7 +16,12 @@ interface IctScoredTicker {
   scoringEngine?: string;
 }
 
-const IctAnalysis: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
@@ -30,8 +34,16 @@ const IctAnalysis: React.FC = () => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
+  // AUTO START LOGIC
+  useEffect(() => {
+    if (autoStart && !loading) {
+        addLog("AUTO-PILOT: Engaging Institutional Footprint Scanner...", "signal");
+        executeIntegratedIctProtocol();
+    }
+  }, [autoStart]);
+
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
@@ -118,7 +130,6 @@ const IctAnalysis: React.FC = () => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [Filter Logic] Stage 4에서 넘어온 250개 전량 사용
       const targets = (content.technical_universe || []).sort((a: any, b: any) => b.totalAlpha - a.totalAlpha);
       const total = targets.length;
       
@@ -191,6 +202,9 @@ const IctAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+
+      if (onComplete) onComplete();
+
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
@@ -229,6 +243,7 @@ const IctAnalysis: React.FC = () => {
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Institutional Scan Ready'}
                    </span>
+                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
@@ -256,7 +271,7 @@ const IctAnalysis: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-indigo-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-indigo-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-indigo-900'}`}>
                 {l}
               </div>
             ))}

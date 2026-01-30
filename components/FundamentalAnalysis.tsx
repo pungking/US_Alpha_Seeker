@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -15,7 +14,12 @@ interface ScoredTicker {
   scoringEngine?: string; // AI or Algo
 }
 
-const FundamentalAnalysis: React.FC = () => {
+interface Props {
+  autoStart?: boolean;
+  onComplete?: () => void;
+}
+
+const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
@@ -28,8 +32,16 @@ const FundamentalAnalysis: React.FC = () => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]' };
+  // AUTO START LOGIC
+  useEffect(() => {
+    if (autoStart && !loading) {
+        addLog("AUTO-PILOT: Engaging Fundamental Analysis Protocol...", "signal");
+        executeIntegratedAudit();
+    }
+  }, [autoStart]);
+
+  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
+    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
 
@@ -123,7 +135,6 @@ const FundamentalAnalysis: React.FC = () => {
       const rawTargets = content.elite_universe || [];
       const totalAvailable = rawTargets.length;
 
-      // [Filter Logic] Stage 2(500개)에서 상위 50%(250개)만 컷오프하여 입력으로 사용
       addLog(`Input: ${totalAvailable} candidates. Selecting Top 50% (~250) for Pipeline Processing...`, "info");
       
       const cutOffIndex = Math.ceil(totalAvailable * 0.5);
@@ -131,7 +142,6 @@ const FundamentalAnalysis: React.FC = () => {
           .sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0))
           .slice(0, cutOffIndex);
           
-      // AI 분석 우선순위를 위해 시가총액/거래대금 순 재정렬 (분석은 250개 전수 수행)
       targetsToAnalyze.sort((a: any, b: any) => b.marketValue - a.marketValue);
 
       addLog(`Target Locked: Analyzing ALL ${targetsToAnalyze.length} selected assets.`, "ok");
@@ -166,7 +176,6 @@ const FundamentalAnalysis: React.FC = () => {
           const v = (item.per > 0 && item.per < 15) ? 90 : (item.per < 25) ? 60 : 30;
           score = (p * 0.6) + (v * 0.4);
           
-          // UI Smoothing (최소한의 딜레이)
           if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
         }
 
@@ -187,7 +196,6 @@ const FundamentalAnalysis: React.FC = () => {
         if (i % 2 === 0) setProgress({ current: i + 1, total: targetsToAnalyze.length });
       }
 
-      // [Output Logic] 250개 전수 저장 (No Cut-off)
       results.sort((a, b) => b.alphaScore - a.alphaScore);
       
       addLog(`Analysis Complete. Saving ALL ${results.length} items to Stage 3 Vault.`, "ok");
@@ -209,6 +217,9 @@ const FundamentalAnalysis: React.FC = () => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      
+      if (onComplete) onComplete();
+
     } catch (e: any) {
       addLog(`Integrated Error: ${e.message}`, "err");
     } finally {
@@ -247,6 +258,7 @@ const FundamentalAnalysis: React.FC = () => {
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                      {loading ? `Engine: ${activeBrain}` : 'AI Fundamental Analysis Ready'}
                    </span>
+                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
@@ -274,7 +286,7 @@ const FundamentalAnalysis: React.FC = () => {
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-cyan-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-cyan-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-cyan-900'}`}>
                 {l}
               </div>
             ))}

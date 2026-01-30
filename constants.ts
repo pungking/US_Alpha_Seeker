@@ -10,6 +10,12 @@ export interface ApiConfig {
   category: 'Acquisition' | 'Intelligence' | 'Infrastructure';
 }
 
+// [NEW] Telegram Config
+export const TELEGRAM_CONFIG = {
+  TOKEN: '8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs',
+  CHAT_ID: '1281749368'
+};
+
 export const API_CONFIGS: ApiConfig[] = [
   // Acquisition Node (Data Feeders)
   { provider: ApiProvider.RAPID_API, key: '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e', category: 'Acquisition' },
@@ -38,7 +44,8 @@ export const GOOGLE_DRIVE_TARGET = {
   stage3SubFolder: 'Stage3_Fundamental_Data',
   stage4SubFolder: 'Stage4_Technical_Data',
   stage5SubFolder: 'Stage5_ICT_Data',
-  stage6SubFolder: 'Stage6_Alpha_Final'
+  stage6SubFolder: 'Stage6_Alpha_Final',
+  reportSubFolder: 'Report'
 };
 
 export const STAGES_FLOW = [

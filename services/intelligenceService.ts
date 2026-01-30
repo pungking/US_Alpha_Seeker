@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { API_CONFIGS } from "../constants";
+import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
@@ -34,6 +34,54 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
     console.error("Usage Tracking Error:", e);
   }
 };
+
+// [NEW] Report Archiving Utility
+export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
+  try {
+     const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
+     
+     // 1. Ensure Report Folder Exists
+     const q = encodeURIComponent(`name = '${reportSubFolder}' and '${rootFolderId}' in parents and trashed = false`);
+     let folderId = '';
+     
+     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+     }).then(r => r.json());
+
+     if (res.files?.length > 0) {
+        folderId = res.files[0].id;
+     } else {
+        const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+           method: 'POST',
+           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+           body: JSON.stringify({ name: reportSubFolder, parents: [rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+        }).then(r => r.json());
+        folderId = create.id;
+     }
+
+     if (!folderId) throw new Error("Failed to resolve Report folder");
+
+     // 2. Upload Markdown File
+     const meta = { name: fileName, parents: [folderId], mimeType: 'text/markdown' };
+     const form = new FormData();
+     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+     form.append('file', new Blob([content], { type: 'text/markdown' }));
+
+     const upload = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+     });
+     
+     if (!upload.ok) {
+         console.error("Archive Upload Failed", await upload.text());
+         return false;
+     }
+     
+     return true;
+  } catch (e) {
+     console.error("Archive Report System Error", e);
+     return false;
+  }
+}
 
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
@@ -324,6 +372,138 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   } catch (e: any) {
     trackUsage(provider, 0, true, e.message);
     return { data: null, error: e.message };
+  }
+}
+
+export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  
+  // 1. Fetch Real-time Index Data for Macro/VIX context
+  let macroContext = "";
+  try {
+      const indexRes = await fetch('/api/portal_indices');
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
+          const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
+          
+          macroContext = `
+          Real-time Index Data:
+          - VIX: ${vix?.price || 'N/A'} (Change: ${vix?.change || 0}%)
+          - S&P 500: ${spx?.price || 'N/A'}
+          - NASDAQ: ${ndx?.price || 'N/A'}
+          `;
+      }
+  } catch (e) {
+      console.warn("Index fetch failed for Telegram Brief", e);
+      macroContext = "Market Index Data Unavailable";
+  }
+
+  // 2. Select Top 6 Candidates
+  const top6 = candidates.slice(0, 6).map(c => ({
+      symbol: c.symbol,
+      name: c.name || c.symbol, // Use company name if available
+      verdict: c.aiVerdict, // e.g. STRONG_BUY
+      entry: c.supportLevel,
+      target: c.resistanceLevel,
+      stop: c.stopLoss,
+      reason: c.selectionReasons?.[0] || "High Alpha Potential",
+      expReturn: c.expectedReturn,
+      theme: c.sectorTheme || c.theme || "Alpha Sector"
+  }));
+
+  const prompt = `
+  [Role: Senior Hedge Fund Manager & Market Strategist]
+  Task: Create a **High-Depth Alpha Daily Briefing** for Telegram.
+  Target Audience: Professional Korean Investors (requires structural logic, not simple summaries).
+  Language: **KOREAN ONLY**.
+  Date: ${today}
+  
+  ${macroContext}
+  
+  Top 6 Alpha Picks (Sorted by Conviction):
+  ${JSON.stringify(top6)}
+
+  [STRICT OUTPUT FORMAT & STYLE RULES]
+  1. **Macro Section**: Must include a summary sentence followed by **3 specific bullet points** analyzing market drivers (e.g., Sector Rotation, Rates, Earnings).
+  2. **Logic Section**:
+     - **MUST** provide 3 distinct bullet points for each stock.
+     - **FORBIDDEN**: Do not mention "Alpha Score", "High Score", "Ranking", or "Algorithm".
+     - **REQUIRED**: Focus on Structural Growth, Sector Tailwinds, and Company Fundamentals (e.g., "AI demand increase", "Margin expansion", "Market share dominance").
+     - If the provided reason is generic (e.g., "High Score"), **REWRITE IT** based on the stock's actual known fundamentals and sector themes.
+  3. **Exp.Return**: Keep it realistic (conservative).
+  4. **Tone**: Heavy, Professional, Analytical (Wall Street Report Style).
+  
+  [REQUIRED MARKDOWN OUTPUT PATTERN]
+  
+  📅 **${today} | Daily Alpha Insight**
+  
+  📊 **Market Pulse**
+  **Macro**: [Summary Sentence] (S&P500: [Value] | NASDAQ: [Value])
+  - [Detailed Market Driver 1]
+  - [Detailed Market Driver 2]
+  - [Detailed Market Driver 3]
+  
+  **VIX**: [Value] ([Interpretation])
+  
+  💎 **Alpha Top 6 Selections**
+
+  1. **[Symbol]** ([Verdict]) : [Company Name]
+     - 🏢 **Sector**: [Sector Name]
+     - 🎯 **Plan**: 진입 $[Entry] | 목표 $[Target] | 손절 $[Stop]
+     - 📈 **Exp.Return**: [Return]% ([Duration])
+     - 💡 **Logic**: 
+       - [Fundamental Reason 1]
+       - [Fundamental Reason 2]
+       - [Fundamental Reason 3]
+     
+  ... (Repeat for all 6) ...
+  
+  ⚠️ **Risk Note**: [Detailed Risk Warning about Macro/VIX/Rates]
+  
+  **Translation Rules**:
+  1. Translate "STRONG_BUY" to "강력 매수", "BUY" to "매수", "ACCUMULATE" to "비중 확대", "HOLD" to "관망".
+  2. Ensure "Logic" and "Macro" sections are fully translated to natural, professional Korean.
+  3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
+  `;
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        return result.text;
+    }
+
+    // Perplexity
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
+        },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [{ role: "user", content: prompt }]
+        })
+    });
+    
+    const json = await res.json();
+    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+    return json.choices?.[0]?.message?.content || "Brief generation failed.";
+
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return `BRIEF_GEN_FAILURE: ${error.message}`;
   }
 }
 
