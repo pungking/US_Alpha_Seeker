@@ -40,7 +40,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   
   // 새로운 클라이언트 ID 반영
   const NEW_CLIENT_ID = "741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com";
-  const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || NEW_CLIENT_ID);
+  const [clientId, setClientId] = useState<string>(() => {
+    const stored = localStorage.getItem('gdrive_client_id');
+    // 이전 프로젝트 ID가 포함된 경우 새 ID로 강제 교체
+    if (stored && stored.includes('274071737753')) return NEW_CLIENT_ID;
+    return stored || NEW_CLIENT_ID;
+  });
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -215,14 +220,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       
       if (!res.ok) {
         const err = await res.json();
-        addLog(`Search Error (${name}): ${err.error?.message || res.statusText}`, "err");
+        // 프로젝트 삭제 에러 감지 시 로그 남기고 재생성 유도
+        if (err.error?.message?.includes("deleted")) {
+            addLog("Detected obsolete project reference. Clearing and re-initializing.", "warn");
+        } else {
+            addLog(`Search Error (${name}): ${err.error?.message || res.statusText}`, "err");
+        }
         return null;
       }
       
       const data = await res.json();
       if (data.files?.length > 0) return data.files[0].id;
 
-      // broader search if no parent specified
+      // parentId 없이 광범위하게 검색
       if (!parentId) {
         let broadQuery = `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`;
         const broadRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(broadQuery)}`, {
@@ -275,7 +285,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           headers: { 'Authorization': `Bearer ${token}` }
         });
         if (!verifyRes.ok) {
-           addLog(`Hardcoded Root ID is inaccessible. Searching by Name: ${GOOGLE_DRIVE_TARGET.rootFolderName}`, "warn");
+           const err = await verifyRes.json();
+           if (err.error?.message?.includes("deleted")) {
+             addLog(`Obsolete Project ID detected. Re-creating Root: ${GOOGLE_DRIVE_TARGET.rootFolderName}`, "warn");
+           } else {
+             addLog(`Inaccessible Root ID. Searching by Name: ${GOOGLE_DRIVE_TARGET.rootFolderName}`, "warn");
+           }
            rootId = ""; 
         } else {
            const meta = await verifyRes.json();
@@ -297,7 +312,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         }
     }
 
-    if (!rootId) throw new Error("Could not access or create Root Folder. Check OAuth Scopes or Client ID.");
+    if (!rootId) throw new Error("Could not access or create Root Folder. Project context mismatch.");
 
     // 2. Ensure Subfolder
     let subId = await getFolderIdByName(token, GOOGLE_DRIVE_TARGET.targetSubFolder, rootId);
