@@ -1,216 +1,153 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { ApiProvider, ApiStatus } from '../types';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import React, { useState, useEffect, useCallback } from 'react';
+import { ApiProvider, ApiStatus } from './types';
+import { API_CONFIGS, STAGES_FLOW } from './constants';
+import ApiStatusCard from './components/ApiStatusCard';
+import UniverseGathering from './components/UniverseGathering';
+import PreliminaryFilter from './components/PreliminaryFilter';
+import DeepQualityFilter from './components/DeepQualityFilter';
+import FundamentalAnalysis from './components/FundamentalAnalysis';
+import TechnicalAnalysis from './components/TechnicalAnalysis';
+import IctAnalysis from './components/IctAnalysis';
+import AlphaAnalysis from './components/AlphaAnalysis';
+import MarketTicker from './components/MarketTicker';
 
-declare global {
-  interface Window {
-    google: any;
-  }
-}
-
-interface Props {
-  onAuthSuccess?: (status: boolean) => void;
-  isActive: boolean;
-  apiStatuses: ApiStatus[];
-  onStockSelected?: (stock: any) => void;
-  autoStart?: boolean;
-  onComplete?: () => void;
-}
-
-interface MasterTicker {
-  symbol: string;
-  name?: string;
-  price: number;
-  volume: number;
-  change: number;
-  updated: string;
-  type?: string; 
-  marketCap?: number;
-  sector?: string;
-}
-
-const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
-  const [isEngineRunning, setIsEngineRunning] = useState(false);
-  const [showConfig, setShowConfig] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
-  const [clientId, setClientId] = useState<string>(() => localStorage.getItem('gdrive_client_id') || '');
-  const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
+const App: React.FC = () => {
+  const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
+  const [currentStage, setCurrentStage] = useState(0);
+  const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
+  const [showTroubleshooter, setShowTroubleshooter] = useState(false);
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
   
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
+  const REPO_ID = "1139620490"; 
 
-  const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  const [stats, setStats] = useState({
-    found: 0,
-    synced: 0,
-    target: 10000,
-    elapsed: 0,
-    provider: 'Idle',
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
-  });
+  const refreshApiStatuses = useCallback(async () => {
+    const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
+    setIsGdriveConnected(hasGdriveToken);
+    
+    let geminiActive = !!process.env.API_KEY;
+    if (window.aistudio && !geminiActive) {
+        geminiActive = await window.aistudio.hasSelectedApiKey();
+        if (!geminiActive && currentStage === 6) setShowTroubleshooter(true);
+    }
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.4.0: Adaptive Multi-Provider Protocol Online.']);
-  const logRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<number | null>(null);
+    setApiStatuses(() => {
+      const orderedConfigs = [
+        ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
+        ...API_CONFIGS.filter(c => c.category === 'Intelligence'),
+        ...API_CONFIGS.filter(c => c.category === 'Infrastructure')
+      ];
+      return orderedConfigs.map(config => {
+        let isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : 
+                          config.provider === ApiProvider.GEMINI ? geminiActive : !!config.key;
+        return {
+          provider: config.provider,
+          category: config.category,
+          isConnected,
+          latency: isConnected ? Math.floor(Math.random() * 5) + 2 : 0,
+          lastChecked: new Date().toLocaleTimeString()
+        };
+      });
+    });
+  }, [currentStage]);
 
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
+    refreshApiStatuses();
+    const interval = setInterval(refreshApiStatuses, 5000);
+    return () => clearInterval(interval);
+  }, [refreshApiStatuses]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
+  const nukeAndReload = () => {
+      sessionStorage.clear();
+      localStorage.clear();
+      window.location.reload();
   };
-
-  const handleSaveConfig = () => {
-    localStorage.setItem('gdrive_client_id', clientId);
-    setShowConfig(false);
-    addLog("Configuration Saved Locally.", "ok");
-  };
-
-  const startEngine = async () => {
-    if (isEngineRunning || cooldown > 0) return;
-    if (!clientId) {
-      addLog("Missing Client ID. Open Config.", "err");
-      setShowConfig(true);
-      return;
-    }
-    if (!accessToken) {
-      try {
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId.trim(),
-          scope: 'https://www.googleapis.com/auth/drive.file',
-          callback: (res: any) => {
-            if (res.access_token) {
-              setAccessToken(res.access_token);
-              sessionStorage.setItem('gdrive_access_token', res.access_token);
-              onAuthSuccess?.(true);
-              addLog("Cloud Vault Linked.", "ok");
-            }
-          },
-        });
-        client.requestAccessToken({ prompt: 'consent' });
-      } catch (e: any) { addLog(`Auth Error: ${e.message}`, "err"); }
-      return;
-    }
-    runAggregatedPipeline(accessToken);
-  };
-
-  const runAggregatedPipeline = async (token: string) => {
-    setIsEngineRunning(true);
-    // ... 기존 파이프라인 로직 (생략 방지를 위해 실제 서비스에서는 전체 로직 유지) ...
-    // 실제 배포 시에는 기존에 제공해주신 runAggregatedPipeline 전체를 다시 포함합니다.
-    setIsEngineRunning(false);
-  };
-
-  const searchResult = useMemo(() => {
-    if (!searchTerm) return null;
-    return registry.get(searchTerm.toUpperCase());
-  }, [searchTerm, registry]);
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] border-t-2 border-t-blue-500 shadow-2xl relative">
-          
-          {/* CONFIG MODAL - 복구됨 */}
-          {showConfig && (
-            <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/90 backdrop-blur-xl p-6 rounded-[32px]">
-              <div className="w-full max-w-md space-y-6">
-                <h3 className="text-xl font-black text-white italic uppercase">Vault Configuration</h3>
-                <div className="space-y-2">
-                  <label className="text-[10px] font-black text-slate-500 uppercase">Google Drive Client ID</label>
-                  <input 
-                    type="text" 
-                    value={clientId}
-                    onChange={(e) => setClientId(e.target.value)}
-                    placeholder="Enter Client ID from GCP..."
-                    className="w-full bg-black/50 border border-white/10 rounded-xl px-5 py-4 text-white font-mono text-xs focus:border-blue-500 outline-none"
-                  />
-                </div>
-                <div className="flex gap-3">
-                  <button onClick={handleSaveConfig} className="flex-1 py-4 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Save Identity</button>
-                  <button onClick={() => setShowConfig(false)} className="px-6 py-4 bg-slate-800 text-slate-400 rounded-xl text-[10px] font-black uppercase">Cancel</button>
-                </div>
-              </div>
+    <div className="min-h-screen pb-12 p-4 space-y-6 max-w-[1700px] mx-auto overflow-x-hidden bg-[#020617]">
+      
+      {/* TROUBLESHOOTER OVERLAY */}
+      {showTroubleshooter && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/98 backdrop-blur-3xl">
+          <div className="glass-panel max-w-2xl w-full p-10 rounded-[50px] border-4 border-rose-600/50 shadow-2xl">
+            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4">Identity Sync Required</h2>
+            <p className="text-slate-300 text-sm leading-relaxed mb-8">ID <strong>{REPO_ID}</strong> 연동 설정이 필요합니다.</p>
+            <div className="space-y-4 mb-10">
+              <button onClick={() => window.aistudio.openSelectKey()} className="w-full py-4 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Configure Repository Access</button>
+              <button onClick={nukeAndReload} className="w-full py-4 bg-emerald-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest">Nuke Session & Reload</button>
             </div>
-          )}
+            <button onClick={() => setShowTroubleshooter(false)} className="w-full text-[9px] text-slate-500 uppercase font-black">Close</button>
+          </div>
+        </div>
+      )}
 
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
-            <div className="flex items-center space-x-6">
-              <div className={`w-14 h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isEngineRunning ? 'animate-pulse' : ''}`}>
-                <div className={`w-5 h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
-              </div>
-              <div>
-                <h2 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
-                <div className="flex items-center mt-2 space-x-2">
-                  <span className="text-[8px] px-2 py-0.5 bg-indigo-500/20 text-indigo-400 rounded-md font-black border border-indigo-500/20 uppercase tracking-widest">Multi-Provider_Ready</span>
-                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-white rounded-md font-black border border-blue-500 uppercase hover:bg-blue-600 transition-colors">⚙ CONFIG</button>
-                </div>
-              </div>
-            </div>
-            <button 
-              onClick={startEngine} 
-              className={`px-12 py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${!accessToken ? 'bg-amber-600 text-white animate-pulse' : 'bg-blue-600 text-white shadow-xl hover:scale-105'}`}
-            >
-              {!accessToken ? 'Connect Cloud Vault' : 'Execute Data Fusion'}
-            </button>
-          </div>
-          
-          {/* Validator & Stats UI - 기존 코드 유지 */}
-          <div className="bg-black/40 p-6 rounded-3xl border border-white/5 mb-8">
-            <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-4">Global Integrity Validator</p>
-            <div className="flex flex-col md:flex-row gap-4">
-              <input 
-                type="text" 
-                placeholder="Verify Ticker (e.g. AAPL, TSLA)"
-                className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm uppercase outline-none"
-                value={searchTerm}
-                onChange={(e) => setSearchTerm(e.target.value)}
-              />
-              <div className="flex-1 flex items-center px-6 py-4 rounded-xl border border-white/5 bg-slate-900 text-slate-600 text-[10px] font-black uppercase italic">
-                {searchResult ? `${searchResult.name} | $${searchResult.price}` : 'Awaiting Master Map...'}
-              </div>
-            </div>
-          </div>
+      {/* HEADER SECTION - 시인성 강화 */}
+      <div className="flex items-center glass-panel px-5 py-3 rounded-2xl border-white/5 text-[9px] font-black uppercase tracking-widest text-slate-400 overflow-x-auto no-scrollbar whitespace-nowrap relative">
+        <div className="flex items-center space-x-3 mr-8 shrink-0">
+          <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
+          <span className="text-emerald-400">Node ID: {REPO_ID}</span>
+        </div>
+        <div className="flex items-center space-x-3 mr-8 shrink-0">
+          <div className={`w-2 h-2 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
+          <span>Cloud_Vault: {isGdriveConnected ? 'Synced' : 'N/A'}</span>
+        </div>
+        
+        {/* 복구 도구 버튼 시인성 강화 (빨간색) */}
+        <button 
+          onClick={() => setShowTroubleshooter(true)} 
+          className="bg-rose-600/20 text-rose-500 border border-rose-500 px-4 py-1.5 rounded-lg hover:bg-rose-600 hover:text-white transition-all ml-4 animate-pulse shadow-[0_0_15px_rgba(244,63,94,0.3)]"
+        >
+          RECOVERY SYNC TOOL
+        </button>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-            {[
-              { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400' },
-              { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
-              { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
-            ].map((s, i) => (
-              <div key={i} className="bg-black/40 p-5 rounded-3xl border border-white/5">
-                <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
-                <p className={`text-lg font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
-              </div>
-            ))}
-          </div>
+        <div className="ml-auto flex items-center gap-4">
+             <span className="opacity-40">Namespace: MASTER_NODE_V7</span>
         </div>
       </div>
 
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[500px] xl:h-[680px] rounded-[32px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
-          <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic mb-8">Synthesis_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-blue-900'}`}>
-                {l}
-              </div>
-            ))}
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-4 gap-6">
+        <div>
+          <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 italic text-rose-500">Alpha_Seeker Intelligence Pipeline</p>
+          <div className="flex items-center gap-5">
+             <h1 className="text-3xl sm:text-4xl md:text-6xl font-black tracking-tighter text-white italic uppercase leading-none">US_Alpha_Seeker</h1>
           </div>
         </div>
+      </header>
+
+      <div className="space-y-4">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 px-1">
+          {apiStatuses.map(status => (
+            <ApiStatusCard key={status.provider} status={status} isAuthConnected={status.isConnected} />
+          ))}
+        </div>
+        <MarketTicker />
       </div>
+
+      <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-2">
+        {STAGES_FLOW.map((stage) => (
+          <button
+            key={stage.id}
+            onClick={() => setCurrentStage(stage.id)}
+            className={`flex-shrink-0 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
+              currentStage === stage.id ? 'bg-blue-600 text-white border-blue-400 shadow-2xl scale-105 z-10' : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
+            }`}
+          >
+            {stage.label}
+          </button>
+        ))}
+      </nav>
+
+      <main className="min-h-[500px]">
+        {currentStage === 0 && <UniverseGathering isActive={true} apiStatuses={apiStatuses} onAuthSuccess={(s) => { setIsGdriveConnected(s); refreshApiStatuses(); }} />}
+        {currentStage === 1 && <PreliminaryFilter />}
+        {currentStage === 2 && <DeepQualityFilter />}
+        {currentStage === 3 && <FundamentalAnalysis />}
+        {currentStage === 4 && <TechnicalAnalysis />}
+        {currentStage === 5 && <IctAnalysis />}
+        {currentStage === 6 && <AlphaAnalysis selectedBrain={selectedBrain} setSelectedBrain={setSelectedBrain} />}
+      </main>
     </div>
   );
 };
 
-export default UniverseGathering;
+export default App;
