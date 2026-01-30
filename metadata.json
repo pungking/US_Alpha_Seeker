@@ -1,6 +1,8 @@
 {
-  "name": "US_Alpha_Seeker: v1.2.0",
-  "description": "Phase 1 Complete: Integrity Validation & Deep Alpha Audit Pipeline Operational.",
+  "name": "US_ALPHA_SEEKER_PRO",
+  "description": "US Stock Alpha Analysis Pipeline - Integrated Identity [ID: 1139620490]",
   "version": "1.2.0",
-  "requestFramePermissions": []
+  "requestFramePermissions": [
+    "geolocation"
+  ]
 }
