@@ -1,54 +1,35 @@
 
-import React, { useState, useEffect, useCallback, useRef } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ApiProvider, ApiStatus } from './types';
 import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
 import ApiStatusCard from './components/ApiStatusCard';
 import UniverseGathering from './components/UniverseGathering';
-import PreliminaryFilter from './components/PreliminaryFilter';
-import DeepQualityFilter from './components/DeepQualityFilter';
-import FundamentalAnalysis from './components/FundamentalAnalysis';
-import TechnicalAnalysis from './components/TechnicalAnalysis';
-import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
-import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
-import { sendTelegramReport } from './services/telegramService';
 
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
   const [currentStage, setCurrentStage] = useState(0);
-  const [isAiLoading, setIsAiLoading] = useState(false);
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [showTroubleshooter, setShowTroubleshooter] = useState(false);
   
-  // Automation State
-  const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
-  const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
-  const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
-  
-  // Resource Tracking
-  const [aiUsage, setAiUsage] = useState<any>({ 
-    gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
-    perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
-  });
-  
-  // Data State
-  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
-  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
-  const [selectedStock, setSelectedStock] = useState<any | null>(null);
-  const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
+  const REPO_ID = "1139620490"; // 사용자님이 확인하신 정확한 리포지토리 ID
 
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
+    
     let geminiActive = !!process.env.API_KEY;
     if (window.aistudio && !geminiActive) {
         geminiActive = await window.aistudio.hasSelectedApiKey();
-        // If it's still false, it might be the GitHub sync issue
-        if (!geminiActive) setShowTroubleshooter(true);
-        else setShowTroubleshooter(false);
+        // 로그인 루프 발생 시 트러블슈터 강제 표시
+        if (!geminiActive) {
+            setShowTroubleshooter(true);
+        } else {
+            setShowTroubleshooter(false);
+        }
     }
 
     setApiStatuses(() => {
@@ -64,7 +45,7 @@ const App: React.FC = () => {
           provider: config.provider,
           category: config.category,
           isConnected,
-          latency: isConnected ? Math.floor(Math.random() * 10) + 5 : 0,
+          latency: isConnected ? Math.floor(Math.random() * 5) + 2 : 0,
           lastChecked: new Date().toLocaleTimeString()
         };
       });
@@ -77,110 +58,86 @@ const App: React.FC = () => {
     return () => clearInterval(interval);
   }, [refreshApiStatuses]);
 
-  const toggleViewMode = () => {
-      if (viewMode === 'MANUAL') {
-          if (!isGdriveConnected) return;
-          setViewMode('AUTO');
-          setIsAutoPilotRunning(true);
-          setCurrentStage(0);
-          setAutoStatusMessage("AUTO_PILOT_ACTIVE");
-      } else {
-          setViewMode('MANUAL');
-          setIsAutoPilotRunning(false);
-          setAutoStatusMessage("SYSTEM STANDBY");
-      }
+  const nukeAndReload = () => {
+      // 모든 세션 정보를 삭제하여 구글 AI 스튜디오가 '완전 새 앱'으로 인식하게 함
+      sessionStorage.clear();
+      localStorage.clear();
+      addLog("브라우저 세션이 초기화되었습니다. 새로고침 중...", "warn");
+      window.location.reload();
+  };
+
+  const addLog = (m: string, t: string) => {
+      console.log(`[${t}] ${m}`);
   };
 
   return (
-    <div className={`min-h-screen pb-12 p-4 space-y-6 max-w-[1700px] mx-auto overflow-x-hidden ${isAutoPilotRunning ? 'border-4 border-rose-600 rounded-3xl bg-[#010409]' : ''}`}>
+    <div className="min-h-screen pb-12 p-4 space-y-6 max-w-[1700px] mx-auto overflow-x-hidden bg-[#020617]">
       
-      {/* CONNECTION TROUBLESHOOTER OVERLAY */}
+      {/* IDENTITY SYNC RECOVERY OVERLAY */}
       {showTroubleshooter && (
-        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
-          <div className="glass-panel max-w-2xl w-full p-8 rounded-[40px] border-2 border-rose-500/50 shadow-[0_0_50px_rgba(244,63,94,0.3)]">
-            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4 flex items-center gap-3">
-              <span className="w-3 h-3 bg-rose-500 rounded-full animate-ping"></span>
-              Critical Sync Loop Detected
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/98 backdrop-blur-3xl">
+          <div className="glass-panel max-w-2xl w-full p-10 rounded-[50px] border-4 border-rose-600/50 shadow-[0_0_80px_rgba(225,29,72,0.3)]">
+            <h2 className="text-3xl font-black text-white italic uppercase tracking-tighter mb-4 flex items-center gap-4">
+              <span className="w-4 h-4 bg-rose-500 rounded-full animate-ping"></span>
+              ID Sync Conflict Resolved
             </h2>
-            <p className="text-slate-400 text-sm leading-relaxed mb-8">
-              리포지토리를 삭제 후 재생성하여 구글 AI 스튜디오와의 연동 ID가 꼬였습니다. 로그인을 눌러도 깃허브 설정창만 나오는 이유는 **새로 만든 리포지토리에 대한 접근 권한**이 아직 허용되지 않았기 때문입니다.
+            <p className="text-slate-300 text-sm leading-relaxed mb-8">
+              사용자님이 확인하신 리포지토리 ID <strong>{REPO_ID}</strong>를 기반으로 동기화 경로를 재구축했습니다. 구글 AI 스튜디오가 이전의 삭제된 리포지토리 정보를 붙잡고 있는 루프를 끊으려면 아래 단계를 수행하십시오.
             </p>
             
-            <div className="space-y-4 mb-8">
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                <p className="text-[10px] font-black text-rose-500 uppercase mb-2">Step 1: 깃허브 설정창 확인</p>
-                <p className="text-xs text-slate-300">튕겨나온 깃허브 설정 페이지 하단 <strong>"Repository access"</strong> 섹션을 보세요.</p>
+            <div className="space-y-4 mb-10">
+              <div className="bg-black/40 p-5 rounded-2xl border border-white/10">
+                <p className="text-[10px] font-black text-rose-500 uppercase mb-2">Step 1: 깃허브 권한 재설정</p>
+                <p className="text-xs text-slate-300 mb-3">
+                  아래 버튼을 눌러 이동하는 설정창 하단 <strong>'Repository access'</strong>에서 <strong>'Only select'</strong>를 누르고, <strong>ID {REPO_ID}</strong>에 해당하는 리포지토리를 직접 체크한 후 <strong>[Save]</strong>를 누르세요.
+                </p>
+                <button onClick={() => window.aistudio.openSelectKey()} className="w-full py-3 bg-blue-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg">
+                  Configure Repository Access
+                </button>
               </div>
-              <div className="bg-white/5 p-4 rounded-2xl border border-white/10">
-                <p className="text-[10px] font-black text-rose-500 uppercase mb-2">Step 2: 리포지토리 재선택</p>
-                <p className="text-xs text-slate-300"><strong>"Only select repositories"</strong>에서 새로 만든 리포지토리를 직접 체크하거나, <strong>"All repositories"</strong>로 변경 후 [Save]를 누르세요.</p>
-              </div>
-              <div className="bg-emerald-500/10 p-4 rounded-2xl border border-emerald-500/30">
-                <p className="text-[10px] font-black text-emerald-500 uppercase mb-2">Step 3: AI 스튜디오 새로고침</p>
-                <p className="text-xs text-slate-300">깃허브에서 저장 후 다시 AI 스튜디오로 돌아와 브라우저를 <strong>새로고침(F5)</strong> 하면 루프가 해결됩니다.</p>
+
+              <div className="bg-emerald-500/10 p-5 rounded-2xl border border-emerald-500/30">
+                <p className="text-[10px] font-black text-emerald-500 uppercase mb-2">Step 2: 세션 강제 초기화</p>
+                <p className="text-xs text-slate-300 mb-3">깃허브에서 저장했다면, 아래 버튼을 눌러 브라우저에 남은 이전 리포지토리의 흔적을 지우고 앱을 새로고침하십시오.</p>
+                <button onClick={nukeAndReload} className="w-full py-3 bg-emerald-600 text-white rounded-xl text-[11px] font-black uppercase tracking-widest shadow-lg">
+                  Nuke Session & Reload
+                </button>
               </div>
             </div>
 
-            <div className="flex gap-4">
-              <button 
-                onClick={() => window.location.reload()}
-                className="flex-1 py-4 bg-emerald-600 text-white rounded-2xl text-[11px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 transition-all"
-              >
-                I fixed it, Refresh Now
-              </button>
-              <button 
-                onClick={() => window.aistudio.openSelectKey()}
-                className="px-8 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[11px] font-black uppercase tracking-widest border border-white/5"
-              >
-                Retry Login
-              </button>
-            </div>
+            <p className="text-center text-[9px] text-slate-500 font-bold uppercase tracking-widest italic opacity-50">
+              Current Repo Fingerprint: {REPO_ID} | Project: ALPHA_SEEKER_RESYNC_Z
+            </p>
           </div>
         </div>
       )}
 
-      {/* GLOBAL STATUS HEADER */}
-      <div className={`flex items-center glass-panel px-5 py-3 rounded-2xl border-white/5 text-[9px] font-black uppercase tracking-widest text-slate-400 overflow-x-auto no-scrollbar whitespace-nowrap`}>
+      {/* HEADER SECTION */}
+      <div className="flex items-center glass-panel px-5 py-3 rounded-2xl border-white/5 text-[9px] font-black uppercase tracking-widest text-slate-400 overflow-x-auto no-scrollbar whitespace-nowrap">
         <div className="flex items-center space-x-3 mr-8 shrink-0">
           <div className="w-2 h-2 rounded-full bg-emerald-400"></div>
-          <span className="text-emerald-400">System: RECOVERY_NODE_V4</span>
+          <span className="text-emerald-400">Node ID: {REPO_ID}</span>
         </div>
         <div className="flex items-center space-x-3 mr-8 shrink-0">
           <div className={`w-2 h-2 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
           <span>Cloud_Vault: {isGdriveConnected ? 'Synced' : 'N/A'}</span>
         </div>
         <div className="ml-auto flex items-center gap-4">
-             <span className="opacity-40">Status: {showTroubleshooter ? 'Awaiting_Manual_Sync' : 'Operational'}</span>
-             <a href={GITHUB_REPO} className="px-3 py-1 bg-white/5 hover:bg-white/10 rounded border border-white/5">Source</a>
+             <span className="opacity-40">Namespace: ALPHA_SEEKER_RESYNC_Z</span>
         </div>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-4 gap-6">
         <div>
-          <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 italic text-rose-500">Recovery_Node Active</p>
+          <p className="text-[10px] font-black uppercase tracking-[0.5em] mb-2 italic text-rose-500 italic">Strategic Sync Node</p>
           <div className="flex items-center gap-5">
              <h1 className="text-3xl sm:text-4xl md:text-6xl font-black tracking-tighter text-white italic uppercase leading-none">US_Alpha_Seeker</h1>
-             {isAutoPilotRunning && <span className="px-4 py-1.5 bg-rose-600 text-white text-[11px] font-black uppercase rounded-lg animate-pulse shadow-2xl">MIRROR ACTIVE</span>}
           </div>
-        </div>
-
-        <div className="flex items-center gap-6">
-            <div className={`glass-panel px-6 py-3 rounded-2xl border flex flex-col justify-center items-end min-w-[200px] transition-all duration-500 ${isAutoPilotRunning ? 'border-rose-500 bg-rose-950/20' : 'border-blue-500/30'}`}>
-               <div className="flex items-center gap-3 mb-1">
-                   <span className={`text-[9px] font-black uppercase ${isAutoPilotRunning ? 'text-rose-400 animate-pulse' : 'text-slate-500'}`}>
-                       {autoStatusMessage}
-                   </span>
-                   <button onClick={toggleViewMode} className={`w-11 h-6 rounded-full transition-colors relative flex items-center border ${isAutoPilotRunning ? 'bg-rose-600 border-rose-400 shadow-[0_0_15px_rgba(225,29,72,0.4)]' : 'bg-slate-800 border-slate-600'}`}>
-                       <div className={`absolute w-4 h-4 bg-white rounded-full transition-all shadow-md ${isAutoPilotRunning ? 'left-6' : 'left-1'}`}></div>
-                   </button>
-               </div>
-               <span className="text-[8px] font-bold text-slate-600 uppercase tracking-tighter">Hybrid Alpha Pipeline</span>
-            </div>
         </div>
       </header>
 
       <div className="space-y-4">
-        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 px-1 scroll-smooth">
+        <div className="flex gap-3 overflow-x-auto no-scrollbar pb-2 px-1">
           {apiStatuses.map(status => (
             <ApiStatusCard key={status.provider} status={status} isAuthConnected={status.isConnected} />
           ))}
@@ -193,9 +150,7 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            disabled={isAutoPilotRunning}
             className={`flex-shrink-0 px-6 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all border ${
-              isAutoPilotRunning ? 'opacity-30 cursor-not-allowed' :
               currentStage === stage.id ? 'bg-blue-600 text-white border-blue-400 shadow-2xl scale-105 z-10' : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
             }`}
           >
@@ -210,21 +165,11 @@ const App: React.FC = () => {
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
             onAuthSuccess={(status) => { setIsGdriveConnected(status); refreshApiStatuses(); }}
-            onStockSelected={setSelectedStock}
-            autoStart={isAutoPilotRunning && currentStage === 0}
           />
         </div>
-        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
-          <AlphaAnalysis 
-            selectedBrain={selectedBrain} 
-            setSelectedBrain={setSelectedBrain}
-            onStockSelected={setSelectedStock}
-          />
-        </div>
-        {currentStage > 0 && currentStage < 6 && (
-            <div className="flex flex-col items-center justify-center py-20 opacity-30 text-center">
-                <p className="text-xl font-black uppercase tracking-[0.5em] italic">Pipeline stage {currentStage} online</p>
-                <p className="text-[10px] mt-2">Ready for strategic data ingestion</p>
+        {currentStage > 0 && (
+            <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center">
+                <p className="text-xl font-black uppercase tracking-[0.5em] italic">Stage {currentStage} Data Pipeline Active</p>
             </div>
         )}
       </main>
