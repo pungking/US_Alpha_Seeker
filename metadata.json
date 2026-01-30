@@ -1,7 +1,7 @@
 {
-  "name": "US_Alpha_Seeker_PRO_V3",
-  "description": "US Stock Alpha Analysis Pipeline - Strategic Production Node [RESYNC]",
-  "version": "2.3.0",
+  "name": "RECOVERY_NODE_ALPHA_V4",
+  "description": "Critical Sync Recovery Node - Emergency Identity Reset",
+  "version": "4.0.0",
   "requestFramePermissions": [
     "geolocation"
   ]
