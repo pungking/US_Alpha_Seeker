@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
@@ -321,10 +322,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
   // 2. Fallback to AI Simulation (Stage 2)
   const config = API_CONFIGS.find(c => c.provider === provider);
-  // [FIX] Always prioritize process.env.API_KEY for Gemini as per @google/genai guidelines
-  if (provider === ApiProvider.GEMINI && !process.env.API_KEY) return { data: null, error: "API_KEY_MISSING" };
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY) : config?.key;
-  if (provider === ApiProvider.PERPLEXITY && !apiKey) return { data: null, error: "API_KEY_MISSING" };
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
   [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
@@ -341,8 +340,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      // [FIX] Initialize GoogleGenAI strictly with process.env.API_KEY as per @google/genai guidelines
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       const result = await fetchWithRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -350,7 +348,6 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
       }));
       // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      // [FIX] Accessing result.text as a property
       return { data: sanitizeAndParseJson(result.text), isRealData: false };
     }
     
@@ -380,10 +377,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  // [FIX] Always prioritize process.env.API_KEY for Gemini
-  if (provider === ApiProvider.GEMINI && !process.env.API_KEY) return "TELEGRAM_GEN_ERROR: API Key Missing";
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY) : config?.key;
-  if (provider === ApiProvider.PERPLEXITY && !apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
@@ -479,14 +474,12 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
   try {
     if (provider === ApiProvider.GEMINI) {
-        // [FIX] Initialize GoogleGenAI strictly with process.env.API_KEY as per @google/genai guidelines
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
         const result = await fetchWithRetry(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
         }));
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        // [FIX] Accessing result.text as a property
         return result.text;
     }
 
@@ -523,10 +516,8 @@ export async function analyzePipelineStatus(data: {
   recommendedData?: any[];
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  // [FIX] Always prioritize process.env.API_KEY for Gemini
-  if (provider === ApiProvider.GEMINI && !process.env.API_KEY) return "AUDIT_ERROR: API Key Missing";
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY) : config?.key;
-  if (provider === ApiProvider.PERPLEXITY && !apiKey) return "AUDIT_ERROR: API Key Missing";
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
   const isIntegrityCheck = data.mode === 'INTEGRITY_CHECK';
@@ -635,8 +626,7 @@ export async function analyzePipelineStatus(data: {
   try {
     // 1. Gemini Execution
     if (provider === ApiProvider.GEMINI) {
-        // [FIX] Initialize GoogleGenAI strictly with process.env.API_KEY as per @google/genai guidelines
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
         const result = await fetchWithRetry(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: userPrompt,
@@ -644,7 +634,6 @@ export async function analyzePipelineStatus(data: {
         }));
         // [TRACKING]
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        // [FIX] Accessing result.text as a property
         return result.text;
     }
 
@@ -682,10 +671,8 @@ export async function analyzePipelineStatus(data: {
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  // [FIX] Always prioritize process.env.API_KEY for Gemini
-  if (provider === ApiProvider.GEMINI && !process.env.API_KEY) return { data: null, error: "API_KEY_MISSING" };
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY) : config?.key;
-  if (provider === ApiProvider.PERPLEXITY && !apiKey) return { data: null, error: "API_KEY_MISSING" };
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
@@ -727,8 +714,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      // [FIX] Initialize GoogleGenAI strictly with process.env.API_KEY as per @google/genai guidelines
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       const result = await fetchWithRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
@@ -736,7 +722,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       }));
       // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      // [FIX] Accessing result.text as a property
       return { data: sanitizeAndParseJson(result.text) };
     }
 

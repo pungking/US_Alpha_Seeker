@@ -6,7 +6,6 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import { ApiProvider } from '../types';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
 
 interface AlphaCandidate {
   symbol: string;
@@ -266,30 +265,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
 
-  const ensureFolder = async (token: string, name: string) => {
-    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
-  };
-
-  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
-    const meta = { name, parents: [folderId], mimeType: 'application/json' };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
-    });
-  };
-
   const handleExecuteEngine = async () => {
     if (loading) return;
     setLoading(true);
@@ -345,19 +320,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setSelectedStock(first);
         onStockSelected?.(first);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
-
-        // [NEW] Save Stage 6 Data (JSON)
-        if (accessToken) {
-            addLog(`Saving Stage 6 Alpha Data to Vault...`, "info");
-            const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-            const fileName = `STAGE6_ALPHA_FINAL_${currentProvider}_${new Date().toISOString().split('T')[0]}.json`;
-            const payload = {
-                manifest: { version: "6.0.0", brain: currentProvider, count: mergedFinal.length, timestamp: new Date().toISOString() },
-                alpha_universe: mergedFinal
-            };
-            await uploadFile(accessToken, folderId, fileName, payload);
-            addLog(`Vault Finalized: Stage 6 Data Secure.`, "ok");
-        }
       }
       addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }

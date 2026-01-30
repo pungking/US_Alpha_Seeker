@@ -1,8 +1,12 @@
+
 import { GoogleGenAI } from "@google/genai";
 import { API_CONFIGS } from "../constants";
 import { ApiProvider } from "../types";
 
-// [FIX] Removed getApiKey as the guidelines require direct use of process.env.API_KEY
+const getApiKey = () => {
+  const config = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  return process.env.API_KEY || config?.key || "";
+};
 
 async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 5000): Promise<any> {
   try {
@@ -24,18 +28,19 @@ export async function analyzePipelineStatus(data: {
   apiStatuses: any[];
   systemLoad: string;
 }) {
-  // [FIX] Always use process.env.API_KEY directly for initialization as per @google/genai guidelines
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const apiKey = getApiKey();
+  if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
+
+  const ai = new GoogleGenAI({ apiKey });
   const activeNodes = data.apiStatuses.filter(s => s.isConnected).map(s => s.provider).join(", ");
   const prompt = `System Stage ${data.currentStage}, Active Nodes: ${activeNodes}. System Load: ${data.systemLoad}. Provide a deep diagnostic audit in Korean.`;
 
   try {
-    // [FIX] Use ai.models.generateContent directly
+    // Pro 모델 대신 프리 티어 할당량이 넉넉한 Flash 모델 사용
     const response = await fetchWithRetry(() => ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
     }));
-    // [FIX] Accessing .text as a property
     return response.text;
   } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
@@ -47,12 +52,13 @@ export async function analyzePipelineStatus(data: {
 }
 
 export async function generateAlphaSynthesis(candidates: any[]) {
-  // [FIX] Always use process.env.API_KEY directly for initialization as per @google/genai guidelines
-  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+  const apiKey = getApiKey();
+  if (!apiKey) return null;
+
+  const ai = new GoogleGenAI({ apiKey });
   const prompt = `Synthesize investment strategies for: ${JSON.stringify(candidates)}. Use Korean. Return a valid JSON array matching the required Alpha schema.`;
 
   try {
-    // [FIX] Use ai.models.generateContent directly
     const response = await fetchWithRetry(() => ai.models.generateContent({
       model: 'gemini-3-flash-preview',
       contents: prompt,
@@ -60,7 +66,6 @@ export async function generateAlphaSynthesis(candidates: any[]) {
         responseMimeType: "application/json",
       }
     }));
-    // [FIX] Accessing .text as a property
     return JSON.parse(response.text || "[]");
   } catch (error: any) {
     console.error("Gemini Synthesis Error:", error);
