@@ -138,7 +138,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // ... (Strategies remain the same) ...
   const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
     if (!fmpKey) throw new Error("FMP Key missing");
     addLog("Strategy A: FMP Bulk Screener (Primary)...", "info");
@@ -307,11 +306,46 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
+  const handleClientIdChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+      const value = e.target.value;
+      setClientId(value);
+      localStorage.setItem('gdrive_client_id', value);
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          {/* ... (UI Config Panel omitted for brevity, same as original) ... */}
+          
+          {/* Configuration Panel */}
+          {showConfig && (
+            <div className="absolute inset-0 z-50 bg-[#020617]/95 backdrop-blur-xl p-8 flex flex-col items-center justify-center animate-in fade-in zoom-in duration-300">
+               <div className="max-w-md w-full space-y-6">
+                  <div className="flex justify-between items-center border-b border-white/10 pb-4">
+                     <h3 className="text-xl font-black text-white italic tracking-tighter uppercase">Infrastructure Config</h3>
+                     <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                     </button>
+                  </div>
+                  <div className="space-y-4">
+                     <div>
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest block mb-2">Google Drive Client ID</label>
+                        <input 
+                           type="text" 
+                           className="w-full bg-black/40 border border-white/10 rounded-xl px-4 py-3 text-white font-mono text-xs focus:border-blue-500 outline-none"
+                           placeholder="Enter OAuth 2.0 Client ID"
+                           value={clientId}
+                           onChange={handleClientIdChange}
+                        />
+                        <p className="text-[9px] text-slate-600 mt-2 leading-relaxed">OAuth 2.0 클라이언트 ID를 입력하십시오. 입력 후 설정창을 닫고 'Connect Cloud Vault' 버튼을 클릭하십시오.</p>
+                     </div>
+                  </div>
+                  <button onClick={() => setShowConfig(false)} className="w-full py-4 bg-blue-600 text-white rounded-xl text-[10px] font-black uppercase tracking-widest hover:bg-blue-500 transition-all shadow-lg shadow-blue-900/20">
+                     Save & Close Config
+                  </button>
+               </div>
+            </div>
+          )}
           
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-4 md:space-x-6">
@@ -324,7 +358,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
                   </span>
-                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase">⚙ Config</button>
+                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:text-white transition-colors">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
               </div>
@@ -350,7 +384,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             </button>
           </div>
           
-          {/* Global Integrity Validator & Stats Section - (Keep existing JSX) */}
+          {/* Global Integrity Validator & Stats Section */}
            <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
