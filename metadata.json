@@ -1,7 +1,7 @@
 {
-  "name": "US_Alpha_Seeker_PRO_NODE",
-  "description": "US Stock Alpha Analysis Pipeline - Strategic Production Node",
-  "version": "2.2.0",
+  "name": "US_Alpha_Seeker_PRO_V3",
+  "description": "US Stock Alpha Analysis Pipeline - Strategic Production Node [RESYNC]",
+  "version": "2.3.0",
   "requestFramePermissions": [
     "geolocation"
   ]
