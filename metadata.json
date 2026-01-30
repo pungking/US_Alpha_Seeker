@@ -1,8 +1,6 @@
 {
-  "name": "ALPHA_SEEKER_MASTER_NODE_V7",
-  "description": "US Stock Alpha Analysis Pipeline - Strategic Identity Reset [ID: 1139620490]",
-  "version": "7.0.0",
-  "requestFramePermissions": [
-    "geolocation"
-  ]
+  "name": "US_Alpha_Seeker: v1.2.0",
+  "description": "Phase 1 Complete: Integrity Validation & Deep Alpha Audit Pipeline Operational.",
+  "version": "1.2.0",
+  "requestFramePermissions": []
 }
