@@ -273,15 +273,43 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const ensureFolder = async (token: string) => {
-    const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    // 1. Resolve Root Folder ID dynamically (Handles deleted folder scenario)
+    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; // Fallback
+    const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
+    
+    try {
+        // Try to find the root folder by name to recover from deletion/ID change
+        const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
+        const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json());
+        
+        if (resRoot.files && resRoot.files.length > 0) {
+            rootId = resRoot.files[0].id;
+        } else {
+            // If not found (deleted), create new Root Folder
+            const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: rootName, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
+            }).then(r => r.json());
+            if (createRoot.id) rootId = createRoot.id;
+        }
+    } catch (e) {
+        console.warn("Root folder resolution failed, using default ID", e);
+    }
+
+    // 2. Ensure Target Subfolder (Stage 0) exists inside the resolved Root ID
+    const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
+    
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
   };
