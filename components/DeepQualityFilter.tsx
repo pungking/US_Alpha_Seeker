@@ -1,7 +1,9 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import { uploadToDrive } from '../services/intelligenceService';
 
 interface QualityTicker {
   symbol: string;
@@ -203,8 +205,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const roeScore = (metrics.roe || 0) * 2.0; 
       const debtPenalty = (metrics.debt || 0) * 0.5;
       
-      // [SAFE MATH] Prevent log10(0) or log10(undefined) crash
-      const safeMarketValue = (target.marketValue || (target.price * target.volume)) || 1000000; // Default to 1M if missing
+      const safeMarketValue = (target.marketValue || (target.price * target.volume)) || 1000000; 
       const mktCapBonus = Math.min(20, Math.log10(safeMarketValue) * 2); 
       
       const qScore = roeScore - debtPenalty + mktCapBonus;
@@ -234,7 +235,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
-    // 1. Initial State Set
     setAiStatus('ANALYZING');
     setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
     addLog("Initiating AI Sector Analysis...", "info");
@@ -261,16 +261,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     let result = null;
     let usedProvider = '';
 
-    // Step A: Attempt Gemini with Smart Retry
     try {
         setActiveBrain("Gemini 3 Flash");
-        const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-        const apiKey = process.env.API_KEY || geminiConfig?.key || "";
-        
-        if (!apiKey) throw new Error("Gemini API Key Missing");
-
-        const ai = new GoogleGenAI({ apiKey });
-        
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const callGemini = async (retries = 1): Promise<any> => {
             try {
                 return await ai.models.generateContent({
@@ -280,7 +273,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 });
             } catch (e: any) {
                 if (retries > 0 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
-                     const waitTime = 40000; // Increased to 40s to satisfy 36s requirement
+                     const waitTime = 40000;
                      addLog(`Gemini Quota Hit. Retrying in ${waitTime/1000}s...`, "warn");
                      await new Promise(r => setTimeout(r, waitTime));
                      return callGemini(retries - 1);
@@ -296,83 +289,54 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         addLog(`Gemini Failed: ${e.message.slice(0,40)}... Switching to Fallback.`, "warn");
     }
 
-    // Step B: Fallback to Perplexity (if Gemini failed)
     if (!result) {
         try {
             setActiveBrain("Perplexity Sonar");
             setAiAnalysis("📡 Switching to Perplexity Sonar (Standard)...");
             const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-            
             if (!perplexityKey) throw new Error("Perplexity Key Missing");
-
             const callPerplexity = async (url: string) => {
                   const res = await fetch(url, {
                     method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${perplexityKey}`,
-                        'Accept': 'application/json' 
-                    },
-                    body: JSON.stringify({
-                        model: 'sonar', // Use standard 'sonar' for better availability/cost
-                        messages: [
-                            { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
-                            { role: "user", content: prompt }
-                        ],
-                        temperature: 0.1
-                    })
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}`, 'Accept': 'application/json' },
+                    body: JSON.stringify({ model: 'sonar', messages: [{ role: "system", content: "You are a financial data analyst. Return ONLY JSON." }, { role: "user", content: prompt }], temperature: 0.1 })
                   });
                   if (!res.ok) throw new Error(`Status ${res.status}`);
                   return res.json();
             };
-
             let pData;
-            try {
-                pData = await callPerplexity('https://api.perplexity.ai/chat/completions');
-            } catch (err: any) {
+            try { pData = await callPerplexity('https://api.perplexity.ai/chat/completions'); } catch (err: any) {
                 if (err.message.includes('Failed to fetch') || err.message.includes('Load failed')) {
                      addLog("CORS Blocked. Using Internal Proxy...", "warn");
                      pData = await callPerplexity('/api/perplexity');
-                } else {
-                    throw err;
-                }
+                } else { throw err; }
             }
-            
             result = sanitizeJson(pData.choices?.[0]?.message?.content);
             usedProvider = "Perplexity Sonar";
-
         } catch (e: any) {
             addLog(`Perplexity Failed: ${e.message}`, "err");
         }
     }
 
-    // Step C: Finalize
     if (result && result.insight) {
         const msg = `[${result.dominantSector}] ${result.insight}`;
         setAiAnalysis(`${usedProvider}: ${msg}`);
         setAiStatus('SUCCESS');
         addLog(`Analysis Complete via ${usedProvider}`, "ok");
     } else {
-        const rawMsg = "Analysis unavailable due to network/quota limits.";
-        setAiAnalysis("⚠️ " + rawMsg);
+        setAiAnalysis("⚠️ Analysis unavailable due to network/quota limits.");
         setAiStatus('FAILED');
         addLog("All AI Providers Exhausted.", "err");
     }
   };
 
   const handleManualAnalysis = () => {
-      if (processedData.length > 0) {
-          analyzeSectorDistribution(processedData);
-      } else {
-          addLog("Cannot run analysis: No data processed yet.", "warn");
-      }
+      if (processedData.length > 0) { analyzeSectorDistribution(processedData); }
+      else { addLog("Cannot run analysis: No data processed yet.", "warn"); }
   };
 
   const executeDeepQualityScan = async () => {
-    if (!accessToken) {
-        addLog("Error: Google Drive Not Connected.", "err");
-        return;
-    }
+    if (!accessToken) { addLog("Error: Google Drive Not Connected.", "err"); return; }
     if (loading) return;
 
     setLoading(true);
@@ -414,133 +378,61 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       });
 
       addLog(`Starting Full Scan on ${totalCandidates} Assets. Mode: Adaptive Turbo.`, "ok");
-      
       setProgress({ current: 0, total: totalCandidates });
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
-      let batchRetryCount = 0; // [FIX] Prevent infinite loop
+      let batchRetryCount = 0;
 
       while (currentIndex < totalCandidates) {
-          setNetworkStatus(fmpDepleted 
-              ? `Safe Mode (Finnhub) - Delay ${DELAY_SAFE}ms` 
-              : `Turbo Mode (FMP) - Delay ${DELAY_TURBO}ms`
-          );
-
+          setNetworkStatus(fmpDepleted ? `Safe Mode (Finnhub) - Delay ${DELAY_SAFE}ms` : `Turbo Mode (FMP) - Delay ${DELAY_TURBO}ms`);
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
-          
           try {
               const promises = batch.map((t: any) => fetchTickerData(t));
               const results = await Promise.all(promises);
-              
               results.forEach(r => {
                   if (r && r.symbol) {
                       validResults.push(r);
                       setSourceStats(prev => {
                           const src = r.source || "";
-                          return {
-                              fmp: src.includes("M:FMP") ? prev.fmp + 1 : prev.fmp,
-                              finnhub: src.includes("M:Finnhub") ? prev.finnhub + 1 : prev.finnhub,
-                              polygon: src.includes("P:Polygon") ? prev.polygon + 1 : prev.polygon
-                          };
+                          return { fmp: src.includes("M:FMP") ? prev.fmp + 1 : prev.fmp, finnhub: src.includes("M:Finnhub") ? prev.finnhub + 1 : prev.finnhub, polygon: src.includes("P:Polygon") ? prev.polygon + 1 : prev.polygon };
                       });
                   }
               });
-
               currentIndex += BATCH_SIZE;
-              batchRetryCount = 0; // [FIX] Reset retry count on success
+              batchRetryCount = 0;
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
-              
-              const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
-              await new Promise(r => setTimeout(r, currentDelay));
-
+              await new Promise(r => setTimeout(r, fmpDepleted ? DELAY_SAFE : DELAY_TURBO));
           } catch (e: any) {
-              if (e.message === "FMP_LIMIT") {
-                  addLog(`FMP Limit Hit! Engaging Safe Mode (Finnhub)...`, "warn");
-                  setFmpDepleted(true); 
-                  await new Promise(r => setTimeout(r, 1000));
-                  // [FIX] Increment retry, but don't skip yet unless excessive
-                  batchRetryCount++;
-              } else if (e.message === "FINNHUB_LIMIT") {
-                  addLog(`Finnhub Limit. Cooling down (10s)...`, "warn");
-                  await new Promise(r => setTimeout(r, 10000));
-                  batchRetryCount++;
-              } else {
-                  addLog(`Batch Error: ${e.message}`, "err");
-                  currentIndex += BATCH_SIZE; // Skip batch on generic error
-                  batchRetryCount = 0;
-              }
-
-              // [FIX] Circuit Breaker: If same batch fails 3 times, SKIP IT
-              if (batchRetryCount > 3) {
-                  addLog("Batch Failed 3x (Limits). Skipping to prevent crash.", "err");
-                  currentIndex += BATCH_SIZE;
-                  batchRetryCount = 0;
-              }
+              if (e.message === "FMP_LIMIT") { addLog(`FMP Limit Hit! Engaging Safe Mode (Finnhub)...`, "warn"); setFmpDepleted(true); await new Promise(r => setTimeout(r, 1000)); batchRetryCount++; }
+              else if (e.message === "FINNHUB_LIMIT") { addLog(`Finnhub Limit. Cooling down (10s)...`, "warn"); await new Promise(r => setTimeout(r, 10000)); batchRetryCount++; }
+              else { addLog(`Batch Error: ${e.message}`, "err"); currentIndex += BATCH_SIZE; batchRetryCount = 0; }
+              if (batchRetryCount > 3) { addLog("Batch Failed 3x (Limits). Skipping to prevent crash.", "err"); currentIndex += BATCH_SIZE; batchRetryCount = 0; }
           }
       }
 
       addLog(`Full Scan Complete. ${validResults.length} Assets Validated. Ranking by Quality Score...`, "info");
-      
-      const eliteSurvivors = validResults
-          .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)) 
-          .slice(0, TARGET_SELECTION_COUNT);
-
+      const eliteSurvivors = validResults.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
       setNetworkStatus("Status: Scan Complete");
-
-      // AI Analysis Trigger
       setAiStatus('ANALYZING');
       setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
       addLog("Triggering AI Sector Analysis...", "info");
-      
       analyzeSectorDistribution(eliteSurvivors);
 
-      // Upload
-      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
         manifest: { version: "4.9.9", strategy: "Quality_First_Adaptive_Scan", source_count: totalCandidates, final_count: eliteSurvivors.length, timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
-      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+      const success = await uploadToDrive(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder, fileName, payload);
+      if (success) { addLog(`Vault Finalized: ${fileName}`, "ok"); if (onComplete) onComplete(); }
+      else { throw new Error("Vault Storage Failed."); }
 
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-      });
-
-      addLog(`Vault Finalized: ${fileName}`, "ok");
-
-      if (onComplete) onComplete();
-
-    } catch (e: any) {
-      addLog(`Critical Error: ${e.message}`, "err");
-    } finally {
-      setLoading(false);
-      setActiveBrain('Standby');
-      setNetworkStatus('Standby');
-      setFmpDepleted(false);
-      startTimeRef.current = 0; 
-    }
-  };
-
-  const ensureFolder = async (token: string, name: string) => {
-    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
+    } catch (e: any) { addLog(`Critical Error: ${e.message}`, "err"); }
+    finally { setLoading(false); setActiveBrain('Standby'); setNetworkStatus('Standby'); setFmpDepleted(false); startTimeRef.current = 0; }
   };
 
   const formatTime = (seconds: number) => {
@@ -554,7 +446,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
@@ -567,92 +458,43 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
                             {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Adaptive Engine Ready'}
                         </span>
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
-                            fmpDepleted
-                            ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
-                            : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
-                        }`}>
-                            {networkStatus}
-                        </span>
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${fmpDepleted ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' : 'border-purple-500/20 bg-purple-500/10 text-purple-400'}`}>{networkStatus}</span>
                          {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
-                   {/* Time Stats */}
                    {loading && (
                      <div className="flex items-center space-x-2 mt-0.5">
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
-                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span></span>
                        <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
-                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span></span>
                      </div>
                    )}
-                   {fmpDepleted && (
-                       <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1 mt-1">
-                           <div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div>
-                           <span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">
-                               FMP LIMIT - SAFE MODE ACTIVE
-                           </span>
-                       </div>
-                   )}
+                   {fmpDepleted && <div className="flex items-center space-x-2 animate-in fade-in slide-in-from-top-1 mt-1"><div className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping"></div><span className="text-[8px] font-black text-amber-500 uppercase tracking-widest bg-amber-950/40 px-2 py-0.5 rounded border border-amber-500/20">FMP LIMIT - SAFE MODE ACTIVE</span></div>}
                 </div>
               </div>
             </div>
-            <button onClick={executeDeepQualityScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Scanning & Scoring...' : 'Start Full Quality Scan'}
-            </button>
+            <button onClick={executeDeepQualityScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">{loading ? 'Scanning & Scoring...' : 'Start Full Quality Scan'}</button>
           </div>
-
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
               <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-                <div className="flex justify-between items-center mb-6">
-                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
-                  <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
-                </div>
-                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
-                </div>
-                <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   {fmpDepleted ? 'Status: Safe Mode (Slower for Accuracy)' : 'Status: Turbo Mode (Maximum Speed)'} • Target: Top {TARGET_SELECTION_COUNT} Quality
-                </p>
+                <div className="flex justify-between items-center mb-6"><p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p><p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p></div>
+                <div className="h-2 bg-slate-800 rounded-full overflow-hidden"><div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div></div>
+                <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">{fmpDepleted ? 'Status: Safe Mode (Slower for Accuracy)' : 'Status: Turbo Mode (Maximum Speed)'} • Target: Top {TARGET_SELECTION_COUNT} Quality</p>
               </div>
-
               <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
-                 <div className="flex justify-between items-center mb-2">
-                    <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Sector Insight</p>
-                    {/* Retry Button visible if processedData exists but no analysis */}
-                    {!loading && processedData.length > 0 && (
-                        <button 
-                            onClick={handleManualAnalysis}
-                            className="text-[8px] px-2 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded transition-colors uppercase font-bold border border-blue-500/20"
-                        >
-                            Retry Analysis
-                        </button>
-                    )}
-                 </div>
-                 <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
-                    {aiAnalysis || "Awaiting Post-Scan Analysis (Runs after scan completes)..."}
-                 </p>
+                 <div className="flex justify-between items-center mb-2"><p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Sector Insight</p>{!loading && processedData.length > 0 && <button onClick={handleManualAnalysis} className="text-[8px] px-2 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded transition-colors uppercase font-bold border border-blue-500/20">Retry Analysis</button>}</div>
+                 <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>{aiAnalysis || "Awaiting Post-Scan Analysis (Runs after scan completes)..."}</p>
                  {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
                  {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
               </div>
           </div>
         </div>
       </div>
-
       <div className="xl:col-span-1">
         <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Ticker_Log</h3>
-          </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
-                {l}
-              </div>
-            ))}
-          </div>
+          <div className="flex items-center justify-between mb-8 px-2"><h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quality_Terminal</h3></div>
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">{logs.map((l, i) => (
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>{l}</div>
+            ))}</div>
         </div>
       </div>
     </div>
