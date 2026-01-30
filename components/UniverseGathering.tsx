@@ -116,13 +116,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
-          scope: 'https://www.googleapis.com/auth/drive.file',
+          // [CRITICAL FIX] drive.file -> drive (Full Access) to allow access to existing Root Folder
+          scope: 'https://www.googleapis.com/auth/drive',
           callback: (res: any) => {
             if (res.access_token) {
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              addLog("Cloud Vault Linked. Ready to Execute Fusion.", "ok");
+              addLog("Cloud Vault Linked (Full Access). Ready to Execute Fusion.", "ok");
               document.body.removeAttribute('data-engine-running'); 
             }
           },
