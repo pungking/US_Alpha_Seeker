@@ -1,12 +1,13 @@
 
+// Use the official @google/genai library
 import { GoogleGenAI } from "@google/genai";
 import { API_CONFIGS } from "../constants";
 import { ApiProvider } from "../types";
 
-const getApiKey = () => {
-  const config = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  return process.env.API_KEY || config?.key || "";
-};
+/**
+ * Audit and Analysis Service using Gemini
+ * Following Google GenAI SDK guidelines for initialization and content generation.
+ */
 
 async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 5000): Promise<any> {
   try {
@@ -28,19 +29,18 @@ export async function analyzePipelineStatus(data: {
   apiStatuses: any[];
   systemLoad: string;
 }) {
-  const apiKey = getApiKey();
-  if (!apiKey) return "AUDIT_NODE_ERROR: API_KEY_MISSING";
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Use process.env.API_KEY exclusively as per guidelines
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const activeNodes = data.apiStatuses.filter(s => s.isConnected).map(s => s.provider).join(", ");
   const prompt = `System Stage ${data.currentStage}, Active Nodes: ${activeNodes}. System Load: ${data.systemLoad}. Provide a deep diagnostic audit in Korean.`;
 
   try {
-    // Pro 모델 대신 프리 티어 할당량이 넉넉한 Flash 모델 사용
+    // Using gemini-3-pro-preview for complex diagnostic tasks
     const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
     }));
+    // Access .text property directly
     return response.text;
   } catch (error: any) {
     const msg = error.message?.toLowerCase() || "";
@@ -52,20 +52,20 @@ export async function analyzePipelineStatus(data: {
 }
 
 export async function generateAlphaSynthesis(candidates: any[]) {
-  const apiKey = getApiKey();
-  if (!apiKey) return null;
-
-  const ai = new GoogleGenAI({ apiKey });
+  // Use process.env.API_KEY exclusively
+  const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
   const prompt = `Synthesize investment strategies for: ${JSON.stringify(candidates)}. Use Korean. Return a valid JSON array matching the required Alpha schema.`;
 
   try {
+    // Using gemini-3-pro-preview for advanced financial synthesis
     const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: 'gemini-3-pro-preview',
       contents: prompt,
       config: {
         responseMimeType: "application/json",
       }
     }));
+    // Access .text property directly
     return JSON.parse(response.text || "[]");
   } catch (error: any) {
     console.error("Gemini Synthesis Error:", error);

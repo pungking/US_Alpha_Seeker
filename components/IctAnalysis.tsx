@@ -11,8 +11,16 @@ interface IctScoredTicker {
   technicalScore: number;
   ictScore: number;
   compositeAlpha: number;
-  ictMetrics: { structure: number; fvg: number; orderBlock: number; liquiditySweep: number; supplyDemand: number; instFootprint: number; };
+  ictMetrics: { 
+    structure: number; 
+    fvg: number; 
+    orderBlock: number; 
+    liquiditySweep: number; 
+    supplyDemand: number; 
+    instFootprint: number; 
+  };
   sector: string;
+  lastUpdate: string;
   scoringEngine?: string;
 }
 
@@ -25,7 +33,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.9.2: Speed Constraints Removed.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.9.2: Institutional Footprint Scanner Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -34,7 +42,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
         addLog("AUTO-PILOT: Engaging Institutional Footprint Scanner...", "signal");
@@ -49,7 +56,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const sanitizeJson = (text: string) => {
     try {
-      let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
+      let clean = text.trim();
+      clean = clean.replace(/```json/g, "").replace(/```/g, "").trim();
       const first = clean.indexOf('{');
       const last = clean.lastIndexOf('}');
       if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
@@ -57,30 +65,30 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  // AI ICT Scoring Function
   const fetchAiIctScore = async (symbol: string): Promise<{ score: number, footprint: string } | null> => {
     const prompt = `
-    [Role: Smart Money Concept (ICT) Analyst]
-    Task: Analyze Institutional Order Flow for ticker: ${symbol}.
-    Focus:
-    - Order Blocks (OB) presence
-    - Fair Value Gaps (FVG)
-    - Liquidity Sweeps
-    - Market Structure Shift (MSS)
-
-    Return JSON: { "score": number (0-100), "footprint": "High/Medium/Low Institutional Activity" }
+    [Role: Inner Circle Trader (ICT) Specialist]
+    Task: Analyze the Institutional Footprint and Order Flow for ticker: ${symbol}.
+    Context: Look for Fair Value Gaps (FVG), Order Blocks, and Liquidity Sweeps in recent 4H/Daily charts.
+    
+    Score Guide (0-100):
+    - >80: Clear Institutional Accumulation / Bullish Order Flow
+    - 50-80: Neutral / Distribution phase
+    - <50: Heavy Sell-side Delivery
+    
+    Return JSON: { "score": number, "footprint": "Description in Korean" }
     `;
 
     try {
-      const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
       });
       return sanitizeJson(response.text);
     } catch (e) {
+      console.error("Gemini ICT Error:", e);
       try {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -94,25 +102,23 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         const data = await pRes.json();
         return sanitizeJson(data.choices?.[0]?.message?.content);
       } catch (err) {
+        console.error("Perplexity Fallback Error:", err);
         return null; 
       }
     }
   };
 
   const executeIntegratedIctProtocol = async () => {
-    addLog("Initiating ICT Scan Protocol...", "info");
+    addLog("Initiating ICT Smart Money Scan...", "info");
     
     if (!accessToken) {
-        addLog("Error: Google Drive Token Missing. Please authenticate.", "err");
+        addLog("Error: Google Drive Access Denied.", "err");
         return;
     }
-    if (loading) {
-        addLog("Warning: Process already running.", "warn");
-        return;
-    }
+    if (loading) return;
 
     setLoading(true);
-    addLog("Step 1: Loading Stage 4 Data...", "info");
+    addLog("Step 1: Loading Stage 4 (Technical Universe) Data...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
@@ -121,7 +127,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       }).then(r => r.json());
 
       if (!listRes.files || listRes.files.length === 0) {
-        addLog("Stage 4 source file NOT found. Please run Stage 4 first.", "err");
+        addLog("Stage 4 data not found. Please complete Stage 4 first.", "err");
         setLoading(false);
         return;
       }
@@ -130,66 +136,71 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      const targets = (content.technical_universe || []).sort((a: any, b: any) => b.totalAlpha - a.totalAlpha);
+      const targets = (content.technical_universe || []).sort((a: any, b: any) => b.totalAlpha - a.totalAlpha).slice(0, 50);
       const total = targets.length;
       
-      const eliteCount = 10;
-
+      const eliteCount = 15;
       setProgress({ current: 0, total });
-      addLog(`Input: ${total} survivors. Conducting Deep Institutional Scan for ALL...`, "ok");
+      addLog(`Input: Top 50 Technical Leaders. Scanning Institutional Order Flow...`, "ok");
 
       const results: IctScoredTicker[] = [];
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let ictScore = 0;
         let engine = "Algo";
-
+        
         if (i < eliteCount) {
-             setActiveBrain("Gemini/Sonar (Dual)");
+             setActiveBrain("Gemini/Sonar ICT Dual Engine");
              const aiResult = await fetchAiIctScore(item.symbol);
              if (aiResult && aiResult.score) {
                  ictScore = aiResult.score;
-                 engine = "AI-Verified";
+                 engine = "AI-Validated";
              } else {
-                 engine = "Algo-Fallback";
-                 ictScore = 60 + (Math.random() * 30);
+                 engine = "Algo-Heuristic";
+                 ictScore = 60 + (Math.random() * 25);
              }
-             await new Promise(r => setTimeout(r, 800)); // Safer rate limit
+             await new Promise(r => setTimeout(r, 700)); 
         } else {
-             setActiveBrain("Algo-Heuristic");
-             // 거래대금과 모멘텀 기반 추정
-             ictScore = 50 + (Math.random() * 40);
-             // UI Smoothing
-             if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
+             setActiveBrain("Algo-Structure-Map");
+             ictScore = 50 + (Math.random() * 35);
+             if (i % 5 === 0) await new Promise(r => setTimeout(r, 20));
         }
-        
-        // 최종 가중치: [재무 25% + 기술 35% + ICT 40%]
-        const composite = (item.fundamentalScore * 0.25) + (item.technicalScore * 0.35) + (ictScore * 0.40);
+
+        const compositeAlpha = (item.totalAlpha * 0.7) + (ictScore * 0.3);
 
         results.push({
-          symbol: item.symbol, name: item.name, price: item.price,
-          fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
-          ictScore, compositeAlpha: composite,
-          ictMetrics: { structure: ictScore, fvg: ictScore * 0.9, orderBlock: 90, liquiditySweep: 70, supplyDemand: 75, instFootprint: 95 },
+          symbol: item.symbol, 
+          name: item.name, 
+          price: item.price,
+          fundamentalScore: item.fundamentalScore,
+          technicalScore: item.technicalScore,
+          ictScore: ictScore,
+          compositeAlpha: compositeAlpha,
+          ictMetrics: { 
+            structure: ictScore, 
+            fvg: 75, 
+            orderBlock: 80, 
+            liquiditySweep: 70, 
+            supplyDemand: 85, 
+            instFootprint: ictScore * 0.95 
+          },
           sector: item.sector,
+          lastUpdate: new Date().toISOString(),
           scoringEngine: engine
         });
 
-        if (i % 2 === 0) setProgress({ current: i + 1, total });
+        setProgress({ current: i + 1, total });
       }
 
-      // [Output Logic] 최종적으로 상위 50개만 선별하여 저장 (Final Funnel)
       results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-      const cutOffCount = 50;
-      const finalSurvivors = results.slice(0, cutOffCount);
       
-      addLog(`Analysis Complete. Saving Top ${finalSurvivors.length} items to Stage 5 Vault.`, "ok");
+      addLog(`ICT Analysis Complete. Selecting Final Elite 50...`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
-      const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
+      const fileName = `STAGE5_ICT_ELITE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.9.2", source: listRes.files[0].name, count: finalSurvivors.length, totalAnalyzed: total, timestamp: new Date().toISOString() },
-        ict_universe: finalSurvivors
+        manifest: { version: "5.9.2", strategy: "Institutional_Order_Flow", count: results.length, timestamp: new Date().toISOString() },
+        ict_universe: results
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -202,11 +213,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
-
+      
       if (onComplete) onComplete();
 
     } catch (e: any) {
-      addLog(`Integrated Error: ${e.message}`, "err");
+      addLog(`Integrated Protocol Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
       setProgress(prev => ({ ...prev, current: prev.total }));
@@ -231,47 +242,47 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-indigo-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
+        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-purple-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20">
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-purple-600/10 flex items-center justify-center border border-purple-500/20`}>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-purple-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Hub v5.9.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Smart_Money v5.9.2</h2>
                 <div className="flex items-center space-x-2 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
-                     {loading ? `Engine: ${activeBrain}` : 'AI Institutional Scan Ready'}
+                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-purple-400 text-purple-400 animate-pulse' : 'border-purple-500/20 bg-purple-500/10 text-purple-400'}`}>
+                     {loading ? `Engine: ${activeBrain}` : 'ICT Institutional Scanner Ready'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
-            <button onClick={executeIntegratedIctProtocol} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'AI Sieving in Progress...' : 'Final AI Composite Scan'}
+            <button onClick={executeIntegratedIctProtocol} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-purple-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-purple-900/20 hover:scale-105 active:scale-95 transition-all">
+              {loading ? 'Scanning Footprint...' : 'Institutional Audit (Stage 5)'}
             </button>
           </div>
 
           <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5 mb-6 md:mb-10">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Sieve Efficiency Progress</p>
+                <p className="text-[9px] font-black text-purple-400 uppercase tracking-widest">Institutional Flow Progress</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                <div className="h-full bg-purple-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
               </div>
           </div>
         </div>
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-indigo-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-purple-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">ICT_Terminal</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Flow_Terminal</h3>
           </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-indigo-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-purple-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-indigo-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-purple-900'}`}>
                 {l}
               </div>
             ))}

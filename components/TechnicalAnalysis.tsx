@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -33,7 +34,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
         addLog("AUTO-PILOT: Initiating Technical Analysis Protocol...", "signal");
@@ -56,7 +56,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-   // AI Technical Scoring Function
   const fetchAiTechScore = async (symbol: string): Promise<{ score: number, trend: string } | null> => {
     const prompt = `
     [Role: Expert Technical Analyst]
@@ -72,15 +71,16 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     `;
 
     try {
-      const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      // Use process.env.API_KEY exclusively
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
       });
       return sanitizeJson(response.text);
     } catch (e) {
+      console.error("Gemini Error:", e);
       try {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -94,6 +94,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         const data = await pRes.json();
         return sanitizeJson(data.choices?.[0]?.message?.content);
       } catch (err) {
+        console.error("Perplexity Fallback Error:", err);
         return null; 
       }
     }
@@ -115,7 +116,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     addLog("Step 1: Loading Stage 3 Data...", "info");
     
     try {
-      // Improved query
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -153,18 +153,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                  engine = "AI-Verified";
              } else {
                  engine = "Algo-Fallback";
-                 techScore = 50 + (Math.random() * 30); // Failover
+                 techScore = 50 + (Math.random() * 30); 
              }
-             await new Promise(r => setTimeout(r, 600)); // AI Rate limit
+             await new Promise(r => setTimeout(r, 600)); 
         } else {
              setActiveBrain("Algo-Heuristic");
-             // 간단한 휴리스틱
              techScore = 40 + (Math.random() * 40);
-             // UI Smoothing
              if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
         }
 
-        // 4단계: 재무(45%) + 기술(55%) 융합
         const totalAlpha = (item.alphaScore * 0.45) + (techScore * 0.55);
 
         results.push({
