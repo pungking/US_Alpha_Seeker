@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
@@ -56,7 +56,7 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   },
   PROFIT_FACTOR: {
     title: "손익비 (Profit Factor)",
-    desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략"
+    desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다. 차트 하단의 막대는 매월 발생한 수익/손실의 규모를 나타냅니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략"
   },
   MAX_DRAWDOWN: {
     title: "최대 낙폭 (MDD)",
@@ -64,7 +64,7 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   },
   SHARPE_RATIO: {
     title: "샤프 지수 (Sharpe Ratio)",
-    desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요"
+    desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다. 점선은 변동성 없는 이상적인 성장 경로를 나타냅니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요"
   }
 };
 
@@ -116,7 +116,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string } | null>(null);
   
-  // NEW: State for Active Chart Overlay (Hedge-fund Analysis Mode)
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
@@ -225,7 +224,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       .replace(/[\u{2600}-\u{26FF}]/gu, "")   
       .replace(/[\u{2700}-\u{27BF}]/gu, "")   
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲👍👎👉👈]/g, "") 
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '') 
       .trim();
   };
@@ -436,7 +435,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const info = METRIC_DEFINITIONS[key];
     if (info) {
         setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value, key: key });
-        // Toggle Overlay State: If same button clicked, reset to default equity curve
         setActiveOverlay(prev => prev === key ? null : key);
     }
   };
@@ -516,18 +514,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         rawData = generateSyntheticData(currentBacktest.metrics);
     }
 
-    // Hedge-fund Advanced Logic: Calculate peak, drawdown, and win/loss markers for overlays
+    // Hedge-fund Advanced Logic: Enhanced calculation for all 4 metrics
     let runningPeak = -Infinity;
     return rawData.map((d, i) => {
         if (d.value > runningPeak) runningPeak = d.value;
         const drawdown = d.value - runningPeak;
-        const prevVal = i > 0 ? rawData[i-1].value : 0;
-        const isWin = d.value > prevVal;
+        const prevValue = i > 0 ? rawData[i-1].value : 0;
+        const delta = d.value - prevValue; // Monthly Change Magnitude
+        const isWin = d.value > prevValue;
         
+        // Sharpe Ideal Regression Path
+        const totalPeriods = rawData.length - 1;
+        const finalVal = rawData[rawData.length - 1].value;
+        const idealValue = i * (finalVal / totalPeriods);
+
         return {
             ...d,
             drawdown: Number(drawdown.toFixed(2)),
             peak: Number(runningPeak.toFixed(2)),
+            delta: Number(delta.toFixed(2)),
+            idealValue: Number(idealValue.toFixed(2)),
             isWin: isWin
         };
     });
@@ -836,7 +842,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                                     <div className="flex-1 w-full min-h-0">
                                         <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                                            <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
                                                 <defs>
                                                     <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
                                                         <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
@@ -853,12 +859,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     formatter={(value: any, name: string) => {
                                                         if (name === 'value') return [`${value}%`, 'Return'];
                                                         if (name === 'drawdown') return [`${value}%`, 'Drawdown'];
+                                                        if (name === 'delta') return [`${value}%`, 'Period Change'];
                                                         return [value, name];
                                                     }}
                                                 />
                                                 <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
                                                 
-                                                {/* MDD Overlay Area: Better for seeing risk distribution over time */}
+                                                {/* PROFIT_FACTOR Overlay: Magnitude Bars */}
+                                                {activeOverlay === 'PROFIT_FACTOR' && (
+                                                    <Bar dataKey="delta" barSize={8} fillOpacity={0.4}>
+                                                        {chartData.map((entry, index) => (
+                                                            <Cell 
+                                                                key={`cell-${index}`} 
+                                                                fill={entry.delta >= 0 ? '#10b981' : '#ef4444'} 
+                                                            />
+                                                        ))}
+                                                    </Bar>
+                                                )}
+
+                                                {/* MAX_DRAWDOWN Overlay: Red Zone Area */}
                                                 {activeOverlay === 'MAX_DRAWDOWN' && (
                                                     <Area 
                                                         type="monotone" 
@@ -870,17 +889,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     />
                                                 )}
 
-                                                {/* Sharpe Benchmark Line: Shows idealized regression path vs actual volatility */}
+                                                {/* SHARPE_RATIO Overlay: Regression Path & Consistency Corridor */}
                                                 {activeOverlay === 'SHARPE_RATIO' && (
-                                                    <ReferenceLine 
-                                                        stroke="#f59e0b" 
-                                                        strokeDasharray="5 5" 
-                                                        label={{ position: 'top', value: 'Bench (S:1.0)', fill: '#f59e0b', fontSize: 8, fontWeight: 'bold' }} 
-                                                        segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData.length * 0.8 }]}
-                                                    />
+                                                    <>
+                                                        <Area 
+                                                            type="monotone" 
+                                                            dataKey="idealValue" 
+                                                            stroke="#f59e0b" 
+                                                            strokeWidth={1}
+                                                            strokeDasharray="5 5"
+                                                            fill="#f59e0b"
+                                                            fillOpacity={0.05}
+                                                        />
+                                                        <ReferenceLine 
+                                                            stroke="#f59e0b" 
+                                                            strokeDasharray="3 3" 
+                                                            label={{ position: 'top', value: 'Consistency Bench', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
+                                                            segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1].value }]}
+                                                        />
+                                                    </>
                                                 )}
 
-                                                {/* Main Equity Area */}
+                                                {/* Main Equity Growth Area */}
                                                 <Area 
                                                     type="monotone" 
                                                     dataKey="value" 
@@ -889,7 +919,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`} 
                                                     animationDuration={1500}
-                                                    // Dynamic Win/Loss Dot Overlay
                                                     dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
                                                         const { cx, cy, payload } = props;
                                                         return (
@@ -903,7 +932,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                         );
                                                     } : false}
                                                 />
-                                            </AreaChart>
+                                            </ComposedChart>
                                         </ResponsiveContainer>
                                     </div>
                                 </div>
