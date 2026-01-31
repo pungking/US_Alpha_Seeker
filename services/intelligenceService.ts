@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
@@ -110,12 +109,12 @@ const BACKTEST_SCHEMA = {
     simulationPeriod: { type: Type.STRING, description: "Exact date range used e.g. '2023.01.01 ~ 2025.01.01'" },
     equityCurve: {
       type: Type.ARRAY,
-      minItems: 12,
-      maxItems: 12,
+      minItems: 24,
+      maxItems: 24,
       items: {
         type: Type.OBJECT,
         properties: {
-          period: { type: Type.STRING, description: "Timeline label (e.g. '23.01', '23.03'...)" },
+          period: { type: Type.STRING, description: "Timeline label (e.g. '23.01', '23.02'...)" },
           value: { type: Type.NUMBER, description: "Cumulative return percentage as a number (e.g., 15.5 for 15.5%)" }
         },
         required: ["period", "value"]
@@ -269,7 +268,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 
       return {
           simulationPeriod: `${from} ~ ${to}`,
-          equityCurve: equityCurve.slice(-12), 
+          equityCurve: equityCurve, // [FIXED] Return all analyzed months (24 months)
           metrics: {
               winRate: `${winRate.toFixed(1)}%`,
               profitFactor: profitFactor.toFixed(2),
@@ -306,10 +305,13 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
   Technical Context: Score=${stock.technicalScore}, Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
   
+  **IMPORTANT**: The analysis period MUST be 24 months (2 years).
+  Return exactly 24 monthly data points in the equityCurve array.
+
   Return a JSON object matching this schema:
   {
       "simulationPeriod": "2023.01 ~ 2025.01",
-      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 12 monthly points ...],
+      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 24 monthly points ...],
       "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
       "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown. DO NOT USE EMOJIS."
   }
