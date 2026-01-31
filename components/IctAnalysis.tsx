@@ -218,6 +218,10 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         else if (i % 30 === 0) await new Promise(r => setTimeout(r, 0)); // UI Breath
       }
 
+      // [FIX] Force update to 100% after loop completes
+      setProgress({ current: total, total: total });
+      addLog(`Institutional Scan Completed. Finalizing Elite 50...`, "ok");
+
       results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
       const finalSurvivors = results.slice(0, 50);
       
