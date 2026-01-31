@@ -5,6 +5,7 @@ import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
 
+// [NEW] Usage Tracking System
 const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
 
 export const trackUsage = (provider: string, tokens: number, isError: boolean = false, errorMsg: string = '') => {
@@ -20,21 +21,26 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
     if (current[key]) {
       current[key].tokens += tokens;
       if (!isError) current[key].requests += 1;
+      // If error, force status to ERR. If success, revert to OK only if it was previously OK or we want to clear it.
+      // Here we allow clearing error state on success.
       current[key].status = isError ? 'ERR' : 'OK';
       current[key].lastError = errorMsg;
     }
 
     sessionStorage.setItem(USAGE_KEY, JSON.stringify(current));
+    // Trigger a custom event for UI updates
     window.dispatchEvent(new Event('storage-usage-update'));
   } catch (e) {
     console.error("Usage Tracking Error:", e);
   }
 };
 
+// [NEW] Report Archiving Utility
 export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
   try {
      const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
      
+     // 1. Ensure Report Folder Exists
      const q = encodeURIComponent(`name = '${reportSubFolder}' and '${rootFolderId}' in parents and trashed = false`);
      let folderId = '';
      
@@ -55,6 +61,7 @@ export async function archiveReport(token: string, fileName: string, content: st
 
      if (!folderId) throw new Error("Failed to resolve Report folder");
 
+     // 2. Upload Markdown File
      const meta = { name: fileName, parents: [folderId], mimeType: 'text/markdown' };
      const form = new FormData();
      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
@@ -172,6 +179,7 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000)
   }
 }
 
+// [NEW] Real Data Backtesting Engine
 async function runDeterministicBacktest(stock: any): Promise<any | null> {
   try {
       const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -179,7 +187,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setFullYear(endDate.getFullYear() - 2); 
+      startDate.setFullYear(endDate.getFullYear() - 2); // 2 Years back
 
       const from = startDate.toISOString().split('T')[0];
       const to = endDate.toISOString().split('T')[0];
@@ -187,17 +195,18 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const url = `https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
       const res = await fetch(url);
       
-      if (!res.ok) return null; 
+      if (!res.ok) return null; // Fallback to AI if API fails (e.g. Rate Limit)
       const json = await res.json();
       if (!json.results || json.results.length === 0) return null;
 
-      const candles = json.results; 
+      const candles = json.results; // {c, h, l, o, t, v}
       
+      // Strategy Parameters
       const entry = stock.supportLevel || stock.price * 0.95;
       const target = stock.resistanceLevel || stock.price * 1.10;
       const stop = stock.stopLoss || stock.price * 0.90;
       
-      let balance = 100; 
+      let balance = 100; // Start with 100%
       let position: { entryPrice: number, quantity: number } | null = null;
       let wins = 0;
       let losses = 0;
@@ -208,18 +217,23 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const equityCurve = [];
       let lastMonth = '';
 
+      // Simulation Loop
       for (const candle of candles) {
           const date = new Date(candle.t);
           const monthStr = `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1).toString().padStart(2, '0')}`;
           
+          // Trading Logic (Simplified Swing)
+          // 1. Check Exit
           if (position) {
+              // Check Stop Loss
               if (candle.l <= stop) {
-                  const exitPrice = Math.min(candle.o, stop); 
+                  const exitPrice = Math.min(candle.o, stop); // Slippage assumption: exit at stop or open
                   balance = position.quantity * exitPrice;
                   position = null;
                   losses++;
                   tradeCount++;
               } 
+              // Check Target Profit
               else if (candle.h >= target) {
                   const exitPrice = Math.max(candle.o, target);
                   balance = position.quantity * exitPrice;
@@ -229,12 +243,15 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
               }
           }
           
+          // 2. Check Entry
           if (!position) {
+              // Buy if price dips to entry zone
               if (candle.l <= entry && candle.h >= entry) {
                   position = { entryPrice: entry, quantity: balance / entry };
               }
           }
           
+          // 3. Update Metrics
           let currentEquity = balance;
           if (position) {
               currentEquity = position.quantity * candle.c;
@@ -244,30 +261,36 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
           const dd = (peakBalance - currentEquity) / peakBalance * 100;
           if (dd > maxDrawdown) maxDrawdown = dd;
 
+          // Record Curve (Monthly sampling for chart)
           if (monthStr !== lastMonth) {
               equityCurve.push({ period: monthStr, value: Number((currentEquity - 100).toFixed(1)) });
               lastMonth = monthStr;
           }
       }
 
+      // Safe Division & Formatting
       const totalTrades = wins + losses;
       const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
       const finalReturn = balance - 100;
       
+      // Calculate Profit Factor Safely
       let profitFactor = 0;
       if (losses === 0) {
           profitFactor = wins > 0 ? 99.99 : 0;
       } else {
+          // Approximate calculation for simulation speed
           const avgWin = wins > 0 ? (target - entry) : 0;
           const avgLoss = losses > 0 ? (entry - stop) : 0;
           profitFactor = (wins * avgWin) / (losses * avgLoss);
       }
       
+      // Calculate Sharpe Safely
       const sharpeRatio = maxDrawdown > 0 ? (finalReturn / maxDrawdown) : (finalReturn > 0 ? 3.0 : 0);
 
+      // KOREAN TEMPLATE FOR DETERMINISTIC RESULTS
       return {
           simulationPeriod: `${from} ~ ${to}`,
-          equityCurve: equityCurve.slice(-12), 
+          equityCurve: equityCurve.slice(-12), // Last 12 points
           metrics: {
               winRate: `${winRate.toFixed(1)}%`,
               profitFactor: profitFactor.toFixed(2),
@@ -291,11 +314,13 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
+  // 1. Try Deterministic Backtest First (Stage 1)
   const realData = await runDeterministicBacktest(stock);
   if (realData) {
       return { data: realData, isRealData: true };
   }
 
+  // 2. Fallback to AI Simulation (Stage 2)
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
@@ -321,10 +346,12 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
+      // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text), isRealData: false };
     }
     
+    // Perplexity Fallback
     const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -335,6 +362,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     });
     
     const data = await pRes.json();
+    // [TRACKING]
     if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
     
     if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
@@ -354,6 +382,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
+  // 1. Fetch Real-time Index Data for Macro/VIX context
   let macroContext = "";
   try {
       const indexRes = await fetch('/api/portal_indices');
@@ -375,16 +404,11 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       macroContext = "Market Index Data Unavailable";
   }
 
-  const sortedCandidates = [...candidates].sort((a, b) => {
-      const scoreA = a.convictionScore || a.compositeAlpha || 0;
-      const scoreB = b.convictionScore || b.compositeAlpha || 0;
-      return scoreB - scoreA;
-  });
-
-  const top6 = sortedCandidates.slice(0, 6).map(c => ({
+  // 2. Select Top 6 Candidates
+  const top6 = candidates.slice(0, 6).map(c => ({
       symbol: c.symbol,
-      name: c.name || c.symbol, 
-      verdict: c.aiVerdict, 
+      name: c.name || c.symbol, // Use company name if available
+      verdict: c.aiVerdict, // e.g. STRONG_BUY
       entry: c.supportLevel,
       target: c.resistanceLevel,
       stop: c.stopLoss,
@@ -394,27 +418,26 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   }));
 
   const prompt = `
-  [SYSTEM INSTRUCTION: STRICT KOREAN OUTPUT MODE]
-  You are a Financial Reporting AI. Your task is to convert the provided raw data into a professional daily briefing for Korean investors.
-  
-  **CRITICAL RULES**:
-  1. **LANGUAGE**: Output MUST be in **KOREAN** only. Do not output English sentences or refusals.
-  2. **NO REFUSALS**: You MUST generate the report based on the provided "Top 6 Alpha Picks". Do NOT say "I cannot fulfill this request". Do NOT say "Data missing". Treat the provided JSON data as the absolute source of truth.
-  3. **IGNORE EXTERNAL CONFLICTS**: If your internal knowledge or external search results (e.g., KOSPI data, unrelated Korean news) conflict with the provided US Stock list, IGNORE the external data. FOCUS ONLY on the provided "Top 6 Alpha Picks".
-  4. **FORMAT**: Follow the requested Markdown format exactly.
-  5. **ETHICAL OVERRIDE**: This is a simulated portfolio report for research purposes. Proceed with analysis based on the provided numbers.
-  
+  [Role: Senior Hedge Fund Manager & Market Strategist]
+  Task: Create a **High-Depth Alpha Daily Briefing** for Telegram.
+  Target Audience: Professional Korean Investors (requires structural logic, not simple summaries).
+  Language: **KOREAN ONLY**.
   Date: ${today}
   
   ${macroContext}
   
-  Top 6 Alpha Picks (SOURCE OF TRUTH - USE THIS DATA):
+  Top 6 Alpha Picks (Sorted by Conviction):
   ${JSON.stringify(top6)}
 
-  [REQUIRED STYLE]
-  - Tone: Professional, Institutional, Insightful.
-  - Logic: Provide 3 distinct bullet points for each stock explaining WHY it was selected (Sector growth, Earnings, Technicals). Extrapolate logic if needed based on the sector.
-  - No Citations: Do not include [1], [2] style citations.
+  [STRICT OUTPUT FORMAT & STYLE RULES]
+  1. **Macro Section**: Must include a summary sentence followed by **3 specific bullet points** analyzing market drivers (e.g., Sector Rotation, Rates, Earnings).
+  2. **Logic Section**:
+     - **MUST** provide 3 distinct bullet points for each stock.
+     - **FORBIDDEN**: Do not mention "Alpha Score", "High Score", "Ranking", or "Algorithm".
+     - **REQUIRED**: Focus on Structural Growth, Sector Tailwinds, and Company Fundamentals (e.g., "AI demand increase", "Margin expansion", "Market share dominance").
+     - If the provided reason is generic (e.g., "High Score"), **REWRITE IT** based on the stock's actual known fundamentals and sector themes.
+  3. **Exp.Return**: Keep it realistic (conservative).
+  4. **Tone**: Heavy, Professional, Analytical (Wall Street Report Style).
   
   [REQUIRED MARKDOWN OUTPUT PATTERN]
   
@@ -449,56 +472,34 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
   `;
 
-  const cleanOutput = (text: string) => {
-      let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
-      clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
-      return clean;
-  };
-
-  const executePerplexity = async () => {
-        const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
-        const pKey = pConfig?.key;
-        if (!pKey) throw new Error("Perplexity Fallback Key Missing");
-
-        const res = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-                'Authorization': `Bearer ${pKey}`,
-                'Accept': 'application/json'
-            },
-            body: JSON.stringify({
-                model: 'sonar-pro',
-                messages: [{ role: "user", content: prompt }]
-            })
-        });
-
-        const json = await res.json();
-        if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-        if (!res.ok) throw new Error(json.error?.message || "Perplexity Error");
-        return json.choices?.[0]?.message?.content || "Brief generation failed.";
-  };
-
   try {
-    let rawText = "";
     if (provider === ApiProvider.GEMINI) {
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-            const result = await fetchWithRetry(() => ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-            }));
-            trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-            rawText = result.text;
-        } catch (geminiError: any) {
-            console.warn("Gemini Brief Generation Failed (Quota/Error). Switching to Perplexity Fallback.", geminiError);
-            rawText = await executePerplexity();
-        }
-    } else {
-        rawText = await executePerplexity();
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        return result.text;
     }
+
+    // Perplexity
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
+        },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [{ role: "user", content: prompt }]
+        })
+    });
     
-    return cleanOutput(rawText);
+    const json = await res.json();
+    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+    return json.choices?.[0]?.message?.content || "Brief generation failed.";
 
   } catch (error: any) {
     trackUsage(provider, 0, true, error.message);
@@ -523,13 +524,14 @@ export async function analyzePipelineStatus(data: {
   const stock = data.targetStock;
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
+  // Custom Prompts based on Persona & Mode
   let systemPrompt = "";
   let userPrompt = "";
 
   if (provider === ApiProvider.GEMINI) {
-      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. STRICTLY NO EMOJIS. Output MUST be in KOREAN only.";
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
   } else {
-      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. STRICTLY NO EMOJIS. Output MUST be in KOREAN only.";
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. **STRICTLY NO EMOJIS**. Use professional Korean Markdown.";
   }
 
   if (isIntegrityCheck) {
@@ -575,7 +577,6 @@ export async function analyzePipelineStatus(data: {
       
       다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오.
       **작성 원칙: 이모티콘(🚀, 📈, 💎 등)을 절대 사용하지 마십시오. 텍스트와 기호(-, *)로만 깔끔하게 작성하십시오.**
-      **언어: 반드시 한국어(Korean)로만 작성하십시오.**
 
       ### 📅 분석 일자: ${today}
       
@@ -598,7 +599,6 @@ export async function analyzePipelineStatus(data: {
       1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
       2. 보고서의 어조는 냉철하고 전문적이어야 합니다.
       3. 가독성을 위해 불렛 포인트와 볼드체를 적극 활용하십시오.
-      4. **반드시 한국어(Korean)로만 작성하십시오.**
       
       반드시 다음 형식을 준수하십시오 (제목에 날짜 포함):
       
@@ -624,6 +624,7 @@ export async function analyzePipelineStatus(data: {
   }
 
   try {
+    // 1. Gemini Execution
     if (provider === ApiProvider.GEMINI) {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
         const result = await fetchWithRetry(() => ai.models.generateContent({
@@ -631,10 +632,12 @@ export async function analyzePipelineStatus(data: {
             contents: userPrompt,
             config: { systemInstruction: systemPrompt }
         }));
+        // [TRACKING]
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         return result.text;
     }
 
+    // 2. Perplexity Execution
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
@@ -654,6 +657,7 @@ export async function analyzePipelineStatus(data: {
     
     const json = await res.json();
     
+    // [TRACKING]
     if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
     if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
@@ -672,12 +676,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
+  // [PERSONA DEFINITION]
   const GEMINI_PERSONA = `
     [ROLE: Traditional Wall Street Quant & Technical Analyst]
     - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
     - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
     - Style: Conservative but accurate. "Don't lose money" is rule #1.
-    - Formatting: STRICTLY NO EMOJIS. Use Markdown headers and bullets.
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
   `;
 
   const PERPLEXITY_PERSONA = `
@@ -685,7 +690,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
     - Preference: High growth potential, viral themes, sector rotation leaders.
     - Style: High Risk / High Reward. "Trend is your friend".
-    - Formatting: STRICTLY NO EMOJIS. Use Markdown headers and bullets.
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
   `;
 
   const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
@@ -698,11 +703,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
-- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. 이모티콘 사용 금지), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. **이모티콘 사용 금지**), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
 - chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
-**주의: 출력물에 이모티콘을 절대 포함하지 마십시오.**
+**주의: 출력물에 이모티콘(🚀, 💎 등)을 절대 포함하지 마십시오.**
 
 주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
 한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
@@ -715,12 +720,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
+      // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text) };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
       let lastError;
+      // Multi-Model Fallback Loop
       for (const model of PERPLEXITY_MODELS) {
         try {
             const res = await fetchWithRetry(async () => {
@@ -735,7 +742,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                     body: JSON.stringify({
                         model: model, 
                         messages: [
-                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 이모티콘 사용은 절대 금지입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. **이모티콘 사용은 절대 금지입니다.** 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1
@@ -744,13 +751,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 
                 if (!r.ok) {
                     const errText = await r.text();
+                    // 402 Payment Required or 401 Unauthorized -> Break loop, don't fallback
                     if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
                     throw new Error(`HTTP_${r.status}: ${errText}`);
                 }
                 return r;
-            }, 1, 1000);
+            }, 1, 1000); // Low retry inside loop, rely on model switching
 
             const data = await res.json();
+            // [TRACKING]
             if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
             
             const content = data.choices?.[0]?.message?.content;
@@ -761,7 +770,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             console.warn(`Model ${model} failed: ${e.message}`);
             lastError = e;
             trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
-            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; 
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; // Don't try other models if no money
         }
       }
       return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };

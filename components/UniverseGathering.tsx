@@ -37,6 +37,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
+  // [RESTORED] 기본 클라이언트 ID 자동 입력 (사용자 편의성 및 동작 보장)
   const [clientId, setClientId] = useState<string>(() => 
     localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com'
   );
@@ -120,8 +121,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             if (res.access_token) {
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
-              // [NEW] SLS: Save timestamp for session tracking
-              localStorage.setItem('gdrive_token_timestamp', Date.now().toString());
               onAuthSuccess?.(true);
               
               // [UX CHANGE] Do NOT run immediately. Let user click the blue button.
@@ -133,6 +132,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
         addLog(`Auth Error: ${e.message}`, "err");
+        // [FIX] 인증 실패 시 설정창 자동 오픈 (ID 수정 기회 제공)
         setShowConfig(true);
         document.body.removeAttribute('data-engine-running');
       }
