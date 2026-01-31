@@ -71,28 +71,23 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   }
 };
 
-// [CUSTOM MARKDOWN COMPONENTS]
+// [CUSTOM MARKDOWN COMPONENTS - RESTORED FOR READABILITY]
 const MarkdownComponents: any = {
-    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1"><span className="text-emerald-500 mr-2">#</span>{props.children}</h2>,
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
-    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-8 mb-4 font-normal tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-3 mb-6 mt-2" {...props} />,
-    ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-200 marker:text-emerald-500 marker:font-bold" {...props} />,
-    li: (props: any) => (
-        <li className="pl-4 relative flex items-start group" {...props}>
-             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-300 transition-colors"></span>
-             <span className="flex-1 leading-7 text-slate-300 text-sm md:text-[15px]">{props.children}</span>
-        </li>
-    ),
-    strong: (props: any) => <strong className="text-emerald-300 font-extrabold bg-emerald-900/40 px-1.5 py-0.5 rounded mx-0.5 shadow-sm" {...props} />,
+    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2 block" {...props} />,
+    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-1 block" {...props} />,
+    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide block" {...props} />,
+    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-relaxed mb-4 font-normal tracking-wide block" {...props} />,
+    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-6 mt-2 text-slate-300 block" {...props} />,
+    ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-200 marker:text-emerald-500 block" {...props} />,
+    li: (props: any) => <li className="mb-1 leading-relaxed" {...props} />,
+    strong: (props: any) => <strong className="text-emerald-400 font-extrabold" {...props} />,
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/30 p-4 my-6 rounded-r-xl italic text-slate-300 shadow-inner" {...props} />
+        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-6 italic text-slate-300 block" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
-        : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
+        ? <code className="bg-slate-800 text-rose-300 px-1 rounded font-mono text-xs" {...props} />
+        : <pre className="bg-slate-900 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono block" {...props} />
     ),
 };
 
@@ -637,13 +632,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
                          
-                         {/* RESTORED: Neural Investment Outlook Markdown View */}
-                         <div className="p-8 md:p-12 bg-black/30 rounded-[40px] border border-white/5 shadow-inner relative overflow-hidden">
+                         {/* RESTORED: Neural Investment Outlook Markdown View - Fixed vertical squeeze */}
+                         <div className="p-8 md:p-12 bg-black/30 rounded-[40px] border border-white/5 shadow-inner relative overflow-hidden block w-full">
                             <h4 className="text-[11px] font-black text-rose-500 uppercase tracking-[0.4em] mb-8 italic flex items-center gap-4">
                                 <span className="w-10 h-[1px] bg-rose-600"></span>
                                 Neural Investment Outlook
                             </h4>
-                            <div className="prose-report max-w-none">
+                            <div className="prose-report max-w-none block w-full">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                     {selectedStock.investmentOutlook || "Awaiting Strategic Synthesis..."}
                                 </ReactMarkdown>
@@ -651,13 +646,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          </div>
                      </div>
                      <div className="lg:col-span-2 space-y-6">
-                        <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
+                        <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner block w-full">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
-                            <ul className="space-y-4">
+                            <ul className="list-none p-0 m-0 space-y-4 block w-full">
                                 {selectedStock.selectionReasons?.length ? selectedStock.selectionReasons.map((r, i) => (
-                                <li key={i} className="flex items-start gap-4">
+                                <li key={i} className="flex items-start gap-4 block">
                                     <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
-                                    <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
+                                    <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight block flex-1">{cleanMarkdown(r)}</p>
                                 </li>
                                 )) : <li className="text-xs text-slate-500 italic">No rationale provided.</li>}
                             </ul>
