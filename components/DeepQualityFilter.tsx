@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -32,16 +31,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   
+  // Time Tracking
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
 
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
   const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Engine');
   
+  // AI Status separate from main loading
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
+  // 무료 플랜 상태 관리
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.9: Resilience Protocol Upgrade.']);
@@ -53,6 +55,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   
   const logRef = useRef<HTMLDivElement>(null);
 
+  // [ADAPTIVE STRATEGY]
   const BATCH_SIZE = 5; 
   const DELAY_TURBO = 300;   
   const DELAY_SAFE = 4500;   
@@ -62,6 +65,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // Timer Effect
   useEffect(() => {
     let interval: any;
     if (loading && startTimeRef.current > 0) {
@@ -69,9 +73,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
         
+        // Calculate ETA
         let etaSec = 0;
         if (progress.current > 0 && progress.total > 0) {
-           const rate = progress.current / elapsedSec; 
+           const rate = progress.current / elapsedSec; // items per second
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
@@ -82,6 +87,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return () => clearInterval(interval);
   }, [loading, progress]);
 
+  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
         addLog("AUTO-PILOT: Initiating Deep Quality Scan...", "signal");
@@ -111,6 +117,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       let metricsSource = "";
       let profileSource = "";
 
+      // 1. Try FMP (If not depleted)
       if (!fmpDepleted) {
           try {
             const [ratioRes, profileRes] = await Promise.all([
@@ -153,6 +160,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
+      // 2. Fallback to Finnhub
       if (!metrics.per && !metrics.roe) {
           try {
             const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
@@ -173,6 +181,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
+      // Profile Backup (Polygon)
       if (!profileData.name) {
           try {
             const polyRes = await fetch(`https://api.polygon.io/v3/reference/tickers/${target.symbol}?apiKey=${polygonKey}`);
@@ -194,7 +203,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const roeScore = (metrics.roe || 0) * 2.0; 
       const debtPenalty = (metrics.debt || 0) * 0.5;
       
-      const safeMarketValue = (target.marketValue || (target.price * target.volume)) || 1000000; 
+      // [SAFE MATH] Prevent log10(0) or log10(undefined) crash
+      const safeMarketValue = (target.marketValue || (target.price * target.volume)) || 1000000; // Default to 1M if missing
       const mktCapBonus = Math.min(20, Math.log10(safeMarketValue) * 2); 
       
       const qScore = roeScore - debtPenalty + mktCapBonus;
@@ -224,6 +234,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
+    // 1. Initial State Set
     setAiStatus('ANALYZING');
     setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
     addLog("Initiating AI Sector Analysis...", "info");
@@ -250,10 +261,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     let result = null;
     let usedProvider = '';
 
+    // Step A: Attempt Gemini with Smart Retry
     try {
-        setActiveBrain("Gemini 3 Pro");
-        // Use process.env.API_KEY exclusively
-        const apiKey = process.env.API_KEY;
+        setActiveBrain("Gemini 3 Flash");
+        const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+        const apiKey = process.env.API_KEY || geminiConfig?.key || "";
+        
         if (!apiKey) throw new Error("Gemini API Key Missing");
 
         const ai = new GoogleGenAI({ apiKey });
@@ -261,13 +274,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         const callGemini = async (retries = 1): Promise<any> => {
             try {
                 return await ai.models.generateContent({
-                    model: 'gemini-3-pro-preview',
+                    model: 'gemini-3-flash-preview',
                     contents: prompt,
                     config: { responseMimeType: "application/json" }
                 });
             } catch (e: any) {
                 if (retries > 0 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
-                     const waitTime = 40000;
+                     const waitTime = 40000; // Increased to 40s to satisfy 36s requirement
                      addLog(`Gemini Quota Hit. Retrying in ${waitTime/1000}s...`, "warn");
                      await new Promise(r => setTimeout(r, waitTime));
                      return callGemini(retries - 1);
@@ -283,6 +296,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         addLog(`Gemini Failed: ${e.message.slice(0,40)}... Switching to Fallback.`, "warn");
     }
 
+    // Step B: Fallback to Perplexity (if Gemini failed)
     if (!result) {
         try {
             setActiveBrain("Perplexity Sonar");
@@ -300,7 +314,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                         'Accept': 'application/json' 
                     },
                     body: JSON.stringify({
-                        model: 'sonar', 
+                        model: 'sonar', // Use standard 'sonar' for better availability/cost
                         messages: [
                             { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
                             { role: "user", content: prompt }
@@ -332,6 +346,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
     }
 
+    // Step C: Finalize
     if (result && result.insight) {
         const msg = `[${result.dominantSector}] ${result.insight}`;
         setAiAnalysis(`${usedProvider}: ${msg}`);
@@ -404,7 +419,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
-      let batchRetryCount = 0;
+      let batchRetryCount = 0; // [FIX] Prevent infinite loop
 
       while (currentIndex < totalCandidates) {
           setNetworkStatus(fmpDepleted 
@@ -433,7 +448,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               });
 
               currentIndex += BATCH_SIZE;
-              batchRetryCount = 0; 
+              batchRetryCount = 0; // [FIX] Reset retry count on success
               setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
               
               const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
@@ -444,6 +459,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   addLog(`FMP Limit Hit! Engaging Safe Mode (Finnhub)...`, "warn");
                   setFmpDepleted(true); 
                   await new Promise(r => setTimeout(r, 1000));
+                  // [FIX] Increment retry, but don't skip yet unless excessive
                   batchRetryCount++;
               } else if (e.message === "FINNHUB_LIMIT") {
                   addLog(`Finnhub Limit. Cooling down (10s)...`, "warn");
@@ -451,10 +467,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   batchRetryCount++;
               } else {
                   addLog(`Batch Error: ${e.message}`, "err");
-                  currentIndex += BATCH_SIZE; 
+                  currentIndex += BATCH_SIZE; // Skip batch on generic error
                   batchRetryCount = 0;
               }
 
+              // [FIX] Circuit Breaker: If same batch fails 3 times, SKIP IT
               if (batchRetryCount > 3) {
                   addLog("Batch Failed 3x (Limits). Skipping to prevent crash.", "err");
                   currentIndex += BATCH_SIZE;
@@ -473,12 +490,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
       setNetworkStatus("Status: Scan Complete");
 
+      // AI Analysis Trigger
       setAiStatus('ANALYZING');
       setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
       addLog("Triggering AI Sector Analysis...", "info");
       
       analyzeSectorDistribution(eliteSurvivors);
 
+      // Upload
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
@@ -557,6 +576,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                         </span>
                          {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
+                   {/* Time Stats */}
                    {loading && (
                      <div className="flex items-center space-x-2 mt-0.5">
                        <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
@@ -601,6 +621,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
                  <div className="flex justify-between items-center mb-2">
                     <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Sector Insight</p>
+                    {/* Retry Button visible if processedData exists but no analysis */}
                     {!loading && processedData.length > 0 && (
                         <button 
                             onClick={handleManualAnalysis}
