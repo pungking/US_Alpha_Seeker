@@ -5,7 +5,6 @@ import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
 
-// [NEW] Usage Tracking System
 const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
 
 export const trackUsage = (provider: string, tokens: number, isError: boolean = false, errorMsg: string = '') => {
@@ -21,26 +20,21 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
     if (current[key]) {
       current[key].tokens += tokens;
       if (!isError) current[key].requests += 1;
-      // If error, force status to ERR. If success, revert to OK only if it was previously OK or we want to clear it.
-      // Here we allow clearing error state on success.
       current[key].status = isError ? 'ERR' : 'OK';
       current[key].lastError = errorMsg;
     }
 
     sessionStorage.setItem(USAGE_KEY, JSON.stringify(current));
-    // Trigger a custom event for UI updates
     window.dispatchEvent(new Event('storage-usage-update'));
   } catch (e) {
     console.error("Usage Tracking Error:", e);
   }
 };
 
-// [NEW] Report Archiving Utility
 export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
   try {
      const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
      
-     // 1. Ensure Report Folder Exists
      const q = encodeURIComponent(`name = '${reportSubFolder}' and '${rootFolderId}' in parents and trashed = false`);
      let folderId = '';
      
@@ -61,7 +55,6 @@ export async function archiveReport(token: string, fileName: string, content: st
 
      if (!folderId) throw new Error("Failed to resolve Report folder");
 
-     // 2. Upload Markdown File
      const meta = { name: fileName, parents: [folderId], mimeType: 'text/markdown' };
      const form = new FormData();
      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
@@ -179,7 +172,6 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000)
   }
 }
 
-// [NEW] Real Data Backtesting Engine
 async function runDeterministicBacktest(stock: any): Promise<any | null> {
   try {
       const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -187,7 +179,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 
       const endDate = new Date();
       const startDate = new Date();
-      startDate.setFullYear(endDate.getFullYear() - 2); // 2 Years back
+      startDate.setFullYear(endDate.getFullYear() - 2); 
 
       const from = startDate.toISOString().split('T')[0];
       const to = endDate.toISOString().split('T')[0];
@@ -195,18 +187,17 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const url = `https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
       const res = await fetch(url);
       
-      if (!res.ok) return null; // Fallback to AI if API fails (e.g. Rate Limit)
+      if (!res.ok) return null; 
       const json = await res.json();
       if (!json.results || json.results.length === 0) return null;
 
-      const candles = json.results; // {c, h, l, o, t, v}
+      const candles = json.results; 
       
-      // Strategy Parameters
       const entry = stock.supportLevel || stock.price * 0.95;
       const target = stock.resistanceLevel || stock.price * 1.10;
       const stop = stock.stopLoss || stock.price * 0.90;
       
-      let balance = 100; // Start with 100%
+      let balance = 100; 
       let position: { entryPrice: number, quantity: number } | null = null;
       let wins = 0;
       let losses = 0;
@@ -217,23 +208,18 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
       const equityCurve = [];
       let lastMonth = '';
 
-      // Simulation Loop
       for (const candle of candles) {
           const date = new Date(candle.t);
           const monthStr = `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1).toString().padStart(2, '0')}`;
           
-          // Trading Logic (Simplified Swing)
-          // 1. Check Exit
           if (position) {
-              // Check Stop Loss
               if (candle.l <= stop) {
-                  const exitPrice = Math.min(candle.o, stop); // Slippage assumption: exit at stop or open
+                  const exitPrice = Math.min(candle.o, stop); 
                   balance = position.quantity * exitPrice;
                   position = null;
                   losses++;
                   tradeCount++;
               } 
-              // Check Target Profit
               else if (candle.h >= target) {
                   const exitPrice = Math.max(candle.o, target);
                   balance = position.quantity * exitPrice;
@@ -243,15 +229,12 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
               }
           }
           
-          // 2. Check Entry
           if (!position) {
-              // Buy if price dips to entry zone
               if (candle.l <= entry && candle.h >= entry) {
                   position = { entryPrice: entry, quantity: balance / entry };
               }
           }
           
-          // 3. Update Metrics
           let currentEquity = balance;
           if (position) {
               currentEquity = position.quantity * candle.c;
@@ -261,36 +244,30 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
           const dd = (peakBalance - currentEquity) / peakBalance * 100;
           if (dd > maxDrawdown) maxDrawdown = dd;
 
-          // Record Curve (Monthly sampling for chart)
           if (monthStr !== lastMonth) {
               equityCurve.push({ period: monthStr, value: Number((currentEquity - 100).toFixed(1)) });
               lastMonth = monthStr;
           }
       }
 
-      // Safe Division & Formatting
       const totalTrades = wins + losses;
       const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
       const finalReturn = balance - 100;
       
-      // Calculate Profit Factor Safely
       let profitFactor = 0;
       if (losses === 0) {
           profitFactor = wins > 0 ? 99.99 : 0;
       } else {
-          // Approximate calculation for simulation speed
           const avgWin = wins > 0 ? (target - entry) : 0;
           const avgLoss = losses > 0 ? (entry - stop) : 0;
           profitFactor = (wins * avgWin) / (losses * avgLoss);
       }
       
-      // Calculate Sharpe Safely
       const sharpeRatio = maxDrawdown > 0 ? (finalReturn / maxDrawdown) : (finalReturn > 0 ? 3.0 : 0);
 
-      // KOREAN TEMPLATE FOR DETERMINISTIC RESULTS
       return {
           simulationPeriod: `${from} ~ ${to}`,
-          equityCurve: equityCurve.slice(-12), // Last 12 points
+          equityCurve: equityCurve.slice(-12), 
           metrics: {
               winRate: `${winRate.toFixed(1)}%`,
               profitFactor: profitFactor.toFixed(2),
@@ -314,13 +291,11 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
-  // 1. Try Deterministic Backtest First (Stage 1)
   const realData = await runDeterministicBacktest(stock);
   if (realData) {
       return { data: realData, isRealData: true };
   }
 
-  // 2. Fallback to AI Simulation (Stage 2)
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
@@ -346,12 +321,10 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
-      // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text), isRealData: false };
     }
     
-    // Perplexity Fallback
     const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
@@ -362,7 +335,6 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     });
     
     const data = await pRes.json();
-    // [TRACKING]
     if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
     
     if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
@@ -382,7 +354,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
-  // 1. Fetch Real-time Index Data for Macro/VIX context
   let macroContext = "";
   try {
       const indexRes = await fetch('/api/portal_indices');
@@ -404,11 +375,10 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       macroContext = "Market Index Data Unavailable";
   }
 
-  // 2. Select Top 6 Candidates
   const top6 = candidates.slice(0, 6).map(c => ({
       symbol: c.symbol,
-      name: c.name || c.symbol, // Use company name if available
-      verdict: c.aiVerdict, // e.g. STRONG_BUY
+      name: c.name || c.symbol, 
+      verdict: c.aiVerdict, 
       entry: c.supportLevel,
       target: c.resistanceLevel,
       stop: c.stopLoss,
@@ -438,6 +408,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
      - If the provided reason is generic (e.g., "High Score"), **REWRITE IT** based on the stock's actual known fundamentals and sector themes.
   3. **Exp.Return**: Keep it realistic (conservative).
   4. **Tone**: Heavy, Professional, Analytical (Wall Street Report Style).
+  5. **NO CITATIONS**: Absolutely DO NOT include citation numbers (like [1], 12, 14, 35) or footnotes at the end of sentences or lines. Output clean text only.
   
   [REQUIRED MARKDOWN OUTPUT PATTERN]
   
@@ -472,7 +443,17 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
   `;
 
+  // [CLEANING FUNCTION] Removes hallucinated citation numbers
+  const cleanOutput = (text: string) => {
+      let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); // Remove [1], [1-2]
+      // Remove trailing numbers attached to Korean or brackets at end of sentence segments
+      // Matches a Korean char/paren/dot, followed by digits, followed by space or newline
+      clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
+      return clean;
+  };
+
   try {
+    let rawText = "";
     if (provider === ApiProvider.GEMINI) {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
         const result = await fetchWithRetry(() => ai.models.generateContent({
@@ -480,26 +461,27 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
             contents: prompt,
         }));
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        return result.text;
+        rawText = result.text;
+    } else {
+        const res = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json' 
+            },
+            body: JSON.stringify({
+                model: 'sonar-pro', 
+                messages: [{ role: "user", content: prompt }]
+            })
+        });
+        
+        const json = await res.json();
+        if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+        rawText = json.choices?.[0]?.message?.content || "Brief generation failed.";
     }
-
-    // Perplexity
-    const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json' 
-        },
-        body: JSON.stringify({
-            model: 'sonar-pro', 
-            messages: [{ role: "user", content: prompt }]
-        })
-    });
     
-    const json = await res.json();
-    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-    return json.choices?.[0]?.message?.content || "Brief generation failed.";
+    return cleanOutput(rawText);
 
   } catch (error: any) {
     trackUsage(provider, 0, true, error.message);
@@ -524,7 +506,6 @@ export async function analyzePipelineStatus(data: {
   const stock = data.targetStock;
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   
-  // Custom Prompts based on Persona & Mode
   let systemPrompt = "";
   let userPrompt = "";
 
@@ -624,7 +605,6 @@ export async function analyzePipelineStatus(data: {
   }
 
   try {
-    // 1. Gemini Execution
     if (provider === ApiProvider.GEMINI) {
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
         const result = await fetchWithRetry(() => ai.models.generateContent({
@@ -632,12 +612,10 @@ export async function analyzePipelineStatus(data: {
             contents: userPrompt,
             config: { systemInstruction: systemPrompt }
         }));
-        // [TRACKING]
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         return result.text;
     }
 
-    // 2. Perplexity Execution
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
         method: 'POST',
         headers: { 
@@ -657,7 +635,6 @@ export async function analyzePipelineStatus(data: {
     
     const json = await res.json();
     
-    // [TRACKING]
     if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
     if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
@@ -676,7 +653,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
-  // [PERSONA DEFINITION]
   const GEMINI_PERSONA = `
     [ROLE: Traditional Wall Street Quant & Technical Analyst]
     - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
@@ -720,14 +696,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));
-      // [TRACKING]
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text) };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
       let lastError;
-      // Multi-Model Fallback Loop
       for (const model of PERPLEXITY_MODELS) {
         try {
             const res = await fetchWithRetry(async () => {
@@ -751,15 +725,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 
                 if (!r.ok) {
                     const errText = await r.text();
-                    // 402 Payment Required or 401 Unauthorized -> Break loop, don't fallback
                     if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
                     throw new Error(`HTTP_${r.status}: ${errText}`);
                 }
                 return r;
-            }, 1, 1000); // Low retry inside loop, rely on model switching
+            }, 1, 1000);
 
             const data = await res.json();
-            // [TRACKING]
             if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
             
             const content = data.choices?.[0]?.message?.content;
@@ -770,7 +742,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             console.warn(`Model ${model} failed: ${e.message}`);
             lastError = e;
             trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
-            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; // Don't try other models if no money
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; 
         }
       }
       return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };
