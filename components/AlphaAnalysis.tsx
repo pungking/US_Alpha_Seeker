@@ -53,22 +53,22 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   WIN_RATE: {
     title: "승률 (Win Rate)",
     desc: "### 지표 정의\n**전체 거래 중 이익을 낸 거래의 비율**입니다.\n\n### 구간별 해석\n- **60% 이상**: 매우 안정적인 고승률 전략\n- **40~50%**: 손익비가 1.5 이상일 때 유효\n- **40% 미만**: 추세 추종형 전략 (높은 손익비 필수)",
-    overlayDesc: "● 초록: 월별 수익 | ● 빨강: 월별 손실"
+    overlayDesc: "● 초록: 월간 수익 발생 | ● 빨강: 월간 손실 발생"
   },
   PROFIT_FACTOR: {
     title: "손익비 (Profit Factor)",
     desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다. 차트 하단의 막대는 매월 발생한 수익/손실의 절대 규모를 나타냅니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략",
-    overlayDesc: "하단 막대: 매월 손익 발생 규모 (Magnitude)"
+    overlayDesc: "하단 막대: 매월 자산 변동폭 (Magnitude)"
   },
   MAX_DRAWDOWN: {
     title: "최대 낙폭 (MDD)",
     desc: "### 지표 정의\n**계좌 최고점 대비 최대 하락률**을 의미합니다.\n\n### 리스크 진단\n- **-10% 이내**: 매우 안정적 (보수적 투자)\n- **-20% 이내**: 성장주 전략 허용 범위\n- **-30% 초과**: 위험 관리 실패 또는 레버리지 과다",
-    overlayDesc: "붉은 영역: 전고점 대비 하락(손실) 구간"
+    overlayDesc: "붉은 영역: 전고점 대비 자산 감소 구간"
   },
   SHARPE_RATIO: {
     title: "샤프 지수 (Sharpe Ratio)",
     desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다. 점선은 변동성 없는 이상적인 성장 경로를 나타냅니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요",
-    overlayDesc: "주황 점선: 변동성 0의 이상적 성장 경로 (Benchmark)"
+    overlayDesc: "주황 점선: 변동성 없는 이상적 성장 경로 (Benchmark)"
   }
 };
 
@@ -484,6 +484,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let value = 0;
       const data = [];
       const now = new Date();
+      // ALWAYS 24 MONTHS for consistency
       for (let i = 24; i >= 0; i--) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -504,7 +505,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const chartData = useMemo(() => {
     if (!currentBacktest) return [];
     let rawData: any[] = [];
-    if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length > 2) {
+    if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
         rawData = currentBacktest.equityCurve.map((item) => {
             const valStr = String(item.value);
             const cleanVal = valStr.replace(/[^0-9.-]/g, '');
@@ -515,22 +516,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             };
         });
     } else {
-        rawData = generateSyntheticData(currentBacktest.metrics);
+        rawData = generateSyntheticData(currentBacktest?.metrics);
     }
 
-    // Hedge-fund Advanced Logic: Enhanced calculation for all 4 metrics
+    // Hedge-fund Advanced Logic: Full 24-month calculation
     let runningPeak = -Infinity;
     return rawData.map((d, i) => {
         if (d.value > runningPeak) runningPeak = d.value;
         const drawdown = d.value - runningPeak;
         const prevValue = i > 0 ? rawData[i-1].value : 0;
-        const delta = d.value - prevValue; // Monthly Change Magnitude
-        const isWin = d.value >= prevValue;
+        const delta = d.value - prevValue; 
+        const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
         
-        // Sharpe Ideal Regression Path (Consistency Benchmark)
+        // Sharpe Ideal Regression Path
         const totalPeriods = rawData.length - 1;
         const finalVal = rawData[rawData.length - 1].value;
-        const idealValue = i * (finalVal / totalPeriods);
+        const idealValue = i * (finalVal / (totalPeriods || 1));
 
         return {
             ...d,
@@ -827,13 +828,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
-                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cumulative Equity Growth</p>
+                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">24-Month Quant Analysis Portfolio Growth</p>
                                              <div className="flex items-center gap-3 mt-1">
                                                  <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
                                                      {chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}
                                                  </span>
                                                  <div className="flex flex-col">
-                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Return</span>
+                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Audit Return</span>
                                                      <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
                                                  </div>
                                              </div>
@@ -861,7 +862,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     </linearGradient>
                                                 </defs>
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                                <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
+                                                <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
                                                 <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
                                                 <Tooltip 
                                                     contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
@@ -878,7 +879,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 
                                                 {/* PROFIT_FACTOR Overlay: Monthly Magnitude Bars */}
                                                 {activeOverlay === 'PROFIT_FACTOR' && (
-                                                    <Bar dataKey="delta" barSize={10} fillOpacity={0.5}>
+                                                    <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
                                                         {chartData.map((entry, index) => (
                                                             <Cell 
                                                                 key={`cell-${index}`} 
@@ -921,24 +922,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     </>
                                                 )}
 
-                                                {/* Main Cumulative Equity Area (The core chart) */}
+                                                {/* Main Cumulative Equity Area */}
                                                 <Area 
                                                     type="monotone" 
                                                     dataKey="value" 
                                                     stroke={chartColor} 
-                                                    strokeWidth={3} 
+                                                    strokeWidth={2} 
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`} 
                                                     animationDuration={1500}
-                                                    // Dot overlay for Win/Loss (WinRate logic)
+                                                    // Dot overlay for Win/Loss (Monthly Result)
                                                     dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
                                                         const { cx, cy, payload } = props;
-                                                        // if monthly gain >= 0, green. else red.
+                                                        // Accurate logic: Is this month better than previous?
                                                         const isWin = payload.isWin;
                                                         return (
                                                             <circle 
                                                                 key={`dot-${payload.period}`}
-                                                                cx={cx} cy={cy} r={3.5} 
+                                                                cx={cx} cy={cy} r={3} 
                                                                 fill={isWin ? '#10b981' : '#ef4444'} 
                                                                 stroke="#020617" strokeWidth={1}
                                                                 className="animate-in fade-in duration-500"
