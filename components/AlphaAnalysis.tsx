@@ -114,10 +114,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
-  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
+  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string } | null>(null);
   
-  // NEW: State for Active Chart Overlay
-  const [activeOverlay, setActiveOverlay] = useState<'WIN_RATE' | 'PROFIT_FACTOR' | 'MAX_DRAWDOWN' | 'SHARPE_RATIO' | null>(null);
+  // NEW: State for Active Chart Overlay (Hedge-fund Analysis Mode)
+  const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
@@ -196,7 +196,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     setSelectedMetricInfo(null);
-    setActiveOverlay(null); // Reset overlay on stock change
+    setActiveOverlay(null); 
   }, [selectedStock]);
 
   const handleStockClick = (item: AlphaCandidate) => {
@@ -236,7 +236,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .replace(/\[\d+\]/g, '')
         .replace(/\*\*/g, '')
         .replace(/__/g, '')
-        .replace(/\*\*/g, '') // Extra safety
+        .replace(/\*\*/g, '') 
         .replace(/\*/g, '')
         .replace(/#/g, '')
         .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
@@ -435,9 +435,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleMetricClick = (key: string, value: string) => {
     const info = METRIC_DEFINITIONS[key];
     if (info) {
-        setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value });
-        // Toggles overlay state: if already active, turn off. Otherwise set.
-        setActiveOverlay(prev => prev === key ? null : (key as any));
+        setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value, key: key });
+        // Toggle Overlay State: If same button clicked, reset to default equity curve
+        setActiveOverlay(prev => prev === key ? null : key);
     }
   };
 
@@ -516,13 +516,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         rawData = generateSyntheticData(currentBacktest.metrics);
     }
 
-    // Process enhanced analytics for overlays
+    // Hedge-fund Advanced Logic: Calculate peak, drawdown, and win/loss markers for overlays
     let runningPeak = -Infinity;
     return rawData.map((d, i) => {
         if (d.value > runningPeak) runningPeak = d.value;
         const drawdown = d.value - runningPeak;
-        const prevValue = i > 0 ? rawData[i-1].value : 0;
-        const isWin = d.value > prevValue;
+        const prevVal = i > 0 ? rawData[i-1].value : 0;
+        const isWin = d.value > prevVal;
         
         return {
             ...d,
@@ -685,7 +685,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStock.symbol}</h3>
                         <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">{selectedStock.name}</p>
                     </div>
-                    <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner min-w-[160px]">
+                    <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
                         <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
                     </div>
@@ -784,11 +784,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     {selectedMetricInfo ? (
                                         <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
                                             <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
-                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
+                                                <span className={`w-1.5 h-1.5 rounded-full ${activeOverlay === selectedMetricInfo.key ? 'animate-ping' : ''} bg-emerald-500`}></span>
                                                 {selectedMetricInfo.title}
-                                                {activeOverlay === (selectedMetricInfo.title.includes('승률') ? 'WIN_RATE' : selectedMetricInfo.title.includes('손익비') ? 'PROFIT_FACTOR' : selectedMetricInfo.title.includes('최대 낙폭') ? 'MAX_DRAWDOWN' : 'SHARPE_RATIO') && (
-                                                   <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto">OVERLAY ON</span>
-                                                )}
+                                                {activeOverlay === selectedMetricInfo.key && <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto">OVERLAY ON</span>}
                                             </h5>
                                             <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
                                                 <ReactMarkdown 
@@ -860,28 +858,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 />
                                                 <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
                                                 
-                                                {/* MDD Overlay */}
+                                                {/* MDD Overlay Area: Better for seeing risk distribution over time */}
                                                 {activeOverlay === 'MAX_DRAWDOWN' && (
                                                     <Area 
                                                         type="monotone" 
                                                         dataKey="drawdown" 
                                                         stroke="none" 
                                                         fill="#ef4444" 
-                                                        fillOpacity={0.2} 
-                                                        animationDuration={500}
+                                                        fillOpacity={0.25} 
+                                                        animationDuration={500} 
                                                     />
                                                 )}
 
-                                                {/* Sharpe Overlay (Idealized Reference Line) */}
+                                                {/* Sharpe Benchmark Line: Shows idealized regression path vs actual volatility */}
                                                 {activeOverlay === 'SHARPE_RATIO' && (
                                                     <ReferenceLine 
                                                         stroke="#f59e0b" 
                                                         strokeDasharray="5 5" 
+                                                        label={{ position: 'top', value: 'Bench (S:1.0)', fill: '#f59e0b', fontSize: 8, fontWeight: 'bold' }} 
                                                         segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData.length * 0.8 }]}
                                                     />
                                                 )}
 
-                                                {/* Main Equity Line */}
+                                                {/* Main Equity Area */}
                                                 <Area 
                                                     type="monotone" 
                                                     dataKey="value" 
@@ -890,16 +889,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`} 
                                                     animationDuration={1500}
-                                                    // Dot overlay for Win/Loss
+                                                    // Dynamic Win/Loss Dot Overlay
                                                     dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
                                                         const { cx, cy, payload } = props;
-                                                        const isWin = payload.isWin;
                                                         return (
                                                             <circle 
                                                                 key={`dot-${payload.period}`}
-                                                                cx={cx} cy={cy} r={3} 
-                                                                fill={isWin ? '#10b981' : '#ef4444'} 
-                                                                stroke="#020617" strokeWidth={1} 
+                                                                cx={cx} cy={cy} r={4} 
+                                                                fill={payload.isWin ? '#10b981' : '#ef4444'} 
+                                                                stroke="#020617" strokeWidth={1}
+                                                                className="animate-in fade-in duration-300"
                                                             />
                                                         );
                                                     } : false}
@@ -925,7 +924,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
