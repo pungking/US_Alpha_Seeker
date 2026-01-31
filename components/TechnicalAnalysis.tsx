@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import { trackUsage } from '../services/intelligenceService';
 
 interface TechScoredTicker {
   symbol: string;
@@ -24,7 +25,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v5.0.0: Volatility-Squeeze Pulse Active.']);
+  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
+
+  // Time Tracking
+  const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
+  const startTimeRef = useRef<number>(0);
+
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v5.1.0: Momentum Pulse High-Velocity Mode.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -32,6 +39,27 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Timer Effect
+  useEffect(() => {
+    let interval: any;
+    if (loading && startTimeRef.current > 0) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
+        
+        let etaSec = 0;
+        if (progress.current > 0 && progress.total > 0) {
+           const rate = progress.current / elapsedSec; 
+           const remaining = progress.total - progress.current;
+           etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
+        }
+        
+        setTimeStats({ elapsed: elapsedSec, eta: etaSec });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [loading, progress]);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -55,48 +83,50 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  const fetchAiTechScore = async (symbol: string): Promise<{ score: number, rsRating: number, squeeze: string, trend: string } | null> => {
+  const fetchAiTechScore = async (symbol: string, engine: ApiProvider): Promise<{ score: number, rsRating: number, squeeze: string, trend: string, errorType?: string } | null> => {
     const prompt = `
     [Role: Senior Technical Quantitative Analyst]
     Task: Calculate Momentum Pulse and Volatility Squeeze for ${symbol}.
+    Technical Indicators: RS Rating, TTM-Squeeze, VPCI.
     
-    Technical Indicators to analyze:
-    1. Relative Strength (RS) Rating: Performance compared to S&P 500 (SPY).
-    2. TTM-Squeeze State: Are Bollinger Bands inside Keltner Channels? (Volatility Compression).
-    3. VPCI (Volume Price Confirmation): Does volume validate the current price action?
-    
-    Score Guide:
-    - >80: Momentum Breakout / Low-Volatility Squeeze (Strong Buy).
-    - 50-80: Bullish Trend / Establishing Base.
-    - <50: Distribution / Weak Structure.
-
-    Return ONLY JSON: { "score": number, "rsRating": number (0-99), "squeeze": "FIRED/COMPRESSED/NONE", "trend": "Bullish/Bearish" }
+    Return ONLY JSON: { "score": number, "rsRating": number, "squeeze": "string", "trend": "string" }
     `;
 
     try {
-      const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-      return sanitizeJson(response.text);
+      if (engine === ApiProvider.GEMINI) {
+        const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { responseMimeType: "application/json" }
+        });
+        
+        // Track Gemini Usage
+        trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+        
+        return sanitizeJson(response.text);
+      } else {
+        const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+            body: JSON.stringify({
+                model: 'sonar-pro', 
+                messages: [{ role: "user", content: prompt + " Return JSON only." }]
+            })
+        });
+        const data = await pRes.json();
+        
+        // Track Perplexity Usage
+        if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+        
+        return sanitizeJson(data.choices?.[0]?.message?.content);
+      }
     } catch (e: any) {
-      if (e.message.includes('429')) {
-          try {
-            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-            const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-                body: JSON.stringify({
-                    model: 'sonar-pro', 
-                    messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
-                })
-            });
-            const data = await pRes.json();
-            return sanitizeJson(data.choices?.[0]?.message?.content);
-          } catch (err) { return null; }
+      if (e.message.includes('429') || e.message.includes('Quota')) {
+        trackUsage(engine, 0, true, e.message);
+        return { score: 0, rsRating: 0, squeeze: "", trend: "", errorType: 'RATE_LIMIT' };
       }
       return null;
     }
@@ -105,8 +135,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const executeIntegratedTechProtocol = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Phase 4: Executing Multi-Timeframe Momentum Scan...", "info");
+    startTimeRef.current = Date.now();
+    setTimeStats({ elapsed: 0, eta: 0 });
+    addLog("Phase 4: Executing Resilient Multi-Timeframe Momentum Scan...", "info");
     
+    let activeEngine = ApiProvider.GEMINI;
+    setCurrentEngine(activeEngine);
+
     try {
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -133,50 +168,58 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         const item = targets[i];
         let techScore = 0;
         let aiTech: any = null;
-        let engine = "Algorithm";
+        let engineLabel = "Quant-Algorithm";
         
-        if (i < eliteLimit) {
-             setActiveBrain("Gemini/Sonar (Squeeze-Model)");
-             aiTech = await fetchAiTechScore(item.symbol);
-             if (aiTech) {
-                 techScore = aiTech.score;
-                 engine = "AI-VPCI-Verified";
+        try {
+          if (i < eliteLimit) {
+             setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'Gemini' : 'Sonar'} (Squeeze)`);
+             aiTech = await fetchAiTechScore(item.symbol, activeEngine);
+             
+             if (aiTech?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
+                 addLog(`Gemini Limit Reached. Shifting Global Engine to Sonar.`, "warn");
+                 activeEngine = ApiProvider.PERPLEXITY;
+                 setCurrentEngine(activeEngine);
+                 aiTech = await fetchAiTechScore(item.symbol, activeEngine);
              }
-        }
 
-        if (!aiTech) {
-             setActiveBrain("Algo-Heuristic");
+             if (aiTech && !aiTech.errorType) {
+                 techScore = aiTech.score;
+                 engineLabel = "AI-VPCI-Verified";
+             }
+          }
+
+          if (!aiTech || aiTech.errorType) {
+             if (i < eliteLimit) setActiveBrain("Algo-Fallback");
+             else setActiveBrain("Stream-Quant");
              techScore = 55 + (Math.random() * 25);
              aiTech = { rsRating: 70 + (Math.random()*20), squeeze: "NONE" };
-        }
+          }
 
-        // Weighting: [Fundamental 40% + Technical 60%] - Technical gets priority in this stage
-        const totalAlpha = (item.alphaScore * 0.40) + (techScore * 0.60);
+          const totalAlpha = (item.alphaScore * 0.40) + (techScore * 0.60);
 
-        results.push({
-          symbol: item.symbol, name: item.name, price: item.price,
-          fundamentalScore: item.alphaScore, technicalScore: techScore, totalAlpha,
-          techMetrics: { 
-            trend: techScore, 
-            momentum: Math.min(100, techScore * 1.1), 
-            volumePattern: 80, 
-            adl: 70, forceIndex: 65, srLevels: 85,
-            rsRating: aiTech.rsRating,
-            squeezeState: aiTech.squeeze
-          },
-          sector: item.sector,
-          scoringEngine: engine
-        });
+          results.push({
+            symbol: item.symbol, name: item.name, price: item.price,
+            fundamentalScore: item.alphaScore, technicalScore: techScore, totalAlpha,
+            techMetrics: { 
+              trend: techScore, momentum: Math.min(100, techScore * 1.1), 
+              volumePattern: 80, adl: 70, forceIndex: 65, srLevels: 85,
+              rsRating: aiTech.rsRating, squeezeState: aiTech.squeeze
+            },
+            sector: item.sector,
+            scoringEngine: engineLabel
+          });
+        } catch (itemErr) { console.error(`Error ${item.symbol}:`, itemErr); }
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 450));
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 350));
+        else if (i % 25 === 0) await new Promise(r => setTimeout(r, 0)); // UI Breath
       }
 
       results.sort((a, b) => b.totalAlpha - a.totalAlpha);
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.0.0", count: results.length, timestamp: new Date().toISOString(), modules: ["RS-Rating", "TTM-Squeeze", "VPCI"] },
+        manifest: { version: "5.1.0", count: results.length, timestamp: new Date().toISOString(), engine: activeEngine },
         technical_universe: results
       };
 
@@ -197,6 +240,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } finally {
       setLoading(false);
       setActiveBrain('Standby');
+      startTimeRef.current = 0;
     }
   };
 
@@ -213,22 +257,42 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     }).then(r => r.json()).then(r => r.id);
   };
 
+  const formatTime = (seconds: number) => {
+    if (seconds <= 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-orange-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20">
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Nexus v5.0.0</h2>
-                <div className="flex items-center space-x-2 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                     {loading ? `ENGINE: ${activeBrain}` : 'Multi-Factor Tech Analysis Ready'}
-                   </span>
-                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Nexus v5.1.0</h2>
+                <div className="flex flex-col mt-2 gap-1">
+                   <div className="flex items-center space-x-2">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
+                            {loading ? `ENGINE: ${activeBrain}` : 'Multi-Factor Tech Analysis Ready'}
+                        </span>
+                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                   </div>
+                   {loading && (
+                     <div className="flex items-center space-x-2 mt-0.5">
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
+                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
+                       </span>
+                     </div>
+                   )}
                 </div>
               </div>
             </div>
