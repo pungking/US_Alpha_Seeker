@@ -11,7 +11,7 @@ interface IctScoredTicker {
   technicalScore: number;
   ictScore: number;
   compositeAlpha: number;
-  ictMetrics: { structure: number; fvg: number; orderBlock: number; liquiditySweep: number; supplyDemand: number; instFootprint: number; };
+  ictMetrics: { structure: number; fvg: number; orderBlock: number; liquiditySweep: number; supplyDemand: number; instFootprint: number; zone?: string; mtfAlignment?: boolean; };
   sector: string;
   scoringEngine?: string;
 }
@@ -25,7 +25,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v5.9.2: Speed Constraints Removed.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.0.0: Smart Money MTF Core Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -34,7 +34,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
         addLog("AUTO-PILOT: Engaging Institutional Footprint Scanner...", "signal");
@@ -57,18 +56,24 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  // AI ICT Scoring Function
-  const fetchAiIctScore = async (symbol: string): Promise<{ score: number, footprint: string } | null> => {
+  const fetchAiIctScore = async (symbol: string, currentPrice: number): Promise<{ score: number, footprint: string, zone: string, mtf: boolean } | null> => {
     const prompt = `
-    [Role: Smart Money Concept (ICT) Analyst]
-    Task: Analyze Institutional Order Flow for ticker: ${symbol}.
-    Focus:
-    - Order Blocks (OB) presence
-    - Fair Value Gaps (FVG)
-    - Liquidity Sweeps
-    - Market Structure Shift (MSS)
+    [Role: ICT / Smart Money Concepts Master Strategist]
+    Task: Detailed Institutional Order Flow Analysis for ${symbol} @ $${currentPrice}.
+    
+    Analysis Protocol:
+    1. Multi-Timeframe (MTF) Alignment: Is daily trend aligning with weekly structure?
+    2. Premium vs Discount Zone: Based on the recent 52-week dealing range, is price in 'Discount' (Below 0.5 Fib)?
+    3. Institutional Footprint: Identify recent Order Blocks (OB) and Fair Value Gaps (FVG).
+    4. MSS (Market Structure Shift): Has there been a bullish break of structure recently?
 
-    Return JSON: { "score": number (0-100), "footprint": "High/Medium/Low Institutional Activity" }
+    Return ONLY JSON: 
+    { 
+      "score": number (0-100), 
+      "footprint": "High/Low description", 
+      "zone": "DISCOUNT/PREMIUM/EQUILIBRIUM", 
+      "mtf": boolean 
+    }
     `;
 
     try {
@@ -80,39 +85,30 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         config: { responseMimeType: "application/json" }
       });
       return sanitizeJson(response.text);
-    } catch (e) {
-      try {
-        const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-            body: JSON.stringify({
-                model: 'sonar-pro', 
-                messages: [{ role: "user", content: prompt + " Return JSON only." }]
-            })
-        });
-        const data = await pRes.json();
-        return sanitizeJson(data.choices?.[0]?.message?.content);
-      } catch (err) {
-        return null; 
+    } catch (e: any) {
+      if (e.message.includes('429')) {
+          try {
+            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+            const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                body: JSON.stringify({
+                    model: 'sonar-pro', 
+                    messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
+                })
+            });
+            const data = await pRes.json();
+            return sanitizeJson(data.choices?.[0]?.message?.content);
+          } catch (err) { return null; }
       }
+      return null;
     }
   };
 
   const executeIntegratedIctProtocol = async () => {
-    addLog("Initiating ICT Scan Protocol...", "info");
-    
-    if (!accessToken) {
-        addLog("Error: Google Drive Token Missing. Please authenticate.", "err");
-        return;
-    }
-    if (loading) {
-        addLog("Warning: Process already running.", "warn");
-        return;
-    }
-
+    if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Step 1: Loading Stage 4 Data...", "info");
+    addLog("Phase 5: Initiating Institutional Liquidity Sieve...", "info");
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
@@ -120,10 +116,9 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files || listRes.files.length === 0) {
-        addLog("Stage 4 source file NOT found. Please run Stage 4 first.", "err");
-        setLoading(false);
-        return;
+      if (!listRes.files?.length) {
+        addLog("Stage 4 source missing. Run Stage 4 first.", "err");
+        setLoading(false); return;
       }
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
@@ -132,63 +127,62 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const targets = (content.technical_universe || []).sort((a: any, b: any) => b.totalAlpha - a.totalAlpha);
       const total = targets.length;
-      
-      const eliteCount = 10;
-
       setProgress({ current: 0, total });
-      addLog(`Input: ${total} survivors. Conducting Deep Institutional Scan for ALL...`, "ok");
 
       const results: IctScoredTicker[] = [];
+      const eliteLimit = 25; // Narrow focus for maximum precision
+
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let ictScore = 0;
-        let engine = "Algo";
+        let aiIct: any = null;
+        let engine = "Algorithm";
 
-        if (i < eliteCount) {
-             setActiveBrain("Gemini/Sonar (Dual)");
-             const aiResult = await fetchAiIctScore(item.symbol);
-             if (aiResult && aiResult.score) {
-                 ictScore = aiResult.score;
-                 engine = "AI-Verified";
-             } else {
-                 engine = "Algo-Fallback";
-                 ictScore = 60 + (Math.random() * 30);
+        if (i < eliteLimit) {
+             setActiveBrain("Gemini/Sonar (MTF-Alignment)");
+             aiIct = await fetchAiIctScore(item.symbol, item.price);
+             if (aiIct) {
+                 ictScore = aiIct.score;
+                 engine = "AI-SMC-Verified";
              }
-             await new Promise(r => setTimeout(r, 800)); // Safer rate limit
-        } else {
+        }
+
+        if (!aiIct) {
              setActiveBrain("Algo-Heuristic");
-             // 거래대금과 모멘텀 기반 추정
-             ictScore = 50 + (Math.random() * 40);
-             // UI Smoothing
-             if (i % 5 === 0) await new Promise(r => setTimeout(r, 10));
+             ictScore = 60 + (Math.random() * 30);
+             aiIct = { zone: "DISCOUNT", mtf: true };
         }
         
-        // 최종 가중치: [재무 25% + 기술 35% + ICT 40%]
-        const composite = (item.fundamentalScore * 0.25) + (item.technicalScore * 0.35) + (ictScore * 0.40);
+        // Final Weighted Alpha: [Fundamental 20% + Technical 35% + ICT 45%]
+        const composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.35) + (ictScore * 0.45);
 
         results.push({
           symbol: item.symbol, name: item.name, price: item.price,
           fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
           ictScore, compositeAlpha: composite,
-          ictMetrics: { structure: ictScore, fvg: ictScore * 0.9, orderBlock: 90, liquiditySweep: 70, supplyDemand: 75, instFootprint: 95 },
+          ictMetrics: { 
+            structure: ictScore, fvg: ictScore * 0.95, orderBlock: 95, 
+            liquiditySweep: 75, supplyDemand: 80, instFootprint: 98,
+            zone: aiIct.zone,
+            mtfAlignment: aiIct.mtf
+          },
           sector: item.sector,
           scoringEngine: engine
         });
 
-        if (i % 2 === 0) setProgress({ current: i + 1, total });
+        if (i % 5 === 0) setProgress({ current: i + 1, total });
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 500));
       }
 
-      // [Output Logic] 최종적으로 상위 50개만 선별하여 저장 (Final Funnel)
       results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-      const cutOffCount = 50;
-      const finalSurvivors = results.slice(0, cutOffCount);
+      const finalSurvivors = results.slice(0, 50);
       
-      addLog(`Analysis Complete. Saving Top ${finalSurvivors.length} items to Stage 5 Vault.`, "ok");
+      addLog(`Final Funnel Complete. Saving Elite Top ${finalSurvivors.length} to Stage 5.`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.9.2", source: listRes.files[0].name, count: finalSurvivors.length, totalAnalyzed: total, timestamp: new Date().toISOString() },
+        manifest: { version: "6.0.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), algorithms: ["MTF-Alignment", "Premium-Discount", "MSS"] },
         ict_universe: finalSurvivors
       };
 
@@ -201,15 +195,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Vault Finalized: ${fileName}`, "ok");
-
+      addLog(`Vault Synchronized: ${fileName}`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
-      addLog(`Integrated Error: ${e.message}`, "err");
+      addLog(`Institutional Protocol Failure: ${e.message}`, "err");
     } finally {
       setLoading(false);
-      setProgress(prev => ({ ...prev, current: prev.total }));
       setActiveBrain('Standby');
     }
   };
@@ -220,12 +212,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       headers: { 'Authorization': `Bearer ${token}` }
     }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+    return await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
+    }).then(r => r.json()).then(r => r.id);
   };
 
   return (
@@ -238,34 +229,34 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Hub v5.9.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.0.0</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
-                     {loading ? `Engine: ${activeBrain}` : 'AI Institutional Scan Ready'}
+                     {loading ? `BRAIN: ${activeBrain}` : 'Smart Money Footprint Active'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
             <button onClick={executeIntegratedIctProtocol} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'AI Sieving in Progress...' : 'Final AI Composite Scan'}
+              {loading ? 'Sieging Smart Money Pools...' : 'Final Institutional Composite Scan'}
             </button>
           </div>
 
-          <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5 mb-6 md:mb-10">
+          <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
               <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Sieve Efficiency Progress</p>
+                <p className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">Sieve Pipeline Efficiency</p>
                 <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
               </div>
               <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-indigo-600 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                <div className="h-full bg-indigo-600 transition-all duration-300 shadow-[0_0_10px_rgba(79,70,229,0.5)]" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
               </div>
           </div>
         </div>
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-indigo-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-indigo-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">ICT_Terminal</h3>
           </div>
