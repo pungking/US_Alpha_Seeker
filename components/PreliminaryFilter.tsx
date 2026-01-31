@@ -1,7 +1,8 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import { trackUsage } from '../services/intelligenceService';
 
 interface MasterTicker {
   symbol: string;
@@ -42,9 +43,44 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   
   // Automation Internal State
   const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'COMMITTING' | 'DONE'>('IDLE');
+
+  // UI State
+  const [showConfig, setShowConfig] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+  const [clientId, setClientId] = useState<string>(() => 
+    localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com'
+  );
+  const [searchTerm, setSearchTerm] = useState('');
+  const [stats, setStats] = useState({
+    found: 0,
+    provider: 'Idle',
+    elapsed: 0,
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown',
+    target: 10000
+  });
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
+  const startTimeRef = useRef<number>(0);
+
+  // Derived state
+  const isEngineRunning = loading || isAnalyzing;
+
+  const searchResult = useMemo(() => {
+    if (!searchTerm || rawUniverse.length === 0) return null;
+    return rawUniverse.find(s => s.symbol.toUpperCase() === searchTerm.toUpperCase());
+  }, [searchTerm, rawUniverse]);
+
+  const handleSetTarget = () => {
+    if (searchResult) {
+      addLog(`Target Audit Locked: ${searchResult.symbol}`, "ok");
+    }
+  };
+
+  const startEngine = () => {
+    if (isEngineRunning || cooldown > 0) return;
+    syncAndAnalyzeMarket();
+  };
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -54,22 +90,40 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (rawUniverse.length > 0) {
       const count = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume).length;
       setFilteredCount(count);
+      setStats(prev => ({ ...prev, found: count }));
     }
   }, [minPrice, minVolume, rawUniverse]);
 
+  useEffect(() => {
+    if (cooldown > 0) {
+      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [cooldown]);
+
+  // Timer Effect
+  useEffect(() => {
+    let interval: any;
+    if (isEngineRunning && startTimeRef.current > 0) {
+      interval = setInterval(() => {
+        setStats(prev => ({ ...prev, elapsed: Math.floor((Date.now() - startTimeRef.current) / 1000) }));
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [isEngineRunning]);
+
   // AUTO START LOGIC
   useEffect(() => {
-    if (autoStart && autoStep === 'IDLE' && !loading) {
+    if (autoStart && autoStep === 'IDLE' && !loading && !isAnalyzing) {
         addLog("AUTO-PILOT: Initiating Preliminary Filter Sequence...", "signal");
         setAutoStep('ANALYZING');
         syncAndAnalyzeMarket();
     }
-  }, [autoStart, autoStep, loading]);
+  }, [autoStart, autoStep, loading, isAnalyzing]);
 
   // Step 2: Auto Commit after Analysis
   useEffect(() => {
       if (autoStart && autoStep === 'ANALYZING' && !loading && !isAnalyzing && (aiProposal || aiError)) {
-          // Wait briefly for state to settle then commit
           const timer = setTimeout(() => {
               setAutoStep('COMMITTING');
               commitPurification();
@@ -96,8 +150,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const syncAndAnalyzeMarket = async () => {
     if (!accessToken) {
       addLog("Cloud link required. Check Auth Status.", "warn");
-      setLoading(false);
-      setIsAnalyzing(false);
       return;
     }
     setLoading(true);
@@ -106,6 +158,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     setAiError(null);
     setAiProposal(null);
     setActiveAi('Initializing');
+    startTimeRef.current = Date.now();
+    setStats(prev => ({ ...prev, phase: 'Discovery', provider: 'Initializing', elapsed: 0 }));
     addLog("Phase 1: Retrieving Global Universe Matrix from Stage 0...", "info");
 
     try {
@@ -123,8 +177,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const data = content.universe || [];
       setRawUniverse(data);
       addLog(`Matrix Synced: ${data.length} assets. Calculating distribution stats...`, "ok");
+      setStats(prev => ({ ...prev, phase: 'Mapping', provider: 'System' }));
 
-      // AI Analysis Logic...
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
       const volumes = data.map((s: any) => s.volume).filter((v: any) => v > 0).sort((a: any, b: any) => a - b);
       
@@ -132,7 +186,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         date: new Date().toLocaleDateString(),
         totalCount: data.length,
         priceDistribution: {
-            min: prices[0] || 0,
             p25: prices[Math.floor(prices.length * 0.25)] || 0,
             p50: prices[Math.floor(prices.length * 0.50)] || 0,
             p75: prices[Math.floor(prices.length * 0.75)] || 0,
@@ -166,21 +219,22 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       let aiResult = null;
       let usedProvider = '';
 
-      // Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
-          const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || "" });
           const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: { responseMimeType: "application/json" }
           });
+          
+          trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
           aiResult = sanitizeJson(response.text);
           usedProvider = 'Gemini 3 Pro';
-      } catch (e: any) { /* Fallback handled below */ }
+      } catch (e: any) { 
+          trackUsage(ApiProvider.GEMINI, 0, true, e.message);
+      }
 
-      // Try Perplexity if Gemini failed
       if (!aiResult) {
           try {
               setActiveAi('Sonar Pro (Fallback)');
@@ -194,9 +248,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   })
               });
               const pJson = await pRes.json();
+              if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
               aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
               usedProvider = 'Perplexity Sonar';
-          } catch (e: any) {}
+          } catch (e: any) {
+              trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
+          }
       }
 
       if (aiResult) {
@@ -205,11 +262,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           setMinVolume(aiResult.suggestedVolume);
           addLog(`Strategy Generated by ${usedProvider}: [${aiResult.regime}]`, "ok");
           setActiveAi(usedProvider);
+          setStats(prev => ({ ...prev, provider: usedProvider }));
       } else {
           setAiError("AI Nodes Unresponsive. Default filters applied.");
           setMinPrice(2.0);
           setMinVolume(500000);
           setActiveAi('Default Logic');
+          setStats(prev => ({ ...prev, provider: 'Default' }));
       }
 
     } catch (e: any) {
@@ -221,33 +280,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   };
 
-  const handleManualChange = (type: 'price' | 'volume', val: number) => {
-    setIsManual(true);
-    if (type === 'price') setMinPrice(val);
-    else setMinVolume(val);
-  };
-
-  const resetToAi = () => {
-    if (aiProposal) {
-      setMinPrice(aiProposal.suggestedPrice);
-      setMinVolume(aiProposal.suggestedVolume);
-      setIsManual(false);
-      addLog("Reverted to AI Baseline.", "info");
-    }
-  };
-
   const commitPurification = async () => {
-    // Ensure rawUniverse is populated before committing
-    if (!accessToken || rawUniverse.length === 0) {
-        if (autoStart && autoStep === 'COMMITTING') {
-             // Retry later if somehow data isn't ready
-             console.warn("Commit delayed: Data not ready");
-             return; 
-        }
-        return;
-    }
+    if (!accessToken || rawUniverse.length === 0) return;
     
     setLoading(true);
+    setStats(prev => ({ ...prev, phase: 'Commit' }));
     addLog(`Phase 2: Purifying Universe... (P: $${minPrice}, V: ${minVolume})`, "info");
 
     try {
@@ -270,6 +307,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       });
 
       addLog(`Purification Success: ${filtered.length} assets committed.`, "ok");
+      setStats(prev => ({ ...prev, phase: 'Finalized', synced: filtered.length }));
       
       if (autoStart) {
           setAutoStep('DONE');
@@ -299,156 +337,184 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+       {showConfig && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
+              <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
+              <input 
+                type="text" 
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none"
+                placeholder="Enter GDrive Client ID"
+              />
+              <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
+            </div>
+            <button 
+              onClick={() => {
+                localStorage.setItem('gdrive_client_id', clientId);
+                setShowConfig(false);
+                addLog("Infrastructure Persisted Successfully.", "ok");
+              }}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all"
+            >
+              Apply Changes
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-emerald-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
+        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
-            <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+            <div className="flex items-center space-x-4 md:space-x-6">
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isEngineRunning ? 'animate-pulse' : ''}`}>
+                <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.2.0</h2>
-                <div className="flex items-center space-x-3 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                     {isAnalyzing ? `Analyzing via ${activeAi}...` : activeAi !== 'Standby' ? `Active Brain: ${activeAi}` : 'System Standby'}
-                   </span>
-                   {aiError && (
-                     <span className="text-[8px] font-black px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-400 uppercase tracking-widest">
-                       AI_OFFLINE
-                     </span>
-                   )}
-                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
+                <div className="flex items-center mt-2 space-x-2">
+                  <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
+                  </span>
+                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
+                  {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
               </div>
             </div>
-            <div className="flex gap-4 w-full lg:w-auto">
-              <button 
-                onClick={syncAndAnalyzeMarket} 
-                disabled={loading}
-                className={`flex-1 lg:flex-none px-6 py-4 md:px-8 md:py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
-              >
-                {isAnalyzing ? 'Thinking...' : 'Sync & AI Analysis'}
-              </button>
-              <button 
-                onClick={commitPurification} 
-                disabled={loading || rawUniverse.length === 0}
-                className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50`}
-              >
-                {loading ? 'Processing...' : 'Commit Filter'}
-              </button>
-            </div>
+            <button 
+              onClick={startEngine} 
+              disabled={isEngineRunning || cooldown > 0}
+              className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  isEngineRunning || cooldown > 0 
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                    : !accessToken 
+                        ? 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20' 
+                        : 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' 
+              }`}
+            >
+              {isEngineRunning 
+                ? 'Acquiring Universe...' 
+                : cooldown > 0 
+                    ? `Wait ${cooldown}s` 
+                    : !accessToken 
+                        ? 'Connect Cloud Vault' 
+                        : 'Execute Data Fusion'}
+            </button>
           </div>
-
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
-            {/* Price Filter */}
-            <div className="bg-black/40 p-6 md:p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
-              <div className="flex justify-between items-center mb-6 md:mb-8">
-                 <div>
-                   <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Price Floor Matrix</p>
-                   <p className="text-2xl font-black text-white italic tracking-tighter">${minPrice.toFixed(2)}</p>
-                 </div>
-                 <div className="text-right">
-                   <p className="text-[7px] font-black text-slate-500 uppercase mb-1">AI Recommendation</p>
-                   <p className={`text-xs font-black italic ${isAnalyzing ? 'animate-pulse text-emerald-500/40' : 'text-emerald-500/80'}`}>
-                     {isAnalyzing ? 'Thinking...' : aiProposal ? `$${aiProposal.suggestedPrice.toFixed(2)}` : aiError ? 'ERROR' : '$---'}
-                   </p>
-                 </div>
-              </div>
-              <div className="relative pt-2">
-                <input 
-                  type="range" min="1.0" max="10.0" step="0.1" value={minPrice} 
-                  onChange={(e) => handleManualChange('price', parseFloat(e.target.value))}
-                  className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" 
-                />
-                {aiProposal && (
-                   <div className="absolute -top-1 w-0.5 h-4 bg-emerald-500/40 pointer-events-none transition-all duration-700"
-                     style={{ left: `${((aiProposal.suggestedPrice - 1) / 9) * 100}%` }}>
-                     <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[6px] font-black text-emerald-500/40 uppercase whitespace-nowrap">AI_REC</span>
-                   </div>
-                )}
+          
+           <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
+              <div className="flex items-center gap-2">
+                <span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span>
               </div>
             </div>
-
-            {/* Volume Filter */}
-            <div className="bg-black/40 p-6 md:p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
-              <div className="flex justify-between items-center mb-6 md:mb-8">
-                 <div>
-                   <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest mb-1">Volume Threshold</p>
-                   <p className="text-2xl font-black text-white italic tracking-tighter">{(minVolume/1000).toFixed(0)}k</p>
-                 </div>
-                 <div className="text-right">
-                   <p className="text-[7px] font-black text-slate-500 uppercase mb-1">AI Recommendation</p>
-                   <p className={`text-xs font-black italic ${isAnalyzing ? 'animate-pulse text-emerald-500/40' : 'text-emerald-500/80'}`}>
-                     {isAnalyzing ? 'Thinking...' : aiProposal ? `${(aiProposal.suggestedVolume/1000).toFixed(0)}k` : aiError ? 'ERROR' : '---'}
-                   </p>
-                 </div>
-              </div>
-              <div className="relative pt-2">
-                <input 
-                  type="range" min="50000" max="2000000" step="10000" value={minVolume} 
-                  onChange={(e) => handleManualChange('volume', parseInt(e.target.value))}
-                  className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" 
-                />
-                {aiProposal && (
-                   <div className="absolute -top-1 w-0.5 h-4 bg-emerald-500/40 pointer-events-none transition-all duration-700"
-                     style={{ left: `${((aiProposal.suggestedVolume - 50000) / 1950000) * 100}%` }}>
-                     <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[6px] font-black text-emerald-500/40 uppercase whitespace-nowrap">AI_REC</span>
-                   </div>
-                )}
-              </div>
-            </div>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 mb-10">
-            <div className="lg:col-span-2 bg-gradient-to-br from-emerald-600/10 to-transparent p-6 md:p-10 rounded-3xl border border-emerald-500/10 relative">
-              <p className="text-[8px] font-black text-emerald-400 uppercase tracking-[0.3em] mb-4">Targeted Alpha Universe</p>
-              <div className="flex flex-col sm:flex-row items-start sm:items-baseline space-y-2 sm:space-y-0 sm:space-x-6">
-                <span className="text-4xl md:text-6xl font-black text-white italic tracking-tighter">{filteredCount.toLocaleString()}</span>
-                <div className="flex flex-col">
-                   <span className="text-slate-500 text-[10px] uppercase font-bold tracking-widest italic">Purified Assets</span>
-                   <span className="text-emerald-500/40 text-[8px] font-mono mt-1">Sieving {rawUniverse.length.toLocaleString()} Initial Tickers</span>
-                </div>
-              </div>
-              {isManual && (
-                <button onClick={resetToAi} className="absolute top-6 right-6 md:top-8 md:right-8 text-[7px] font-black text-amber-500 border border-amber-500/20 px-3 py-1.5 rounded-full bg-amber-500/5 hover:bg-amber-500 hover:text-white transition-all uppercase tracking-widest">
-                  Reset to AI Baseline
-                </button>
-              )}
-            </div>
-            <div className="bg-black/20 p-6 md:p-10 rounded-3xl border border-white/5 flex flex-col justify-center items-center">
-              <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4 italic">Liquidity Purge</p>
-              <p className="text-3xl md:text-4xl font-black text-rose-500/80 italic tracking-tighter">-{((rawUniverse.length - filteredCount) / (rawUniverse.length || 1) * 100).toFixed(1)}%</p>
-              <p className="text-[8px] text-slate-600 uppercase mt-4 font-bold tracking-widest">{rawUniverse.length - filteredCount} Assets Excluded</p>
-            </div>
-          </div>
-
-          {(aiProposal || aiError) && (
-            <div className={`p-6 md:p-10 rounded-[32px] border animate-in fade-in slide-in-from-top-4 duration-500 ${aiError ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
-               <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-2 h-2 rounded-full animate-pulse ${aiError ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-                    <h4 className={`text-[10px] font-black uppercase tracking-[0.4em] ${aiError ? 'text-red-500' : 'text-emerald-500'}`}>
-                      {aiError ? 'AI Node Error Response' : `AI Reasoning (${activeAi}) — ${aiProposal?.regime}`}
-                    </h4>
+            <div className="flex flex-col gap-4">
+                <div className="flex flex-col md:flex-row gap-4">
+                  <input 
+                    type="text" 
+                    placeholder="Verify Ticker (e.g. AAPL, TSLA)"
+                    className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                  />
+                  <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
+                    {searchResult ? (
+                      <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
+                        <span className="truncate">{searchResult.name || searchResult.symbol}</span>
+                        <div className="flex items-center gap-3">
+                            <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
+                            <button 
+                                onClick={handleSetTarget}
+                                className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
+                            >
+                                Set Audit Target
+                            </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
+                    )}
                   </div>
-               </div>
-               <div className="prose-report text-[11px] text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
-                 {aiError || aiProposal?.reasoning}
-               </div>
+                </div>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            {[
+              { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
+              { label: 'Active Provider', val: activeAi, color: 'text-indigo-400' },
+              { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
+              { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
+            ].map((s, i) => (
+              <div key={i} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
+                <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
+                <p className={`text-lg md:text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
+              </div>
+            ))}
+          </div>
+          
+           <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
+            <div 
+              className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600 animate-pulse' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`}
+              style={{ width: stats.phase === 'Finalized' ? '100%' : cooldown > 0 ? `${(cooldown/60)*100}%` : `${Math.min(100, (stats.found / (stats.target || 10000)) * 100)}%` }}
+            ></div>
+          </div>
+
+          {aiProposal && (
+            <div className="mt-8 p-6 bg-blue-500/10 border border-blue-500/20 rounded-3xl animate-in fade-in slide-in-from-bottom-2">
+                <div className="flex justify-between items-center mb-4">
+                    <h4 className="text-sm font-black text-white italic uppercase tracking-wider">AI Filter Proposal</h4>
+                    <span className="text-[8px] bg-blue-600 text-white px-2 py-0.5 rounded font-black uppercase">{aiProposal.regime} Regime</span>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-6">
+                    <div>
+                        <p className="text-[10px] text-slate-400 mb-2 uppercase font-bold">Suggested Constraints</p>
+                        <div className="flex gap-4">
+                            <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex-1">
+                                <p className="text-[8px] text-slate-500 uppercase mb-1">Price Floor</p>
+                                <p className="text-lg font-black text-blue-400">${aiProposal.suggestedPrice.toFixed(2)}</p>
+                            </div>
+                            <div className="bg-black/40 p-4 rounded-2xl border border-white/5 flex-1">
+                                <p className="text-[8px] text-slate-500 uppercase mb-1">Vol Threshold</p>
+                                <p className="text-lg font-black text-blue-400">{aiProposal.suggestedVolume.toLocaleString()}</p>
+                            </div>
+                        </div>
+                    </div>
+                    <div>
+                        <p className="text-[10px] text-slate-400 mb-2 uppercase font-bold">Neural Logic</p>
+                        <p className="text-xs text-slate-300 leading-relaxed italic">{aiProposal.reasoning}</p>
+                    </div>
+                </div>
+                <button 
+                  onClick={commitPurification}
+                  disabled={loading}
+                  className="w-full py-4 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 active:scale-95 transition-all"
+                >
+                  {loading ? 'Committing Changes...' : 'Accept & Commit Stage 1'}
+                </button>
             </div>
           )}
         </div>
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-emerald-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Purification_Terminal</h3>
+        <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
+          <div className="flex items-center justify-between mb-8">
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
           </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-emerald-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400 bg-amber-500/5' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
                 {l}
               </div>
             ))}
