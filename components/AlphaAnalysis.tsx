@@ -49,22 +49,26 @@ interface Props {
   onComplete?: (reportContent?: string) => void;
 }
 
-const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
+const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
-    desc: "### 지표 정의\n**전체 거래 중 이익을 낸 거래의 비율**입니다.\n\n### 구간별 해석\n- **60% 이상**: 매우 안정적인 고승률 전략\n- **40~50%**: 손익비가 1.5 이상일 때 유효\n- **40% 미만**: 추세 추종형 전략 (높은 손익비 필수)"
+    desc: "### 지표 정의\n**전체 거래 중 이익을 낸 거래의 비율**입니다.\n\n### 구간별 해석\n- **60% 이상**: 매우 안정적인 고승률 전략\n- **40~50%**: 손익비가 1.5 이상일 때 유효\n- **40% 미만**: 추세 추종형 전략 (높은 손익비 필수)",
+    overlayDesc: "● 초록: 월별 수익 | ● 빨강: 월별 손실"
   },
   PROFIT_FACTOR: {
     title: "손익비 (Profit Factor)",
-    desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다. 차트 하단의 막대는 매월 발생한 수익/손실의 규모를 나타냅니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략"
+    desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다. 차트 하단의 막대는 매월 발생한 수익/손실의 절대 규모를 나타냅니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략",
+    overlayDesc: "하단 막대: 매월 손익 발생 규모 (Magnitude)"
   },
   MAX_DRAWDOWN: {
     title: "최대 낙폭 (MDD)",
-    desc: "### 지표 정의\n**계좌 최고점 대비 최대 하락률**을 의미합니다.\n\n### 리스크 진단\n- **-10% 이내**: 매우 안정적 (보수적 투자)\n- **-20% 이내**: 성장주 전략 허용 범위\n- **-30% 초과**: 위험 관리 실패 또는 레버리지 과다"
+    desc: "### 지표 정의\n**계좌 최고점 대비 최대 하락률**을 의미합니다.\n\n### 리스크 진단\n- **-10% 이내**: 매우 안정적 (보수적 투자)\n- **-20% 이내**: 성장주 전략 허용 범위\n- **-30% 초과**: 위험 관리 실패 또는 레버리지 과다",
+    overlayDesc: "붉은 영역: 전고점 대비 하락(손실) 구간"
   },
   SHARPE_RATIO: {
     title: "샤프 지수 (Sharpe Ratio)",
-    desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다. 점선은 변동성 없는 이상적인 성장 경로를 나타냅니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요"
+    desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다. 점선은 변동성 없는 이상적인 성장 경로를 나타냅니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요",
+    overlayDesc: "주황 점선: 변동성 0의 이상적 성장 경로 (Benchmark)"
   }
 };
 
@@ -114,7 +118,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
-  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string } | null>(null);
+  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string; overlayDesc: string } | null>(null);
   
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
 
@@ -434,7 +438,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleMetricClick = (key: string, value: string) => {
     const info = METRIC_DEFINITIONS[key];
     if (info) {
-        setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value, key: key });
+        setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value, key: key, overlayDesc: info.overlayDesc });
         setActiveOverlay(prev => prev === key ? null : key);
     }
   };
@@ -521,9 +525,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const drawdown = d.value - runningPeak;
         const prevValue = i > 0 ? rawData[i-1].value : 0;
         const delta = d.value - prevValue; // Monthly Change Magnitude
-        const isWin = d.value > prevValue;
+        const isWin = d.value >= prevValue;
         
-        // Sharpe Ideal Regression Path
+        // Sharpe Ideal Regression Path (Consistency Benchmark)
         const totalPeriods = rawData.length - 1;
         const finalVal = rawData[rawData.length - 1].value;
         const idealValue = i * (finalVal / totalPeriods);
@@ -792,7 +796,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
                                                 <span className={`w-1.5 h-1.5 rounded-full ${activeOverlay === selectedMetricInfo.key ? 'animate-ping' : ''} bg-emerald-500`}></span>
                                                 {selectedMetricInfo.title}
-                                                {activeOverlay === selectedMetricInfo.key && <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto">OVERLAY ON</span>}
+                                                {activeOverlay === selectedMetricInfo.key && <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto font-black uppercase tracking-tighter">OVERLAY ACTIVE</span>}
                                             </h5>
                                             <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
                                                 <ReactMarkdown 
@@ -834,9 +838,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                  </div>
                                              </div>
                                         </div>
-                                        <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
-                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
-                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
+                                        <div className="flex flex-col items-end gap-2">
+                                            <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
+                                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
+                                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
+                                            </div>
+                                            {selectedMetricInfo?.overlayDesc && (
+                                                <div className="text-[7px] font-black text-indigo-400 uppercase bg-indigo-950/30 px-2 py-1 rounded border border-indigo-500/20 animate-in fade-in zoom-in-95">
+                                                    {selectedMetricInfo.overlayDesc}
+                                                </div>
+                                            )}
                                         </div>
                                     </div>
 
@@ -865,9 +876,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 />
                                                 <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
                                                 
-                                                {/* PROFIT_FACTOR Overlay: Magnitude Bars */}
+                                                {/* PROFIT_FACTOR Overlay: Monthly Magnitude Bars */}
                                                 {activeOverlay === 'PROFIT_FACTOR' && (
-                                                    <Bar dataKey="delta" barSize={8} fillOpacity={0.4}>
+                                                    <Bar dataKey="delta" barSize={10} fillOpacity={0.5}>
                                                         {chartData.map((entry, index) => (
                                                             <Cell 
                                                                 key={`cell-${index}`} 
@@ -877,7 +888,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     </Bar>
                                                 )}
 
-                                                {/* MAX_DRAWDOWN Overlay: Red Zone Area */}
+                                                {/* MAX_DRAWDOWN Overlay: Red Loss Area */}
                                                 {activeOverlay === 'MAX_DRAWDOWN' && (
                                                     <Area 
                                                         type="monotone" 
@@ -899,18 +910,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                             strokeWidth={1}
                                                             strokeDasharray="5 5"
                                                             fill="#f59e0b"
-                                                            fillOpacity={0.05}
+                                                            fillOpacity={0.08}
                                                         />
                                                         <ReferenceLine 
                                                             stroke="#f59e0b" 
                                                             strokeDasharray="3 3" 
-                                                            label={{ position: 'top', value: 'Consistency Bench', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
+                                                            label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
                                                             segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1].value }]}
                                                         />
                                                     </>
                                                 )}
 
-                                                {/* Main Equity Growth Area */}
+                                                {/* Main Cumulative Equity Area (The core chart) */}
                                                 <Area 
                                                     type="monotone" 
                                                     dataKey="value" 
@@ -919,15 +930,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`} 
                                                     animationDuration={1500}
+                                                    // Dot overlay for Win/Loss (WinRate logic)
                                                     dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
                                                         const { cx, cy, payload } = props;
+                                                        // if monthly gain >= 0, green. else red.
+                                                        const isWin = payload.isWin;
                                                         return (
                                                             <circle 
                                                                 key={`dot-${payload.period}`}
-                                                                cx={cx} cy={cy} r={4} 
-                                                                fill={payload.isWin ? '#10b981' : '#ef4444'} 
+                                                                cx={cx} cy={cy} r={3.5} 
+                                                                fill={isWin ? '#10b981' : '#ef4444'} 
                                                                 stroke="#020617" strokeWidth={1}
-                                                                className="animate-in fade-in duration-300"
+                                                                className="animate-in fade-in duration-500"
                                                             />
                                                         );
                                                     } : false}
@@ -953,7 +967,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
