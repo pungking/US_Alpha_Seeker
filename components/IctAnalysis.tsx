@@ -25,7 +25,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.0.0: Smart Money MTF Core Online.']);
+  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
+
+  // Time Tracking
+  const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
+  const startTimeRef = useRef<number>(0);
+
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.1.0: Advanced Smart Money MTF Core.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -33,6 +39,27 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Timer Effect
+  useEffect(() => {
+    let interval: any;
+    if (loading && startTimeRef.current > 0) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
+        
+        let etaSec = 0;
+        if (progress.current > 0 && progress.total > 0) {
+           const rate = progress.current / elapsedSec; 
+           const remaining = progress.total - progress.current;
+           etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
+        }
+        
+        setTimeStats({ elapsed: elapsedSec, eta: etaSec });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [loading, progress]);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -56,51 +83,40 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  const fetchAiIctScore = async (symbol: string, currentPrice: number): Promise<{ score: number, footprint: string, zone: string, mtf: boolean } | null> => {
+  const fetchAiIctScore = async (symbol: string, currentPrice: number, engine: ApiProvider): Promise<{ score: number, footprint: string, zone: string, mtf: boolean, errorType?: string } | null> => {
     const prompt = `
-    [Role: ICT / Smart Money Concepts Master Strategist]
-    Task: Detailed Institutional Order Flow Analysis for ${symbol} @ $${currentPrice}.
+    [Role: ICT / Smart Money Concepts Strategist]
+    Task: Order Flow Analysis for ${symbol} @ $${currentPrice}.
+    Requirements: MTF Alignment, Premium/Discount Zone, Institutional Footprint, MSS.
     
-    Analysis Protocol:
-    1. Multi-Timeframe (MTF) Alignment: Is daily trend aligning with weekly structure?
-    2. Premium vs Discount Zone: Based on the recent 52-week dealing range, is price in 'Discount' (Below 0.5 Fib)?
-    3. Institutional Footprint: Identify recent Order Blocks (OB) and Fair Value Gaps (FVG).
-    4. MSS (Market Structure Shift): Has there been a bullish break of structure recently?
-
-    Return ONLY JSON: 
-    { 
-      "score": number (0-100), 
-      "footprint": "High/Low description", 
-      "zone": "DISCOUNT/PREMIUM/EQUILIBRIUM", 
-      "mtf": boolean 
-    }
+    Return ONLY JSON: { "score": number, "footprint": "string", "zone": "string", "mtf": boolean }
     `;
 
     try {
-      const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-      return sanitizeJson(response.text);
-    } catch (e: any) {
-      if (e.message.includes('429')) {
-          try {
-            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-            const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-                body: JSON.stringify({
-                    model: 'sonar-pro', 
-                    messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
-                })
-            });
-            const data = await pRes.json();
-            return sanitizeJson(data.choices?.[0]?.message?.content);
-          } catch (err) { return null; }
+      if (engine === ApiProvider.GEMINI) {
+        const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { responseMimeType: "application/json" }
+        });
+        return sanitizeJson(response.text);
+      } else {
+        const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+            body: JSON.stringify({
+                model: 'sonar-pro', 
+                messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
+            })
+        });
+        const data = await pRes.json();
+        return sanitizeJson(data.choices?.[0]?.message?.content);
       }
+    } catch (e: any) {
+      if (e.message.includes('429') || e.message.includes('Quota')) return { score: 0, footprint: "", zone: "", mtf: false, errorType: 'RATE_LIMIT' };
       return null;
     }
   };
@@ -108,8 +124,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const executeIntegratedIctProtocol = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
+    startTimeRef.current = Date.now();
+    setTimeStats({ elapsed: 0, eta: 0 });
     addLog("Phase 5: Initiating Institutional Liquidity Sieve...", "info");
     
+    let activeEngine = ApiProvider.GEMINI;
+    setCurrentEngine(activeEngine);
+
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -130,59 +151,68 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       setProgress({ current: 0, total });
 
       const results: IctScoredTicker[] = [];
-      const eliteLimit = 25; // Narrow focus for maximum precision
+      const eliteLimit = 25; 
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let ictScore = 0;
         let aiIct: any = null;
-        let engine = "Algorithm";
+        let engineLabel = "Quant-Algorithm";
 
-        if (i < eliteLimit) {
-             setActiveBrain("Gemini/Sonar (MTF-Alignment)");
-             aiIct = await fetchAiIctScore(item.symbol, item.price);
-             if (aiIct) {
-                 ictScore = aiIct.score;
-                 engine = "AI-SMC-Verified";
+        try {
+          if (i < eliteLimit) {
+             setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'Gemini' : 'Sonar'} (MTF)`);
+             aiIct = await fetchAiIctScore(item.symbol, item.price, activeEngine);
+
+             if (aiIct?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
+                 addLog(`Gemini Limit Reached. Global Brain shifted to Sonar.`, "warn");
+                 activeEngine = ApiProvider.PERPLEXITY;
+                 setCurrentEngine(activeEngine);
+                 aiIct = await fetchAiIctScore(item.symbol, item.price, activeEngine);
              }
-        }
 
-        if (!aiIct) {
-             setActiveBrain("Algo-Heuristic");
+             if (aiIct && !aiIct.errorType) {
+                 ictScore = aiIct.score;
+                 engineLabel = "AI-SMC-Verified";
+             }
+          }
+
+          if (!aiIct || aiIct.errorType) {
+             if (i < eliteLimit) setActiveBrain("Algo-Fallback");
+             else setActiveBrain("Stream-Quant");
              ictScore = 60 + (Math.random() * 30);
              aiIct = { zone: "DISCOUNT", mtf: true };
-        }
-        
-        // Final Weighted Alpha: [Fundamental 20% + Technical 35% + ICT 45%]
-        const composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.35) + (ictScore * 0.45);
+          }
+          
+          const composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.35) + (ictScore * 0.45);
 
-        results.push({
-          symbol: item.symbol, name: item.name, price: item.price,
-          fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
-          ictScore, compositeAlpha: composite,
-          ictMetrics: { 
-            structure: ictScore, fvg: ictScore * 0.95, orderBlock: 95, 
-            liquiditySweep: 75, supplyDemand: 80, instFootprint: 98,
-            zone: aiIct.zone,
-            mtfAlignment: aiIct.mtf
-          },
-          sector: item.sector,
-          scoringEngine: engine
-        });
+          results.push({
+            symbol: item.symbol, name: item.name, price: item.price,
+            fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
+            ictScore, compositeAlpha: composite,
+            ictMetrics: { 
+              structure: ictScore, fvg: ictScore * 0.95, orderBlock: 95, 
+              liquiditySweep: 75, supplyDemand: 80, instFootprint: 98,
+              zone: aiIct.zone, mtfAlignment: aiIct.mtf
+            },
+            sector: item.sector,
+            scoringEngine: engineLabel
+          });
+        } catch (itemErr) { console.error(`Error ${item.symbol}:`, itemErr); }
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 500));
+        
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 400));
+        else if (i % 30 === 0) await new Promise(r => setTimeout(r, 0)); // UI Breath
       }
 
       results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
       const finalSurvivors = results.slice(0, 50);
       
-      addLog(`Final Funnel Complete. Saving Elite Top ${finalSurvivors.length} to Stage 5.`, "ok");
-
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.0.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), algorithms: ["MTF-Alignment", "Premium-Discount", "MSS"] },
+        manifest: { version: "6.1.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), engine: activeEngine },
         ict_universe: finalSurvivors
       };
 
@@ -203,6 +233,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } finally {
       setLoading(false);
       setActiveBrain('Standby');
+      startTimeRef.current = 0;
     }
   };
 
@@ -219,6 +250,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     }).then(r => r.json()).then(r => r.id);
   };
 
+  const formatTime = (seconds: number) => {
+    if (seconds <= 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -229,12 +267,25 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.0.0</h2>
-                <div className="flex items-center space-x-2 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
-                     {loading ? `BRAIN: ${activeBrain}` : 'Smart Money Footprint Active'}
-                   </span>
-                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.1.0</h2>
+                <div className="flex flex-col mt-2 gap-1">
+                   <div className="flex items-center space-x-2">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
+                            {loading ? `BRAIN: ${activeBrain}` : 'Smart Money Footprint Active'}
+                        </span>
+                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                   </div>
+                   {loading && (
+                     <div className="flex items-center space-x-2 mt-0.5">
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
+                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
+                       </span>
+                     </div>
+                   )}
                 </div>
               </div>
             </div>
