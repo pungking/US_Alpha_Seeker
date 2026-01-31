@@ -23,6 +23,11 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
+  // --- SESSION LIFE SUPPORT (SLS) ---
+  const [sessionExpiry, setSessionExpiry] = useState<number | null>(null);
+  const [timeDisplay, setTimeDisplay] = useState<string>('');
+  const [showSessionModal, setShowSessionModal] = useState(false);
+  
   // --- HYBRID MODE STATE ---
   const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
@@ -49,6 +54,72 @@ const App: React.FC = () => {
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
+
+  // [SLS] Update Expiry from LocalStorage or Init
+  useEffect(() => {
+    if (isGdriveConnected) {
+        const ts = localStorage.getItem('gdrive_token_timestamp');
+        if (ts) {
+            setSessionExpiry(parseInt(ts) + 3590 * 1000); // 1 hour validity (with 10s buffer)
+        } else {
+             // If connected but no timestamp (legacy), assume valid for 1h from now
+             const now = Date.now();
+             localStorage.setItem('gdrive_token_timestamp', now.toString());
+             setSessionExpiry(now + 3590 * 1000);
+        }
+    } else {
+        setSessionExpiry(null);
+    }
+  }, [isGdriveConnected]);
+
+  // [SLS] Timer Tick & Watchdog
+  useEffect(() => {
+      if (!sessionExpiry) {
+          setTimeDisplay('');
+          return;
+      }
+      const timer = setInterval(() => {
+          const now = Date.now();
+          const diff = sessionExpiry - now;
+          
+          if (diff <= 0) {
+              setTimeDisplay('EXPIRED');
+              // Critical: If auto-pilot is running, block UI to prevent crash
+              if (isAutoPilotRunning && !showSessionModal) {
+                   setShowSessionModal(true);
+              }
+          } else {
+              const m = Math.floor(diff / 60000);
+              const s = Math.floor((diff % 60000) / 1000);
+              setTimeDisplay(`${m}m ${s}s`);
+              
+              // Warning zone logic can be added here
+          }
+      }, 1000);
+      return () => clearInterval(timer);
+  }, [sessionExpiry, isAutoPilotRunning, showSessionModal]);
+
+  // [SLS] Restore Session
+  const handleExtendSession = () => {
+      const clientId = localStorage.getItem('gdrive_client_id');
+      if (!clientId || !window.google) return;
+
+      const client = window.google.accounts.oauth2.initTokenClient({
+          client_id: clientId,
+          scope: 'https://www.googleapis.com/auth/drive',
+          callback: (res: any) => {
+              if (res.access_token) {
+                  sessionStorage.setItem('gdrive_access_token', res.access_token);
+                  localStorage.setItem('gdrive_token_timestamp', Date.now().toString());
+                  setIsGdriveConnected(true);
+                  // Refresh expiry state
+                  setSessionExpiry(Date.now() + 3590 * 1000); 
+                  setShowSessionModal(false);
+              }
+          },
+      });
+      client.requestAccessToken({ prompt: 'consent' });
+  };
 
   // [NEW] GITHUB ACTION HOOK: Check for ?auto=true in URL to start immediately
   useEffect(() => {
@@ -293,8 +364,8 @@ const App: React.FC = () => {
           <span className="text-emerald-400 font-bold">Version: v1.5.0 (Pipeline Core)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
-          <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
-          <span>Cloud_Vault: {isGdriveConnected ? 'Linked' : 'Disconnected'}</span>
+          <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? timeDisplay === 'EXPIRED' ? 'bg-red-500 animate-ping' : 'bg-emerald-500' : 'bg-slate-700'}`}></div>
+          <span className={`${timeDisplay === 'EXPIRED' ? 'text-red-400 font-bold' : ''}`}>Cloud_Vault: {isGdriveConnected ? `Linked ${timeDisplay ? `[⏳ ${timeDisplay}]` : ''}` : 'Disconnected'}</span>
         </div>
         <div className="flex items-center space-x-2 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
@@ -384,6 +455,28 @@ const App: React.FC = () => {
            </div>
         </div>
       </header>
+
+      {/* SESSION EXPIRED MODAL */}
+      {showSessionModal && (
+        <div className="fixed inset-0 z-[99999] flex items-center justify-center p-4 bg-black/90 backdrop-blur-xl">
+           <div className="bg-slate-900 border-2 border-red-500 rounded-[32px] p-10 max-w-md w-full shadow-[0_0_50px_rgba(239,68,68,0.5)] text-center animate-bounce-short">
+               <div className="w-20 h-20 bg-red-500/20 rounded-full flex items-center justify-center mx-auto mb-6">
+                   <svg className="w-10 h-10 text-red-500 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+               </div>
+               <h2 className="text-2xl font-black text-white uppercase italic tracking-tighter mb-2">Session Expired</h2>
+               <p className="text-sm text-slate-400 mb-8 leading-relaxed">
+                   Security Protocol Enforced. Your Google Drive session has timed out. 
+                   <br/><span className="text-red-400 font-bold">Auto-Pilot Halted to prevent data loss.</span>
+               </p>
+               <button 
+                  onClick={handleExtendSession}
+                  className="w-full py-4 bg-red-600 hover:bg-red-500 text-white rounded-2xl text-xs font-black uppercase tracking-widest shadow-xl shadow-red-900/40 transition-all hover:scale-105"
+               >
+                   🔄 Restore Session & Resume
+               </button>
+           </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
