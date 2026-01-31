@@ -34,6 +34,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
+  const hasStartedRef = useRef<boolean>(false);
 
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
   const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Engine');
@@ -43,7 +44,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
   const [fmpDepleted, setFmpDepleted] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.1: SMC Resilience Engaged.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.2: Resilience Engine Operational.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -54,7 +55,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const BATCH_SIZE = 5; 
   const DELAY_TURBO = 300;   
-  const DELAY_SAFE = 1800;   // 핀허브 한도 안정을 위해 약간 상향
+  const DELAY_SAFE = 2200;   // 핀허브 안정성을 위해 대기시간 소폭 상향
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -80,15 +81,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   }, [loading, progress]);
 
   useEffect(() => {
-    if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Initiating Resilient Quality Scan...", "signal");
+    if (autoStart && !loading && !hasStartedRef.current) {
+        addLog("AUTO-PILOT: Engaging Quality Sieve Sequence...", "signal");
         executeDeepQualityScan();
     }
   }, [autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
+    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
   const sanitizeJson = (text: string) => {
@@ -170,14 +171,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const executeDeepQualityScan = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
+    hasStartedRef.current = true;
     startTimeRef.current = Date.now();
     setProcessedData([]);
     setSourceStats({ fmp: 0, finnhub: 0, polygon: 0 });
     addLog("Phase 1: Loading Purified Matrix...", "info");
 
     try {
+      // Stage 1 데이터 로드 쿼리 개선 (최신순 정렬 및 확실한 검색)
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).then(r => r.json());
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc,createdTime desc&pageSize=5`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).then(r => r.json());
+      
       if (!listRes.files?.length) throw new Error("Stage 1 missing.");
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).then(r => r.json());
@@ -195,7 +199,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const isTurbo = !fmpDepleted;
           setNetworkStatus(isTurbo ? `Turbo (FMP) - Batch 5` : `Resilient (Serial) - Single`);
           
-          // [ADAPTIVE STRATEGY] 핀허브 사용 시 순차 처리(1개씩)로 한도 회피
           const currentBatchSize = isTurbo ? BATCH_SIZE : 1;
           const batch = targets.slice(currentIndex, currentIndex + currentBatchSize);
           
@@ -204,10 +207,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               if (isTurbo) {
                 results = await Promise.all(batch.map((t: any) => fetchTickerData(t)));
               } else {
-                // 세이프 모드일 때는 하나씩 순차적으로
                 for (const t of batch) {
                   results.push(await fetchTickerData(t));
-                  await new Promise(r => setTimeout(r, 100)); // 순차 처리 간 짧은 지연
+                  await new Promise(r => setTimeout(r, 150)); 
                 }
               }
               
@@ -229,7 +231,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               await new Promise(r => setTimeout(r, isTurbo ? DELAY_TURBO : DELAY_SAFE));
 
           } catch (e: any) {
-              const waitTime = (consecutiveErrors + 1) * 15000;
+              const waitTime = Math.min(60000, (consecutiveErrors + 1) * 15000);
               addLog(`API Limitation (${e.message}). Cooling down ${waitTime/1000}s...`, "warn");
               await new Promise(r => setTimeout(r, waitTime));
               consecutiveErrors++;
@@ -237,50 +239,99 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      // [FIX] 진행률 100% 강제 도달
       setProgress({ current: total, total });
       addLog(`Scan Finalized. ${validResults.length} Assets Verified.`, "ok");
       
       const eliteSurvivors = validResults.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
-      // [Token Optimized AI Analysis]
+      // [FIXED] AI 분석 단계에서 API Key 로드 및 초기화 방식 수정
       if (eliteSurvivors.length > 0) {
         setAiStatus('ANALYZING');
-        const geminiKey = process.env.API_KEY || "";
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const prompt = `Audit Sector for ${eliteSurvivors.length} stocks. Top 3: ${eliteSurvivors.slice(0, 3).map(s => s.symbol).join(',')}. JSON: {"dominantSector":"string","insight":"10words_korean"}`;
-        const aiRes = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json" } });
-        const res = sanitizeJson(aiRes.text || "");
-        setAiAnalysis(res ? `[${res.dominantSector}] ${res.insight}` : "Analysis Unavailable");
-        setAiStatus('SUCCESS');
-        trackUsage(ApiProvider.GEMINI, aiRes.usageMetadata?.totalTokenCount || 0);
+        try {
+            // SDK 지침에 따라 process.env.API_KEY를 직접 사용
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const prompt = `Audit Sector for ${eliteSurvivors.length} stocks. Top 3: ${eliteSurvivors.slice(0, 3).map(s => s.symbol).join(',')}. JSON: {"dominantSector":"string","insight":"10words_korean"}`;
+            const aiRes = await ai.models.generateContent({ 
+                model: 'gemini-3-flash-preview', 
+                contents: prompt, 
+                config: { responseMimeType: "application/json" } 
+            });
+            const res = sanitizeJson(aiRes.text || "");
+            setAiAnalysis(res ? `[${res.dominantSector}] ${res.insight}` : "Analysis Unavailable");
+            setAiStatus('SUCCESS');
+            trackUsage(ApiProvider.GEMINI, aiRes.usageMetadata?.totalTokenCount || 0);
+        } catch (aiErr: any) {
+            addLog(`AI Analysis Node Error: ${aiErr.message}`, "err");
+            setAiStatus('FAILED');
+            setAiAnalysis("AI Node Offline: Analysis Skipped.");
+        }
       }
 
+      // 구글 드라이브 업로드 로직
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
-      const payload = { manifest: { version: "5.0.1", count: eliteSurvivors.length }, elite_universe: eliteSurvivors };
+      const payload = { manifest: { version: "5.0.2", count: eliteSurvivors.length, timestamp: new Date().toISOString() }, elite_universe: eliteSurvivors };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form });
+      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { 
+        method: 'POST', 
+        headers: { 'Authorization': `Bearer ${accessToken}` }, 
+        body: form 
+      });
 
-      addLog(`Success: Vault Updated with ${eliteSurvivors.length} Elite assets.`, "ok");
+      if (uploadRes.ok) {
+        addLog(`Success: Vault Updated with ${eliteSurvivors.length} Elite assets.`, "ok");
+      } else {
+        throw new Error(`Upload Failed: ${uploadRes.status}`);
+      }
+      
       if (onComplete) onComplete();
 
-    } catch (e: any) { addLog(`Fatal: ${e.message}`, "err"); } finally { setLoading(false); }
+    } catch (e: any) { 
+      addLog(`Fatal: ${e.message}`, "err"); 
+    } finally { 
+      setLoading(false); 
+      // 실행 완료 후 가드 해제 (필요시 다시 실행 가능하도록)
+      setTimeout(() => { hasStartedRef.current = false; }, 5000);
+    }
   };
 
   const ensureFolder = async (token: string, name: string) => {
-    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    // UniverseGathering의 개선된 루트 폴더 로직 적용
+    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
+    const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
+    
+    try {
+        const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
+        const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
+            headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json());
+        
+        if (resRoot.files && resRoot.files.length > 0) {
+            rootId = resRoot.files[0].id;
+        } else {
+            const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: rootName, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
+            }).then(r => r.json());
+            if (createRoot.id) rootId = createRoot.id;
+        }
+    } catch (e) {
+        console.warn("Root folder recovery failed, using fallback constant.");
+    }
+
+    const q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
     return await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json()).then(r => r.id);
   };
 
@@ -290,11 +341,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-12 h-12 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20">
+              <div className={`w-12 h-12 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-5 h-5 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 text-blue-400'}`}>
