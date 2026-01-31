@@ -453,33 +453,49 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       return clean;
   };
 
-  try {
-    let rawText = "";
-    if (provider === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-        const result = await fetchWithRetry(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-        }));
-        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        rawText = result.text;
-    } else {
+  const executePerplexity = async () => {
+        const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+        const pKey = pConfig?.key;
+        if (!pKey) throw new Error("Perplexity Fallback Key Missing");
+
         const res = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json' 
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${pKey}`,
+                'Accept': 'application/json'
             },
             body: JSON.stringify({
-                model: 'sonar-pro', 
+                model: 'sonar-pro',
                 messages: [{ role: "user", content: prompt }]
             })
         });
-        
+
         const json = await res.json();
         if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-        rawText = json.choices?.[0]?.message?.content || "Brief generation failed.";
+        if (!res.ok) throw new Error(json.error?.message || "Perplexity Error");
+        return json.choices?.[0]?.message?.content || "Brief generation failed.";
+  };
+
+  try {
+    let rawText = "";
+    if (provider === ApiProvider.GEMINI) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+            const result = await fetchWithRetry(() => ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt,
+            }));
+            trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+            rawText = result.text;
+        } catch (geminiError: any) {
+            console.warn("Gemini Brief Generation Failed (Quota/Error). Switching to Perplexity Fallback.", geminiError);
+            // Fallback to Perplexity
+            rawText = await executePerplexity();
+        }
+    } else {
+        // Originally requested Perplexity
+        rawText = await executePerplexity();
     }
     
     return cleanOutput(rawText);
