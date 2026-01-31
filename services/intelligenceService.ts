@@ -299,7 +299,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = (provider === ApiProvider.GEMINI) ? process.env.API_KEY : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
@@ -317,9 +317,10 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      // Use process.env.API_KEY exclusively for Gemini
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
@@ -351,7 +352,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = (provider === ApiProvider.GEMINI) ? process.env.API_KEY : config?.key;
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
@@ -389,7 +390,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       theme: c.sectorTheme || c.theme || "Alpha Sector"
   }));
 
-  // [UPDATED] Anti-Refusal & Force Korean Prompt
   const prompt = `
   [SYSTEM INSTRUCTION: STRICT KOREAN OUTPUT MODE]
   You are a Financial Reporting AI. Your task is to convert the provided raw data into a professional daily briefing for Korean investors.
@@ -446,7 +446,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
   `;
 
-  // [CLEANING FUNCTION] Removes hallucinated citation numbers
   const cleanOutput = (text: string) => {
       let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
       clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
@@ -481,19 +480,18 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
     let rawText = "";
     if (provider === ApiProvider.GEMINI) {
         try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
             const result = await fetchWithRetry(() => ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
+                model: 'gemini-3-pro-preview',
                 contents: prompt,
             }));
             trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
             rawText = result.text;
         } catch (geminiError: any) {
-            console.warn("Gemini Quota Hit or Failure. Switching to Perplexity (Sonar) Fallback.", geminiError);
+            console.warn("Gemini Failure. Switching to Perplexity (Sonar) Fallback.", geminiError);
             rawText = await executePerplexityFallback();
         }
     } else {
-        // Direct Perplexity Request
         rawText = await executePerplexityFallback();
     }
     
@@ -514,7 +512,7 @@ export async function analyzePipelineStatus(data: {
   recommendedData?: any[];
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = (provider === ApiProvider.GEMINI) ? process.env.API_KEY : config?.key;
   if (!apiKey) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
@@ -622,9 +620,9 @@ export async function analyzePipelineStatus(data: {
 
   try {
     if (provider === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
         const result = await fetchWithRetry(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-3-pro-preview',
             contents: userPrompt,
             config: { systemInstruction: systemPrompt }
         }));
@@ -664,7 +662,7 @@ export async function analyzePipelineStatus(data: {
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = (provider === ApiProvider.GEMINI) ? process.env.API_KEY : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -706,9 +704,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      // Use process.env.API_KEY exclusively
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
       }));

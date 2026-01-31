@@ -84,7 +84,6 @@ const MarkdownComponents: any = {
              <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-6">{props.children}</span>
         </li>
     ),
-    // Styled like a badge for emphasis (Image 2 style)
     strong: (props: any) => <span className="inline-block bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider mx-1 my-1 shadow-sm" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
@@ -94,7 +93,6 @@ const MarkdownComponents: any = {
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
-    // Table support for tabular data if any
     table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
     thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/50" {...props} />,
     th: (props: any) => <th className="px-4 py-3 font-bold" {...props} />,
@@ -103,7 +101,16 @@ const MarkdownComponents: any = {
     td: (props: any) => <td className="px-4 py-3" {...props} />,
 };
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
+// [FIX] Explicit export default function to resolve import error in App.tsx
+export default function AlphaAnalysis({ 
+  selectedBrain, 
+  setSelectedBrain, 
+  onFinalSymbolsDetected, 
+  onStockSelected, 
+  analyzingSymbols = new Set(), 
+  autoStart, 
+  onComplete 
+}: Props) {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -121,13 +128,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
   
-  // INTERNAL AUTOMATION STATE
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Unique ID for gradient to prevent conflicts and ensure rendering
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
   useEffect(() => {
@@ -152,9 +157,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // --- AUTO START PIPELINE SEQUENCE ---
   useEffect(() => {
-    // Step 1: Start Engine
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
         setAutoPhase('ENGINE');
@@ -162,22 +165,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
-  // Step 2: Switch to Matrix
   useEffect(() => {
-      // Triggered when Engine finishes and populates resultsCache
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
           addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          // Short delay to allow UI to switch
           setTimeout(() => {
               handleRunMatrixAudit(selectedBrain);
           }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // Step 3: Complete with Brief Summary
   useEffect(() => {
       const finishAutoPilot = async () => {
           const hasReport = matrixReports[selectedBrain];
@@ -186,8 +185,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
-              // Generate concise summary for Telegram
-              let telegramPayload = hasReport; // Default fall back
+              let telegramPayload = hasReport;
               try {
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
@@ -226,7 +224,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const cleanInsightText = (text: any) => {
     if (!text) return "";
-    const str = String(text); // [SAFE GUARD] Force string type
+    const str = String(text);
     return str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
@@ -285,13 +283,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
-      // FALLBACK LOGIC
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
-          
-          // Toggle UI State
           setSelectedBrain(ApiProvider.PERPLEXITY);
-          
           if (autoStart) {
               addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
               currentProvider = ApiProvider.PERPLEXITY; 
@@ -322,6 +316,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
+      mergedFinal.sort((a, b) => (b.convictionScore || b.compositeAlpha || 0) - (a.convictionScore || a.compositeAlpha || 0));
+
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       if (mergedFinal.length > 0) {
         const first = mergedFinal[0];
@@ -337,7 +333,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
     setMatrixBrain(brain);
-    // Use the results of the currently active 'selectedBrain' as the data source for matrix audit
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -355,7 +350,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             mode: 'PORTFOLIO'
         }, targetBrain);
         
-        // FALLBACK LOGIC
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
              setMatrixBrain(ApiProvider.PERPLEXITY);
              addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
@@ -372,16 +366,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              }
         }
         
-        // Ensure report is a string before setting state to prevent rendering crashes
         const safeReport = String(report || "No analysis returned from neural engine.");
         setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
         
-        // [NEW] Automatic Report Archiving
         const token = sessionStorage.getItem('gdrive_access_token');
         if (token) {
            const date = new Date().toISOString().split('T')[0];
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           // [MODIFIED] Specific Naming Rule for Portfolio Matrix
            const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
@@ -644,7 +635,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 {sendingTelegram ? (
                                     <><span>Transmitting...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></>
                                 ) : (
-                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>
+                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg>
                                 )}
                             </button>
                         )}
@@ -726,7 +717,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      </div>
                  </div>
 
-                 {/* RESTORED & REDESIGNED BACKTEST SECTION */}
                  <div className="mt-8 border-t border-white/5 pt-8">
                     <div className="flex justify-between items-end mb-6">
                         <div className="flex items-center gap-4">
@@ -754,11 +744,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {currentBacktest ? (
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                             {/* Left Column: Metrics & Definition */}
                              <div className="flex flex-col gap-4">
-                                {/* Metrics Stack */}
                                 <div className="space-y-3">
-                                    {/* Win Rate */}
                                     <div 
                                         onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Win Rate') ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
@@ -766,7 +753,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
                                         <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
                                     </div>
-                                    {/* Profit Factor */}
                                     <div 
                                         onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Profit Factor') ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
@@ -774,7 +760,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
                                         <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
                                     </div>
-                                    {/* MDD */}
                                     <div 
                                         onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('MDD') ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
@@ -782,7 +767,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
                                         <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
                                     </div>
-                                    {/* Sharpe */}
                                     <div 
                                         onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Sharpe') ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
@@ -792,7 +776,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     </div>
                                 </div>
 
-                                {/* Metric Info Box (Left Column Bottom) */}
                                 <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
                                     {selectedMetricInfo ? (
                                         <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
@@ -825,9 +808,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                              </div>
 
-                             {/* Right Column: Chart & Insight */}
                              <div className="lg:col-span-3 flex flex-col gap-6">
-                                {/* Chart Area */}
                                 <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
@@ -873,7 +854,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     </div>
                                 </div>
 
-                                {/* Insight Area (Right Column Bottom - Full Width of Right Col) */}
                                 <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
                                      <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
@@ -914,6 +894,4 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       </div>
     </div>
   );
-};
-
-export default AlphaAnalysis;
+}
