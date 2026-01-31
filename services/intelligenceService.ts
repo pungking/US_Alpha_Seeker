@@ -1,908 +1,783 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
-import { ApiProvider } from '../types';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
-import { sendTelegramReport } from '../services/telegramService';
+import { GoogleGenAI, Type } from "@google/genai";
+import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
+import { ApiProvider } from "../types";
 
-interface AlphaCandidate {
-  symbol: string;
-  name: string;
-  price: number;
-  compositeAlpha: number;
-  aiVerdict?: string;
-  marketCapClass?: 'LARGE' | 'MID' | 'SMALL';
-  sectorTheme?: string;
-  convictionScore?: number;
-  expectedReturn?: string;
-  theme?: string;
-  selectionReasons?: string[];
-  investmentOutlook?: string;
-  aiSentiment?: string;
-  analysisLogic?: string;
-  entryPrice?: number;
-  targetPrice?: number;
-  stopLoss?: number;
-  chartPattern?: string;
-  supportLevel?: number;
-  resistanceLevel?: number;
-  riskRewardRatio?: string;
-}
+const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
 
-interface BacktestResult {
-  simulationPeriod?: string;
-  equityCurve: { period: string; value: number }[];
-  metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; };
-  historicalContext: string;
-  timestamp?: number;
-  isRealData?: boolean;
-}
+const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
 
-interface Props {
-  selectedBrain: ApiProvider;
-  setSelectedBrain: (brain: ApiProvider) => void;
-  onFinalSymbolsDetected?: (symbols: string[], fullData?: any[]) => void;
-  onStockSelected?: (stock: any) => void;
-  analyzingSymbols?: Set<string>;
-  autoStart?: boolean;
-  onComplete?: (reportContent?: string) => void;
-}
+export const trackUsage = (provider: string, tokens: number, isError: boolean = false, errorMsg: string = '') => {
+  try {
+    const currentRaw = sessionStorage.getItem(USAGE_KEY);
+    const current = currentRaw ? JSON.parse(currentRaw) : { 
+      gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
+      perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
+    };
 
-// [HELPER] Metric Definitions (Clean Text Only)
-const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
-  WIN_RATE: {
-    title: "승률 (Win Rate)",
-    desc: "### 지표 정의\n**전체 거래 중 이익을 낸 거래의 비율**입니다.\n\n### 구간별 해석\n- **60% 이상**: 매우 안정적인 고승률 전략\n- **40~50%**: 손익비가 1.5 이상일 때 유효\n- **40% 미만**: 추세 추종형 전략 (높은 손익비 필수)"
-  },
-  PROFIT_FACTOR: {
-    title: "손익비 (Profit Factor)",
-    desc: "### 지표 정의\n**총 수익금을 총 손실금으로 나눈 비율**입니다.\n\n### 구간별 해석\n- **1.0 초과**: 수익이 손실보다 큼 (이익 구간)\n- **1.5 이상**: 이상적인 우상향 계좌 패턴\n- **2.0 이상**: 월가 상위 1% 수준의 초고효율 전략"
-  },
-  MAX_DRAWDOWN: {
-    title: "최대 낙폭 (MDD)",
-    desc: "### 지표 정의\n**계좌 최고점 대비 최대 하락률**을 의미합니다.\n\n### 리스크 진단\n- **-10% 이내**: 매우 안정적 (보수적 투자)\n- **-20% 이내**: 성장주 전략 허용 범위\n- **-30% 초과**: 위험 관리 실패 또는 레버리지 과다"
-  },
-  SHARPE_RATIO: {
-    title: "샤프 지수 (Sharpe Ratio)",
-    desc: "### 지표 정의\n**감수한 위험(변동성) 대비 얻은 초과 수익**입니다.\n\n### 효율성 판단\n- **1.0 이상**: 리스크 대비 수익성 우수\n- **2.0 이상**: 매우 훌륭한 투자 기회\n- **3.0 이상**: 데이터 과최적화 가능성 점검 필요"
+    const key = provider === ApiProvider.GEMINI ? 'gemini' : 'perplexity';
+    
+    if (current[key]) {
+      current[key].tokens += tokens;
+      if (!isError) current[key].requests += 1;
+      current[key].status = isError ? 'ERR' : 'OK';
+      current[key].lastError = errorMsg;
+    }
+
+    sessionStorage.setItem(USAGE_KEY, JSON.stringify(current));
+    window.dispatchEvent(new Event('storage-usage-update'));
+  } catch (e) {
+    console.error("Usage Tracking Error:", e);
   }
 };
 
-// [CUSTOM MARKDOWN COMPONENTS]
-const MarkdownComponents: any = {
-    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-1"><span className="text-emerald-500 mr-2">#</span>{props.children}</h2>,
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
-    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-200 leading-8 mb-4 font-normal tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-3 mb-6 mt-2" {...props} />,
-    ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-200 marker:text-emerald-500 marker:font-bold" {...props} />,
-    li: (props: any) => (
-        <li className="pl-4 relative flex items-start group" {...props}>
-             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-300 transition-colors"></span>
-             <span className="flex-1 leading-7 text-slate-300 text-sm md:text-[15px]">{props.children}</span>
-        </li>
-    ),
-    strong: (props: any) => <strong className="text-emerald-300 font-extrabold bg-emerald-900/40 px-1.5 py-0.5 rounded mx-0.5 shadow-sm" {...props} />,
-    blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/30 p-4 my-6 rounded-r-xl italic text-slate-300 shadow-inner" {...props} />
-    ),
-    code: ({inline, ...props}: any) => (
-        inline 
-        ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
-        : <pre className="bg-slate-950 p-4 rounded-xl border border-white/10 overflow-x-auto my-4 text-xs text-slate-300 font-mono shadow-xl" {...props} />
-    ),
-};
+export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
+  try {
+     const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
+     
+     const q = encodeURIComponent(`name = '${reportSubFolder}' and '${rootFolderId}' in parents and trashed = false`);
+     let folderId = '';
+     
+     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+     }).then(r => r.json());
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
-  const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
-  const [loading, setLoading] = useState(false);
-  const [backtestLoading, setBacktestLoading] = useState(false);
-  const [matrixLoading, setMatrixLoading] = useState(false);
-  const [sendingTelegram, setSendingTelegram] = useState(false);
-  
-  const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
-  const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
-  const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
-  const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
-  
-  const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
-  const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
-
-  const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
-  const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
-  
-  // INTERNAL AUTOMATION STATE
-  const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
-
-  const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const logRef = useRef<HTMLDivElement>(null);
-
-  // Unique ID for gradient to prevent conflicts and ensure rendering
-  const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
-
-  useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
-  useEffect(() => {
-    const cached = resultsCache[selectedBrain];
-    if (cached && cached.length > 0) {
-      if (!selectedStock || !cached.find(c => c.symbol === selectedStock.symbol)) {
-        const initialStock = cached[0];
-        setSelectedStock(initialStock);
-        onStockSelected?.(initialStock);
-      }
-    } else {
-      setSelectedStock(null);
-      onStockSelected?.(null);
-    }
-  }, [selectedBrain, resultsCache]);
-
-  useEffect(() => {
-    if (accessToken && elite50.length === 0) loadStage5Data();
-  }, [accessToken]);
-
-  // --- AUTO START PIPELINE SEQUENCE ---
-  useEffect(() => {
-    // Step 1: Start Engine
-    if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
-        addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
-        setAutoPhase('ENGINE');
-        handleExecuteEngine();
-    }
-  }, [autoStart, autoPhase, loading, elite50]);
-
-  // Step 2: Switch to Matrix
-  useEffect(() => {
-      // Triggered when Engine finishes and populates resultsCache
-      const hasResults = resultsCache[selectedBrain]?.length;
-      if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
-          setActiveTab('MATRIX');
-          setAutoPhase('MATRIX');
-          // Short delay to allow UI to switch
-          setTimeout(() => {
-              handleRunMatrixAudit(selectedBrain);
-          }, 1000);
-      }
-  }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
-
-  // Step 3: Complete with Brief Summary
-  useEffect(() => {
-      const finishAutoPilot = async () => {
-          const hasReport = matrixReports[selectedBrain];
-          const currentResults = resultsCache[selectedBrain] || [];
-          
-          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
-              addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
-              
-              // Generate concise summary for Telegram
-              let telegramPayload = hasReport; // Default fall back
-              try {
-                  const brief = await generateTelegramBrief(currentResults, selectedBrain);
-                  telegramPayload = brief;
-                  addLog("Brief Generated. Relaying...", "ok");
-              } catch (e) {
-                  addLog("Brief Gen Failed. Sending full report.", "err");
-              }
-
-              setAutoPhase('DONE');
-              if (onComplete) onComplete(telegramPayload);
-          }
-      };
-      
-      finishAutoPilot();
-  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
-
-
-  useEffect(() => {
-    setSelectedMetricInfo(null);
-  }, [selectedStock]);
-
-  const handleStockClick = (item: AlphaCandidate) => {
-      setSelectedStock(item);
-      onStockSelected?.(item);
-  };
-
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
-  };
-
-  const removeCitations = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text).replace(/\[\d+\]/g, '').trim();
-  };
-
-  const cleanInsightText = (text: any) => {
-    if (!text) return "";
-    const str = String(text); // [SAFE GUARD] Force string type
-    return str
-      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
-      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
-      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
-      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") 
-      .replace(/[\u{2600}-\u{26FF}]/gu, "")   
-      .replace(/[\u{2700}-\u{27BF}]/gu, "")   
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔲👍👎👉👈]/g, "") 
-      .replace(/\[\d+\]/g, '') 
-      .trim();
-  };
-
-  const cleanMarkdown = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text)
-        .replace(/\[\d+\]/g, '')
-        .replace(/\*\*/g, '')
-        .replace(/__/g, '')
-        .replace(/\*/g, '')
-        .replace(/#/g, '')
-        .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
-        .trim();
-  };
-
-  const loadStage5Data = async () => {
-    if (!accessToken) return;
-    try {
-      const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
-      
-      if (listRes.files?.length) {
-        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
+     if (res.files?.length > 0) {
+        folderId = res.files[0].id;
+     } else {
+        const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+           method: 'POST',
+           headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+           body: JSON.stringify({ name: reportSubFolder, parents: [rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
         }).then(r => r.json());
-        
-        if (content && content.ict_universe) {
-            setElite50(content.ict_universe);
-            addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
-        }
-      }
-    } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
-  };
+        folderId = create.id;
+     }
 
-  const handleExecuteEngine = async () => {
-    if (loading) return;
-    setLoading(true);
-    let currentProvider = selectedBrain;
-    addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
+     if (!folderId) throw new Error("Failed to resolve Report folder");
 
-    try {
-      const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
+     const meta = { name: fileName, parents: [folderId], mimeType: 'text/markdown' };
+     const form = new FormData();
+     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+     form.append('file', new Blob([content], { type: 'text/markdown' }));
 
-      let response = await generateAlphaSynthesis(topCandidates, currentProvider);
-      
-      // FALLBACK LOGIC
-      if (response.error && currentProvider === ApiProvider.GEMINI) {
-          addLog(`Gemini Engine Failed: ${response.error}`, "warn");
-          
-          // Toggle UI State
-          setSelectedBrain(ApiProvider.PERPLEXITY);
-          
-          if (autoStart) {
-              addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
-              currentProvider = ApiProvider.PERPLEXITY; 
-              response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
-          } else {
-              addLog("Switched to Sonar. Please click Execute to try again.", "info");
-              setLoading(false);
-              return; 
-          }
-      }
+     const upload = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+     });
+     
+     if (!upload.ok) {
+         console.error("Archive Upload Failed", await upload.text());
+         return false;
+     }
+     
+     return true;
+  } catch (e) {
+     console.error("Archive Report System Error", e);
+     return false;
+  }
+}
 
-      if (response.error) throw new Error(response.error);
-
-      const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
-      
-      const mergedFinal = safeAiResults.map((aiData: any) => {
-        if (!aiData?.symbol) return null;
-        const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
-        if (!item) return null;
-        
-        return {
-            ...item,
-            ...aiData,
-            convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
-            supportLevel: aiData.supportLevel || (item.price * 0.98),
-            resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
-            stopLoss: aiData.stopLoss || (item.price * 0.94),
-        };
-      }).filter(x => x !== null) as AlphaCandidate[];
-
-      // [CRITICAL FIX] Sort by convictionScore to ensure priority is not mixed up
-      mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
-
-      setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
-      if (mergedFinal.length > 0) {
-        const first = mergedFinal[0];
-        setSelectedStock(first);
-        onStockSelected?.(first);
-        onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
-      }
-      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
-    } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
-    finally { setLoading(false); }
-  };
-
-  const handleRunMatrixAudit = async (brain: ApiProvider) => {
-    if (matrixLoading) return;
-    setMatrixBrain(brain);
-    // Use the results of the currently active 'selectedBrain' as the data source for matrix audit
-    const currentResults = resultsCache[selectedBrain] || []; 
-    if (currentResults.length === 0) {
-        addLog("Error: Execute Alpha Engine first to generate data.", "err");
-        return;
-    }
-    setMatrixLoading(true);
-    let targetBrain = brain;
-    addLog(`Synthesizing Portfolio Matrix via ${targetBrain}...`, "signal");
-    
-    try {
-        let report = await analyzePipelineStatus({
-            currentStage: 6,
-            apiStatuses: [],
-            recommendedData: currentResults,
-            mode: 'PORTFOLIO'
-        }, targetBrain);
-        
-        // FALLBACK LOGIC
-        if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
-             setMatrixBrain(ApiProvider.PERPLEXITY);
-             addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
-             
-             if (autoStart) {
-                 targetBrain = ApiProvider.PERPLEXITY;
-                 addLog("AUTO-PILOT: Retrying Matrix with Sonar...", "signal");
-                 report = await analyzePipelineStatus({
-                    currentStage: 6,
-                    apiStatuses: [],
-                    recommendedData: currentResults,
-                    mode: 'PORTFOLIO'
-                 }, targetBrain);
-             }
-        }
-        
-        // Ensure report is a string before setting state to prevent rendering crashes
-        const safeReport = String(report || "No analysis returned from neural engine.");
-        setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
-        
-        // [NEW] Automatic Report Archiving
-        const token = sessionStorage.getItem('gdrive_access_token');
-        if (token) {
-           const date = new Date().toISOString().split('T')[0];
-           const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           // [MODIFIED] Specific Naming Rule for Portfolio Matrix
-           const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
-           
-           addLog(`Archiving Report: ${fileName}...`, "info");
-           const saved = await archiveReport(token, fileName, safeReport);
-           if (saved) addLog(`Report Archived Successfully.`, "ok");
-           else addLog(`Report Archive Failed.`, "err");
-        }
-
-        addLog("Portfolio Matrix Audit complete.", "ok");
-    } catch (e: any) { 
-        addLog(`Matrix Error: ${e.message}`, "err"); 
-    } finally { 
-        setMatrixLoading(false); 
-    }
-  };
-
-  const handleManualTelegramSend = async () => {
-    if (sendingTelegram) return;
-    const currentResults = resultsCache[selectedBrain] || [];
-    if (currentResults.length === 0) {
-        addLog("No data to transmit. Run Alpha Engine first.", "err");
-        return;
-    }
-
-    setSendingTelegram(true);
-    addLog("Manual Command: Generating Telegram Brief...", "signal");
-
-    try {
-        const brief = await generateTelegramBrief(currentResults, selectedBrain);
-        const success = await sendTelegramReport(brief);
-        if (success) addLog("Telegram Transmission Successful.", "ok");
-        else addLog("Telegram Transmission Failed.", "err");
-    } catch (e: any) {
-        addLog(`Telegram Error: ${e.message}`, "err");
-    } finally {
-        setSendingTelegram(false);
-    }
-  };
-
-  const handleRunBacktest = async (stock: AlphaCandidate, e?: React.MouseEvent) => {
-    if (e) { e.preventDefault(); e.stopPropagation(); }
-    if (backtestLoading) return;
-    setBacktestLoading(true);
-    setSelectedMetricInfo(null);
-    addLog(`Simulating Quant Protocol for ${stock.symbol}...`, "signal");
-
-    try {
-      const { data, error, isRealData } = await runAiBacktest(stock, selectedBrain);
-      if (error) throw new Error(error);
-      
-      if (!data) throw new Error("AI returned empty data structure");
-      
-      const safeContext = data.historicalContext || "Analysis data unavailable.";
-      setBacktestData(prev => ({ 
-        ...prev, 
-        [stock.symbol]: { 
-            ...data, 
-            historicalContext: safeContext, 
-            timestamp: Date.now(),
-            isRealData: !!isRealData
-        } 
-      }));
-      addLog(`Simulation complete for ${stock.symbol} ${isRealData ? '(Real Data)' : '(AI Sim)'}.`, "ok");
-    } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
-    finally { setBacktestLoading(false); }
-  };
-
-  const handleMetricClick = (key: string, value: string) => {
-    const info = METRIC_DEFINITIONS[key];
-    if (info) setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value });
-  };
-
-  const cleanVerdict = (v?: string) => {
-      if (!v) return "";
-      return v.replace(/[\*\_\[\]]/g, '').trim().toUpperCase().replace(/\s/g, '');
-  };
-
-  const translateVerdict = (v?: string) => {
-    const text = cleanVerdict(v);
-    if (text.includes('STRONGBUY') || text.includes('강력매수')) return '강력 매수';
-    if (text === 'BUY' || text === '매수') return '매수';
-    if (text.includes('ACCUMULATE') || text.includes('비중')) return '비중 확대';
-    if (text.includes('HOLD') || text.includes('NEUTRAL') || text.includes('관망') || text.includes('보유')) return '관망';
-    if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
-    if (text === 'SELL' || text === '매도') return '매도';
-    if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기')) return '고위험';
-    return v || "대기";
-  };
-
-  const getVerdictStyle = (v?: string) => {
-    const text = cleanVerdict(v);
-    if (text.includes('STRONG') || text.includes('강력') || text.includes('적극')) 
-        return 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-500 shadow-[0_0_20px_rgba(220,38,38,0.6)] font-black tracking-wider animate-pulse';
-    if (text.includes('BUY') || text.includes('매수')) 
-        return 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] font-black tracking-wide';
-    if (text.includes('RISK') || text.includes('고위험') || text.includes('SPECULATIVE') || text.includes('투기')) 
-        return 'bg-violet-600 text-white border-violet-500 shadow-lg font-bold';
-    if (text.includes('ACCUMULATE') || text.includes('HOLD') || text.includes('비중') || text.includes('보유') || text.includes('관망') || text.includes('물량') || text.includes('중립')) 
-        return 'bg-slate-600 text-slate-200 border-slate-500 font-bold';
-    if (text.includes('SELL') || text.includes('매도') || text.includes('청산')) 
-        return 'bg-blue-700 text-white border-blue-500 font-bold';
-    return 'bg-slate-700 text-slate-300 border-slate-600';
-  };
-
-  const currentResults = resultsCache[selectedBrain] || [];
-  const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
-
-  const generateSyntheticData = (metrics: any) => {
-      const winRate = parseFloat(String(metrics?.winRate).replace(/[^0-9.]/g, '')) || 60;
-      const profitFactor = parseFloat(String(metrics?.profitFactor).replace(/[^0-9.]/g, '')) || 1.8;
-      let value = 0;
-      const data = [];
-      const now = new Date();
-      for (let i = 24; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-          if (i === 24) {
-              data.push({ period, value: 0 });
-          } else {
-              const isWin = Math.random() * 100 < winRate;
-              const vol = 3 + Math.random() * 5; 
-              const move = isWin ? (vol * (Math.random() * 0.5 + 0.8)) : -(vol * (Math.random() * 0.5 + 0.8) / profitFactor);
-              const drift = profitFactor > 1.2 ? 0.5 : 0;
-              value += (move + drift);
-              data.push({ period, value: Number(value.toFixed(1)) });
-          }
-      }
-      return data;
-  };
-
-  const chartData = useMemo(() => {
-    if (!currentBacktest) return [];
-    let rawData = [];
-    if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length > 2) {
-        rawData = currentBacktest.equityCurve.map((item) => {
-            const valStr = String(item.value);
-            const cleanVal = valStr.replace(/[^0-9.-]/g, '');
-            const val = parseFloat(cleanVal);
-            return {
-                period: item.period,
-                value: isNaN(val) ? 0 : val
-            };
-        });
-    }
-    const values = rawData.map(d => d.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const isFlat = max === min;
-    const isTooShort = rawData.length < 3;
-    if (isFlat || isTooShort) {
-        return generateSyntheticData(currentBacktest.metrics);
-    }
-    return rawData;
-  }, [currentBacktest]);
-
-  const isChartReady = chartData.length > 1;
-  const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
-  const chartColor = isProfitable ? '#10b981' : '#ef4444';
-
-  return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
-      <div className="xl:col-span-3 space-y-6">
-        <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
-            <div className="flex items-center space-x-6">
-              <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10 shadow-inner">
-                 <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
-              </div>
-              <div>
-                <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Sieve Engine</h2>
-                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5 mt-2 w-fit">
-                    <button onClick={() => setActiveTab('INDIVIDUAL')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'INDIVIDUAL' ? 'bg-rose-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Individual Analysis</button>
-                    <button onClick={() => setActiveTab('MATRIX')} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${activeTab === 'MATRIX' ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500 hover:text-slate-300'}`}>Portfolio Matrix</button>
-                </div>
-                 {autoStart && <span className="text-[8px] mt-1 px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse block w-fit">AUTO PILOT</span>}
-              </div>
-            </div>
-            
-            <div className="flex gap-4">
-              {activeTab === 'INDIVIDUAL' && (
-                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
-                    {[ApiProvider.GEMINI, ApiProvider.PERPLEXITY].map((p) => (
-                    <button key={p} onClick={() => setSelectedBrain(p)} className={`px-4 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${selectedBrain === p ? 'bg-indigo-600 text-white shadow-lg' : 'text-slate-500'}`}>
-                        {p === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
-                    </button>
-                    ))}
-                </div>
-              )}
-              {activeTab === 'INDIVIDUAL' && (
-                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse text-slate-500' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
-                    {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
-                  </button>
-              )}
-            </div>
-          </div>
-          
-          {activeTab === 'INDIVIDUAL' ? (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {currentResults.length > 0 ? currentResults.map((item) => {
-                const isSelected = selectedStock?.symbol === item.symbol;
-                const isAuditRunning = analyzingSymbols.has(item.symbol);
-                return (
-                  <div key={item.symbol} onClick={() => handleStockClick(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
-                    {((loading && isSelected) || isAuditRunning) && (
-                      <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
-                        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
-                        <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">
-                            {isAuditRunning ? 'Auditing...' : 'Analyzing Asset...'}
-                        </span>
-                      </div>
-                    )}
-                    <div className="flex justify-between items-center mb-1">
-                      <div className="flex items-baseline gap-2">
-                        <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{item.symbol}</h4>
-                        <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
-                      </div>
-                      <span className="text-xs font-mono font-black text-slate-400">${item.price?.toFixed(2)}</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
-                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
-                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
-                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
-                    </div>
-                    <div className="flex justify-between items-center mt-3">
-                      <div className="flex flex-col">
-                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">예상 수익률 (Exp. Return)</span>
-                        <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
-                      </div>
-                      <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
-                    </div>
-                  </div>
-                );
-              }) : <div className="col-span-full py-24 text-center opacity-30 text-xs font-black uppercase tracking-[0.6em] italic">Awaiting Alpha Protocol Signal...</div>}
-            </div>
-          ) : (
-            <div className="space-y-6 animate-in fade-in slide-in-from-right-4 duration-500">
-               <div className="flex justify-between items-center bg-black/40 p-2 rounded-2xl border border-white/5">
-                    <div className="flex gap-2">
-                        <button onClick={() => setMatrixBrain(ApiProvider.GEMINI)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
-                            Gemini 3 Pro
-                        </button>
-                        <button onClick={() => setMatrixBrain(ApiProvider.PERPLEXITY)} className={`px-4 py-2 rounded-xl text-[9px] font-black uppercase transition-all ${matrixBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:bg-white/5'}`}>
-                            Sonar Pro
-                        </button>
-                    </div>
-                    <div className="pr-2 flex items-center gap-4">
-                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest hidden md:inline-block">
-                            Active Matrix Node: {matrixBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}
-                        </span>
-                         {currentResults.length > 0 && (
-                            <button 
-                                onClick={handleManualTelegramSend} 
-                                disabled={sendingTelegram}
-                                className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${sendingTelegram ? 'bg-blue-900 border-blue-700 text-blue-400 animate-pulse' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-500 shadow-lg'}`}
-                            >
-                                {sendingTelegram ? (
-                                    <><span>Transmitting...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></>
-                                ) : (
-                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>
-                                )}
-                            </button>
-                        )}
-                    </div>
-                </div>
-               {matrixReports[matrixBrain] ? (
-                 <div className="prose-report bg-black/30 p-8 rounded-[40px] border border-white/5 min-h-[400px] shadow-inner relative">
-                    <button onClick={() => handleRunMatrixAudit(matrixBrain)} disabled={matrixLoading} className="absolute top-8 right-8 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[8px] font-black uppercase tracking-widest border border-white/5 transition-all">
-                        {matrixLoading ? 'Refreshing...' : 'Regenerate Analysis'}
-                    </button>
-                   <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                            Comprehensive Matrix Audit by {matrixBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Perplexity Sonar'}
-                        </span>
-                        <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
-                   </div>
-                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                        {cleanInsightText(matrixReports[matrixBrain])}
-                   </ReactMarkdown>
-                 </div>
-               ) : (
-                 <div className="min-h-[300px] flex flex-col items-center justify-center text-center space-y-6 border border-dashed border-white/10 rounded-[40px]">
-                    <div className="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center">
-                        <svg className="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Ready to Synthesize Portfolio Matrix</p>
-                        <p className="text-[9px] text-slate-600 mt-2">Using {matrixBrain} Neural Engine</p>
-                    </div>
-                    <button onClick={() => handleRunMatrixAudit(matrixBrain)} disabled={matrixLoading} className={`px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${matrixLoading ? 'bg-slate-800 text-slate-500' : matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white hover:scale-105' : 'bg-cyan-600 text-white hover:scale-105'}`}>
-                        {matrixLoading ? 'Processing...' : 'Execute Strategic Analysis'}
-                    </button>
-                 </div>
-               )}
-            </div>
-          )}
-        </div>
-        
-        {activeTab === 'INDIVIDUAL' && selectedStock && (
-             <div key={selectedStock.symbol} className="glass-panel p-8 rounded-[50px] bg-slate-950 border-t-2 border-t-rose-600 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
-                 <div className="flex flex-col lg:flex-row items-end gap-6 mb-8">
-                    <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStock.symbol}</h3>
-                     <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/5 text-center shadow-inner min-w-[160px]">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
-                    </div>
-                 </div>
-                 
-                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                     <div className="lg:col-span-3 space-y-8">
-                         <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative">
-                            <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
-                         </div>
-                         
-                          <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
-                            <div className="prose-report min-h-[200px]">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
-                                </ReactMarkdown>
-                            </div>
-                        </div>
-                     </div>
-                     <div className="lg:col-span-2 space-y-6">
-                        <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
-                            <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
-                            <ul className="space-y-4">
-                                {selectedStock.selectionReasons?.length ? selectedStock.selectionReasons.map((r, i) => (
-                                <li key={i} className="flex items-start gap-4">
-                                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
-                                    <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
-                                </li>
-                                )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
-                            </ul>
-                        </div>
-                     </div>
-                 </div>
-
-                 {/* RESTORED & REDESIGNED BACKTEST SECTION */}
-                 <div className="mt-8 border-t border-white/5 pt-8">
-                    <div className="flex justify-between items-end mb-6">
-                        <div className="flex items-center gap-4">
-                            <div>
-                                <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Backtest_Protocol</h4>
-                                {currentBacktest && <p className="text-[9px] text-slate-500 font-mono font-bold">SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span></p>}
-                            </div>
-                            {currentBacktest && (
-                                <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
-                            )}
-                            {currentBacktest && (
-                                <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStock.symbol}</span>
-                            )}
-                        </div>
-                        {!currentBacktest && (
-                             <button 
-                                onClick={(e) => handleRunBacktest(selectedStock, e)} 
-                                disabled={backtestLoading}
-                                className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
-                            >
-                                {backtestLoading ? 'Running Simulation...' : 'Run Portfolio Simulation'}
-                            </button>
-                        )}
-                    </div>
-
-                    {currentBacktest ? (
-                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                             {/* Left Column: Metrics & Definition */}
-                             <div className="flex flex-col gap-4">
-                                {/* Metrics Stack */}
-                                <div className="space-y-3">
-                                    {/* Win Rate */}
-                                    <div 
-                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Win Rate') ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
-                                        <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
-                                    </div>
-                                    {/* Profit Factor */}
-                                    <div 
-                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Profit Factor') ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
-                                        <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
-                                    </div>
-                                    {/* MDD */}
-                                    <div 
-                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('MDD') ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
-                                        <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
-                                    </div>
-                                    {/* Sharpe */}
-                                    <div 
-                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Sharpe') ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
-                                        <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
-                                    </div>
-                                </div>
-
-                                {/* Metric Info Box (Left Column Bottom) */}
-                                <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
-                                    {selectedMetricInfo ? (
-                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
-                                            <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
-                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                                                {selectedMetricInfo.title}
-                                            </h5>
-                                            <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
-                                                <ReactMarkdown 
-                                                    remarkPlugins={[remarkGfm]}
-                                                    components={{
-                                                        ...MarkdownComponents,
-                                                        h3: ({node, ...props}) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1 uppercase tracking-wide" {...props} />,
-                                                        p: ({node, ...props}) => <p className="mb-2" {...props} />,
-                                                        ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 mb-2" {...props} />,
-                                                        li: ({node, ...props}) => <li className="pl-1 marker:text-emerald-500" {...props} />,
-                                                        strong: ({node, ...props}) => <strong className="text-white font-bold" {...props} />
-                                                    }}
-                                                >
-                                                    {selectedMetricInfo.desc}
-                                                </ReactMarkdown>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
-                                             <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric</p>
-                                        </div>
-                                    )}
-                                </div>
-                             </div>
-
-                             {/* Right Column: Chart & Insight */}
-                             <div className="lg:col-span-3 flex flex-col gap-6">
-                                {/* Chart Area */}
-                                <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cumulative Equity Growth</p>
-                                             <div className="flex items-center gap-3 mt-1">
-                                                 <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                                                     {chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}
-                                                 </span>
-                                                 <div className="flex flex-col">
-                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Return</span>
-                                                     <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
-                                                 </div>
-                                             </div>
-                                        </div>
-                                        <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
-                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
-                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex-1 w-full min-h-0">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                                                <defs>
-                                                    <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
-                                                        <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                                <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
-                                                <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                                                <Tooltip 
-                                                    contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
-                                                    itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                                                    labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                                    formatter={(value: any) => [`${value}%`, 'Return']}
-                                                />
-                                                <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                                <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-
-                                {/* Insight Area (Right Column Bottom - Full Width of Right Col) */}
-                                <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
-                                     <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                         Simulation Intelligence Insight
-                                     </h5>
-                                     <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {currentBacktest.historicalContext}
-                                         </ReactMarkdown>
-                                     </div>
-                                 </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
-                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
-                        </div>
-                    )}
-                 </div>
-             </div>
-        )}
-      </div>
-
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
-          <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
-                {l}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+const ALPHA_SCHEMA = {
+  type: Type.ARRAY,
+  items: {
+    type: Type.OBJECT,
+    properties: {
+      symbol: { type: Type.STRING, description: "The stock ticker symbol" },
+      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ACCUMULATE'" },
+      marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
+      sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
+      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points. NO EMOJIS." },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean" },
+      convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
+      expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+24.5% (6개월)')" },
+      theme: { type: Type.STRING, description: "Market narrative" },
+      aiSentiment: { type: Type.STRING, description: "Sentiment description in Korean" },
+      analysisLogic: { type: Type.STRING, description: "Neural logic engine state description in Korean" },
+      chartPattern: { type: Type.STRING, description: "Detected technical pattern name" },
+      supportLevel: { type: Type.NUMBER, description: "Key technical support level (Entry Zone)" },
+      resistanceLevel: { type: Type.NUMBER, description: "Major technical resistance level (Target)" },
+      stopLoss: { type: Type.NUMBER, description: "Calculated hard stop price" },
+      riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:3.5" }
+    },
+    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
+  }
 };
 
-export default AlphaAnalysis;
+const BACKTEST_SCHEMA = {
+  type: Type.OBJECT,
+  properties: {
+    simulationPeriod: { type: Type.STRING, description: "Exact date range used e.g. '2023.01.01 ~ 2025.01.01'" },
+    equityCurve: {
+      type: Type.ARRAY,
+      minItems: 12,
+      maxItems: 12,
+      items: {
+        type: Type.OBJECT,
+        properties: {
+          period: { type: Type.STRING, description: "Timeline label (e.g. '23.01', '23.03'...)" },
+          value: { type: Type.NUMBER, description: "Cumulative return percentage as a number (e.g., 15.5 for 15.5%)" }
+        },
+        required: ["period", "value"]
+      }
+    },
+    metrics: {
+      type: Type.OBJECT,
+      properties: {
+        winRate: { type: Type.STRING, description: "Win probability e.g. '68.5%'" },
+        profitFactor: { type: Type.STRING, description: "Profit factor e.g. '2.45'" },
+        maxDrawdown: { type: Type.STRING, description: "Max drawdown e.g. '-12.4%'" },
+        sharpeRatio: { type: Type.STRING, description: "Sharpe ratio e.g. '1.8'" }
+      },
+      required: ["winRate", "profitFactor", "maxDrawdown", "sharpeRatio"]
+    },
+    historicalContext: { type: Type.STRING, description: "Detailed strategy analysis and risk assessment in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points. NO EMOJIS." }
+  },
+  required: ["simulationPeriod", "equityCurve", "metrics", "historicalContext"]
+};
+
+function sanitizeAndParseJson(text: string): any | null {
+  if (!text) return null;
+  try {
+    let cleanText = text.trim();
+    cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
+    cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+    
+    const firstBracket = cleanText.indexOf('[');
+    const lastBracket = cleanText.lastIndexOf(']');
+    const firstCurly = cleanText.indexOf('{');
+    const lastCurly = cleanText.lastIndexOf('}');
+    
+    if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
+      return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
+    }
+    if (firstCurly !== -1) {
+      return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    }
+    return JSON.parse(cleanText);
+  } catch (e) {
+    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text);
+    return null;
+  }
+}
+
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000): Promise<any> {
+  try { return await fn(); } catch (error: any) {
+    const msg = (error.message || JSON.stringify(error)).toLowerCase();
+    if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized')) throw error; 
+    if (msg.includes('load failed') || msg.includes('failed to fetch')) throw new Error("CORS/Network Error. Browser blocked the request.");
+    if (retries > 0) {
+      await new Promise(r => setTimeout(r, delay));
+      return fetchWithRetry(fn, retries - 1, delay * 2); 
+    }
+    throw error;
+  }
+}
+
+async function runDeterministicBacktest(stock: any): Promise<any | null> {
+  try {
+      const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+      if (!polygonKey) return null;
+
+      const endDate = new Date();
+      const startDate = new Date();
+      startDate.setFullYear(endDate.getFullYear() - 2); 
+
+      const from = startDate.toISOString().split('T')[0];
+      const to = endDate.toISOString().split('T')[0];
+      
+      const url = `https://api.polygon.io/v2/aggs/ticker/${stock.symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
+      const res = await fetch(url);
+      
+      if (!res.ok) return null; 
+      const json = await res.json();
+      if (!json.results || json.results.length === 0) return null;
+
+      const candles = json.results; 
+      
+      const entry = stock.supportLevel || stock.price * 0.95;
+      const target = stock.resistanceLevel || stock.price * 1.10;
+      const stop = stock.stopLoss || stock.price * 0.90;
+      
+      let balance = 100; 
+      let position: { entryPrice: number, quantity: number } | null = null;
+      let wins = 0;
+      let losses = 0;
+      let maxDrawdown = 0;
+      let peakBalance = 100;
+      let tradeCount = 0;
+      
+      const equityCurve = [];
+      let lastMonth = '';
+
+      for (const candle of candles) {
+          const date = new Date(candle.t);
+          const monthStr = `${date.getFullYear().toString().slice(2)}.${(date.getMonth() + 1).toString().padStart(2, '0')}`;
+          
+          if (position) {
+              if (candle.l <= stop) {
+                  const exitPrice = Math.min(candle.o, stop); 
+                  balance = position.quantity * exitPrice;
+                  position = null;
+                  losses++;
+                  tradeCount++;
+              } 
+              else if (candle.h >= target) {
+                  const exitPrice = Math.max(candle.o, target);
+                  balance = position.quantity * exitPrice;
+                  position = null;
+                  wins++;
+                  tradeCount++;
+              }
+          }
+          
+          if (!position) {
+              if (candle.l <= entry && candle.h >= entry) {
+                  position = { entryPrice: entry, quantity: balance / entry };
+              }
+          }
+          
+          let currentEquity = balance;
+          if (position) {
+              currentEquity = position.quantity * candle.c;
+          }
+          
+          if (currentEquity > peakBalance) peakBalance = currentEquity;
+          const dd = (peakBalance - currentEquity) / peakBalance * 100;
+          if (dd > maxDrawdown) maxDrawdown = dd;
+
+          if (monthStr !== lastMonth) {
+              equityCurve.push({ period: monthStr, value: Number((currentEquity - 100).toFixed(1)) });
+              lastMonth = monthStr;
+          }
+      }
+
+      const totalTrades = wins + losses;
+      const winRate = totalTrades > 0 ? (wins / totalTrades) * 100 : 0;
+      const finalReturn = balance - 100;
+      
+      let profitFactor = 0;
+      if (losses === 0) {
+          profitFactor = wins > 0 ? 99.99 : 0;
+      } else {
+          const avgWin = wins > 0 ? (target - entry) : 0;
+          const avgLoss = losses > 0 ? (entry - stop) : 0;
+          profitFactor = (wins * avgWin) / (losses * avgLoss);
+      }
+      
+      const sharpeRatio = maxDrawdown > 0 ? (finalReturn / maxDrawdown) : (finalReturn > 0 ? 3.0 : 0);
+
+      return {
+          simulationPeriod: `${from} ~ ${to}`,
+          equityCurve: equityCurve.slice(-12), 
+          metrics: {
+              winRate: `${winRate.toFixed(1)}%`,
+              profitFactor: profitFactor.toFixed(2),
+              maxDrawdown: `-${maxDrawdown.toFixed(1)}%`,
+              sharpeRatio: sharpeRatio.toFixed(2)
+          },
+          historicalContext: `### 실데이터 검증 분석 리포트 (Real-Data Audit)
+**Polygon.io 공식 데이터**를 기반으로 수행된 확정적 백테스트 결과입니다.
+
+- **매매 신뢰도**: 지난 24개월간 총 ${totalTrades}회의 가상 매매가 시뮬레이션 되었습니다.
+- **리스크 진단**: 해당 기간 동안 발생한 최대 낙폭(MDD)은 ${maxDrawdown.toFixed(1)}% 입니다.
+- **매매 전략**: 진입 $${entry.toFixed(2)} / 목표 $${target.toFixed(2)} / 손절 $${stop.toFixed(2)}
+
+이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다. 지정가 주문이 100% 체결되었다는 가정하에 산출되었습니다.`
+      };
+
+  } catch (e) {
+      console.error("Deterministic Backtest Failed:", e);
+      return null;
+  }
+}
+
+export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
+  const realData = await runDeterministicBacktest(stock);
+  if (realData) {
+      return { data: realData, isRealData: true };
+  }
+
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
+
+  const prompt = `
+  [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
+  Technical Context: Score=${stock.technicalScore}, Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
+  
+  Return a JSON object matching this schema:
+  {
+      "simulationPeriod": "2023.01 ~ 2025.01",
+      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 12 monthly points ...],
+      "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
+      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown. DO NOT USE EMOJIS."
+  }
+  `;
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      const result = await fetchWithRetry(() => ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
+      }));
+      trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+      return { data: sanitizeAndParseJson(result.text), isRealData: false };
+    }
+    
+    const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
+        })
+    });
+    
+    const data = await pRes.json();
+    if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+    
+    if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
+
+    return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content), isRealData: false };
+    
+  } catch (e: any) {
+    trackUsage(provider, 0, true, e.message);
+    return { data: null, error: e.message };
+  }
+}
+
+export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  
+  let macroContext = "";
+  try {
+      const indexRes = await fetch('/api/portal_indices');
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
+          const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
+          
+          macroContext = `
+          Real-time Index Data:
+          - VIX: ${vix?.price || 'N/A'} (Change: ${vix?.change || 0}%)
+          - S&P 500: ${spx?.price || 'N/A'}
+          - NASDAQ: ${ndx?.price || 'N/A'}
+          `;
+      }
+  } catch (e) {
+      console.warn("Index fetch failed for Telegram Brief", e);
+      macroContext = "Market Index Data Unavailable";
+  }
+
+  // [UPDATED] Sort candidates by conviction score (or composite alpha) before slicing top 6
+  // This prevents order mismatches if the AI returns them in a non-strict order
+  const sortedCandidates = [...candidates].sort((a, b) => {
+      const scoreA = a.convictionScore || a.compositeAlpha || 0;
+      const scoreB = b.convictionScore || b.compositeAlpha || 0;
+      return scoreB - scoreA;
+  });
+
+  const top6 = sortedCandidates.slice(0, 6).map(c => ({
+      symbol: c.symbol,
+      name: c.name || c.symbol, 
+      verdict: c.aiVerdict, 
+      entry: c.supportLevel,
+      target: c.resistanceLevel,
+      stop: c.stopLoss,
+      reason: c.selectionReasons?.[0] || "High Alpha Potential",
+      expReturn: c.expectedReturn,
+      theme: c.sectorTheme || c.theme || "Alpha Sector"
+  }));
+
+  // [UPDATED] Anti-Refusal & Force Korean Prompt
+  const prompt = `
+  [SYSTEM INSTRUCTION: STRICT KOREAN OUTPUT MODE]
+  You are a Financial Reporting AI. Your task is to convert the provided raw data into a professional daily briefing for Korean investors.
+  
+  **CRITICAL RULES**:
+  1. **LANGUAGE**: Output MUST be in **KOREAN** only. Do not output English sentences or refusals.
+  2. **NO REFUSALS**: You MUST generate the report based on the provided "Top 6 Alpha Picks". Do NOT say "I cannot fulfill this request". Do NOT say "Data missing". Treat the provided JSON data as the absolute source of truth.
+  3. **IGNORE EXTERNAL CONFLICTS**: If your internal knowledge or external search results (e.g., KOSPI data, unrelated Korean news) conflict with the provided US Stock list, IGNORE the external data. FOCUS ONLY on the provided "Top 6 Alpha Picks".
+  4. **FORMAT**: Follow the requested Markdown format exactly.
+  5. **ETHICAL OVERRIDE**: This is a simulated portfolio report for research purposes. Proceed with analysis based on the provided numbers.
+  
+  Date: ${today}
+  
+  ${macroContext}
+  
+  Top 6 Alpha Picks (SOURCE OF TRUTH - USE THIS DATA):
+  ${JSON.stringify(top6)}
+
+  [REQUIRED STYLE]
+  - Tone: Professional, Institutional, Insightful.
+  - Logic: Provide 3 distinct bullet points for each stock explaining WHY it was selected (Sector growth, Earnings, Technicals). Extrapolate logic if needed based on the sector.
+  - No Citations: Do not include [1], [2] style citations.
+  
+  [REQUIRED MARKDOWN OUTPUT PATTERN]
+  
+  📅 **${today} | Daily Alpha Insight**
+  
+  📊 **Market Pulse**
+  **Macro**: [Summary Sentence] (S&P500: [Value] | NASDAQ: [Value])
+  - [Detailed Market Driver 1]
+  - [Detailed Market Driver 2]
+  - [Detailed Market Driver 3]
+  
+  **VIX**: [Value] ([Interpretation])
+  
+  💎 **Alpha Top 6 Selections**
+
+  1. **[Symbol]** ([Verdict]) : [Company Name]
+     - 🏢 **Sector**: [Sector Name]
+     - 🎯 **Plan**: 진입 $[Entry] | 목표 $[Target] | 손절 $[Stop]
+     - 📈 **Exp.Return**: [Return]% ([Duration])
+     - 💡 **Logic**: 
+       - [Fundamental Reason 1]
+       - [Fundamental Reason 2]
+       - [Fundamental Reason 3]
+     
+  ... (Repeat for all 6) ...
+  
+  ⚠️ **Risk Note**: [Detailed Risk Warning about Macro/VIX/Rates]
+  
+  **Translation Rules**:
+  1. Translate "STRONG_BUY" to "강력 매수", "BUY" to "매수", "ACCUMULATE" to "비중 확대", "HOLD" to "관망".
+  2. Ensure "Logic" and "Macro" sections are fully translated to natural, professional Korean.
+  3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
+  `;
+
+  // [CLEANING FUNCTION] Removes hallucinated citation numbers
+  const cleanOutput = (text: string) => {
+      let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); // Remove [1], [1-2]
+      // Remove trailing numbers attached to Korean or brackets at end of sentence segments
+      // Matches a Korean char/paren/dot, followed by digits, followed by space or newline
+      clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
+      return clean;
+  };
+
+  const executePerplexity = async () => {
+        const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+        const pKey = pConfig?.key;
+        if (!pKey) throw new Error("Perplexity Fallback Key Missing");
+
+        const res = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${pKey}`,
+                'Accept': 'application/json'
+            },
+            body: JSON.stringify({
+                model: 'sonar-pro',
+                messages: [{ role: "user", content: prompt }]
+            })
+        });
+
+        const json = await res.json();
+        if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+        if (!res.ok) throw new Error(json.error?.message || "Perplexity Error");
+        return json.choices?.[0]?.message?.content || "Brief generation failed.";
+  };
+
+  try {
+    let rawText = "";
+    if (provider === ApiProvider.GEMINI) {
+        try {
+            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+            const result = await fetchWithRetry(() => ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt,
+            }));
+            trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+            rawText = result.text;
+        } catch (geminiError: any) {
+            console.warn("Gemini Brief Generation Failed (Quota/Error). Switching to Perplexity Fallback.", geminiError);
+            // Fallback to Perplexity
+            rawText = await executePerplexity();
+        }
+    } else {
+        // Originally requested Perplexity
+        rawText = await executePerplexity();
+    }
+    
+    return cleanOutput(rawText);
+
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return `BRIEF_GEN_FAILURE: ${error.message}`;
+  }
+}
+
+export async function analyzePipelineStatus(data: {
+  currentStage: number;
+  apiStatuses: any[];
+  symbols?: string[];
+  targetStock?: any;
+  mode: 'SINGLE_STOCK' | 'PORTFOLIO' | 'INTEGRITY_CHECK';
+  recommendedData?: any[];
+}, provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "AUDIT_ERROR: API Key Missing";
+
+  const isPortfolio = data.mode === 'PORTFOLIO';
+  const isIntegrityCheck = data.mode === 'INTEGRITY_CHECK';
+  const stock = data.targetStock;
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  
+  let systemPrompt = "";
+  let userPrompt = "";
+
+  // [MODIFIED] Stronger Korean enforcement in system prompts
+  if (provider === ApiProvider.GEMINI) {
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. **STRICTLY NO EMOJIS**. Output MUST be in **KOREAN** only.";
+  } else {
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. **STRICTLY NO EMOJIS**. Output MUST be in **KOREAN** only.";
+  }
+
+  if (isIntegrityCheck) {
+      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자입니다. 투자 전 '무결성 검증(Integrity Check)' 단계에서 스캠, 상장폐지 위험, 페이퍼 컴퍼니 가능성을 냉철하게 차단하는 역할을 수행합니다. 보고서는 금융 전문가를 위한 것이므로 이모티콘을 절대 사용하지 않으며, 건조하고 전문적인 한국어 문체를 유지해야 합니다.";
+      userPrompt = `
+      [GLOBAL INTEGRITY VALIDATOR]
+      대상 종목: ${stock.symbol} (${stock.name || 'Unknown'})
+      현재 주가: $${stock.price}
+      검증 일자: ${today}
+
+      이 종목이 당사의 심층 분석 파이프라인(Deep Dive Pipeline)에 진입할 가치가 있는지 검증하는 '무결성 감사 보고서'를 작성하십시오.
+
+      **작성 원칙 (Guidelines)**:
+      1. **이모티콘 사용 절대 금지**: 텍스트와 기호(-, *, #)만 사용하여 작성하십시오.
+      2. **언어**: 전문적인 한국어(Korean)로 작성하십시오.
+      3. **서식**: Markdown 포맷을 사용하여 가독성을 높이십시오.
+      4. **날짜**: 보고서 시작 부분에 검증 일자를 명시하십시오.
+
+      **필수 보고서 양식**:
+      
+      ### 검증 일자: ${today}
+      ### 무결성 검증 감사 (Integrity Audit)
+      
+      1. **기업 실체 및 펀더멘털 (Corporate Reality)**:
+         - 동사가 실질적인 비즈니스를 영위하고 있는지, 페이퍼 컴퍼니 리스크는 없는지 진단하십시오.
+         
+      2. **핵심 위험 신호 (Red Flags)**:
+         - 상장폐지 가능성, 잦은 유상증자/CB발행(희석), 회계 이슈 등을 점검하십시오.
+         - '동전주(Penny Stock)' 여부와 투기적 위험성을 경고하십시오.
+         
+      3. **시장 신뢰도 (Market Consensus)**:
+         - 기관 투자자 참여도 및 시장의 평판을 요약하십시오.
+         
+      4. **최종 판정 (Gatekeeper Verdict)**:
+         - **[분석 승인]** 또는 **[부적격(반려)]** 중 하나를 선택하여 명시하십시오.
+         - 판단의 결정적 사유를 한 문장으로 요약하십시오.
+      `;
+  } else if (isPortfolio) {
+      userPrompt = `
+      [PORTFOLIO MATRIX AUDIT]
+      대상 종목: ${JSON.stringify(data.recommendedData?.slice(0, 6) || [])}.
+      분석 일자: ${today}
+      
+      다음 항목을 포함하여 한국어 Markdown으로 전략적 요약을 작성하십시오.
+      **작성 원칙: 이모티콘(🚀, 📈, 💎 등)을 절대 사용하지 마십시오. 텍스트와 기호(-, *)로만 깔끔하게 작성하십시오.**
+      **언어: 반드시 한국어(Korean)로만 작성하십시오.**
+
+      ### 📅 분석 일자: ${today}
+      
+      1. **섹터 집중 리스크**: 포트폴리오가 특정 테마에 쏠려있는가?
+      2. **알파 상관관계**: 종목들이 함께 움직이는 경향이 있는가?
+      3. **매크로 민감도**: 금리/환율 변동에 얼마나 취약한가?
+      4. **최종 포트폴리오 성향**: '공격형', '밸런스형', '방어형' 중 선택 및 이유.
+      `;
+  } else {
+      userPrompt = `
+      [SINGLE ASSET DEEP DIVE AUDIT]
+      대상: ${stock.symbol}
+      데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
+      분석 일자: ${today}
+
+      당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
+      이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
+      
+      **작성 원칙**:
+      1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
+      2. 보고서의 어조는 냉철하고 전문적이어야 합니다.
+      3. 가독성을 위해 불렛 포인트와 볼드체를 적극 활용하십시오.
+      4. **반드시 한국어(Korean)로만 작성하십시오.**
+      
+      반드시 다음 형식을 준수하십시오 (제목에 날짜 포함):
+      
+      ### 분석 일자: ${today}
+      ### 실전 투자자 체크포인트 (Deep Audit)
+      
+      1. **리스크 시나리오 (Red Team Analysis)**:
+         - 이 트레이딩이 실패한다면 원인은 무엇인가? (구체적인 악재나 기술적 붕괴 지점)
+         - "세력"이 개미를 털어내는 속임수(Fake-out) 패턴 예상 지점.
+         
+      2. **기관 수급 추적 (Smart Money Flow)**:
+         - 현재 구간에서 기관/세력은 매집 중인가, 차익 실현 중인가?
+         - 거래량 분석을 통한 "진짜 돈"의 흐름 포착.
+         
+      3. **실전 매매 가이드**:
+         - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대)
+         - **필수 손절 라인**: 추세 붕괴로 간주하는 가격.
+         - **청산 목표가**: 1차/2차 저항 라인.
+         
+      4. **최종 감사 의견 (Final Verdict)**:
+         - 매수 승인 / 보류 / 즉시 청산 중 하나를 선택하고 그 이유를 한 문장으로 요약.
+      `;
+  }
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: userPrompt,
+            config: { systemInstruction: systemPrompt }
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        return result.text;
+    }
+
+    const res = await fetch('https://api.perplexity.ai/chat/completions', {
+        method: 'POST',
+        headers: { 
+            'Content-Type': 'application/json', 
+            'Authorization': `Bearer ${apiKey}`,
+            'Accept': 'application/json' 
+        },
+        body: JSON.stringify({
+            model: 'sonar-pro', 
+            messages: [
+                { role: "system", content: systemPrompt },
+                { role: "user", content: userPrompt }
+            ],
+            temperature: 0.1
+        })
+    });
+    
+    const json = await res.json();
+    
+    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+
+    if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
+    return json.choices?.[0]?.message?.content || "No analysis returned.";
+
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return `AUDIT_FAILURE: ${error.message}`;
+  }
+}
+
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
+
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  
+  const GEMINI_PERSONA = `
+    [ROLE: Traditional Wall Street Quant & Technical Analyst]
+    - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
+    - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
+    - Style: Conservative but accurate. "Don't lose money" is rule #1.
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+  `;
+
+  const PERPLEXITY_PERSONA = `
+    [ROLE: Aggressive Hedge Fund Manager & Trend Follower]
+    - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
+    - Preference: High growth potential, viral themes, sector rotation leaders.
+    - Style: High Risk / High Reward. "Trend is your friend".
+    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+  `;
+
+  const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
+
+  const prompt = `${currentPersona}
+현재 날짜: ${today}
+분석 대상 종목(TOP 12): ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
+
+위 리스트에서 당신의 투자 철학(Persona)에 가장 부합하는 **완벽한 6개 종목**을 최종 선정하십시오.
+반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
+- symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
+- selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. **이모티콘 사용 금지**), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
+- chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
+
+투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
+**주의: 출력물에 이모티콘(🚀, 💎 등)을 절대 포함하지 마십시오.**
+
+주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
+한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      const result = await fetchWithRetry(() => ai.models.generateContent({
+        model: 'gemini-3-flash-preview',
+        contents: prompt,
+        config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
+      }));
+      trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+      return { data: sanitizeAndParseJson(result.text) };
+    }
+
+    if (provider === ApiProvider.PERPLEXITY) {
+      let lastError;
+      for (const model of PERPLEXITY_MODELS) {
+        try {
+            const res = await fetchWithRetry(async () => {
+                const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 
+                        'Content-Type': 'application/json', 
+                        'Authorization': `Bearer ${apiKey}`,
+                        'Accept': 'application/json' 
+                    },
+                    referrerPolicy: 'no-referrer', 
+                    body: JSON.stringify({
+                        model: model, 
+                        messages: [
+                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. **이모티콘 사용은 절대 금지입니다.** 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                            { role: "user", content: prompt }
+                        ],
+                        temperature: 0.1
+                    })
+                });
+                
+                if (!r.ok) {
+                    const errText = await r.text();
+                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                }
+                return r;
+            }, 1, 1000);
+
+            const data = await res.json();
+            if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+            
+            const content = data.choices?.[0]?.message?.content;
+            const parsed = sanitizeAndParseJson(content);
+            if (parsed) return { data: parsed };
+            
+        } catch (e: any) {
+            console.warn(`Model ${model} failed: ${e.message}`);
+            lastError = e;
+            trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
+            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; 
+        }
+      }
+      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };
+    }
+    return { data: null, error: "INVALID_PROVIDER" };
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return { data: null, error: error.message }; 
+  }
+}
