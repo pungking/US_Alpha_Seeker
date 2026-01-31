@@ -9,7 +9,6 @@ const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
 
 export const trackUsage = (provider: string, tokens: number, isError: boolean = false, errorMsg: string = '') => {
   try {
-    if (typeof window === 'undefined') return;
     const currentRaw = sessionStorage.getItem(USAGE_KEY);
     const current = currentRaw ? JSON.parse(currentRaw) : { 
       gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
