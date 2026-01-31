@@ -99,7 +99,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       if (engine === ApiProvider.GEMINI) {
-        const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
+        const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
         const ai = new GoogleGenAI({ apiKey: geminiKey });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
@@ -167,13 +167,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           .sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0))
           .slice(0, 250); 
 
-      setProgress({ current: 0, total: targetsToAnalyze.length });
-      addLog(`Auditing ${targetsToAnalyze.length} assets with F-Score & Z-Score models.`, "ok");
+      const total = targetsToAnalyze.length;
+      setProgress({ current: 0, total: total });
+      addLog(`Auditing ${total} assets with F-Score & Z-Score models.`, "ok");
       
       const results: ScoredTicker[] = [];
       const eliteLimit = 40; 
 
-      for (let i = 0; i < targetsToAnalyze.length; i++) {
+      for (let i = 0; i < total; i++) {
         const item = targetsToAnalyze[i];
         let finalScore = 0;
         let aiData: any = null;
@@ -232,12 +233,17 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             console.error(`Error processing ${item.symbol}:`, itemErr);
         }
 
-        if (i % 5 === 0) setProgress({ current: i + 1, total: targetsToAnalyze.length });
+        // Update progress every 5 items
+        if (i % 5 === 0) setProgress({ current: i + 1, total: total });
         
-        // Adaptive Delay: AI items need breathing, Quant items need tiny delay to keep UI alive
+        // Adaptive Delay
         if (i < eliteLimit) await new Promise(r => setTimeout(r, 350));
-        else if (i % 20 === 0) await new Promise(r => setTimeout(r, 0)); // UI Breath
+        else if (i % 20 === 0) await new Promise(r => setTimeout(r, 0));
       }
+
+      // [FIX] Force update to 100% after loop completes
+      setProgress({ current: total, total: total });
+      addLog(`Audit Sequence Completed. Synchronizing Vault...`, "ok");
 
       results.sort((a, b) => b.alphaScore - a.alphaScore);
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
@@ -257,7 +263,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       });
 
       addLog(`Vault Synchronized: ${fileName}`, "ok");
-      if (onComplete) onComplete();
+      
+      // Finalize the stage
+      if (onComplete) {
+          setTimeout(() => onComplete(), 1000);
+      }
 
     } catch (e: any) {
       addLog(`Critical Audit Failure: ${e.message}`, "err");
