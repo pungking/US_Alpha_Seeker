@@ -23,7 +23,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.0.0: Quant-Reasoning Hybrid Online.']);
+  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
+  
+  // Time Tracking
+  const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
+  const startTimeRef = useRef<number>(0);
+  
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.1.0: Advanced Quant-Reasoning Hybrid.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -31,6 +37,28 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Timer Effect
+  useEffect(() => {
+    let interval: any;
+    if (loading && startTimeRef.current > 0) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
+        
+        // Calculate ETA
+        let etaSec = 0;
+        if (progress.current > 0 && progress.total > 0) {
+           const rate = progress.current / elapsedSec; 
+           const remaining = progress.total - progress.current;
+           etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
+        }
+        
+        setTimeStats({ elapsed: elapsedSec, eta: etaSec });
+      }, 1000);
+    }
+    return () => clearInterval(interval);
+  }, [loading, progress]);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -54,7 +82,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  const fetchAiFundamentalScore = async (ticker: any): Promise<{ score: number, fScore: number, zScore: number, reason: string } | null> => {
+  const fetchAiFundamentalScore = async (ticker: any, engine: ApiProvider): Promise<{ score: number, fScore: number, zScore: number, reason: string, errorType?: string } | null> => {
     const prompt = `
     [Role: Institutional Equity Analyst]
     Task: Multi-dimensional Fundamental Audit for ${ticker.symbol}.
@@ -65,42 +93,35 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     2. Estimate Altman Z-Score (Financial Distress Probability).
     3. Evaluate "Quality of Earnings" (ROE vs Debt).
     
-    Criteria: F-Score > 7 is elite. Z-Score > 3 is safe. ROE > 15% is mandatory for high growth.
-    
-    Return ONLY JSON: 
-    { 
-      "score": number (0-100), 
-      "fScore": number (0-9), 
-      "zScore": number (0-5), 
-      "reason": "Expert 1-sentence Korean analysis focusing on financial integrity" 
-    }
+    Return ONLY JSON: { "score": number, "fScore": number, "zScore": number, "reason": "string" }
     `;
 
     try {
-      const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { responseMimeType: "application/json" }
-      });
-      return sanitizeJson(response.text);
+      if (engine === ApiProvider.GEMINI) {
+        const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const response = await ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { responseMimeType: "application/json" }
+        });
+        return sanitizeJson(response.text);
+      } else {
+        const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+            body: JSON.stringify({
+                model: 'sonar-pro', 
+                messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
+            })
+        });
+        const data = await pRes.json();
+        return sanitizeJson(data.choices?.[0]?.message?.content);
+      }
     } catch (e: any) {
       if (e.message.includes('429') || e.message.includes('Quota')) {
-          addLog(`Gemini Limit. Switching to Sonar for ${ticker.symbol}...`, "warn");
-          try {
-            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-            const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-                body: JSON.stringify({
-                    model: 'sonar-pro', 
-                    messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
-                })
-            });
-            const data = await pRes.json();
-            return sanitizeJson(data.choices?.[0]?.message?.content);
-          } catch (err) { return null; }
+          return { score: 0, fScore: 0, zScore: 0, reason: "", errorType: 'RATE_LIMIT' };
       }
       return null;
     }
@@ -109,7 +130,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const executeIntegratedAudit = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
-    addLog("Phase 3: Initializing Hybrid Deep-Audit Protocol...", "info");
+    startTimeRef.current = Date.now();
+    setTimeStats({ elapsed: 0, eta: 0 });
+    
+    addLog("Phase 3: Initializing Resilient Deep-Audit Protocol...", "info");
+    let activeEngine = ApiProvider.GEMINI;
+    setCurrentEngine(activeEngine);
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
@@ -129,7 +155,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       const rawTargets = content.elite_universe || [];
       const targetsToAnalyze = rawTargets
           .sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0))
-          .slice(0, 250); // Balanced load for Vercel
+          .slice(0, 250); 
 
       setProgress({ current: 0, total: targetsToAnalyze.length });
       addLog(`Auditing ${targetsToAnalyze.length} assets with F-Score & Z-Score models.`, "ok");
@@ -141,51 +167,73 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         const item = targetsToAnalyze[i];
         let finalScore = 0;
         let aiData: any = null;
-        let engine = "Algorithm";
+        let engineLabel = "Quant-Algorithm";
 
-        if (i < eliteLimit) {
-          setActiveBrain("Gemini/Sonar (Hybrid)");
-          aiData = await fetchAiFundamentalScore(item);
-          if (aiData) {
-            finalScore = aiData.score;
-            engine = "AI-Quant-Verified";
+        try {
+          if (i < eliteLimit) {
+            setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'Gemini' : 'Sonar'} (Audit)`);
+            
+            // Try current engine
+            aiData = await fetchAiFundamentalScore(item, activeEngine);
+            
+            // Sticky Switch Logic: If Gemini fails with rate limit, switch to Perplexity for the REST of the run
+            if (aiData?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
+                addLog(`Gemini Limit Reached. Switching Global Engine to Sonar.`, "warn");
+                activeEngine = ApiProvider.PERPLEXITY;
+                setCurrentEngine(activeEngine);
+                // Retry current item with new engine
+                aiData = await fetchAiFundamentalScore(item, activeEngine);
+            }
+
+            if (aiData && !aiData.errorType) {
+              finalScore = aiData.score;
+              engineLabel = "AI-Quant-Verified";
+            }
           }
-        }
 
-        if (!aiData) {
-          setActiveBrain("Deterministic-Quant");
-          const roeBase = Math.min(100, (Number(item.roe) || 0) * 2.5);
-          const debtPenalty = Math.max(0, (Number(item.debtToEquity) || 0) / 2);
-          const valBonus = (item.per > 0 && item.per < 20) ? 20 : 0;
-          finalScore = Math.min(100, roeBase - debtPenalty + valBonus + 30);
-          aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
-        }
+          if (!aiData || aiData.errorType) {
+            if (i < eliteLimit) setActiveBrain("Algo-Fallback");
+            else setActiveBrain("Stream-Quant");
+            
+            const roeBase = Math.min(100, (Number(item.roe) || 0) * 2.5);
+            const debtPenalty = Math.max(0, (Number(item.debtToEquity) || 0) / 2);
+            const valBonus = (item.per > 0 && item.per < 20) ? 20 : 0;
+            finalScore = Math.min(100, roeBase - debtPenalty + valBonus + 30);
+            aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
+          }
 
-        results.push({
-          symbol: item.symbol, name: item.name, price: item.price, alphaScore: finalScore,
-          metrics: { 
-            profitability: Math.min(100, (item.roe || 0) * 3), 
-            growth: 65 + (Math.random() * 20), 
-            health: Math.max(0, 100 - (item.debtToEquity || 50)), 
-            valuation: (item.per > 0 && item.per < 15) ? 95 : 60, 
-            cashflow: 75, 
-            marketCap: Math.min(100, (item.marketValue / 1e9) * 5),
-            fScore: aiData.fScore,
-            zScore: aiData.zScore
-          },
-          sector: item.sector || 'N/A', lastUpdate: new Date().toISOString(),
-          scoringEngine: engine
-        });
+          results.push({
+            symbol: item.symbol, name: item.name, price: item.price, alphaScore: finalScore,
+            metrics: { 
+              profitability: Math.min(100, (item.roe || 0) * 3), 
+              growth: 65 + (Math.random() * 20), 
+              health: Math.max(0, 100 - (item.debtToEquity || 50)), 
+              valuation: (item.per > 0 && item.per < 15) ? 95 : 60, 
+              cashflow: 75, 
+              marketCap: Math.min(100, (item.marketValue / 1e9) * 5),
+              fScore: aiData.fScore,
+              zScore: aiData.zScore
+            },
+            sector: item.sector || 'N/A', lastUpdate: new Date().toISOString(),
+            scoringEngine: engineLabel
+          });
+
+        } catch (itemErr) {
+            console.error(`Error processing ${item.symbol}:`, itemErr);
+        }
 
         if (i % 5 === 0) setProgress({ current: i + 1, total: targetsToAnalyze.length });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 400));
+        
+        // Adaptive Delay: AI items need breathing, Quant items need tiny delay to keep UI alive
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 350));
+        else if (i % 20 === 0) await new Promise(r => setTimeout(r, 0)); // UI Breath
       }
 
       results.sort((a, b) => b.alphaScore - a.alphaScore);
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.0.0", count: results.length, timestamp: new Date().toISOString(), models: ["F-Score", "Z-Score", "Earnings-Quality"] },
+        manifest: { version: "4.1.0", count: results.length, timestamp: new Date().toISOString(), engine: activeEngine },
         fundamental_universe: results
       };
 
@@ -206,6 +254,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } finally {
       setLoading(false);
       setActiveBrain('Standby');
+      startTimeRef.current = 0;
     }
   };
 
@@ -222,6 +271,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     }).then(r => r.json()).then(r => r.id);
   };
 
+  const formatTime = (seconds: number) => {
+    if (seconds <= 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -232,12 +288,25 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Nexus v4.0.0</h2>
-                <div className="flex items-center space-x-2 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                     {loading ? `BRAIN: ${activeBrain}` : 'Quant Deep-Audit Active'}
-                   </span>
-                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Nexus v4.1.0</h2>
+                <div className="flex flex-col mt-2 gap-1">
+                   <div className="flex items-center space-x-2">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
+                            {loading ? `ENGINE: ${activeBrain}` : 'Resilient Deep-Audit Active'}
+                        </span>
+                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                   </div>
+                   {loading && (
+                     <div className="flex items-center space-x-2 mt-0.5">
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
+                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
+                       </span>
+                     </div>
+                   )}
                 </div>
               </div>
             </div>
