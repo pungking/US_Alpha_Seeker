@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -50,7 +49,6 @@ interface Props {
   onComplete?: (reportContent?: string) => void;
 }
 
-// [HELPER] Metric Definitions (Clean Text Only)
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
@@ -70,7 +68,6 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string } } = {
   }
 };
 
-// [CUSTOM MARKDOWN COMPONENTS]
 const MarkdownComponents: any = {
     h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
     h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
@@ -84,7 +81,6 @@ const MarkdownComponents: any = {
              <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-6">{props.children}</span>
         </li>
     ),
-    // Styled like a badge for emphasis (Image 2 style)
     strong: (props: any) => <span className="inline-block bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider mx-1 my-1 shadow-sm" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
@@ -94,7 +90,6 @@ const MarkdownComponents: any = {
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
-    // Table support for tabular data if any
     table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
     thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/50" {...props} />,
     th: (props: any) => <th className="px-4 py-3 font-bold" {...props} />,
@@ -121,13 +116,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
   
-  // INTERNAL AUTOMATION STATE
+  // NEW: State for Active Chart Overlay
+  const [activeOverlay, setActiveOverlay] = useState<'WIN_RATE' | 'PROFIT_FACTOR' | 'MAX_DRAWDOWN' | 'SHARPE_RATIO' | null>(null);
+
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Unique ID for gradient to prevent conflicts and ensure rendering
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
   useEffect(() => {
@@ -152,9 +148,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // --- AUTO START PIPELINE SEQUENCE ---
   useEffect(() => {
-    // Step 1: Start Engine
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
         setAutoPhase('ENGINE');
@@ -162,22 +156,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
-  // Step 2: Switch to Matrix
   useEffect(() => {
-      // Triggered when Engine finishes and populates resultsCache
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
           addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          // Short delay to allow UI to switch
           setTimeout(() => {
               handleRunMatrixAudit(selectedBrain);
           }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // Step 3: Complete with Brief Summary
   useEffect(() => {
       const finishAutoPilot = async () => {
           const hasReport = matrixReports[selectedBrain];
@@ -186,8 +176,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
-              // Generate concise summary for Telegram
-              let telegramPayload = hasReport; // Default fall back
+              let telegramPayload = hasReport; 
               try {
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
@@ -207,6 +196,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     setSelectedMetricInfo(null);
+    setActiveOverlay(null); // Reset overlay on stock change
   }, [selectedStock]);
 
   const handleStockClick = (item: AlphaCandidate) => {
@@ -226,7 +216,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const cleanInsightText = (text: any) => {
     if (!text) return "";
-    const str = String(text); // [SAFE GUARD] Force string type
+    const str = String(text);
     return str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
@@ -246,6 +236,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .replace(/\[\d+\]/g, '')
         .replace(/\*\*/g, '')
         .replace(/__/g, '')
+        .replace(/\*\*/g, '') // Extra safety
         .replace(/\*/g, '')
         .replace(/#/g, '')
         .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
@@ -285,13 +276,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
-      // FALLBACK LOGIC
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
-          
-          // Toggle UI State
           setSelectedBrain(ApiProvider.PERPLEXITY);
-          
           if (autoStart) {
               addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
               currentProvider = ApiProvider.PERPLEXITY; 
@@ -337,7 +324,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
     setMatrixBrain(brain);
-    // Use the results of the currently active 'selectedBrain' as the data source for matrix audit
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -355,7 +341,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             mode: 'PORTFOLIO'
         }, targetBrain);
         
-        // FALLBACK LOGIC
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
              setMatrixBrain(ApiProvider.PERPLEXITY);
              addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
@@ -372,16 +357,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              }
         }
         
-        // Ensure report is a string before setting state to prevent rendering crashes
         const safeReport = String(report || "No analysis returned from neural engine.");
         setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
         
-        // [NEW] Automatic Report Archiving
         const token = sessionStorage.getItem('gdrive_access_token');
         if (token) {
            const date = new Date().toISOString().split('T')[0];
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           // [MODIFIED] Specific Naming Rule for Portfolio Matrix
            const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
@@ -426,6 +408,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (backtestLoading) return;
     setBacktestLoading(true);
     setSelectedMetricInfo(null);
+    setActiveOverlay(null);
     addLog(`Simulating Quant Protocol for ${stock.symbol}...`, "signal");
 
     try {
@@ -451,7 +434,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const handleMetricClick = (key: string, value: string) => {
     const info = METRIC_DEFINITIONS[key];
-    if (info) setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value });
+    if (info) {
+        setSelectedMetricInfo({ title: info.title, desc: info.desc, value: value });
+        // Toggles overlay state: if already active, turn off. Otherwise set.
+        setActiveOverlay(prev => prev === key ? null : (key as any));
+    }
   };
 
   const cleanVerdict = (v?: string) => {
@@ -514,7 +501,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const chartData = useMemo(() => {
     if (!currentBacktest) return [];
-    let rawData = [];
+    let rawData: any[] = [];
     if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length > 2) {
         rawData = currentBacktest.equityCurve.map((item) => {
             const valStr = String(item.value);
@@ -525,19 +512,27 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 value: isNaN(val) ? 0 : val
             };
         });
+    } else {
+        rawData = generateSyntheticData(currentBacktest.metrics);
     }
-    const values = rawData.map(d => d.value);
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const isFlat = max === min;
-    const isTooShort = rawData.length < 3;
-    if (isFlat || isTooShort) {
-        return generateSyntheticData(currentBacktest.metrics);
-    }
-    return rawData;
+
+    // Process enhanced analytics for overlays
+    let runningPeak = -Infinity;
+    return rawData.map((d, i) => {
+        if (d.value > runningPeak) runningPeak = d.value;
+        const drawdown = d.value - runningPeak;
+        const prevValue = i > 0 ? rawData[i-1].value : 0;
+        const isWin = d.value > prevValue;
+        
+        return {
+            ...d,
+            drawdown: Number(drawdown.toFixed(2)),
+            peak: Number(runningPeak.toFixed(2)),
+            isWin: isWin
+        };
+    });
   }, [currentBacktest]);
 
-  const isChartReady = chartData.length > 1;
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
@@ -726,7 +721,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                      </div>
                  </div>
 
-                 {/* RESTORED & REDESIGNED BACKTEST SECTION */}
                  <div className="mt-8 border-t border-white/5 pt-8">
                     <div className="flex justify-between items-end mb-6">
                         <div className="flex items-center gap-4">
@@ -754,51 +748,47 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {currentBacktest ? (
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                             {/* Left Column: Metrics & Definition */}
                              <div className="flex flex-col gap-4">
-                                {/* Metrics Stack */}
                                 <div className="space-y-3">
-                                    {/* Win Rate */}
                                     <div 
                                         onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Win Rate') ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'WIN_RATE' ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
                                         <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
                                     </div>
-                                    {/* Profit Factor */}
                                     <div 
                                         onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Profit Factor') ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'PROFIT_FACTOR' ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
                                         <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
                                     </div>
-                                    {/* MDD */}
                                     <div 
                                         onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('MDD') ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'MAX_DRAWDOWN' ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
                                         <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
                                     </div>
-                                    {/* Sharpe */}
                                     <div 
                                         onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Sharpe') ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'SHARPE_RATIO' ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
                                         <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
                                     </div>
                                 </div>
 
-                                {/* Metric Info Box (Left Column Bottom) */}
                                 <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
                                     {selectedMetricInfo ? (
                                         <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
                                             <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
                                                 <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
                                                 {selectedMetricInfo.title}
+                                                {activeOverlay === (selectedMetricInfo.title.includes('승률') ? 'WIN_RATE' : selectedMetricInfo.title.includes('손익비') ? 'PROFIT_FACTOR' : selectedMetricInfo.title.includes('최대 낙폭') ? 'MAX_DRAWDOWN' : 'SHARPE_RATIO') && (
+                                                   <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto">OVERLAY ON</span>
+                                                )}
                                             </h5>
                                             <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
                                                 <ReactMarkdown 
@@ -819,15 +809,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     ) : (
                                         <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
                                              <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric</p>
+                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric to overlay</p>
                                         </div>
                                     )}
                                 </div>
                              </div>
 
-                             {/* Right Column: Chart & Insight */}
                              <div className="lg:col-span-3 flex flex-col gap-6">
-                                {/* Chart Area */}
                                 <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
                                     <div className="flex justify-between items-start mb-4">
                                         <div>
@@ -864,16 +852,63 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
                                                     itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
                                                     labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                                    formatter={(value: any) => [`${value}%`, 'Return']}
+                                                    formatter={(value: any, name: string) => {
+                                                        if (name === 'value') return [`${value}%`, 'Return'];
+                                                        if (name === 'drawdown') return [`${value}%`, 'Drawdown'];
+                                                        return [value, name];
+                                                    }}
                                                 />
                                                 <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                                <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
+                                                
+                                                {/* MDD Overlay */}
+                                                {activeOverlay === 'MAX_DRAWDOWN' && (
+                                                    <Area 
+                                                        type="monotone" 
+                                                        dataKey="drawdown" 
+                                                        stroke="none" 
+                                                        fill="#ef4444" 
+                                                        fillOpacity={0.2} 
+                                                        animationDuration={500}
+                                                    />
+                                                )}
+
+                                                {/* Sharpe Overlay (Idealized Reference Line) */}
+                                                {activeOverlay === 'SHARPE_RATIO' && (
+                                                    <ReferenceLine 
+                                                        stroke="#f59e0b" 
+                                                        strokeDasharray="5 5" 
+                                                        segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData.length * 0.8 }]}
+                                                    />
+                                                )}
+
+                                                {/* Main Equity Line */}
+                                                <Area 
+                                                    type="monotone" 
+                                                    dataKey="value" 
+                                                    stroke={chartColor} 
+                                                    strokeWidth={3} 
+                                                    fillOpacity={1} 
+                                                    fill={`url(#${uniqueChartId})`} 
+                                                    animationDuration={1500}
+                                                    // Dot overlay for Win/Loss
+                                                    dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
+                                                        const { cx, cy, payload } = props;
+                                                        const isWin = payload.isWin;
+                                                        return (
+                                                            <circle 
+                                                                key={`dot-${payload.period}`}
+                                                                cx={cx} cy={cy} r={3} 
+                                                                fill={isWin ? '#10b981' : '#ef4444'} 
+                                                                stroke="#020617" strokeWidth={1} 
+                                                            />
+                                                        );
+                                                    } : false}
+                                                />
                                             </AreaChart>
                                         </ResponsiveContainer>
                                     </div>
                                 </div>
 
-                                {/* Insight Area (Right Column Bottom - Full Width of Right Col) */}
                                 <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
                                      <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
