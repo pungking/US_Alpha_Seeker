@@ -375,8 +375,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       macroContext = "Market Index Data Unavailable";
   }
 
-  // [UPDATED] Sort candidates by conviction score (or composite alpha) before slicing top 6
-  // This prevents order mismatches if the AI returns them in a non-strict order
   const sortedCandidates = [...candidates].sort((a, b) => {
       const scoreA = a.convictionScore || a.compositeAlpha || 0;
       const scoreB = b.convictionScore || b.compositeAlpha || 0;
@@ -395,7 +393,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       theme: c.sectorTheme || c.theme || "Alpha Sector"
   }));
 
-  // [UPDATED] Anti-Refusal & Force Korean Prompt
   const prompt = `
   [SYSTEM INSTRUCTION: STRICT KOREAN OUTPUT MODE]
   You are a Financial Reporting AI. Your task is to convert the provided raw data into a professional daily briefing for Korean investors.
@@ -452,11 +449,8 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   3. Logic must be in "Gaejosik" (short bullet points), not full sentences.
   `;
 
-  // [CLEANING FUNCTION] Removes hallucinated citation numbers
   const cleanOutput = (text: string) => {
-      let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); // Remove [1], [1-2]
-      // Remove trailing numbers attached to Korean or brackets at end of sentence segments
-      // Matches a Korean char/paren/dot, followed by digits, followed by space or newline
+      let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
       clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
       return clean;
   };
@@ -498,11 +492,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
             rawText = result.text;
         } catch (geminiError: any) {
             console.warn("Gemini Brief Generation Failed (Quota/Error). Switching to Perplexity Fallback.", geminiError);
-            // Fallback to Perplexity
             rawText = await executePerplexity();
         }
     } else {
-        // Originally requested Perplexity
         rawText = await executePerplexity();
     }
     
@@ -534,11 +526,10 @@ export async function analyzePipelineStatus(data: {
   let systemPrompt = "";
   let userPrompt = "";
 
-  // [MODIFIED] Stronger Korean enforcement in system prompts
   if (provider === ApiProvider.GEMINI) {
-      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. **STRICTLY NO EMOJIS**. Output MUST be in **KOREAN** only.";
+      systemPrompt = "You are a conservative Wall Street Quant Auditor. Focus on fundamentals, risk management, and valuation safety. STRICTLY NO EMOJIS. Output MUST be in KOREAN only.";
   } else {
-      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. **STRICTLY NO EMOJIS**. Output MUST be in **KOREAN** only.";
+      systemPrompt = "You are an aggressive Hedge Fund Analyst. Focus on momentum, market sentiment, and catalytic events. STRICTLY NO EMOJIS. Output MUST be in KOREAN only.";
   }
 
   if (isIntegrityCheck) {
@@ -686,7 +677,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
     - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
     - Style: Conservative but accurate. "Don't lose money" is rule #1.
-    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+    - Formatting: STRICTLY NO EMOJIS. Use Markdown headers and bullets.
   `;
 
   const PERPLEXITY_PERSONA = `
@@ -694,7 +685,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
     - Preference: High growth potential, viral themes, sector rotation leaders.
     - Style: High Risk / High Reward. "Trend is your friend".
-    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+    - Formatting: STRICTLY NO EMOJIS. Use Markdown headers and bullets.
   `;
 
   const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
@@ -707,11 +698,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
 - symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
 - selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
-- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. **이모티콘 사용 금지**), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
+- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. 이모티콘 사용 금지), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
 - chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
 
 투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
-**주의: 출력물에 이모티콘(🚀, 💎 등)을 절대 포함하지 마십시오.**
+**주의: 출력물에 이모티콘을 절대 포함하지 마십시오.**
 
 주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
 한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
@@ -744,7 +735,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                     body: JSON.stringify({
                         model: model, 
                         messages: [
-                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. **이모티콘 사용은 절대 금지입니다.** 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. 이모티콘 사용은 절대 금지입니다. 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1
