@@ -215,6 +215,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         else if (i % 25 === 0) await new Promise(r => setTimeout(r, 0)); // UI Breath
       }
 
+      // [FIX] Force update to 100% after loop completes
+      setProgress({ current: total, total: total });
+      addLog(`Momentum Scan Completed. Synchronizing Vault...`, "ok");
+
       results.sort((a, b) => b.totalAlpha - a.totalAlpha);
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
