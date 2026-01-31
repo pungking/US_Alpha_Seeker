@@ -1,4 +1,5 @@
 
+// Add missing imports for React hooks and components
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -113,13 +114,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string } | null>(null);
   
-  // INTERNAL AUTOMATION STATE
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
-  // Unique ID for gradient to prevent conflicts and ensure rendering
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
   useEffect(() => {
@@ -144,9 +143,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // --- AUTO START PIPELINE SEQUENCE ---
   useEffect(() => {
-    // Step 1: Start Engine
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
         setAutoPhase('ENGINE');
@@ -154,22 +151,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
-  // Step 2: Switch to Matrix
   useEffect(() => {
-      // Triggered when Engine finishes and populates resultsCache
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
           addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          // Short delay to allow UI to switch
           setTimeout(() => {
               handleRunMatrixAudit(selectedBrain);
           }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // Step 3: Complete with Brief Summary
   useEffect(() => {
       const finishAutoPilot = async () => {
           const hasReport = matrixReports[selectedBrain];
@@ -177,9 +170,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
           if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
-              
-              // Generate concise summary for Telegram
-              let telegramPayload = hasReport; // Default fall back
+              let telegramPayload = hasReport; 
               try {
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
@@ -187,12 +178,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               } catch (e) {
                   addLog("Brief Gen Failed. Sending full report.", "err");
               }
-
               setAutoPhase('DONE');
               if (onComplete) onComplete(telegramPayload);
           }
       };
-      
       finishAutoPilot();
   }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
 
@@ -211,14 +200,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
-  const removeCitations = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text).replace(/\[\d+\]/g, '').trim();
-  };
-
   const cleanInsightText = (text: any) => {
     if (!text) return "";
-    const str = String(text); // [SAFE GUARD] Force string type
+    const str = String(text); 
     return str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
@@ -238,7 +222,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .replace(/\[\d+\]/g, '')
         .replace(/\*\*/g, '')
         .replace(/__/g, '')
-        .replace(/\*/g, '')
+        .replace(/\*\*/g, '')
         .replace(/#/g, '')
         .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
         .trim();
@@ -277,13 +261,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
-      // FALLBACK LOGIC
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
-          
-          // Toggle UI State
           setSelectedBrain(ApiProvider.PERPLEXITY);
-          
           if (autoStart) {
               addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
               currentProvider = ApiProvider.PERPLEXITY; 
@@ -314,7 +294,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
-      // [CRITICAL FIX] Sort by convictionScore to ensure priority is not mixed up
       mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
 
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
@@ -332,7 +311,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
     setMatrixBrain(brain);
-    // Use the results of the currently active 'selectedBrain' as the data source for matrix audit
     const currentResults = resultsCache[selectedBrain] || []; 
     if (currentResults.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -350,11 +328,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             mode: 'PORTFOLIO'
         }, targetBrain);
         
-        // FALLBACK LOGIC
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
              setMatrixBrain(ApiProvider.PERPLEXITY);
              addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
-             
              if (autoStart) {
                  targetBrain = ApiProvider.PERPLEXITY;
                  addLog("AUTO-PILOT: Retrying Matrix with Sonar...", "signal");
@@ -367,24 +343,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              }
         }
         
-        // Ensure report is a string before setting state to prevent rendering crashes
         const safeReport = String(report || "No analysis returned from neural engine.");
         setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
         
-        // [NEW] Automatic Report Archiving
         const token = sessionStorage.getItem('gdrive_access_token');
         if (token) {
            const date = new Date().toISOString().split('T')[0];
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           // [MODIFIED] Specific Naming Rule for Portfolio Matrix
            const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
-           
            addLog(`Archiving Report: ${fileName}...`, "info");
            const saved = await archiveReport(token, fileName, safeReport);
            if (saved) addLog(`Report Archived Successfully.`, "ok");
            else addLog(`Report Archive Failed.`, "err");
         }
-
         addLog("Portfolio Matrix Audit complete.", "ok");
     } catch (e: any) { 
         addLog(`Matrix Error: ${e.message}`, "err"); 
@@ -400,10 +371,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         addLog("No data to transmit. Run Alpha Engine first.", "err");
         return;
     }
-
     setSendingTelegram(true);
     addLog("Manual Command: Generating Telegram Brief...", "signal");
-
     try {
         const brief = await generateTelegramBrief(currentResults, selectedBrain);
         const success = await sendTelegramReport(brief);
@@ -426,9 +395,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
       const { data, error, isRealData } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
-      
       if (!data) throw new Error("AI returned empty data structure");
-      
       const safeContext = data.historicalContext || "Analysis data unavailable.";
       setBacktestData(prev => ({ 
         ...prev, 
@@ -524,17 +491,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const values = rawData.map(d => d.value);
     const min = Math.min(...values);
     const max = Math.max(...values);
-    const isFlat = max === min;
-    const isTooShort = rawData.length < 3;
-    if (isFlat || isTooShort) {
-        return generateSyntheticData(currentBacktest.metrics);
-    }
+    if (max === min || rawData.length < 3) return generateSyntheticData(currentBacktest.metrics);
     return rawData;
   }, [currentBacktest]);
 
-  const isChartReady = chartData.length > 1;
-  const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
-  const chartColor = isProfitable ? '#10b981' : '#ef4444';
+  const chartColor = chartData.length > 0 && chartData[chartData.length - 1].value >= 0 ? '#10b981' : '#ef4444';
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
@@ -596,7 +557,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <span className="text-xs font-mono font-black text-slate-400">${item.price?.toFixed(2)}</span>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
+                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner">
                       <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
@@ -628,16 +589,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             Active Matrix Node: {matrixBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}
                         </span>
                          {currentResults.length > 0 && (
-                            <button 
-                                onClick={handleManualTelegramSend} 
-                                disabled={sendingTelegram}
-                                className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${sendingTelegram ? 'bg-blue-900 border-blue-700 text-blue-400 animate-pulse' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-500 shadow-lg'}`}
-                            >
-                                {sendingTelegram ? (
-                                    <><span>Transmitting...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></>
-                                ) : (
-                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>
-                                )}
+                            <button onClick={handleManualTelegramSend} disabled={sendingTelegram} className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${sendingTelegram ? 'bg-blue-900 border-blue-700 text-blue-400 animate-pulse' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-500 shadow-lg'}`}>
+                                {sendingTelegram ? <><span>Transmitting...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></> : <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>}
                             </button>
                         )}
                     </div>
@@ -648,24 +601,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {matrixLoading ? 'Refreshing...' : 'Regenerate Analysis'}
                     </button>
                    <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                            Comprehensive Matrix Audit by {matrixBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Perplexity Sonar'}
-                        </span>
+                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">Comprehensive Matrix Audit by {matrixBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Perplexity Sonar'}</span>
                         <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                    </div>
-                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                        {cleanInsightText(matrixReports[matrixBrain])}
-                   </ReactMarkdown>
+                   <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{cleanInsightText(matrixReports[matrixBrain])}</ReactMarkdown>
                  </div>
                ) : (
                  <div className="min-h-[300px] flex flex-col items-center justify-center text-center space-y-6 border border-dashed border-white/10 rounded-[40px]">
                     <div className="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center">
                         <svg className="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
                     </div>
-                    <div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Ready to Synthesize Portfolio Matrix</p>
-                        <p className="text-[9px] text-slate-600 mt-2">Using {matrixBrain} Neural Engine</p>
-                    </div>
+                    <div><p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Ready to Synthesize Portfolio Matrix</p><p className="text-[9px] text-slate-600 mt-2">Using {matrixBrain} Neural Engine</p></div>
                     <button onClick={() => handleRunMatrixAudit(matrixBrain)} disabled={matrixLoading} className={`px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${matrixLoading ? 'bg-slate-800 text-slate-500' : matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white hover:scale-105' : 'bg-cyan-600 text-white hover:scale-105'}`}>
                         {matrixLoading ? 'Processing...' : 'Execute Strategic Analysis'}
                     </button>
@@ -691,14 +637,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
                          
-                          <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
-                            <div className="prose-report min-h-[200px]">
+                         {/* RESTORED: Neural Investment Outlook Markdown View */}
+                         <div className="p-8 md:p-12 bg-black/30 rounded-[40px] border border-white/5 shadow-inner relative overflow-hidden">
+                            <h4 className="text-[11px] font-black text-rose-500 uppercase tracking-[0.4em] mb-8 italic flex items-center gap-4">
+                                <span className="w-10 h-[1px] bg-rose-600"></span>
+                                Neural Investment Outlook
+                            </h4>
+                            <div className="prose-report max-w-none">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
+                                    {selectedStock.investmentOutlook || "Awaiting Strategic Synthesis..."}
                                 </ReactMarkdown>
                             </div>
-                        </div>
+                         </div>
                      </div>
                      <div className="lg:col-span-2 space-y-6">
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
@@ -709,33 +659,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
                                     <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
                                 </li>
-                                )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
+                                )) : <li className="text-xs text-slate-500 italic">No rationale provided.</li>}
                             </ul>
                         </div>
                      </div>
                  </div>
 
-                 {/* RESTORED & REDESIGNED BACKTEST SECTION */}
                  <div className="mt-8 border-t border-white/5 pt-8">
                     <div className="flex justify-between items-end mb-6">
                         <div className="flex items-center gap-4">
                             <div>
                                 <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Backtest_Protocol</h4>
-                                {currentBacktest && <p className="text-[9px] text-slate-500 font-mono font-bold">SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span></p>}
+                                {currentBacktest && <p className="text-[9px] text-slate-500 font-mono font-bold">PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span></p>}
                             </div>
-                            {currentBacktest && (
-                                <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
-                            )}
-                            {currentBacktest && (
-                                <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStock.symbol}</span>
-                            )}
+                            {currentBacktest && <div className="h-8 w-[1px] bg-white/10 mx-2" />}
+                            {currentBacktest && <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStock.symbol}</span>}
                         </div>
                         {!currentBacktest && (
-                             <button 
-                                onClick={(e) => handleRunBacktest(selectedStock, e)} 
-                                disabled={backtestLoading}
-                                className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
-                            >
+                             <button onClick={(e) => handleRunBacktest(selectedStock, e)} disabled={backtestLoading} className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg">
                                 {backtestLoading ? 'Running Simulation...' : 'Run Portfolio Simulation'}
                             </button>
                         )}
@@ -743,147 +684,45 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {currentBacktest ? (
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                             {/* Left Column: Metrics & Definition */}
                              <div className="flex flex-col gap-4">
-                                {/* Metrics Stack */}
                                 <div className="space-y-3">
-                                    {/* Win Rate */}
-                                    <div 
-                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Win Rate') ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
+                                    <div onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)} className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 flex justify-between items-center ${selectedMetricInfo?.title.includes('Win Rate') ? 'bg-emerald-500/20 border-emerald-500 text-white' : 'bg-black/40 border-white/5'}`}>
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
                                         <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
                                     </div>
-                                    {/* Profit Factor */}
-                                    <div 
-                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Profit Factor') ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
+                                    <div onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)} className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 flex justify-between items-center ${selectedMetricInfo?.title.includes('Profit Factor') ? 'bg-blue-500/20 border-blue-500 text-white' : 'bg-black/40 border-white/5'}`}>
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
                                         <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
                                     </div>
-                                    {/* MDD */}
-                                    <div 
-                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('MDD') ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
+                                    <div onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)} className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 flex justify-between items-center ${selectedMetricInfo?.title.includes('MDD') ? 'bg-rose-500/20 border-rose-500 text-white' : 'bg-black/40 border-white/5'}`}>
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
                                         <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
                                     </div>
-                                    {/* Sharpe */}
-                                    <div 
-                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${selectedMetricInfo?.title.includes('Sharpe') ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
+                                    <div onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)} className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 flex justify-between items-center ${selectedMetricInfo?.title.includes('Sharpe') ? 'bg-amber-500/20 border-amber-500 text-white' : 'bg-black/40 border-white/5'}`}>
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
                                         <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
                                     </div>
                                 </div>
-
-                                {/* Metric Info Box (Left Column Bottom) */}
-                                <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
+                                <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] shadow-inner relative overflow-hidden">
                                     {selectedMetricInfo ? (
-                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
-                                            <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
-                                                <span className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></span>
-                                                {selectedMetricInfo.title}
-                                            </h5>
-                                            <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
-                                                <ReactMarkdown 
-                                                    remarkPlugins={[remarkGfm]}
-                                                    components={{
-                                                        ...MarkdownComponents,
-                                                        h3: ({node, ...props}) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1 uppercase tracking-wide" {...props} />,
-                                                        p: ({node, ...props}) => <p className="mb-2" {...props} />,
-                                                        ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 mb-2" {...props} />,
-                                                        li: ({node, ...props}) => <li className="pl-1 marker:text-emerald-500" {...props} />,
-                                                        strong: ({node, ...props}) => <strong className="text-white font-bold" {...props} />
-                                                    }}
-                                                >
-                                                    {selectedMetricInfo.desc}
-                                                </ReactMarkdown>
-                                            </div>
+                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300">
+                                            <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2">{selectedMetricInfo.title}</h5>
+                                            <div className="text-[10px] text-slate-300 leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{...MarkdownComponents, h3: ({node, ...props}) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1 uppercase tracking-wide" {...props} />}}>{selectedMetricInfo.desc}</ReactMarkdown></div>
                                         </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
-                                             <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric</p>
-                                        </div>
-                                    )}
+                                    ) : <div className="flex flex-col items-center justify-center h-full opacity-30 text-center"><p className="text-[8px] font-black uppercase tracking-widest">Select metric</p></div>}
                                 </div>
                              </div>
-
-                             {/* Right Column: Chart & Insight */}
                              <div className="lg:col-span-3 flex flex-col gap-6">
-                                {/* Chart Area */}
-                                <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
+                                <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 h-[320px] flex flex-col">
                                     <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Cumulative Equity Growth</p>
-                                             <div className="flex items-center gap-3 mt-1">
-                                                 <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                                                     {chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}
-                                                 </span>
-                                                 <div className="flex flex-col">
-                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Return</span>
-                                                     <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
-                                                 </div>
-                                             </div>
-                                        </div>
-                                        <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
-                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
-                                             <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
-                                        </div>
+                                        <div><p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Equity Growth</p><div className="flex items-center gap-3 mt-1"><span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>{chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}</span><span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span></div></div>
                                     </div>
-
-                                    <div className="flex-1 w-full min-h-0">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <AreaChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                                                <defs>
-                                                    <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
-                                                        <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                                <XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10} />
-                                                <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                                                <Tooltip 
-                                                    contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
-                                                    itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                                                    labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                                    formatter={(value: any) => [`${value}%`, 'Return']}
-                                                />
-                                                <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                                <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
-                                            </AreaChart>
-                                        </ResponsiveContainer>
-                                    </div>
+                                    <div className="flex-1 w-full"><ResponsiveContainer><AreaChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}><defs><linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1"><stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/><stop offset="95%" stopColor={chartColor} stopOpacity={0}/></linearGradient></defs><CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false}/><XAxis dataKey="period" stroke="#475569" fontSize={9} tickLine={false} axisLine={false} dy={10}/><YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false}/><Tooltip contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }} itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }} formatter={(value: any) => [`${value}%`, 'Return']}/><ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5}/><Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={3} fillOpacity={1} fill={`url(#${uniqueChartId})`}/></AreaChart></ResponsiveContainer></div>
                                 </div>
-
-                                {/* Insight Area (Right Column Bottom - Full Width of Right Col) */}
-                                <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
-                                     <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                         Simulation Intelligence Insight
-                                     </h5>
-                                     <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {currentBacktest.historicalContext}
-                                         </ReactMarkdown>
-                                     </div>
-                                 </div>
+                                <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1"><h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse" />Intelligence Insight</h5><div className="prose-report text-xs text-slate-300 leading-relaxed"><ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{currentBacktest.historicalContext}</ReactMarkdown></div></div>
                             </div>
                         </div>
-                    ) : (
-                        <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
-                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
-                        </div>
-                    )}
+                    ) : <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5"><p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Simulation</p></div>}
                  </div>
              </div>
         )}
@@ -892,7 +731,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
           <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
               <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
                 {l}
