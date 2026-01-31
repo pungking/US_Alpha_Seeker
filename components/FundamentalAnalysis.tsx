@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import { trackUsage } from '../services/intelligenceService';
 
 interface ScoredTicker {
   symbol: string;
@@ -105,6 +106,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
+        
+        // Track Gemini Usage
+        trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+        
         return sanitizeJson(response.text);
       } else {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
@@ -117,10 +122,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             })
         });
         const data = await pRes.json();
+        
+        // Track Perplexity Usage
+        if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+        
         return sanitizeJson(data.choices?.[0]?.message?.content);
       }
     } catch (e: any) {
       if (e.message.includes('429') || e.message.includes('Quota')) {
+          trackUsage(engine, 0, true, e.message);
           return { score: 0, fScore: 0, zScore: 0, reason: "", errorType: 'RATE_LIMIT' };
       }
       return null;
