@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -32,7 +33,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
         addLog("AUTO-PILOT: Engaging Fundamental Analysis Protocol...", "signal");
@@ -55,7 +55,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  // AI Scoring Function
   const fetchAiFundamentalScore = async (ticker: any): Promise<{ score: number, reason: string } | null> => {
     const prompt = `
     [Role: Warren Buffett & Benjamin Graham Persona]
@@ -71,18 +70,17 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     Return JSON: { "score": number (0-100), "reason": "Short 1-sentence analysis in Korean" }
     `;
 
-    // 1. Gemini
     try {
-      const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
+      // Use process.env.API_KEY exclusively
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
       const response = await ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: 'gemini-3-pro-preview',
         contents: prompt,
         config: { responseMimeType: "application/json" }
       });
       return sanitizeJson(response.text);
     } catch (e) {
-      // 2. Perplexity Fallback
+      console.error("Gemini Error:", e);
       try {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -96,7 +94,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         const data = await pRes.json();
         return sanitizeJson(data.choices?.[0]?.message?.content);
       } catch (err) {
-        return null; // Both failed
+        console.error("Perplexity Fallback Error:", err);
+        return null; 
       }
     }
   };
@@ -146,7 +145,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       addLog(`Target Locked: Analyzing ALL ${targetsToAnalyze.length} selected assets.`, "ok");
       
-      const eliteCount = 30; // 상위 30개는 AI 정밀 분석
+      const eliteCount = 30; 
       setProgress({ current: 0, total: targetsToAnalyze.length });
 
       const results: ScoredTicker[] = [];
@@ -157,7 +156,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         let engine = "Algo";
         let aiReason = "";
 
-        // 상위권 종목은 AI 정밀 타격
         if (i < eliteCount) {
           setActiveBrain("Gemini/Sonar (Dual)");
           const aiResult = await fetchAiFundamentalScore(item);

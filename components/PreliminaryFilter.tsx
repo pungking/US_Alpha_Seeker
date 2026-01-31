@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -33,15 +34,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [filteredCount, setFilteredCount] = useState(0);
   const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.2.0: Resilience Protocol Active.']);
   
-  // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
   const [minVolume, setMinVolume] = useState(500000);
   const [isManual, setIsManual] = useState(false);
   const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   
-  // Automation Internal State
   const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'COMMITTING' | 'DONE'>('IDLE');
+
+  // [FIX] Added missing state variables for configuration modal
+  const [showConfig, setShowConfig] = useState(false);
+  const [clientId, setClientId] = useState<string>(() => 
+    localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com'
+  );
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -57,7 +62,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [minPrice, minVolume, rawUniverse]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && autoStep === 'IDLE' && !loading) {
         addLog("AUTO-PILOT: Initiating Preliminary Filter Sequence...", "signal");
@@ -66,10 +70,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart, autoStep, loading]);
 
-  // Step 2: Auto Commit after Analysis
   useEffect(() => {
       if (autoStart && autoStep === 'ANALYZING' && !loading && !isAnalyzing && (aiProposal || aiError)) {
-          // Wait briefly for state to settle then commit
           const timer = setTimeout(() => {
               setAutoStep('COMMITTING');
               commitPurification();
@@ -124,7 +126,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setRawUniverse(data);
       addLog(`Matrix Synced: ${data.length} assets. Calculating distribution stats...`, "ok");
 
-      // AI Analysis Logic...
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
       const volumes = data.map((s: any) => s.volume).filter((v: any) => v > 0).sort((a: any, b: any) => a - b);
       
@@ -166,21 +167,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       let aiResult = null;
       let usedProvider = '';
 
-      // Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
-          const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          // Use process.env.API_KEY exclusively for Gemini
+          const ai = new GoogleGenAI({ apiKey: process.env.API_KEY });
           const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: 'gemini-3-pro-preview',
             contents: prompt,
             config: { responseMimeType: "application/json" }
           });
           aiResult = sanitizeJson(response.text);
           usedProvider = 'Gemini 3 Pro';
-      } catch (e: any) { /* Fallback handled below */ }
+      } catch (e: any) { console.error("Gemini Error:", e); }
 
-      // Try Perplexity if Gemini failed
       if (!aiResult) {
           try {
               setActiveAi('Sonar Pro (Fallback)');
@@ -196,7 +195,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               const pJson = await pRes.json();
               aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
               usedProvider = 'Perplexity Sonar';
-          } catch (e: any) {}
+          } catch (e: any) { console.error("Perplexity Fallback Error:", e); }
       }
 
       if (aiResult) {
@@ -237,10 +236,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const commitPurification = async () => {
-    // Ensure rawUniverse is populated before committing
     if (!accessToken || rawUniverse.length === 0) {
         if (autoStart && autoStep === 'COMMITTING') {
-             // Retry later if somehow data isn't ready
              console.warn("Commit delayed: Data not ready");
              return; 
         }
@@ -299,6 +296,42 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
+       {/* [FIX] showConfig is now defined in state */}
+       {showConfig && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
+              <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
+              {/* [FIX] clientId and setClientId are now defined in state */}
+              <input 
+                type="text" 
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none"
+                placeholder="Enter GDrive Client ID"
+              />
+              <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
+            </div>
+            <button 
+              onClick={() => {
+                localStorage.setItem('gdrive_client_id', clientId);
+                setShowConfig(false);
+                addLog("Infrastructure Persisted Successfully.", "ok");
+              }}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all"
+            >
+              Apply Changes
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-emerald-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
@@ -341,7 +374,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           </div>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
-            {/* Price Filter */}
             <div className="bg-black/40 p-6 md:p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
               <div className="flex justify-between items-center mb-6 md:mb-8">
                  <div>
@@ -370,7 +402,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               </div>
             </div>
 
-            {/* Volume Filter */}
             <div className="bg-black/40 p-6 md:p-10 rounded-3xl border border-white/10 group hover:border-emerald-500/30 transition-all duration-500 relative">
               <div className="flex justify-between items-center mb-6 md:mb-8">
                  <div>

@@ -1,7 +1,7 @@
 {
-  "name": "us_alpha_seeker:-v1.2.0",
+  "name": "us-alpha-seeker",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
