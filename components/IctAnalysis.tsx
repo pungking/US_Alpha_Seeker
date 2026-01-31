@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import { trackUsage } from '../services/intelligenceService';
 
 interface IctScoredTicker {
   symbol: string;
@@ -101,6 +102,10 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           contents: prompt,
           config: { responseMimeType: "application/json" }
         });
+        
+        // Track Gemini Usage
+        trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+        
         return sanitizeJson(response.text);
       } else {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
@@ -113,10 +118,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             })
         });
         const data = await pRes.json();
+        
+        // Track Perplexity Usage
+        if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+        
         return sanitizeJson(data.choices?.[0]?.message?.content);
       }
     } catch (e: any) {
-      if (e.message.includes('429') || e.message.includes('Quota')) return { score: 0, footprint: "", zone: "", mtf: false, errorType: 'RATE_LIMIT' };
+      if (e.message.includes('429') || e.message.includes('Quota')) {
+        trackUsage(engine, 0, true, e.message);
+        return { score: 0, footprint: "", zone: "", mtf: false, errorType: 'RATE_LIMIT' };
+      }
       return null;
     }
   };
@@ -270,7 +282,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.1.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? `BRAIN: ${activeBrain}` : 'Smart Money Footprint Active'}`}>
                             {loading ? `BRAIN: ${activeBrain}` : 'Smart Money Footprint Active'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
