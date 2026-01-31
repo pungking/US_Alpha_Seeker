@@ -314,6 +314,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
+      // [CRITICAL FIX] Sort by convictionScore to ensure priority is not mixed up
+      mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       if (mergedFinal.length > 0) {
         const first = mergedFinal[0];
