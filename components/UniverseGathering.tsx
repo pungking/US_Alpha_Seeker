@@ -145,7 +145,6 @@ const UniverseGathering: React.FC<Props> = ({
     if (!finnhubKey) throw new Error("Finnhub Key Missing");
     addLog("Executing Strategy: Multi-Provider Symbol Discovery...", "info");
     
-    // 20,000+ 데이터를 위해 Finnhub의 전체 US 심볼 리스트 활용
     const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`);
     if (!fhRes.ok) throw new Error("Symbol Discovery Failed");
     const fhData = await fhRes.json();
