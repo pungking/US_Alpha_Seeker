@@ -1,25 +1,40 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, LabelList } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
 
+// [Advanced Data Structure]
 interface QualityTicker {
   symbol: string;
   name: string;
   price: number;
   volume: number;
   marketValue: number;
-  type?: string;
-  per?: number;
-  pbr?: number;
-  debtToEquity?: number;
-  roe?: number;
-  qualityScore?: number; // New Quality Metric
-  sector?: string;
-  industry?: string;
+  
+  // 3-Factor Scores
+  profitabilityScore: number; // ROE, OPM
+  stabilityScore: number;     // Debt/Eq, Current Ratio
+  growthScore: number;        // P/E expansion potential, PEG
+  qualityScore: number;       // Weighted Average
+
+  // Raw Metrics
+  per: number;
+  pbr: number;
+  debtToEquity: number;
+  roe: number;
+  
+  // Meta
+  sector: string;
+  industry: string;
   lastUpdate: string;
-  source?: string; // Data source for audit
+  source: string;
+  
+  // AI Value Trap Flag
+  isValueTrap?: boolean;
+  aiNote?: string;
 }
 
 interface Props {
@@ -27,27 +42,32 @@ interface Props {
   onComplete?: () => void;
 }
 
+// [CACHE SYSTEM] Daily Session Cache Key
+const getDailyCacheKey = (symbol: string) => {
+    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    return `QUALITY_CACHE_v1_${symbol}_${today}`;
+};
+
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0 });
   
   // Time Tracking
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
 
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Engine');
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Adaptive Quant Engine');
   
-  // AI Status separate from main loading
+  // AI Status
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
-  // 무료 플랜 상태 관리
+  // Free Plan Logic
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v4.9.9: Resilience Protocol Upgrade.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.0: 3-Factor Quant Protocol Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -58,9 +78,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   // [ADAPTIVE STRATEGY]
   const BATCH_SIZE = 5; 
-  const DELAY_TURBO = 300;   
-  const DELAY_SAFE = 4500;   
-  const TARGET_SELECTION_COUNT = 500; 
+  const DELAY_TURBO = 250;   
+  const DELAY_SAFE = 2500;   
+  const TARGET_SELECTION_COUNT = 300; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -74,7 +94,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
         
-        // Calculate ETA
         let etaSec = 0;
         if (progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
@@ -91,7 +110,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Initiating Deep Quality Scan...", "signal");
+        addLog("AUTO-PILOT: Engaging Deep Quality Quant Filter...", "signal");
         executeDeepQualityScan();
     }
   }, [autoStart]);
@@ -111,9 +130,52 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
+  // [NEW] Advanced Scoring Logic
+  const calculateQuantScores = (metrics: any, price: number, marketCap: number) => {
+      // 1. Profitability (Earnings Power)
+      // ROE > 15 is great.
+      const roeScore = Math.min(100, Math.max(0, (metrics.roe || 0) * 4)); 
+      const profitScore = roeScore; // Could add OPM if available
+
+      // 2. Stability (Safety)
+      // Debt/Eq < 1.0 is safe. 
+      const debt = metrics.debt || 1.0;
+      const debtScore = Math.max(0, 100 - (debt * 30));
+      const stabilityScore = debtScore;
+
+      // 3. Growth/Value (Upside)
+      // Low PER relative to growth (PEG) is ideal, but here we estimate via PER & Price action
+      // PER 10~25 is sweet spot.
+      const per = metrics.per || 20;
+      let valScore = 50;
+      if (per > 0 && per < 10) valScore = 90; // Deep Value
+      else if (per >= 10 && per < 25) valScore = 80; // Reasonable
+      else if (per >= 25 && per < 50) valScore = 60; // Growth priced
+      else valScore = 40; // Overvalued or negative
+      
+      const growthScore = valScore;
+
+      // Weighted Quality Score
+      // Profitability 40% + Stability 30% + Growth 30%
+      const qualityScore = Number(((profitScore * 0.4) + (stabilityScore * 0.3) + (growthScore * 0.3)).toFixed(2));
+
+      return { profitScore, stabilityScore, growthScore, qualityScore };
+  };
+
   const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
     if (!target || !target.symbol) return null;
     
+    // [CACHE CHECK]
+    const cacheKey = getDailyCacheKey(target.symbol);
+    const cachedRaw = sessionStorage.getItem(cacheKey);
+    if (cachedRaw) {
+        try {
+            const cachedData = JSON.parse(cachedRaw);
+            setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
+            return cachedData;
+        } catch(e) { sessionStorage.removeItem(cacheKey); }
+    }
+
     try {
       let metrics: any = {};
       let profileData: any = {};
@@ -203,33 +265,42 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       if ((!metrics.per && !metrics.roe)) return null;
 
-      const roeScore = (metrics.roe || 0) * 2.0; 
-      const debtPenalty = (metrics.debt || 0) * 0.5;
-      
       const price = Number(target.price) || 0;
       const volume = Number(target.volume) || 0;
       const safeMarketValue = Number(target.marketValue || (price * volume)) || 1000000; 
-      const mktCapBonus = Math.min(20, Math.log10(Math.max(1, safeMarketValue)) * 2); 
-      
-      const qScore = Number((roeScore - debtPenalty + mktCapBonus).toFixed(2));
 
-      return {
+      // Calculate Advanced 3-Factor Scores
+      const scores = calculateQuantScores(metrics, price, safeMarketValue);
+
+      const resultTicker: QualityTicker = {
         symbol: target.symbol,
         name: profileData.name || target.name || "N/A",
         price: price, 
         volume: volume, 
         marketValue: safeMarketValue,
-        type: "Equity", 
+        
+        profitabilityScore: scores.profitScore,
+        stabilityScore: scores.stabilityScore,
+        growthScore: scores.growthScore,
+        qualityScore: scores.qualityScore,
+
         per: metrics.per,
         pbr: metrics.pbr, 
         debtToEquity: metrics.debt,
         roe: metrics.roe,
-        qualityScore: qScore,
+        
         sector: profileData.sector || "N/A",
         industry: profileData.industry || "N/A", 
         lastUpdate: new Date().toISOString(),
         source: `M:${metricsSource}/P:${profileSource}`
       };
+      
+      // [CACHE SAVE]
+      try {
+          sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker));
+      } catch(e) { /* Quota exceeded, ignore */ }
+
+      return resultTicker;
 
     } catch (e: any) {
       if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e;
@@ -237,28 +308,36 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   };
 
-  const analyzeSectorDistribution = async (tickers: QualityTicker[]) => {
+  const analyzeValueTrapsAndSectors = async (tickers: QualityTicker[]) => {
     setAiStatus('ANALYZING');
-    setAiAnalysis("📡 Gemini 3.0: Initializing Sector Analysis...");
-    addLog("Initiating AI Sector Analysis...", "info");
+    setAiAnalysis("📡 Gemini 3.0: Scanning for Value Traps & Sector Trends...");
+    addLog("Initiating AI Value Trap Detection...", "info");
     
     if (!tickers || tickers.length === 0) {
-        setAiAnalysis("⚠️ Analysis Skipped: No Tickers Available.");
+        setAiAnalysis("⚠️ Analysis Skipped: No Tickers.");
         setAiStatus('FAILED');
         return;
     }
 
+    const top5 = tickers.slice(0, 5);
     const prompt = `
-    [Role: Senior Market Analyst]
-    Action: Analyze the Sector/Industry distribution of these top filtered stocks.
-    Data Sample (Top 5 by QualityScore): ${JSON.stringify(tickers.slice(0, 5).map(t => ({s: t.symbol, sec: t.sector, roe: t.roe, qScore: t.qualityScore})))}
-    Total Count: ${tickers.length}
+    [Role: Senior Hedge Fund Risk Manager]
+    Task: Analyze these top 5 high-quality stocks for "Value Traps" (Red Flags) and identify the dominant sector trend.
     
-    Task:
-    1. Identify the dominant sector in this quality list.
-    2. Provide a brief 1-sentence insight on where the "Smart Money" is flowing based on this list.
+    Candidates: ${JSON.stringify(top5.map(t => ({
+        s: t.symbol, n: t.name, 
+        qScore: t.qualityScore, 
+        roe: t.roe, 
+        debt: t.debtToEquity,
+        per: t.per
+    })))}
     
-    Return JSON: { "dominantSector": "string", "insight": "string (Korean)" }
+    Requirements:
+    1. **Sector**: Identify the dominant sector.
+    2. **Value Trap Check**: Are any of these companies historically known for accounting irregularities, massive lawsuits, or dying industries?
+    3. **Insight**: Provide a brief 1-sentence strategic insight in Korean.
+    
+    Return JSON: { "dominantSector": "string", "insight": "string (Korean)", "redFlags": ["symbol1 if bad", "symbol2 if bad"] }
     `;
     
     let result = null;
@@ -272,109 +351,59 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         if (!apiKey) throw new Error("Gemini API Key Missing");
 
         const ai = new GoogleGenAI({ apiKey });
+        const response = await ai.models.generateContent({
+            model: 'gemini-3-flash-preview',
+            contents: prompt,
+            config: { responseMimeType: "application/json" }
+        });
         
-        const callGemini = async (retries = 1): Promise<any> => {
-            try {
-                return await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: prompt,
-                    config: { responseMimeType: "application/json" }
-                });
-            } catch (e: any) {
-                if (retries > 0 && (e.message.includes('429') || e.message.includes('Quota') || e.message.includes('503'))) {
-                     const waitTime = 40000; 
-                     addLog(`Gemini Quota Hit. Retrying in ${waitTime/1000}s...`, "warn");
-                     await new Promise(r => setTimeout(r, waitTime));
-                     return callGemini(retries - 1);
-                }
-                throw e;
-            }
-        };
-
-        const response = await callGemini();
-        // Track Gemini Usage
         trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-        
         result = sanitizeJson(response.text);
         usedProvider = "Gemini 3.0";
     } catch (e: any) {
-        addLog(`Gemini Failed: ${e.message.slice(0,40)}... Switching to Fallback.`, "warn");
-        trackUsage(ApiProvider.GEMINI, 0, true, e.message);
-    }
-
-    if (!result) {
+        addLog(`Gemini Audit Failed: ${e.message}`, "warn");
         try {
-            setActiveBrain("Perplexity Sonar");
-            setAiAnalysis("📡 Switching to Perplexity Sonar (Standard)...");
+            setActiveBrain("Sonar Pro");
             const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-            
-            if (!perplexityKey) throw new Error("Perplexity Key Missing");
-
-            const callPerplexity = async (url: string) => {
-                  const res = await fetch(url, {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${perplexityKey}`,
-                        'Accept': 'application/json' 
-                    },
-                    body: JSON.stringify({
-                        model: 'sonar', 
-                        messages: [
-                            { role: "system", content: "You are a financial data analyst. Return ONLY JSON." },
-                            { role: "user", content: prompt }
-                        ],
-                        temperature: 0.1
-                    })
-                  });
-                  if (!res.ok) throw new Error(`Status ${res.status}`);
-                  return res.json();
-            };
-
-            let pData;
-            try {
-                pData = await callPerplexity('https://api.perplexity.ai/chat/completions');
-            } catch (err: any) {
-                pData = await callPerplexity('/api/perplexity');
-            }
-            
-            // Track Perplexity Usage
-            if (pData.usage) trackUsage(ApiProvider.PERPLEXITY, pData.usage.total_tokens || 0);
-            
-            result = sanitizeJson(pData.choices?.[0]?.message?.content);
-            usedProvider = "Perplexity Sonar";
-
-        } catch (e: any) {
-            addLog(`Perplexity Failed: ${e.message}`, "err");
-            trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
-        }
+            const res = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                body: JSON.stringify({
+                    model: 'sonar-pro', 
+                    messages: [{ role: "user", content: prompt + " Return JSON." }]
+                })
+            });
+            const data = await res.json();
+            if(data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+            result = sanitizeJson(data.choices?.[0]?.message?.content);
+            usedProvider = "Sonar Pro";
+        } catch(err: any) { addLog(`Fallback Failed: ${err.message}`, "err"); }
     }
 
     if (result && result.insight) {
-        const msg = `[${result.dominantSector}] ${result.insight}`;
+        const flags = result.redFlags?.length > 0 ? `⚠️ Red Flags: ${result.redFlags.join(', ')}` : "✅ No Major Red Flags Detected.";
+        const msg = `[${result.dominantSector}] ${result.insight} | ${flags}`;
         setAiAnalysis(`${usedProvider}: ${msg}`);
         setAiStatus('SUCCESS');
-        addLog(`Analysis Complete via ${usedProvider}`, "ok");
+        
+        // Mark Value Traps in Data
+        if (result.redFlags && Array.isArray(result.redFlags)) {
+            const updated = tickers.map(t => ({
+                ...t,
+                isValueTrap: result.redFlags.includes(t.symbol)
+            }));
+            setProcessedData(updated);
+        }
+        
+        addLog(`Deep Audit Complete via ${usedProvider}`, "ok");
     } else {
-        setAiAnalysis("⚠️ Analysis unavailable due to network/quota limits.");
+        setAiAnalysis("⚠️ AI Audit Unavailable.");
         setAiStatus('FAILED');
-        addLog("All AI Providers Exhausted.", "err");
     }
-  };
-
-  const handleManualAnalysis = () => {
-      if (processedData.length > 0) {
-          analyzeSectorDistribution(processedData);
-      } else {
-          addLog("Cannot run analysis: No data processed yet.", "warn");
-      }
   };
 
   const executeDeepQualityScan = async () => {
-    if (!accessToken) {
-        addLog("Error: Google Drive Not Connected.", "err");
-        return;
-    }
+    if (!accessToken) { addLog("Error: Vault Disconnected.", "err"); return; }
     if (loading) return;
 
     setLoading(true);
@@ -384,7 +413,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     setTimeStats({ elapsed: 0, eta: 0 });
     
     setProcessedData([]);
-    setSourceStats({ fmp: 0, finnhub: 0, polygon: 0 });
+    setProgress({ current: 0, total: 0, cacheHits: 0 });
     setFmpDepleted(false);
     setActiveBrain('Processing');
     addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
@@ -396,9 +425,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Stage 1 source missing. Run Stage 1 first.", "err");
-        setLoading(false);
-        return;
+        addLog("Stage 1 data missing.", "err");
+        setLoading(false); return;
       }
 
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
@@ -406,34 +434,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }).then(r => r.json());
 
       let targets = content.investable_universe || [];
-      if (!Array.isArray(targets)) {
-          addLog("Stage 1 data invalid. Array expected.", "err");
-          setLoading(false);
-          return;
-      }
-
       const totalCandidates = targets.length;
-      addLog(`Universe Loaded: ${totalCandidates} Candidates. Sorting...`, "info");
       
-      targets.sort((a: any, b: any) => {
-          const valA = Number(a.price || 0) * Number(a.volume || 0);
-          const valB = Number(b.price || 0) * Number(b.volume || 0);
-          return valB - valA;
-      });
+      // Sort by Volume*Price to prioritize liquid assets
+      targets.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
 
-      addLog(`Starting Full Scan on ${totalCandidates} Assets.`, "ok");
-      setProgress({ current: 0, total: totalCandidates });
+      addLog(`Universe Loaded: ${totalCandidates} Assets. Starting 3-Factor Scan...`, "info");
+      setProgress({ current: 0, total: totalCandidates, cacheHits: 0 });
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
-      let batchRetryCount = 0;
 
       while (currentIndex < totalCandidates) {
-          setNetworkStatus(fmpDepleted 
-              ? `Safe Mode (Finnhub) - Delay ${DELAY_SAFE}ms` 
-              : `Turbo Mode (FMP) - Delay ${DELAY_TURBO}ms`
-          );
-
+          setNetworkStatus(fmpDepleted ? `Safe Mode (Delay ${DELAY_SAFE}ms)` : `Turbo Mode (Delay ${DELAY_TURBO}ms)`);
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
           
           try {
@@ -441,66 +454,47 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               const results = await Promise.all(promises);
               
               results.forEach(r => {
-                  if (r && r.symbol) {
-                      validResults.push(r);
-                      setSourceStats(prev => {
-                          const src = r.source || "";
-                          return {
-                              fmp: src.includes("M:FMP") ? prev.fmp + 1 : prev.fmp,
-                              finnhub: src.includes("M:Finnhub") ? prev.finnhub + 1 : prev.finnhub,
-                              polygon: src.includes("P:Polygon") ? prev.polygon + 1 : prev.polygon
-                          };
-                      });
-                  }
+                  if (r) validResults.push(r);
               });
 
               currentIndex += BATCH_SIZE;
-              batchRetryCount = 0; 
-              setProgress({ current: Math.min(currentIndex, totalCandidates), total: totalCandidates });
+              setProgress(prev => ({ ...prev, current: Math.min(currentIndex, totalCandidates) }));
               
               const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
               await new Promise(r => setTimeout(r, currentDelay));
 
           } catch (e: any) {
               if (e.message === "FMP_LIMIT") {
-                  addLog(`FMP Limit Hit! Engaging Safe Mode...`, "warn");
+                  addLog(`FMP Limit. Switching to Backup Providers...`, "warn");
                   setFmpDepleted(true); 
                   await new Promise(r => setTimeout(r, 1000));
-                  batchRetryCount++;
               } else if (e.message === "FINNHUB_LIMIT") {
-                  addLog(`Finnhub Limit. Cooling down (10s)...`, "warn");
+                  addLog(`Finnhub Rate Limit. Pausing...`, "warn");
                   await new Promise(r => setTimeout(r, 10000));
-                  batchRetryCount++;
               } else {
                   addLog(`Batch Error: ${e.message}`, "err");
-                  currentIndex += BATCH_SIZE; 
-                  batchRetryCount = 0;
-              }
-
-              if (batchRetryCount > 3) {
-                  addLog("Batch Failed 3x. Skipping to prevent loop.", "err");
                   currentIndex += BATCH_SIZE;
-                  batchRetryCount = 0;
               }
           }
       }
 
-      addLog(`Full Scan Complete. ${validResults.length} Assets Validated.`, "info");
+      addLog(`Scan Complete. ${validResults.length} Qualified Assets. Validating...`, "info");
       
+      // Filter & Sort by QualityScore
       const eliteSurvivors = validResults
-          .sort((a, b) => (Number(b.qualityScore) || 0) - (Number(a.qualityScore) || 0)) 
+          .sort((a, b) => b.qualityScore - a.qualityScore) 
           .slice(0, TARGET_SELECTION_COUNT);
 
       setProcessedData(eliteSurvivors);
-      addLog(`Selection Finalized. Top ${eliteSurvivors.length} Alpha Candidates Ready.`, "ok");
-      setNetworkStatus("Status: Scan Complete");
+      
+      // AI Value Trap Check
+      await analyzeValueTrapsAndSectors(eliteSurvivors);
 
-      analyzeSectorDistribution(eliteSurvivors);
-
+      // Upload to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "4.9.9", strategy: "Quality_First_Adaptive_Scan", timestamp: new Date().toISOString() },
+        manifest: { version: "5.0.0", strategy: "3-Factor_Quant_Model", timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -548,6 +542,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  // Prepare Chart Data (Quality vs Value)
+  // X: Valuation (Cheapness) = 100 - (PER score inverted, so higher is cheaper) -> Simplify: use GrowthScore as proxy for "Attractiveness" or just PER inverted.
+  // Let's use: X = GrowthScore (Value/Upside), Y = QualityScore (Fundamentals)
+  const chartData = processedData.slice(0, 50).map(t => ({
+      symbol: t.symbol,
+      x: t.growthScore, // High means undervalued/high growth potential
+      y: t.qualityScore, // High means strong fundamentals
+      z: t.marketValue, // Bubble size
+      fill: t.isValueTrap ? '#ef4444' : '#10b981'
+  }));
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -559,11 +564,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v4.9.9</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Adaptive Engine Ready'}
+                            {loading ? `Scanning: ${progress.current}/${progress.total}` : '3-Factor Quant Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
                             fmpDepleted
@@ -572,7 +577,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                         }`}>
                             {networkStatus}
                         </span>
-                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                        {progress.cacheHits > 0 && (
+                            <span className="text-[8px] px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-500/20 rounded font-black uppercase">
+                                Cache Hits: {progress.cacheHits}
+                            </span>
+                        )}
+                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
                    {loading && (
                      <div className="flex items-center space-x-2 mt-0.5">
@@ -589,41 +599,81 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Scanning & Scoring...' : 'Start Full Quality Scan'}
+              {loading ? 'Executing Quant Scan...' : 'Start Deep Quality Filter'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
-              <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-                <div className="flex justify-between items-center mb-6">
-                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
-                  <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
-                </div>
-                <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                  <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
-                </div>
-                <p className="text-[8px] text-slate-500 mt-3 font-bold uppercase tracking-widest">
-                   Target: Top {TARGET_SELECTION_COUNT} Quality Candidates
-                </p>
+              {/* Progress & Analysis Column */}
+              <div className="flex flex-col gap-6">
+                  <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
+                    <div className="flex justify-between items-center mb-6">
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
+                      <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
+                    </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
+                      <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                    </div>
+                    <div className="flex justify-between text-[8px] uppercase font-bold text-slate-500">
+                        <span>Profitability Check</span>
+                        <span>Stability Check</span>
+                        <span>Value Check</span>
+                    </div>
+                  </div>
+
+                  <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
+                     <div className="flex justify-between items-center mb-2">
+                        <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Value Trap Detector</p>
+                     </div>
+                     <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
+                        {aiAnalysis || "Awaiting Top-Tier Candidate Analysis..."}
+                     </p>
+                     {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
+                     {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
+                  </div>
               </div>
 
-              <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
-                 <div className="flex justify-between items-center mb-2">
-                    <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Sector Insight</p>
-                    {!loading && processedData.length > 0 && (
-                        <button 
-                            onClick={handleManualAnalysis}
-                            className="text-[8px] px-2 py-1 bg-blue-600/20 hover:bg-blue-600 text-blue-300 hover:text-white rounded transition-colors uppercase font-bold border border-blue-500/20"
-                        >
-                            Retry Analysis
-                        </button>
-                    )}
+              {/* Quality Matrix Chart Column */}
+              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50)</p>
+                 <div className="flex-1 w-full h-full mt-4">
+                     {processedData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
+                                <XAxis type="number" dataKey="x" name="Value Score" stroke="#64748b" fontSize={9} label={{ value: 'Value Score (Upside)', position: 'bottom', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
+                                <YAxis type="number" dataKey="y" name="Quality Score" stroke="#64748b" fontSize={9} label={{ value: 'Quality Score', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
+                                <Tooltip 
+                                    cursor={{ strokeDasharray: '3 3' }}
+                                    content={({ active, payload }) => {
+                                        if (active && payload && payload.length) {
+                                            const d = payload[0].payload;
+                                            return (
+                                                <div className="bg-slate-900 border border-slate-700 p-2 rounded-lg shadow-xl">
+                                                    <p className="text-xs font-black text-white">{d.symbol}</p>
+                                                    <p className="text-[9px] text-emerald-400">Q: {d.y} | V: {d.x}</p>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    }}
+                                />
+                                <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
+                                <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
+                                <Scatter name="Elite Stocks" data={chartData} fill="#3b82f6">
+                                    {chartData.map((entry, index) => (
+                                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                                    ))}
+                                    <LabelList dataKey="symbol" position="top" style={{ fill: '#94a3b8', fontSize: '8px', fontWeight: 'bold' }} />
+                                </Scatter>
+                            </ScatterChart>
+                        </ResponsiveContainer>
+                     ) : (
+                         <div className="flex items-center justify-center h-full opacity-20">
+                             <p className="text-[10px] font-black uppercase tracking-[0.3em]">No Data Visualization</p>
+                         </div>
+                     )}
                  </div>
-                 <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
-                    {aiAnalysis || "Awaiting Post-Scan Analysis..."}
-                 </p>
-                 {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
-                 {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
               </div>
           </div>
         </div>
@@ -632,7 +682,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       <div className="xl:col-span-1">
         <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Ticker_Log</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Logs</h3>
+            <button onClick={() => { sessionStorage.clear(); addLog("Cache Cleared. Rescan needed.", "warn"); }} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors">Clear Cache</button>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
