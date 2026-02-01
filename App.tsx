@@ -111,12 +111,6 @@ const App: React.FC = () => {
       }
   };
 
-  // Cleanup on Stage Change
-  useEffect(() => {
-    setSelectedStock(null);
-    setStockAuditCache({}); 
-  }, [currentStage]);
-
   useEffect(() => {
     setAuditBrain(selectedBrain);
   }, [selectedBrain]);
