@@ -80,10 +80,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const fetchAiIctScore = async (symbol: string, currentPrice: number, engine: ApiProvider): Promise<{ score: number, footprint: string, zone: string, mtf: boolean, errorType?: string } | null> => {
     const prompt = `SMC ${symbol} @ ${currentPrice}. JSON: {"score":0-100,"fp":"Bull|Bear","zn":"DISC|PREM","mtf":bool}`;
+    const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
 
     try {
-      if (engine === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      if (engine === ApiProvider.GEMINI && geminiKey) {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -126,13 +127,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [FIXED] 4단계 결과물 250개 전체를 중간 누락 없이 입력으로 사용
       const targets = content.technical_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
 
       const results: IctScoredTicker[] = [];
-      const aiLimit = 20; // 상위 20개 종목에 대해 정밀 ICT 분석 수행
+      const aiLimit = 20; 
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -151,7 +151,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiIct || aiIct.errorType) {
-             // 퀀트 기반 SMC 지표 전수 배점
              ictScore = 65 + (Math.random() * 15);
              aiIct = { zn: "DISC", mtf: true };
           }
@@ -174,7 +173,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       setProgress({ current: total, total });
       addLog(`SMC Scan Completed. Finalizing Elite...`, "ok");
 
-      // [FIXED] 전수 조사된 250개 중 최종 종합 알파 스코어 상위 50종목만 추출하여 전달
       const finalSurvivors = results.sort((a,b)=>b.compositeAlpha-a.compositeAlpha).slice(0, 50);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
