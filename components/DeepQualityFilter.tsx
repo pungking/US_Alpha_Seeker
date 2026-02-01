@@ -50,7 +50,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
   
   const logRef = useRef<HTMLDivElement>(null);
@@ -58,7 +57,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const BATCH_SIZE = 5; 
   const DELAY_TURBO = 300;   
   const DELAY_SAFE = 2200;   
-  const TARGET_SELECTION_COUNT = 250; // [FIXED] 250종목으로 제한하여 3단계로 전달
+  const TARGET_SELECTION_COUNT = 250; // [FIXED] 3단계로 넘길 최종 정예 250종목 고정
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
