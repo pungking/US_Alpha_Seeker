@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
@@ -116,14 +117,15 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3): Promise<any>
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  const apiKey = process.env.API_KEY || geminiConfig?.key || "";
+  // Obtain API key exclusively from environment variable
+  const apiKey = process.env.API_KEY || "";
   const prompt = `Chief Quant Strategist Backtest for ${stock.symbol}. Period: 24M. Provide deep institutional-grade simulation data. JSON: {"metrics":{"winRate":"%","profitFactor":"#","maxDrawdown":"%","sharpeRatio":"#"},"historicalContext":"Professional Korean Markdown, No Citations"}`;
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const result = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA } }));
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+      // Correct property access for text
       const data = sanitizeAndParseJson(result.text || "");
       if (data) data.historicalContext = cleanAiOutput(data.historicalContext);
       return { data, isRealData: false };
@@ -133,8 +135,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  const apiKey = process.env.API_KEY || geminiConfig?.key || "";
+  // Obtain API key exclusively from environment variable
+  const apiKey = process.env.API_KEY || "";
   const top3 = candidates.slice(0, 3).map(c => `${c.symbol}: ${c.aiVerdict}`);
   const date = new Date().toLocaleDateString();
   const prompt = `Hedge Fund Alpha Intelligence. Date: ${date}. Targets: ${top3.join(' | ')}. Return a high-impact, actionable 3-line brief in formal Korean. No Emojis. No Citations.`;
@@ -142,6 +144,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
     const ai = new GoogleGenAI({ apiKey });
     const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
     trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
+    // Correct property access for text
     return cleanAiOutput(result.text || "BRIEF_EMPTY");
   } catch (e: any) { return "BRIEF_ERROR"; }
 }
@@ -149,7 +152,8 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 export async function analyzePipelineStatus(data: { currentStage: number; apiStatuses: any[]; mode: string; recommendedData?: any[]; symbols?: string[]; targetStock?: any; }, provider: ApiProvider): Promise<string> {
   const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
-  const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+  // Strictly use environment variable for API key
+  const geminiKey = process.env.API_KEY || "";
   const sonarKey = perplexityConfig?.key || "";
   
   const dateStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
@@ -179,6 +183,7 @@ export async function analyzePipelineStatus(data: { currentStage: number; apiSta
         const ai = new GoogleGenAI({ apiKey: geminiKey });
         const result = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: systemPrompt }));
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        // Correct property access for text
         report = result.text || "";
       } catch (e) { console.warn("Node Failover Engaged..."); }
   }
@@ -203,8 +208,8 @@ export async function analyzePipelineStatus(data: { currentStage: number; apiSta
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  const apiKey = process.env.API_KEY || geminiConfig?.key || "";
+  // Strictly use environment variable for API key
+  const apiKey = process.env.API_KEY || "";
   const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price})`);
   const dateStr = new Date().toLocaleDateString();
   const prompt = `Quant Portfolio Synthesis. Date: ${dateStr}. Targets: ${top10.join(',')}. JSON Array of objects matching schema. Professional Korean investmentOutlook without Citations. No fake headers.`;
@@ -216,6 +221,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA } 
     }));
     trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
+    // Correct property access for text
     const data = sanitizeAndParseJson(result.text || "");
     if (Array.isArray(data)) {
         data.forEach(item => {
