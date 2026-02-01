@@ -24,7 +24,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -97,10 +96,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-            body: JSON.stringify({
-                model: 'sonar', 
-                messages: [{ role: "user", content: prompt }]
-            })
+            body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: prompt }] })
         });
         const data = await pRes.json();
         if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
@@ -125,18 +121,19 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) throw new Error("Stage 2 source missing.");
+      if (!listRes.files || listRes.files.length === 0) throw new Error("Stage 2 source missing.");
       
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      const targets = (content.elite_universe || []).sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, 250); 
+      // [FIXED] 2단계에서 넘어온 전체 종목(최대 500개) 분석 수행
+      const targets = content.elite_universe || []; 
       const total = targets.length;
       setProgress({ current: 0, total });
       
       const results: ScoredTicker[] = [];
-      const eliteLimit = 35; 
+      const eliteLimit = 35; // 고품질 분석을 위한 상위 AI 분석 제한
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -154,6 +151,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
 
         if (!aiData || aiData.errorType) {
+          // AI 분석 범위를 넘어선 종목은 퀀트 로직으로 기본 점수 부여
           finalScore = Math.min(100, (Number(item.roe) || 0) * 2.5 + 40);
           aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
         }
@@ -168,7 +166,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         });
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 200));
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 100));
       }
 
       setProgress({ current: total, total });
