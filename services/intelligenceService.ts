@@ -23,6 +23,12 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
   } catch (e) { console.error(e); }
 };
 
+const cleanAiOutput = (text: string) => {
+    if (!text) return "";
+    // 인용구 [1], [2] 등 제거 및 불필요한 특수문자 정리
+    return text.replace(/\[\d+\]/g, '').trim();
+};
+
 export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
   try {
      const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
@@ -107,13 +113,15 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3): Promise<any>
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
   const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const apiKey = process.env.API_KEY || geminiConfig?.key || "";
-  const prompt = `Backtest ${stock.symbol}: 24mo. JSON: {"metrics":{"winRate":"%","profitFactor":"#","maxDrawdown":"%","sharpeRatio":"#"},"historicalContext":"Markdown Korean"}`;
+  const prompt = `Chief Quant Strategist Backtest for ${stock.symbol}. Period: 24M. Provide deep institutional-grade simulation data. JSON: {"metrics":{"winRate":"%","profitFactor":"#","maxDrawdown":"%","sharpeRatio":"#"},"historicalContext":"Professional Korean Markdown, No Citations"}`;
   try {
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey });
       const result = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA } }));
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      return { data: sanitizeAndParseJson(result.text || ""), isRealData: false };
+      const data = sanitizeAndParseJson(result.text || "");
+      if (data) data.historicalContext = cleanAiOutput(data.historicalContext);
+      return { data, isRealData: false };
     }
     return { data: null, error: "FALLBACK_NOT_CONFIGURED" };
   } catch (e: any) { return { data: null, error: e.message }; }
@@ -123,12 +131,13 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const apiKey = process.env.API_KEY || geminiConfig?.key || "";
   const top3 = candidates.slice(0, 3).map(c => `${c.symbol}: ${c.aiVerdict}`);
-  const prompt = `Date: ${new Date().toLocaleDateString()}. Data: ${top3.join('|')}. Return 3-line Korean report. NO EMOJIS.`;
+  const date = new Date().toLocaleDateString();
+  const prompt = `Hedge Fund Alpha Intelligence. Date: ${date}. Targets: ${top3.join(' | ')}. Return a high-impact, actionable 3-line brief in formal Korean. No Emojis. No Citations.`;
   try {
     const ai = new GoogleGenAI({ apiKey });
     const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
     trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
-    return result.text || "BRIEF_EMPTY";
+    return cleanAiOutput(result.text || "BRIEF_EMPTY");
   } catch (e: any) { return "BRIEF_ERROR"; }
 }
 
@@ -138,55 +147,70 @@ export async function analyzePipelineStatus(data: { currentStage: number; apiSta
   const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
   const sonarKey = perplexityConfig?.key || "";
   
-  const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 4).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
-  const prompt = `Audit: ${data.mode}. Target: ${dataBrief}. Return concise Korean Markdown (Max 150 words). NO EMOJIS. Focus: Compliance/Risk.`;
+  const dateStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
+  const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 5).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
   
-  // Tier 1: Gemini
+  const systemPrompt = `You are the Chief Investment Officer (CIO) at a top-tier Wall Street Hedge Fund.
+  Current Analysis Date: ${dateStr}
+  Analysis Target: ${dataBrief}
+  
+  TASK: Provide a rigorous, institucional-grade investment memorandum. 
+  FOCUS: Strategic integrity, macro-economic alignment, quantitative risk metrics, and fund flow analysis.
+  STYLE: Professional, decisive, sophisticated Korean.
+  RESTRICTION: DO NOT use Emojis. DO NOT include citations like [1][2][3].
+  FORMAT: High-density Markdown. Start with "# [INVESTMENT_AUDIT_REPORT]" then "### ANALYSIS_DATE: ${dateStr}".`;
+
+  let report = "";
+
   if (provider === ApiProvider.GEMINI && geminiKey) {
       try {
         const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+        const result = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: systemPrompt }));
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        return result.text || "AUDIT_EMPTY";
-      } catch (e) { console.warn("Gemini Audit Node Failed. Falling back..."); }
+        report = result.text || "";
+      } catch (e) { console.warn("Node Failover Engaged..."); }
   }
 
-  // Tier 2: Sonar (Perplexity) Fallback for Audit
-  if (sonarKey) {
+  if (!report && sonarKey) {
       try {
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
-            body: JSON.stringify({
-                model: 'sonar',
-                messages: [{ role: "user", content: prompt + " Output as concise Markdown (Korean)." }]
-            })
+            body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: systemPrompt }] })
         });
         const pJson = await pRes.json();
         const text = pJson.choices?.[0]?.message?.content || "";
         if (text) {
             if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
-            return text;
+            report = text;
         }
-      } catch (e) { console.error("Sonar Audit Node Failed.", e); }
+      } catch (e) { console.error("Sonar Critical Failure."); }
   }
 
-  return "AUDIT_OFFLINE: All neural nodes are currently unreachable.";
+  return cleanAiOutput(report || "CRITICAL_NODE_FAILURE: Analysis Unavailable.");
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
   const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const apiKey = process.env.API_KEY || geminiConfig?.key || "";
-  const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price},S:${c.compositeAlpha})`);
-  const prompt = `Synth Top 6 from: ${top10.join(',')}. JSON Array: {"symbol","aiVerdict","convictionScore","expectedReturn","investmentOutlook"(Markdown Korean)}. NO EMOJIS.`;
+  const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price})`);
+  const dateStr = new Date().toLocaleDateString();
+  const prompt = `CIO Level Portfolio Synthesis. Date: ${dateStr}. Targets: ${top10.join(',')}. JSON Array of objects matching schema. Professional Korean investmentOutlook without Citations.`;
   try {
     const ai = new GoogleGenAI({ apiKey });
-    const result = await ai.models.generateContent({ 
+    const result = await fetchWithRetry(() => ai.models.generateContent({ 
       model: 'gemini-3-flash-preview', 
       contents: prompt, 
       config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA } 
-    });
+    }));
     trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
-    return { data: sanitizeAndParseJson(result.text || "") };
+    const data = sanitizeAndParseJson(result.text || "");
+    if (Array.isArray(data)) {
+        data.forEach(item => {
+            item.investmentOutlook = cleanAiOutput(item.investmentOutlook);
+            if (item.selectionReasons) item.selectionReasons = item.selectionReasons.map((r: string) => cleanAiOutput(r));
+        });
+    }
+    return { data };
   } catch (e: any) { return { data: null, error: e.message }; }
 }
