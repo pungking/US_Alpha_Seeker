@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -25,8 +26,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
-
+  
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
   const [logs, setLogs] = useState<string[]>(['> Tech_Engine v5.1.5: Optimized Momentum Protocol.']);
@@ -83,6 +83,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       if (engine === ApiProvider.GEMINI) {
+        // Correct initialization of @google/genai as per guidelines
         const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
@@ -90,6 +91,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           config: { responseMimeType: "application/json" }
         });
         trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+        // Correct property access for text
         return sanitizeJson(response.text || "");
       } else {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
@@ -126,6 +128,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
+      // [FIXED] 3단계 결과 전체를 입력으로 사용
       const targets = content.fundamental_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
@@ -160,7 +163,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           });
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 150));
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 100));
       }
 
       setProgress({ current: total, total });
@@ -168,6 +171,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
+      // Fix: Use totalAlpha for sorting instead of non-existent alphaScore
       const payload = { manifest: { version: "5.1.5", count: results.length }, technical_universe: results.sort((a,b)=>b.totalAlpha-a.totalAlpha) };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
