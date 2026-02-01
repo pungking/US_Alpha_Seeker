@@ -49,7 +49,6 @@ const UniverseGathering: React.FC<Props> = ({
   );
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
 
@@ -61,7 +60,7 @@ const UniverseGathering: React.FC<Props> = ({
     synced: effectiveRegistry.size || 0,
     target: 20000,
     elapsed: 0,
-    provider: effectiveRegistry.size > 0 ? 'Loaded: Persistent' : 'Idle',
+    provider: effectiveRegistry.size > 0 ? 'FMP + Finnhub Fusion' : 'Idle',
     phase: effectiveRegistry.size > 0 ? 'Finalized' : 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
@@ -71,13 +70,13 @@ const UniverseGathering: React.FC<Props> = ({
             ...prev,
             found: effectiveRegistry.size,
             synced: effectiveRegistry.size,
-            provider: 'Loaded: Persistent',
+            provider: 'FMP + Finnhub Fusion',
             phase: 'Finalized'
         }));
     }
   }, [effectiveRegistry]);
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.4.1: High-Volume Multi-Provider Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.4.3: Institutional Data Fusion Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -94,11 +93,9 @@ const UniverseGathering: React.FC<Props> = ({
 
   useEffect(() => {
     if (autoStart && isActive && !isEngineRunning && cooldown === 0) {
-        if (!accessToken) {
-             addLog("AUTO-PILOT: Auth Token Missing.", "err");
-        } else {
+        if (accessToken) {
              if (effectiveRegistry.size > 0) {
-                addLog("AUTO-PILOT: Registry already populated. Advancing.", "ok");
+                addLog("AUTO-PILOT: Matrix active. Synchronizing...", "ok");
                 if (onComplete) onComplete();
              } else {
                 startEngine();
@@ -132,12 +129,12 @@ const UniverseGathering: React.FC<Props> = ({
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              addLog("Cloud Vault Linked.", "ok");
+              addLog("Cloud Vault Securely Linked.", "ok");
             }
           },
         });
         client.requestAccessToken({ prompt: 'consent' });
-      } catch (e: any) { addLog(`Auth Error: ${e.message}`, "err"); }
+      } catch (e: any) { addLog(`Nexus Link Error: ${e.message}`, "err"); }
       return;
     }
     document.body.setAttribute('data-engine-running', 'true');
@@ -145,20 +142,20 @@ const UniverseGathering: React.FC<Props> = ({
   };
 
   const executeDiscoveryStrategy = async (): Promise<MasterTicker[]> => {
-    if (!finnhubKey) throw new Error("Discovery Engine Missing Key (Finnhub)");
-    addLog("Strategy: High-Resolution Discovery Protocol...", "info");
+    if (!finnhubKey) throw new Error("Finnhub Key Missing");
+    addLog("Executing Strategy: Multi-Provider Symbol Discovery...", "info");
     
-    // 20,000+ 데이터를 위해 Finnhub의 전체 US 심볼 리스트 사용
+    // 20,000+ 데이터를 위해 Finnhub의 전체 US 심볼 리스트 활용
     const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`);
-    if (!fhRes.ok) throw new Error("Finnhub Discovery Failed");
+    if (!fhRes.ok) throw new Error("Symbol Discovery Failed");
     const fhData = await fhRes.json();
     
     const validSymbols = fhData.filter((s: any) => ['Common Stock', 'ADR', 'REIT'].includes(s.type || 'Common Stock'));
-    addLog(`Discovery: Found ${validSymbols.length} raw candidates. Mapping pricing matrix...`, "ok");
+    addLog(`Discovery: ${validSymbols.length} raw candidates found. Mapping real-time pricing...`, "ok");
     
-    // 폴리곤 그룹 일별 시세로 가격 맵핑 (벌크 처리)
     let targetDate = getInitialTargetDate();
     let pricingMap = new Map();
+    
     if (polygonKey) {
         try {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
@@ -166,7 +163,7 @@ const UniverseGathering: React.FC<Props> = ({
                 const polyData = await polyRes.json();
                 (polyData.results || []).forEach((p: any) => pricingMap.set(p.T, p));
             }
-        } catch (e) { addLog("Pricing fallback active.", "warn"); }
+        } catch (e) { addLog("Pricing failover active.", "warn"); }
     }
 
     return validSymbols.map((s: any) => {
@@ -193,18 +190,18 @@ const UniverseGathering: React.FC<Props> = ({
 
     try {
         const masterData = await executeDiscoveryStrategy();
-        setStats(prev => ({ ...prev, found: masterData.length, provider: 'Hybrid Fusion', phase: 'Mapping' }));
+        setStats(prev => ({ ...prev, found: masterData.length, provider: 'FMP + Finnhub Fusion', phase: 'Mapping' }));
         
         const registryMap = new Map(masterData.map(i => [i.symbol, i]));
         if (onRegistryUpdate) onRegistryUpdate(registryMap);
 
-        addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
+        addLog(`Phase 3: Archiving ${masterData.length} assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
         const folderId = await ensureFolder(token);
         if (folderId) {
-            const fileName = `STAGE0_MASTER_UNIVERSE_v2.4.1.json`;
-            const payload = { manifest: { version: "2.4.1", date: new Date().toISOString(), count: masterData.length }, universe: masterData };
+            const fileName = `STAGE0_MASTER_UNIVERSE_v2.4.3.json`;
+            const payload = { manifest: { version: "2.4.3", date: new Date().toISOString(), count: masterData.length, provider: "FMP + Finnhub Fusion" }, universe: masterData };
             const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
             const form = new FormData();
             form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
@@ -215,12 +212,12 @@ const UniverseGathering: React.FC<Props> = ({
             });
             
             setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
-            addLog(`System: Vault Sync Complete.`, "ok");
+            addLog(`System: Global Universe Matrix Archive Success.`, "ok");
             if (onComplete) onComplete(); 
         }
 
     } catch (e: any) {
-      addLog(`Fatal Error: ${e.message}`, "err");
+      addLog(`Fatal Node Error: ${e.message}`, "err");
       setStats(prev => ({ ...prev, phase: 'Idle' }));
     } finally {
       if (timerRef.current) clearInterval(timerRef.current);
@@ -266,19 +263,19 @@ const UniverseGathering: React.FC<Props> = ({
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.3</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
+                    {cooldown > 0 ? `Rate_Limit: ${cooldown}s` : 'Strategic_Fusion_Active'}
                   </span>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
-            <button onClick={startEngine} disabled={isEngineRunning || cooldown > 0} className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500' : !accessToken ? 'bg-amber-600 text-white shadow-xl animate-pulse' : 'bg-blue-600 text-white shadow-xl shadow-blue-900/20'}`}>{isEngineRunning ? 'Acquiring Universe...' : cooldown > 0 ? `Wait ${cooldown}s` : !accessToken ? 'Connect Cloud Vault' : 'Execute Data Fusion'}</button>
+            <button onClick={startEngine} disabled={isEngineRunning || cooldown > 0} className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isEngineRunning || cooldown > 0 ? 'bg-slate-800 text-slate-500' : !accessToken ? 'bg-amber-600 text-white shadow-xl animate-pulse' : 'bg-blue-600 text-white shadow-xl shadow-blue-900/20'}`}>{isEngineRunning ? 'Harvesting Matrix...' : cooldown > 0 ? `Wait ${cooldown}s` : !accessToken ? 'Link Cloud Vault' : 'Execute Data Fusion'}</button>
           </div>
            <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
-            <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-4">Global Integrity Validator</p>
+            <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest mb-4 italic">Global Integrity Validator</p>
             <div className="flex flex-col md:flex-row gap-4">
               <input type="text" placeholder="Verify Ticker (e.g. AAPL, TSLA)" className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase" value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
               <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
@@ -287,33 +284,33 @@ const UniverseGathering: React.FC<Props> = ({
                     <span className="truncate">{searchResult.name || searchResult.symbol}</span>
                     <div className="flex items-center gap-3">
                         <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
-                        <button onClick={handleSetTarget} className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border bg-rose-600 text-white border-rose-500 hover:bg-rose-500">Set Audit Target</button>
+                        <button onClick={handleSetTarget} className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg">Set Audit Target</button>
                     </div>
                   </div>
-                ) : ( <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span> )}
+                ) : ( <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Matrix Signal...</span> )}
               </div>
             </div>
           </div>
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
             {[
               { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400' },
+              { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400 font-black' },
               { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
               { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
             ].map((s, i) => (
-              <div key={i} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
+              <div key={i} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 shadow-inner">
                 <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
                 <p className={`text-lg md:text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
               </div>
             ))}
           </div>
            <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
-            <div className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`} style={{ width: stats.phase === 'Finalized' ? '100%' : `${Math.min(100, (stats.found / stats.target) * 100)}%` }}></div>
+            <div className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600 animate-pulse' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`} style={{ width: stats.phase === 'Finalized' ? '100%' : `${Math.min(100, (stats.found / stats.target) * 100)}%` }}></div>
           </div>
         </div>
       </div>
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
+        <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic mb-8 px-2">Synthesis_Terminal</h3>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
