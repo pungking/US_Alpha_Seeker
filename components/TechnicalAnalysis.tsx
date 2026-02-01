@@ -79,10 +79,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const fetchAiTechScore = async (symbol: string, engine: ApiProvider): Promise<{ score: number, rsRating: number, squeeze: string, trend: string, errorType?: string } | null> => {
     const prompt = `Tech ${symbol}: Momentum. JSON: {"score":0-100,"rs":0-100,"sq":"NONE|SQ","tr":"UP|DN"}`;
+    const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
 
     try {
-      if (engine === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+      if (engine === ApiProvider.GEMINI && geminiKey) {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -125,13 +126,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [FIXED] 3단계 결과물 250개 전체를 대상으로 전수 조사
       const targets = content.fundamental_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
 
       const results: TechScoredTicker[] = [];
-      const aiLimit = 30; // 상위 30개 정예 종목에 대해 정밀 AI 기술 분석 수행
+      const aiLimit = 30; 
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -149,14 +149,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiTech || aiTech.errorType) {
-             // 퀀트 가중치 기반 기술 점수 전수 배점
              techScore = 55 + (Math.random() * 20);
              aiTech = { rs: 75, sq: "NONE" };
           }
 
           results.push({
             symbol: item.symbol, name: item.name, price: item.price, 
-            fundamentalScore: item.alphaScore, // Fundamental Stage의 alphaScore를 저장
+            fundamentalScore: item.alphaScore, 
             technicalScore: techScore, 
             totalAlpha: (item.alphaScore * 0.4) + (techScore * 0.6),
             techMetrics: { trend: techScore, momentum: techScore, volumePattern: 80, adl: 70, forceIndex: 65, srLevels: 85, rsRating: aiTech.rs, squeezeState: aiTech.sq },
@@ -172,7 +171,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
-      // [FIXED] 중간 정렬은 totalAlpha를 기준으로 수행
       const payload = { manifest: { version: "5.1.5", count: results.length }, technical_universe: results.sort((a,b)=>b.totalAlpha-a.totalAlpha) };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
