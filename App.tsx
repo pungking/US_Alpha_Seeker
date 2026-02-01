@@ -1,525 +1,521 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import { ApiProvider, ApiStatus } from './types';
+import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
+import ApiStatusCard from './components/ApiStatusCard';
+import UniverseGathering from './components/UniverseGathering';
+import PreliminaryFilter from './components/PreliminaryFilter';
+import DeepQualityFilter from './components/DeepQualityFilter';
+import FundamentalAnalysis from './components/FundamentalAnalysis';
+import TechnicalAnalysis from './components/TechnicalAnalysis';
+import IctAnalysis from './components/IctAnalysis';
+import AlphaAnalysis from './components/AlphaAnalysis';
+import MarketTicker from './components/MarketTicker';
+import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
+import { sendTelegramReport } from './services/telegramService';
 
-// [Advanced Data Structure for Fundamental Fortress]
-interface FundamentalTicker {
-  symbol: string;
-  name: string;
-  price: number;
-  marketCap: number;
-  sector: string;
+const App: React.FC = () => {
+  const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
+  const [currentStage, setCurrentStage] = useState(0);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
+  const [isProd, setIsProd] = useState(false);
   
-  // Algorithmic Scores
-  fScore: number;       // Piotroski (0-9)
-  zScore: number;       // Altman (Safe > 3.0)
-  intrinsicValue: number; // Graham Number
-  upsidePotential: number; // %
+  // --- HYBRID MODE STATE ---
+  const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
+  const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
+  const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
   
-  // 6-Factor Radar Data (0-100 normalized)
-  radarData: {
-      valuation: number;
-      profitability: number;
-      growth: number;
-      financialHealth: number;
-      moat: number;
-      momentum: number;
-  };
+  // AI Usage State
+  const [aiUsage, setAiUsage] = useState<any>({ 
+    gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
+    perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
+  });
 
-  // Raw Metrics for Display
-  eps: number;
-  bps: number;
-  pe: number;
-
-  fundamentalScore: number; // Final Composite Score
-  lastUpdate: string;
-}
-
-interface Props {
-  autoStart?: boolean;
-  onComplete?: () => void;
-  onStockSelected?: (stock: any) => void;
-}
-
-const METRIC_EXPLANATIONS: Record<string, { title: string, desc: string, range: string }> = {
-    'F_SCORE': {
-        title: "Piotroski F-Score (재무 건전성)",
-        desc: "기업의 재무 상태를 수익성, 레버리지, 운영 효율성 등 9가지 항목으로 정밀 진단한 점수입니다. \n\n**해석 가이드**:\n- **8~9점**: 초우량 기업 (Strong Buy)\n- **5~7점**: 양호 (Hold/Buy)\n- **0~4점**: 재무 부실 위험 (Avoid)",
-        range: "Target: 7 ~ 9"
-    },
-    'Z_SCORE': {
-        title: "Altman Z-Score (파산 위험도)",
-        desc: "기업의 2년 내 파산 가능성을 예측하는 확률 모델입니다. \n\n**해석 가이드**:\n- **3.0 이상**: 안전 지대 (Safe Zone)\n- **1.8 ~ 3.0**: 주의 구간 (Grey Zone)\n- **1.8 미만**: 파산 고위험 (Distress Zone)",
-        range: "Target: > 3.0"
-    },
-    'FV_GAP': {
-        title: "Fair Value Gap (적정가 괴리율)",
-        desc: "벤자민 그레이엄(Graham) 모델과 이익수익률(Earnings Yield)을 결합하여 산출한 '내재 가치' 대비 현재 주가의 위치입니다. \n\n**해석 가이드**:\n- **+20% 이상**: 강력한 저평가 (안전마진 확보)\n- **0% ~ 20%**: 적정 가치 구간\n- **음수(-)**: 고평가 상태 (Premium)",
-        range: "Target: > +15%"
-    }
-};
-
-const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
-  const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
+  // Drive Usage State
+  const [driveUsage, setDriveUsage] = useState<{ limit: number, usage: number, percent: number } | null>(null);
   
-  // Interaction States
-  const [activeMetric, setActiveMetric] = useState<string | null>(null); // F_SCORE, Z_SCORE, FV_GAP
-
-  // Time Tracking
-  const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
-  const startTimeRef = useRef<number>(0);
+  // Data State
+  const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
+  const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v5.0: Initializing 3-Layer Sieve...']);
-  
-  const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  const logRef = useRef<HTMLDivElement>(null);
+  // Brain State (Defaults changed to GEMINI)
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
+  // Unified Target State
+  const [selectedStock, setSelectedStock] = useState<any | null>(null);
+  const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
+  const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
+
+  // [NEW] GITHUB ACTION HOOK: Check for ?auto=true in URL to start immediately
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
-  // Timer Effect
-  useEffect(() => {
-    let interval: any;
-    if (loading && startTimeRef.current > 0) {
-      interval = setInterval(() => {
-        const now = Date.now();
-        const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
-        
-        let etaSec = 0;
-        if (progress.current > 0 && progress.total > 0) {
-           const rate = progress.current / elapsedSec; 
-           const remaining = progress.total - progress.current;
-           etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
-        }
-        
-        setTimeStats({ elapsed: elapsedSec, eta: etaSec });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [loading, progress]);
-
-  useEffect(() => {
-    if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Deep Fundamental Audit (Top 50%)...", "signal");
-        executeFundamentalFortress();
-    }
-  }, [autoStart]);
-
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
-  };
-
-  const handleTickerSelect = (ticker: FundamentalTicker) => {
-      setSelectedTicker(ticker);
-      // Pass to global app for Auditor Matrix integration
-      if (onStockSelected) {
-          onStockSelected(ticker);
+      const params = new URLSearchParams(window.location.search);
+      if (params.get('auto') === 'true' && isGdriveConnected && viewMode === 'MANUAL') {
+          console.log("Headless Automation Triggered via URL");
+          toggleViewMode();
       }
-  };
+  }, [isGdriveConnected]);
 
-  const toggleMetric = (metric: string) => {
-      if (activeMetric === metric) setActiveMetric(null);
-      else setActiveMetric(metric);
-  };
+  // Stage Completion Handler (Single Run Logic)
+  const handleStageComplete = async (stageId: number, reportPayload?: string) => {
+      if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
 
-  // --- ALGORTHMIC ENGINES ---
-
-  const calculateGrahamNumber = (eps: number, bps: number): number => {
-      // Graham Number = Sqrt(22.5 * EPS * BVPS)
-      if (eps <= 0 || bps <= 0) return 0; // Invalid for negative earners
-      return Math.sqrt(22.5 * eps * bps);
-  };
-
-  const normalizeScore = (val: number, min: number, max: number) => {
-      return Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
-  };
-
-  const fetchFinancials = async (symbol: string) => {
-      if (!fmpKey) throw new Error("FMP Key Missing");
-      // Batch Fetch for Speed
-      const [ratiosRes, metricsRes, quoteRes] = await Promise.all([
-          fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`),
-          fetch(`https://financialmodelingprep.com/api/v3/key-metrics-ttm/${symbol}?apikey=${fmpKey}`),
-          fetch(`https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${fmpKey}`)
-      ]);
+      const nextStage = stageId + 1;
       
-      const ratios = await ratiosRes.json();
-      const metrics = await metricsRes.json();
-      const quote = await quoteRes.json();
-      
-      return {
-          r: ratios && ratios.length > 0 ? ratios[0] : {},
-          m: metrics && metrics.length > 0 ? metrics[0] : {},
-          q: quote && quote.length > 0 ? quote[0] : {}
-      };
-  };
-
-  const executeFundamentalFortress = async () => {
-    if (!accessToken || loading) return;
-    setLoading(true);
-    setProcessedData([]);
-    startTimeRef.current = Date.now();
-    setTimeStats({ elapsed: 0, eta: 0 });
-    
-    addLog("Phase 3: Loading Stage 2 Elite Universe...", "info");
-    
-    try {
-      const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
-
-      if (!listRes.files?.length) {
-        addLog("Stage 2 Data Missing. Please run Stage 2.", "err");
-        setLoading(false); return;
-      }
-      
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
-
-      // Filter Top 50%
-      let candidates = content.elite_universe || [];
-      candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
-      const targetCount = Math.floor(candidates.length * 0.5); // Top 50%
-      const topCandidates = candidates.slice(0, targetCount);
-
-      addLog(`Universe Loaded: ${candidates.length} -> Top 50% Selected: ${topCandidates.length} Tickers.`, "ok");
-      setProgress({ current: 0, total: topCandidates.length });
-
-      const results: FundamentalTicker[] = [];
-
-      for (let i = 0; i < topCandidates.length; i++) {
-          const item = topCandidates[i];
-          
-          try {
-              const { r, m, q } = await fetchFinancials(item.symbol);
-              const currentPrice = q.price || item.price || 0;
+      // Delay transition for visual confirmation
+      setTimeout(async () => {
+          if (nextStage <= 6) {
+              setCurrentStage(nextStage);
+              setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
+          } else {
+              // ALL STAGES COMPLETED (Stage 6 finished)
+              setIsAutoPilotRunning(false);
               
-              // 1. Piotroski F-Score
-              const fScore = m.piotroskiScore !== undefined ? m.piotroskiScore : (Math.floor(Math.random() * 3) + 6); 
-              
-              // 2. Intrinsic Value Logic (Multi-Model)
-              const eps = m.netIncomePerShareTTM || 0;
-              const bps = m.bookValuePerShareTTM || 0;
-              let fairValue = 0;
-
-              // Priority 1: FMP Provided Graham Number
-              if (m.grahamNumberTTM && m.grahamNumberTTM > 0) {
-                  fairValue = m.grahamNumberTTM;
-              } 
-              // Priority 2: Manual Graham Calculation
-              else if (eps > 0 && bps > 0) {
-                  fairValue = calculateGrahamNumber(eps, bps);
-              }
-              // Priority 3: PE Multiplier Proxy (Fallback for Tech/Growth)
-              else if (eps > 0) {
-                  fairValue = eps * (r.peRatioTTM || 25); 
-              }
-              // Priority 4: Market Price as Fair Value (Neutral)
-              else {
-                  fairValue = currentPrice;
+              if (reportPayload) {
+                  setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
+                  const sent = await sendTelegramReport(reportPayload);
+                  setAutoStatusMessage(sent ? "ALL PIPELINES EXECUTED." : "TELEGRAM SEND FAILED.");
+              } else {
+                  setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               }
               
-              // 3. Altman Z-Score Proxy
-              let zScore = 1.8; // Default safe-ish
-              if (item.marketValue && m.totalLiabilitiesTTM) {
-                  // Simplified Z-Score approximation
-                  const workingCap = m.workingCapitalTTM || 0;
-                  const totalAssets = m.totalAssetsTTM || 1;
-                  const retainedEarnings = m.retainedEarningsTTM || 0;
-                  const ebit = m.earningsYieldTTM ? m.earningsYieldTTM * item.marketValue : 0;
-                  
-                  zScore = 1.2 * (workingCap / totalAssets) + 
-                           1.4 * (retainedEarnings / totalAssets) + 
-                           3.3 * (ebit / totalAssets) + 
-                           0.6 * (item.marketValue / m.totalLiabilitiesTTM) + 
-                           1.0; 
-              }
-              const safeZ = isNaN(zScore) ? 1.5 : zScore; 
-              
-              // 4. Upside Calculation
-              const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
-
-              // 5. Radar Data
-              const radarData = {
-                  valuation: normalizeScore(fairValue / (currentPrice || 1), 0.5, 2.0),
-                  profitability: normalizeScore(r.returnOnEquityTTM || 0, 0, 0.3),
-                  growth: normalizeScore(r.revenueGrowthTTM || 0, 0, 0.5),
-                  financialHealth: normalizeScore(safeZ, 1.0, 5.0),
-                  moat: normalizeScore(r.grossProfitMarginTTM || 0, 0.1, 0.6),
-                  momentum: normalizeScore(100, 0, 100) // Placeholder
-              };
-
-              const ticker: FundamentalTicker = {
-                  symbol: item.symbol,
-                  name: item.name,
-                  price: currentPrice,
-                  marketCap: item.marketValue,
-                  sector: item.sector,
-                  fScore: fScore,
-                  zScore: Number(safeZ.toFixed(2)),
-                  intrinsicValue: Number(fairValue.toFixed(2)),
-                  upsidePotential: Number(upside.toFixed(2)),
-                  eps: eps,
-                  bps: bps,
-                  pe: r.peRatioTTM || 0,
-                  radarData,
-                  fundamentalScore: (radarData.valuation + radarData.profitability + radarData.financialHealth) / 3,
-                  lastUpdate: new Date().toISOString()
-              };
-
-              results.push(ticker);
-
-              if (i % 5 === 0) setProgress({ current: i + 1, total: topCandidates.length });
-              await new Promise(r => setTimeout(r, 250)); 
-
-          } catch (err) {
-              console.warn(`Skipping ${item.symbol}`, err);
+              console.log("✅ Auto Pilot Complete: Alpha Report Processed.");
           }
+      }, 3000); 
+  };
+
+  const toggleViewMode = () => {
+      if (viewMode === 'MANUAL') {
+          if (!isGdriveConnected) {
+              setAutoStatusMessage("⚠️ CONNECT CLOUD VAULT");
+              setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 3000);
+              return;
+          }
+          
+          setViewMode('AUTO');
+          setIsAutoPilotRunning(true);
+          setCurrentStage(0);
+          setAutoStatusMessage("AUTO PILOT ENGAGED");
+          
+      } else {
+          setViewMode('MANUAL');
+          setIsAutoPilotRunning(false);
+          setAutoStatusMessage("MANUAL OVERRIDE");
+          setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
+      }
+  };
+
+  useEffect(() => {
+    setAuditBrain(selectedBrain);
+  }, [selectedBrain]);
+
+  const loadUsageStats = () => {
+      const raw = sessionStorage.getItem('US_ALPHA_SEEKER_AI_USAGE');
+      if (raw) {
+          try {
+              setAiUsage(JSON.parse(raw));
+          } catch(e) {}
+      }
+  };
+
+  const formatBytes = (bytes: number, decimals = 1) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  const fetchDriveQuota = async () => {
+      const token = sessionStorage.getItem('gdrive_access_token');
+      if (!token) {
+          setDriveUsage(null);
+          return;
+      }
+      try {
+          const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=storageQuota', {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+              const data = await res.json();
+              if (data.storageQuota) {
+                  const limit = parseInt(data.storageQuota.limit || '0');
+                  const usage = parseInt(data.storageQuota.usage || '0');
+                  const percent = limit > 0 ? (usage / limit) * 100 : 0;
+                  setDriveUsage({ limit, usage, percent });
+              }
+          }
+      } catch (e) {
+          console.error("Drive Quota Fetch Error", e);
+      }
+  };
+
+  const refreshApiStatuses = useCallback(async () => {
+    const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
+    setIsGdriveConnected(hasGdriveToken);
+    let geminiActive = !!process.env.API_KEY;
+    if (window.aistudio && !geminiActive) geminiActive = await window.aistudio.hasSelectedApiKey();
+    if (!geminiActive) {
+      const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+      geminiActive = !!geminiConfig?.key;
+    }
+    
+    // Refresh Usage Stats
+    loadUsageStats();
+
+    setApiStatuses(() => {
+      const orderedConfigs = [
+        ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
+        ...API_CONFIGS.filter(c => c.category === 'Intelligence'),
+        ...API_CONFIGS.filter(c => c.category === 'Infrastructure')
+      ];
+      return orderedConfigs.map(config => {
+        let isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : 
+                          config.provider === ApiProvider.GEMINI ? geminiActive : !!config.key;
+        return {
+          provider: config.provider,
+          category: config.category,
+          isConnected,
+          latency: isConnected ? Math.floor(Math.random() * 20) + 5 : 0,
+          lastChecked: new Date().toLocaleTimeString()
+        };
+      });
+    });
+  }, []);
+
+  useEffect(() => {
+    setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
+    refreshApiStatuses();
+    fetchDriveQuota();
+    const interval = setInterval(() => {
+        refreshApiStatuses();
+        if (new Date().getSeconds() < 5) fetchDriveQuota(); 
+    }, 5000);
+    window.addEventListener('storage-usage-update', loadUsageStats);
+    return () => {
+        clearInterval(interval);
+        window.removeEventListener('storage-usage-update', loadUsageStats);
+    };
+  }, [refreshApiStatuses]);
+
+  const runStockAudit = async () => {
+    if (!selectedStock) return;
+    setIsAiLoading(true);
+    setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
+    const targetBrain = auditBrain;
+    const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
+    const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
+
+    try {
+      const report = await analyzePipelineStatus({
+        currentStage,
+        apiStatuses,
+        symbols: [selectedStock.symbol],
+        targetStock: selectedStock,
+        mode: mode
+      }, targetBrain);
+
+      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing")) {
+         if (targetBrain === ApiProvider.GEMINI) {
+             setAuditBrain(ApiProvider.PERPLEXITY);
+             console.warn("Gemini Audit Failed. Switched toggle to Sonar.");
+         }
+      } else {
+         const token = sessionStorage.getItem('gdrive_access_token');
+         if (token) {
+             const date = new Date().toISOString().split('T')[0];
+             const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
+             const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+             const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
+             
+             archiveReport(token, fileName, report).then(ok => {
+                 if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
+             });
+         }
       }
 
-      results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
-      setProcessedData(results);
-      if (results.length > 0) handleTickerSelect(results[0]);
-
-      addLog(`Audit Complete. Saving ${results.length} Qualified Assets...`, "ok");
-      
-      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
-      const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
-      const payload = {
-        manifest: { version: "5.0.0", count: results.length, strategy: "Fundamental_Fortress_Algorithms" },
-        fundamental_universe: results
-      };
-
-      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-      });
-
-      addLog(`Vault Finalized: ${fileName}`, "ok");
-      if (onComplete) onComplete();
-
-    } catch (e: any) {
-      addLog(`Critical Failure: ${e.message}`, "err");
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
+    } catch (err: any) {
+      if (targetBrain === ApiProvider.GEMINI) {
+         setAuditBrain(ApiProvider.PERPLEXITY);
+      }
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
-      setLoading(false);
-      startTimeRef.current = 0;
+      setIsAiLoading(false);
+      setAnalyzingStocks(prev => {
+          const next = new Set(prev);
+          next.delete(selectedStock.symbol);
+          return next;
+      });
+      loadUsageStats(); 
     }
   };
 
-  const ensureFolder = async (token: string, name: string) => {
-    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
+  const currentReportKey = selectedStock ? `${selectedStock.symbol}-${auditBrain}-STAGE${currentStage}` : '';
+  const currentReport = stockAuditCache[currentReportKey];
+  const copyReport = () => {
+    if (currentReport) {
+      navigator.clipboard.writeText(currentReport);
+      alert('보고서가 클립보드에 복사되었습니다.');
+    }
   };
 
-  const formatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const getRadarData = (ticker: FundamentalTicker | null) => {
-      if (!ticker) return [];
-      return [
-          { subject: 'Valuation', A: ticker.radarData.valuation, fullMark: 100 },
-          { subject: 'Profit', A: ticker.radarData.profitability, fullMark: 100 },
-          { subject: 'Growth', A: ticker.radarData.growth, fullMark: 100 },
-          { subject: 'Health', A: ticker.radarData.financialHealth, fullMark: 100 },
-          { subject: 'Moat', A: ticker.radarData.moat, fullMark: 100 },
-          { subject: 'Momentum', A: ticker.radarData.momentum, fullMark: 100 },
-      ];
-  };
+  const isMirror = viewMode === 'AUTO';
+  const showWarning = !isMirror && autoStatusMessage !== "SYSTEM STANDBY";
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
-            <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-              </div>
-              <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v5.0</h2>
-                <div className="flex flex-col mt-2 gap-1">
-                   <div className="flex items-center space-x-2">
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                            {loading ? `Processing: ${progress.current}/${progress.total}` : '3-Layer Sieve Ready'}
-                        </span>
-                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
-                   </div>
-                   {loading && (
-                     <div className="flex items-center space-x-2 mt-0.5">
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
-                       </span>
-                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
-                       </span>
+    <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
+      {/* HEADER STATUS BAR */}
+      <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
+        <div className="flex items-center space-x-2 mr-6 shrink-0">
+          <div className={`w-1.5 h-1.5 rounded-full ${isMirror ? 'bg-rose-500 animate-ping' : isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
+          <span className={isMirror ? 'text-rose-500 font-bold' : ''}>{isMirror ? (isAutoPilotRunning ? 'AUTOMATION_RUNNING' : 'AUTOMATION_COMPLETE') : isProd ? 'Production_Node' : 'Development_Node'}</span>
+        </div>
+        <div className="flex items-center space-x-2 mr-6 shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+          <span className="text-emerald-400 font-bold">Version: v1.5.0 (Pipeline Core)</span>
+        </div>
+        <div className="flex items-center space-x-2 mr-6 shrink-0">
+          <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
+          <span>Cloud_Vault: {isGdriveConnected ? 'Linked' : 'Disconnected'}</span>
+        </div>
+        <div className="flex items-center space-x-2 shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+          <span>Pipeline: Stage_{currentStage}</span>
+        </div>
+        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+      </div>
+
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
+        <div>
+          <p className={`text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic ${isMirror ? 'text-rose-500' : 'text-blue-500'}`}>US Alpha Seeker Infrastructure</p>
+          <div className="flex items-center gap-4">
+             <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
+             {isMirror && <span className="px-3 py-1 bg-rose-600 text-white text-[10px] font-black uppercase rounded animate-pulse shadow-[0_0_15px_rgba(225,29,72,0.6)]">MIRROR ACTIVE</span>}
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1 font-medium tracking-wide animate-pulse text-right">
+            © 2026. Created & Designed by Bae Sang Min
+          </p>
+        </div>
+
+        {/* AI Resource & Drive Monitor Widget */}
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto ${isMirror ? 'border-rose-500/20' : ''}`}>
+             <div className="flex flex-col border-r border-white/5 pr-5">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Session Load</span>
+                 <div className="flex items-center gap-3">
+                     <div className="flex flex-col">
+                         <div className="flex items-center gap-1.5">
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.gemini.status === 'OK' ? 'bg-emerald-500' : 'bg-red-500 animate-ping'}`}></div>
+                             <span className="text-[8px] font-bold text-slate-300">GEMINI</span>
+                         </div>
+                         <span className={`text-[9px] font-mono ${aiUsage.gemini.status === 'OK' ? 'text-emerald-400' : 'text-red-400 font-black animate-pulse'}`}>
+                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                         </span>
                      </div>
+                     <div className="flex flex-col">
+                         <div className="flex items-center gap-1.5">
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.perplexity.status === 'OK' ? 'bg-cyan-500' : 'bg-red-500 animate-ping'}`}></div>
+                             <span className="text-[8px] font-bold text-slate-300">SONAR</span>
+                         </div>
+                         <span className={`text-[9px] font-mono ${aiUsage.perplexity.status === 'OK' ? 'text-cyan-400' : 'text-red-400 font-black animate-pulse'}`}>
+                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                         </span>
+                     </div>
+                 </div>
+             </div>
+
+             <div className="flex flex-col min-w-[100px]">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Vault Storage</span>
+                 {driveUsage ? (
+                     <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-end">
+                            <span className="text-[9px] font-mono font-bold text-white">{formatBytes(driveUsage.usage)}</span>
+                            <span className="text-[7px] text-slate-500">/ {formatBytes(driveUsage.limit)}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div 
+                                className={`h-full rounded-full transition-all duration-500 ${driveUsage.percent > 90 ? 'bg-red-500' : driveUsage.percent > 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                style={{ width: `${driveUsage.percent}%` }}
+                            ></div>
+                        </div>
+                     </div>
+                 ) : (
+                     <span className="text-[9px] font-black text-slate-600 uppercase">Not Connected</span>
+                 )}
+             </div>
+        </div>
+
+        {/* HYBRID MODE CONTROLLER */}
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border flex flex-col justify-center items-end min-w-[180px] transition-all ${isMirror ? 'border-rose-500 bg-rose-950/20' : showWarning ? 'border-amber-500 bg-amber-950/20' : 'border-blue-500/30'}`}>
+           <div className="flex items-center gap-2 mb-1">
+               <span className={`text-[8px] font-black uppercase ${isMirror ? (isAutoPilotRunning ? 'text-rose-400 animate-pulse' : 'text-emerald-400') : showWarning ? 'text-amber-500 animate-pulse' : 'text-slate-500'}`}>
+                   {isMirror ? autoStatusMessage : (showWarning ? autoStatusMessage : "MANUAL CONTROL")}
+               </span>
+               <button 
+                  onClick={toggleViewMode}
+                  className={`w-10 h-5 rounded-full transition-colors relative flex items-center border ${isMirror ? 'bg-rose-600 border-rose-400' : showWarning ? 'bg-amber-600 border-amber-400' : 'bg-slate-800 border-slate-600'}`}
+               >
+                   <div className={`absolute w-3 h-3 bg-white rounded-full transition-all shadow-md ${isMirror ? 'left-6' : 'left-1'}`}></div>
+               </button>
+           </div>
+           <div className="flex items-center gap-3">
+               <span className={`text-[7px] font-black uppercase ${isMirror ? 'text-rose-300' : 'text-slate-500'}`}>{isMirror ? 'Single Pass Mode' : 'Standard Mode'}</span>
+           </div>
+        </div>
+      </header>
+
+      <div className="space-y-4">
+        <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
+          {apiStatuses.map(status => (
+            <ApiStatusCard key={status.provider} status={status} isAuthConnected={status.isConnected} />
+          ))}
+        </div>
+        <MarketTicker />
+      </div>
+
+      <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
+        {STAGES_FLOW.map((stage) => (
+          <button
+            key={stage.id}
+            onClick={() => setCurrentStage(stage.id)}
+            disabled={isMirror && isAutoPilotRunning}
+            className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
+              isMirror && isAutoPilotRunning
+                ? 'opacity-40 cursor-not-allowed border-transparent bg-slate-900 text-slate-600'
+                : currentStage === stage.id 
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' 
+                    : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
+            }`}
+          >
+            {stage.label}
+          </button>
+        ))}
+      </nav>
+
+      <main className="min-h-[450px]">
+        <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
+          <UniverseGathering 
+            isActive={currentStage === 0} 
+            apiStatuses={apiStatuses}
+            onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
+            onStockSelected={setSelectedStock}
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
+            onComplete={() => handleStageComplete(0)}
+          />
+        </div>
+        <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
+          <PreliminaryFilter 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
+            onComplete={() => handleStageComplete(1)}
+          />
+        </div>
+        <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
+          <DeepQualityFilter 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
+            onComplete={() => handleStageComplete(2)}
+          />
+        </div>
+        <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
+          <FundamentalAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
+            onComplete={() => handleStageComplete(3)}
+            onStockSelected={setSelectedStock}
+          />
+        </div>
+        <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
+          <TechnicalAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
+            onComplete={() => handleStageComplete(4)}
+          />
+        </div>
+        <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
+          <IctAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
+            onComplete={() => handleStageComplete(5)}
+          />
+        </div>
+        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
+          <AlphaAnalysis 
+            selectedBrain={selectedBrain} 
+            setSelectedBrain={setSelectedBrain}
+            onFinalSymbolsDetected={(symbols, fullData) => {
+              setFinalSymbols(symbols);
+              setRecommendedData(fullData);
+            }}
+            onStockSelected={setSelectedStock}
+            analyzingSymbols={analyzingStocks}
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
+            onComplete={(report) => handleStageComplete(6, report)}
+          />
+        </div>
+      </main>
+
+      <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
+        <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
+           <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
+        </div>
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6 md:gap-8 relative z-10">
+          <div className="flex flex-col md:flex-row items-start md:items-center space-y-4 md:space-y-0 md:space-x-8">
+             <div className="bg-emerald-500/10 p-5 rounded-[28px] border border-emerald-500/20 shadow-inner hidden md:block">
+                <svg className={`w-10 h-10 text-emerald-400 ${isAiLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+             </div>
+             <div>
+                <h3 className="font-black text-white uppercase text-xl md:text-2xl tracking-tighter italic leading-none">AI Alpha Auditor Matrix</h3>
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                   <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 whitespace-nowrap">
+                       {selectedStock ? `Target: ${selectedStock.symbol}` : 'System Standby'}
+                   </span>
+                   {selectedStock && (
+                       <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-0 md:ml-4">
+                          <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini (Default)</button>
+                          <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar</button>
+                       </div>
                    )}
                 </div>
-              </div>
+             </div>
+          </div>
+          <div className="flex gap-4 w-full lg:w-auto">
+             {currentReport && <button onClick={copyReport} className="flex-1 lg:flex-none px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5">Copy Report</button>}
+             <button onClick={runStockAudit} disabled={isAiLoading || !selectedStock} className={`flex-1 lg:flex-none px-8 md:px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 bg-slate-900' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30'}`}>
+                {isAiLoading ? 'Auditing & Archiving...' : selectedStock ? `Audit ${selectedStock.symbol}` : 'Select Stock'}
+              </button>
+          </div>
+        </div>
+        <div className="bg-black/40 rounded-[32px] md:rounded-[40px] border border-white/5 p-6 md:p-8 lg:p-12 min-h-[300px] shadow-inner relative group">
+          {isAiLoading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-6">
+              <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+              <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Running {currentStage === 0 ? 'Integrity Validation' : 'Deep Dive Audit'} Protocol...</p>
             </div>
-            <button onClick={executeFundamentalFortress} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Calculating Intrinsic Value...' : 'Start Fortress Audit (Top 50%)'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
-              {/* Left Column: Ticker List */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[320px]">
-                 <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                    <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Sieve Results ({processedData.length})</p>
-                    <span className="text-[8px] font-mono text-slate-500">Ranked by Intrinsic Value</span>
-                 </div>
-                 <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
-                     {processedData.length > 0 ? processedData.map((t, i) => (
-                         <div key={i} onClick={() => handleTickerSelect(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-cyan-900/30 border-cyan-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
-                             <div className="flex items-center gap-3">
-                                 <span className="text-[10px] font-black text-slate-500 w-4">{i + 1}</span>
-                                 <div>
-                                     <p className="text-xs font-black text-white">{t.symbol}</p>
-                                     <p className="text-[8px] text-slate-400 truncate w-20">{t.name}</p>
-                                 </div>
-                             </div>
-                             <div className="text-right">
-                                 <p className={`text-[10px] font-mono font-bold ${t.upsidePotential > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{t.upsidePotential > 0 ? '+' : ''}{t.upsidePotential}%</p>
-                                 <p className="text-[7px] text-slate-500 uppercase">Upside</p>
-                             </div>
-                         </div>
-                     )) : (
-                         <div className="h-full flex items-center justify-center opacity-30 text-[9px] uppercase tracking-widest text-slate-400 italic">
-                             Awaiting Quantum Processing...
-                         </div>
-                     )}
-                 </div>
-              </div>
-
-              {/* Right Column: Visual Dashboard */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 p-4 relative flex flex-col h-[320px]">
-                 {selectedTicker ? (
-                     <>
-                        <div className="absolute top-4 left-4 z-10">
-                            <h3 className="text-2xl font-black text-white italic">{selectedTicker.symbol}</h3>
-                            <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest">Fundamental Radar</p>
-                        </div>
-                        <div className="absolute top-4 right-4 z-10 text-right">
-                             <p className="text-[8px] text-slate-500 uppercase font-bold">Intrinsic Value</p>
-                             <p className="text-xl font-mono font-black text-emerald-400">${selectedTicker.intrinsicValue}</p>
-                             <p className="text-[8px] text-slate-400">Current: ${selectedTicker.price}</p>
-                        </div>
-                        <div className="flex-1 w-full h-full mt-4">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={getRadarData(selectedTicker)}>
-                                    <PolarGrid stroke="#334155" opacity={0.3} />
-                                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
-                                    <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                    <Radar
-                                        name={selectedTicker.symbol}
-                                        dataKey="A"
-                                        stroke="#06b6d4"
-                                        strokeWidth={2}
-                                        fill="#06b6d4"
-                                        fillOpacity={0.4}
-                                    />
-                                    <RechartsTooltip 
-                                        contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
-                                        itemStyle={{ color: '#06b6d4', fontSize: '10px' }}
-                                    />
-                                </RadarChart>
-                            </ResponsiveContainer>
-                        </div>
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                             <div onClick={() => toggleMetric('F_SCORE')} className={`p-2 rounded-lg text-center border cursor-pointer transition-all ${activeMetric === 'F_SCORE' ? 'bg-emerald-900/30 border-emerald-500' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                                 <p className="text-[7px] text-slate-500 uppercase">Piotroski F-Score</p>
-                                 <p className={`text-lg font-black ${selectedTicker.fScore >= 7 ? 'text-emerald-400' : 'text-amber-400'}`}>{selectedTicker.fScore}/9</p>
-                             </div>
-                             <div onClick={() => toggleMetric('Z_SCORE')} className={`p-2 rounded-lg text-center border cursor-pointer transition-all ${activeMetric === 'Z_SCORE' ? 'bg-emerald-900/30 border-emerald-500' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                                 <p className="text-[7px] text-slate-500 uppercase">Altman Z-Score</p>
-                                 <p className={`text-lg font-black ${selectedTicker.zScore >= 3 ? 'text-emerald-400' : selectedTicker.zScore >= 1.8 ? 'text-amber-400' : 'text-rose-400'}`}>{selectedTicker.zScore}</p>
-                             </div>
-                             <div onClick={() => toggleMetric('FV_GAP')} className={`p-2 rounded-lg text-center border cursor-pointer transition-all ${activeMetric === 'FV_GAP' ? 'bg-emerald-900/30 border-emerald-500' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                                 <p className="text-[7px] text-slate-500 uppercase">Fair Value Gap</p>
-                                 <p className={`text-lg font-black ${selectedTicker.upsidePotential > 20 ? 'text-emerald-400' : selectedTicker.upsidePotential < 0 ? 'text-rose-400' : 'text-slate-400'}`}>{selectedTicker.upsidePotential > 0 ? '+' : ''}{selectedTicker.upsidePotential}%</p>
-                             </div>
-                        </div>
-                     </>
-                 ) : (
-                     <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                         <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select an Asset to Audit</p>
-                     </div>
-                 )}
-              </div>
-          </div>
-
-          {/* Metric Explanation Panel (Bottom of Component) */}
-          {(activeMetric) && (
-              <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-                  <div className="bg-slate-900/80 p-5 rounded-[20px] border-l-4 border-emerald-500 shadow-lg">
-                      <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          {METRIC_EXPLANATIONS[activeMetric].title}
-                      </h4>
-                      <p className="text-[11px] text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
-                          {METRIC_EXPLANATIONS[activeMetric].desc}
-                      </p>
-                      <p className="text-[9px] text-slate-500 mt-2 font-mono bg-black/30 w-fit px-2 py-1 rounded">
-                          {METRIC_EXPLANATIONS[activeMetric].range}
-                      </p>
-                  </div>
-              </div>
+          ) : currentReport ? (
+            <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
+               <div className="mb-4 flex items-center justify-between border-b border-emerald-500/20 pb-4">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
+                     {currentStage === 0 ? 'Integrity Validation' : 'Deep Audit'} for {selectedStock?.symbol || 'Target'} via {auditBrain === ApiProvider.GEMINI ? 'Gemini Pro' : 'Sonar Pro'}
+                  </span>
+                  <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
+               </div>
+               <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(currentReport || "")}</ReactMarkdown>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">
+              <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic text-center">
+                 {selectedStock ? `Ready to Audit ${selectedStock.symbol}. Click 'Audit ${selectedStock.symbol}' to begin.` : 
+                  currentStage === 0 
+                    ? 'Search a ticker above and click "Set Target" to verify integrity.' 
+                    : 'Select a stock from Stage 6 (Alpha Analysis) to begin Deep Audit.'}
+              </p>
+            </div>
           )}
-
         </div>
-      </div>
-
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Audit_Log</h3>
-          </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-cyan-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-cyan-900'}`}>
-                {l}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };
 
-export default FundamentalAnalysis;
+export default App;
