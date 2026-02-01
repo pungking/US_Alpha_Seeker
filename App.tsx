@@ -23,35 +23,26 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
-  // --- HYBRID MODE STATE ---
   const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
   const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
   
-  // AI Usage State
   const [aiUsage, setAiUsage] = useState<any>({ 
     gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
     perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
   });
 
-  // Drive Usage State
   const [driveUsage, setDriveUsage] = useState<{ limit: number, usage: number, percent: number } | null>(null);
   
-  // Data State
-  const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
-  const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
+  // [CORE DATA PERSISTENCE]
   const [masterRegistry, setMasterRegistry] = useState<Map<string, any>>(new Map());
-  
-  // Brain State (Gemini is Default)
-  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
-  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
-
-  // Unified Target State (Persistent across stages)
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
+  
+  // Unified Brain Selection (Shared between stages and Auditor)
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
-  // [NEW] GITHUB ACTION HOOK
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
       if (params.get('auto') === 'true' && isGdriveConnected && viewMode === 'MANUAL') {
@@ -59,7 +50,6 @@ const App: React.FC = () => {
       }
   }, [isGdriveConnected]);
 
-  // Stage Completion Handler
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
       if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
       const nextStage = stageId + 1;
@@ -98,17 +88,6 @@ const App: React.FC = () => {
           setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
       }
   };
-
-  // [FIXED] 데이터 보존을 위해 스테이지 변경 시 상태를 초기화하던 useEffect 제거
-  // useEffect(() => {
-  //   setSelectedStock(null);
-  //   setStockAuditCache({}); 
-  // }, [currentStage]);
-
-  useEffect(() => {
-    // selectedBrain이 변경될 때 auditBrain도 함께 업데이트 (사용자 수동 토글 반영)
-    setAuditBrain(selectedBrain);
-  }, [selectedBrain]);
 
   const loadUsageStats = () => {
       const raw = sessionStorage.getItem('US_ALPHA_SEEKER_AI_USAGE');
@@ -192,18 +171,18 @@ const App: React.FC = () => {
     };
   }, [refreshApiStatuses]);
 
+  // [UPDATED] AI Alpha Auditor Matrix Logic with Auto Fallback & Drive Archive
   const runStockAudit = async () => {
     if (!selectedStock) return;
     setIsAiLoading(true);
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
     
-    // 현재 선택된 브레인으로 시도
-    let targetBrain = auditBrain;
-    const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
+    let targetBrain = selectedBrain;
     const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
+    const token = sessionStorage.getItem('gdrive_access_token');
 
     try {
-      const report = await analyzePipelineStatus({
+      let report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
         symbols: [selectedStock.symbol],
@@ -211,48 +190,34 @@ const App: React.FC = () => {
         mode: mode
       }, targetBrain);
 
-      // [FIXED] Gemini 429 에러 또는 실패 시 Sonar로 자동 토글
-      if (report.includes("AUDIT_QUOTA_EXCEEDED") || report.includes("AUDIT_OFFLINE") || report.includes("ERROR") || report.includes("429")) {
-         if (targetBrain === ApiProvider.GEMINI) {
-             setAuditBrain(ApiProvider.PERPLEXITY);
-             setSelectedBrain(ApiProvider.PERPLEXITY); // 수동 토글 버튼도 업데이트
-             
-             // Sonar로 재분석 시도
-             const sonarReport = await analyzePipelineStatus({
-                currentStage,
-                apiStatuses,
-                symbols: [selectedStock.symbol],
-                targetStock: selectedStock,
-                mode: mode
-              }, ApiProvider.PERPLEXITY);
-              
-              const sonarCacheKey = `${selectedStock.symbol}-${ApiProvider.PERPLEXITY}-STAGE${currentStage}`;
-              setStockAuditCache(prev => ({ ...prev, [sonarCacheKey]: sonarReport }));
-              
-              // 리포트 드라이브 저장
-              const token = sessionStorage.getItem('gdrive_access_token');
-              if (token && !sonarReport.includes("OFFLINE")) {
-                  const date = new Date().toISOString().split('T')[0];
-                  const type = currentStage === 0 ? 'Integrity' : 'Audit';
-                  const fileName = `${date}_${type}_${selectedStock.symbol}_Sonar.md`;
-                  archiveReport(token, fileName, sonarReport);
-              }
-         } else {
-             setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
-         }
-      } else {
-         // 성공 시 캐시 및 드라이브 저장
-         setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
-         const token = sessionStorage.getItem('gdrive_access_token');
-         if (token) {
-             const date = new Date().toISOString().split('T')[0];
-             const type = currentStage === 0 ? 'Integrity' : 'Audit';
-             const brainName = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             const fileName = `${date}_${type}_${selectedStock.symbol}_${brainName}.md`;
-             archiveReport(token, fileName, report);
-         }
+      // Gemini Error Detection for Auto-Fallback
+      if (targetBrain === ApiProvider.GEMINI && (report.includes("429") || report.includes("QUOTA") || report.includes("LIMIT") || report.includes("OFFLINE"))) {
+          setSelectedBrain(ApiProvider.PERPLEXITY); // Auto Toggle UI
+          targetBrain = ApiProvider.PERPLEXITY;
+          
+          report = await analyzePipelineStatus({
+            currentStage,
+            apiStatuses,
+            symbols: [selectedStock.symbol],
+            targetStock: selectedStock,
+            mode: mode
+          }, ApiProvider.PERPLEXITY);
       }
+
+      const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
+
+      // Archive to Google Drive
+      if (token && !report.includes("OFFLINE")) {
+          const date = new Date().toISOString().split('T')[0];
+          const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+          const typeLabel = currentStage === 0 ? 'Integrity' : 'Audit';
+          const fileName = `${date}_${typeLabel}_${selectedStock.symbol}_${brainLabel}.md`;
+          archiveReport(token, fileName, report);
+      }
+
     } catch (err: any) {
+      const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
@@ -265,7 +230,7 @@ const App: React.FC = () => {
     }
   };
 
-  const currentReportKey = selectedStock ? `${selectedStock.symbol}-${auditBrain}-STAGE${currentStage}` : '';
+  const currentReportKey = selectedStock ? `${selectedStock.symbol}-${selectedBrain}-STAGE${currentStage}` : '';
   const currentReport = stockAuditCache[currentReportKey];
   const copyReport = () => {
     if (currentReport) {
@@ -279,6 +244,7 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
+      {/* Infrastructure Bar */}
       <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isMirror ? 'bg-rose-500 animate-ping' : isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
@@ -286,7 +252,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.5.1 (Persistent Matrix)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.5.2 (Persistent Node)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
@@ -321,7 +287,7 @@ const App: React.FC = () => {
                              <span className="text-[8px] font-bold text-slate-300">GEMINI</span>
                          </div>
                          <span className={`text-[9px] font-mono ${aiUsage.gemini.status === 'OK' ? 'text-emerald-400' : 'text-red-400 font-black animate-pulse'}`}>
-                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'LIMIT'}
                          </span>
                      </div>
                      <div className="flex flex-col">
@@ -330,7 +296,7 @@ const App: React.FC = () => {
                              <span className="text-[8px] font-bold text-slate-300">SONAR</span>
                          </div>
                          <span className={`text-[9px] font-mono ${aiUsage.perplexity.status === 'OK' ? 'text-cyan-400' : 'text-red-400 font-black animate-pulse'}`}>
-                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'LIMIT'}
                          </span>
                      </div>
                  </div>
@@ -348,7 +314,7 @@ const App: React.FC = () => {
                         </div>
                      </div>
                  ) : (
-                     <span className="text-[9px] font-black text-slate-600 uppercase">Not Connected</span>
+                     <span className="text-[9px] font-black text-slate-600 uppercase">Not Linked</span>
                  )}
              </div>
         </div>
@@ -391,7 +357,7 @@ const App: React.FC = () => {
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
             onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
-            onStockSelected={setSelectedStock}
+            onStockSelected={(stock) => setSelectedStock(stock)}
             autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
             onComplete={() => handleStageComplete(0)}
             externalRegistry={masterRegistry}
@@ -417,7 +383,7 @@ const App: React.FC = () => {
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
             setSelectedBrain={setSelectedBrain}
-            onFinalSymbolsDetected={(symbols, fullData) => { setFinalSymbols(symbols); setRecommendedData(fullData); }}
+            onFinalSymbolsDetected={(symbols, fullData) => { setSelectedStock(fullData?.[0]); }}
             onStockSelected={setSelectedStock}
             analyzingSymbols={analyzingStocks}
             autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
@@ -426,6 +392,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
+      {/* AI Alpha Auditor Matrix Section */}
       <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
@@ -441,12 +408,21 @@ const App: React.FC = () => {
                    <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 whitespace-nowrap">
                        {selectedStock ? `Target: ${selectedStock.symbol}` : 'System Standby'}
                    </span>
-                   {selectedStock && (
-                       <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-0 md:ml-4">
-                          <button onClick={() => setSelectedBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini (Default)</button>
-                          <button onClick={() => setSelectedBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar</button>
-                       </div>
-                   )}
+                   {/* Persistent Toggle Buttons - No disappearing */}
+                   <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-0 md:ml-4">
+                      <button 
+                        onClick={() => setSelectedBrain(ApiProvider.GEMINI)} 
+                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${selectedBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        Gemini (Default)
+                      </button>
+                      <button 
+                        onClick={() => setSelectedBrain(ApiProvider.PERPLEXITY)} 
+                        className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${selectedBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500 hover:text-slate-300'}`}
+                      >
+                        Sonar
+                      </button>
+                   </div>
                 </div>
              </div>
           </div>
@@ -467,7 +443,7 @@ const App: React.FC = () => {
             <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
                <div className="mb-4 flex items-center justify-between border-b border-emerald-500/20 pb-4">
                   <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
-                     {currentStage === 0 ? 'Integrity Validation' : 'Deep Audit'} for {selectedStock?.symbol || 'Target'} via {auditBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
+                     {currentStage === 0 ? 'Integrity Validation' : 'Deep Audit'} for {selectedStock?.symbol || 'Target'} via {selectedBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Sonar Pro'}
                   </span>
                   <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                </div>
