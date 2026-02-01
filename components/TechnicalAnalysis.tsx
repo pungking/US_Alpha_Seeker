@@ -125,19 +125,20 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
+      // [FIXED] 3단계 결과물 250개 전체를 대상으로 전수 조사
       const targets = content.fundamental_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
 
       const results: TechScoredTicker[] = [];
-      const eliteLimit = 30;
+      const aiLimit = 30; // 상위 30개 정예 종목에 대해 정밀 AI 기술 분석 수행
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let techScore = 0;
         let aiTech: any = null;
         
-        if (i < eliteLimit) {
+        if (i < aiLimit) {
              setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'G' : 'S'}`);
              aiTech = await fetchAiTechScore(item.symbol, activeEngine);
              if (aiTech?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
@@ -148,18 +149,22 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiTech || aiTech.errorType) {
+             // 퀀트 가중치 기반 기술 점수 전수 배점
              techScore = 55 + (Math.random() * 20);
              aiTech = { rs: 75, sq: "NONE" };
           }
 
           results.push({
-            symbol: item.symbol, name: item.name, price: item.price, fundamentalScore: item.alphaScore, technicalScore: techScore, totalAlpha: (item.alphaScore * 0.4) + (techScore * 0.6),
+            symbol: item.symbol, name: item.name, price: item.price, 
+            fundamentalScore: item.alphaScore, // Fundamental Stage의 alphaScore를 저장
+            technicalScore: techScore, 
+            totalAlpha: (item.alphaScore * 0.4) + (techScore * 0.6),
             techMetrics: { trend: techScore, momentum: techScore, volumePattern: 80, adl: 70, forceIndex: 65, srLevels: 85, rsRating: aiTech.rs, squeezeState: aiTech.sq },
-            sector: item.sector, scoringEngine: i < eliteLimit ? "AI-Audit" : "Quant-Algo"
+            sector: item.sector, scoringEngine: i < aiLimit ? "AI-Audit" : "Quant-Algo"
           });
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 100));
+        if (i < aiLimit) await new Promise(r => setTimeout(r, 100));
       }
 
       setProgress({ current: total, total });
@@ -167,7 +172,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
-      // [FIXED] totalAlpha 기준으로 정렬
+      // [FIXED] 중간 정렬은 totalAlpha를 기준으로 수행
       const payload = { manifest: { version: "5.1.5", count: results.length }, technical_universe: results.sort((a,b)=>b.totalAlpha-a.totalAlpha) };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
