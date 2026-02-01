@@ -30,7 +30,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.1.6: Neural Link Stabilized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -82,8 +81,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       if (engine === ApiProvider.GEMINI) {
-        const geminiKey = process.env.API_KEY || "";
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -127,20 +125,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [FIXED] 2단계에서 넘어온 전체 종목(최대 250개) 분석 수행
+      // [FIXED] 2단계 결과물(최대 250개) 전체를 중간 누락 없이 분석
       const targets = content.elite_universe || []; 
       const total = targets.length;
       setProgress({ current: 0, total });
       
       const results: ScoredTicker[] = [];
-      const eliteLimit = 35; // 고품질 분석을 위한 상위 AI 분석 제한
+      const aiLimit = 35; // 상위 35개에 대해서만 정밀 AI 스코어링 수행
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let finalScore = 0;
         let aiData: any = null;
 
-        if (i < eliteLimit) {
+        if (i < aiLimit) {
           setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'G' : 'S'}`);
           aiData = await fetchAiFundamentalScore(item, activeEngine);
           if (aiData?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
@@ -151,6 +149,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
 
         if (!aiData || aiData.errorType) {
+          // AI 분석을 거치지 않는 종목들은 ROE 기반 퀀트 스코어로 전수 배점
           finalScore = Math.min(100, (Number(item.roe) || 0) * 2.5 + 40);
           aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
         }
@@ -161,11 +160,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             profitability: Math.min(100, (item.roe || 0) * 3), growth: 70, health: 80, valuation: 60, cashflow: 75, marketCap: 50,
             fScore: aiData.fScore, zScore: aiData.zScore
           },
-          sector: item.sector || 'N/A', lastUpdate: new Date().toISOString(), scoringEngine: i < eliteLimit ? "AI-Audit" : "Quant-Algo"
+          sector: item.sector || 'N/A', lastUpdate: new Date().toISOString(), scoringEngine: i < aiLimit ? "AI-Audit" : "Quant-Algo"
         });
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 100));
+        if (i < aiLimit) await new Promise(r => setTimeout(r, 100));
       }
 
       setProgress({ current: total, total });
@@ -184,7 +183,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Success: ${fileName}`, "ok");
+      addLog(`Success: ${fileName} (${results.length} assets)`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
