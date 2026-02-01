@@ -16,8 +16,8 @@ interface Props {
   onStockSelected?: (stock: any) => void;
   autoStart?: boolean;
   onComplete?: () => void;
-  externalRegistry?: Map<string, MasterTicker>; // 부모로부터 전달받는 마스터 레지스트리
-  onRegistryUpdate?: (registry: Map<string, MasterTicker>) => void; // 레지스트리 업데이트 콜백
+  externalRegistry?: Map<string, MasterTicker>; 
+  onRegistryUpdate?: (registry: Map<string, MasterTicker>) => void;
 }
 
 interface MasterTicker {
@@ -53,22 +53,32 @@ const UniverseGathering: React.FC<Props> = ({
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
 
-  // 로컬 레지스트리 상태 대신 props를 우선 사용
-  const [localRegistry, setLocalRegistry] = useState<Map<string, MasterTicker>>(new Map());
-  const effectiveRegistry = externalRegistry || localRegistry;
+  // Use externalRegistry if provided by parent (App.tsx)
+  const effectiveRegistry = useMemo(() => externalRegistry || new Map<string, MasterTicker>(), [externalRegistry]);
 
   const [searchTerm, setSearchTerm] = useState('');
-  
   const [stats, setStats] = useState({
-    found: externalRegistry?.size || 0,
-    synced: externalRegistry?.size || 0,
+    found: effectiveRegistry.size || 0,
+    synced: effectiveRegistry.size || 0,
     target: 10000,
     elapsed: 0,
-    provider: 'Idle',
-    phase: externalRegistry?.size ? 'Finalized' : 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
+    provider: effectiveRegistry.size > 0 ? 'Loaded: Persistent' : 'Idle',
+    phase: effectiveRegistry.size > 0 ? 'Finalized' : 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
+
+  // Sync stats when externalRegistry changes (coming back to stage 0)
+  useEffect(() => {
+    if (effectiveRegistry.size > 0) {
+        setStats(prev => ({
+            ...prev,
+            found: effectiveRegistry.size,
+            synced: effectiveRegistry.size,
+            provider: 'Loaded: Persistent',
+            phase: 'Finalized'
+        }));
+    }
+  }, [effectiveRegistry]);
 
   const [logs, setLogs] = useState<string[]>(['> Engine v2.4.0: Adaptive Multi-Provider Protocol Online.']);
   const logRef = useRef<HTMLDivElement>(null);
@@ -85,13 +95,11 @@ const UniverseGathering: React.FC<Props> = ({
     }
   }, [cooldown]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && isActive && !isEngineRunning && cooldown === 0) {
         if (!accessToken) {
              addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
         } else {
-             // 이미 레지스트리가 있으면 스킵
              if (effectiveRegistry.size > 0) {
                 addLog("AUTO-PILOT: Master Map already active. Advancing...", "ok");
                 if (onComplete) onComplete();
@@ -166,32 +174,16 @@ const UniverseGathering: React.FC<Props> = ({
   };
 
   const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
-    if (!finnhubKey || !polygonKey) throw new Error("Finnhub or Polygon Key missing");
-    addLog("Strategy B: Finnhub Discovery + Polygon Pricing (Fallback)...", "info");
-    const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`);
-    const fhData = await fhRes.json();
-    const symbolMap = new Map();
-    fhData.forEach((s: any) => {
-        if (['Common Stock', 'ADR', 'REIT'].includes(s.type || 'Common Stock')) {
-            symbolMap.set(s.symbol, { name: s.description, type: s.type });
-        }
-    });
+    if (!polygonKey) throw new Error("Polygon Key missing");
+    addLog("Strategy B: Polygon Direct Aggregate Feed...", "info");
     let targetDate = getInitialTargetDate();
-    let polyResults: any[] = [];
     const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-    if (polyRes.ok) {
-        const data = await polyRes.json();
-        polyResults = data.results || [];
-    }
-    const results: MasterTicker[] = [];
-    const polyMap = new Map(polyResults.map((p: any) => [p.T, p]));
-    symbolMap.forEach((meta, symbol) => {
-        const p = polyMap.get(symbol);
-        results.push({
-            symbol: symbol, name: meta.name, type: meta.type, price: p ? p.c : 0, volume: p ? p.v : 0, change: p && p.o ? ((p.c - p.o) / p.o) * 100 : 0, updated: p ? targetDate : 'N/A'
-        });
-    });
-    return results;
+    if (!polyRes.ok) throw new Error("Polygon API Failure");
+    const data = await polyRes.json();
+    const results = data.results || [];
+    return results.map((p: any) => ({
+        symbol: p.T, name: p.T, type: 'Equity', price: p.c, volume: p.v, change: p.o ? ((p.c - p.o) / p.o) * 100 : 0, updated: targetDate
+    }));
   };
 
   const runAggregatedPipeline = async (token: string) => {
@@ -208,15 +200,14 @@ const UniverseGathering: React.FC<Props> = ({
     try {
         try { masterData = await executeFmpStrategy(); usedProvider = "FMP (Primary)"; } 
         catch (e) {
-            try { masterData = await executePolygonStrategy(); usedProvider = "Polygon+Finnhub"; } 
+            try { masterData = await executePolygonStrategy(); usedProvider = "Polygon (Direct)"; } 
             catch (e2) { throw new Error("All Market Data Providers Exhausted."); }
         }
 
         setStats(prev => ({ ...prev, found: masterData.length, provider: usedProvider, phase: 'Mapping' }));
         const registryMap = new Map(masterData.map(i => [i.symbol, i]));
         
-        // 레지스트리 상태 업데이트 (부모 및 로컬)
-        setLocalRegistry(registryMap);
+        // Push up to App.tsx
         if (onRegistryUpdate) onRegistryUpdate(registryMap);
 
         addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
@@ -311,7 +302,7 @@ const UniverseGathering: React.FC<Props> = ({
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
-                  {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
+                  {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
             </div>
