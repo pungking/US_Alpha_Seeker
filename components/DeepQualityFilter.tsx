@@ -80,7 +80,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const BATCH_SIZE = 5; 
   const DELAY_TURBO = 250;   
   const DELAY_SAFE = 2500;   
-  const TARGET_SELECTION_COUNT = 300; 
+  const TARGET_SELECTION_COUNT = 500; // [FIXED] User Requirement: 500 Tickers
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -543,8 +543,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   // Prepare Chart Data (Quality vs Value)
-  // X: Valuation (Cheapness) = 100 - (PER score inverted, so higher is cheaper) -> Simplify: use GrowthScore as proxy for "Attractiveness" or just PER inverted.
-  // Let's use: X = GrowthScore (Value/Upside), Y = QualityScore (Fundamentals)
+  // We prioritize visualization for the Top 50 to avoid clutter, even though we process 500.
   const chartData = processedData.slice(0, 50).map(t => ({
       symbol: t.symbol,
       x: t.growthScore, // High means undervalued/high growth potential
@@ -635,7 +634,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
               {/* Quality Matrix Chart Column */}
               <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50)</p>
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50 Elite)</p>
                  <div className="flex-1 w-full h-full mt-4">
                      {processedData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
