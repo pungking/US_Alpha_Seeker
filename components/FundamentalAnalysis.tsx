@@ -8,21 +8,16 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
 
-// [Advanced Data Structure for Fundamental Fortress]
 interface FundamentalTicker {
   symbol: string;
   name: string;
   price: number;
   marketCap: number;
   sector: string;
-  
-  // Algorithmic Scores
-  fScore: number;       // Piotroski (0-9)
-  zScore: number;       // Altman (Safe > 3.0)
-  intrinsicValue: number; // Graham Number
-  upsidePotential: number; // %
-  
-  // 6-Factor Radar Data (0-100 normalized)
+  fScore: number;
+  zScore: number;
+  intrinsicValue: number;
+  upsidePotential: number;
   radarData: {
       valuation: number;
       profitability: number;
@@ -31,13 +26,10 @@ interface FundamentalTicker {
       moat: number;
       momentum: number;
   };
-
-  // Raw Metrics for Display
   eps: number;
   bps: number;
   pe: number;
-
-  fundamentalScore: number; // Final Composite Score
+  fundamentalScore: number;
   lastUpdate: string;
 }
 
@@ -70,14 +62,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
-  
-  // Interaction States
-  const [activeMetric, setActiveMetric] = useState<string | null>(null); // F_SCORE, Z_SCORE, FV_GAP
-
-  // Time Tracking
+  const [activeMetric, setActiveMetric] = useState<string | null>(null); 
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  
   const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v5.0: Initializing 3-Layer Sieve...']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -88,21 +75,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Timer Effect
   useEffect(() => {
     let interval: any;
     if (loading && startTimeRef.current > 0) {
       interval = setInterval(() => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
-        
         let etaSec = 0;
         if (progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
-        
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
@@ -123,7 +107,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const handleTickerSelect = (ticker: FundamentalTicker) => {
       setSelectedTicker(ticker);
-      // Pass to global app for Auditor Matrix integration
       if (onStockSelected) {
           onStockSelected(ticker);
       }
@@ -134,11 +117,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       else setActiveMetric(metric);
   };
 
-  // --- ALGORTHMIC ENGINES ---
-
   const calculateGrahamNumber = (eps: number, bps: number): number => {
-      // Graham Number = Sqrt(22.5 * EPS * BVPS)
-      if (eps <= 0 || bps <= 0) return 0; // Invalid for negative earners
+      if (eps <= 0 || bps <= 0) return 0;
       return Math.sqrt(22.5 * eps * bps);
   };
 
@@ -148,17 +128,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const fetchFinancials = async (symbol: string) => {
       if (!fmpKey) throw new Error("FMP Key Missing");
-      // Batch Fetch for Speed
       const [ratiosRes, metricsRes, quoteRes] = await Promise.all([
           fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`),
           fetch(`https://financialmodelingprep.com/api/v3/key-metrics-ttm/${symbol}?apikey=${fmpKey}`),
           fetch(`https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${fmpKey}`)
       ]);
-      
       const ratios = await ratiosRes.json();
       const metrics = await metricsRes.json();
       const quote = await quoteRes.json();
-      
       return {
           r: ratios && ratios.length > 0 ? ratios[0] : {},
           m: metrics && metrics.length > 0 ? metrics[0] : {},
@@ -172,7 +149,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     setProcessedData([]);
     startTimeRef.current = Date.now();
     setTimeStats({ elapsed: 0, eta: 0 });
-    
     addLog("Phase 3: Loading Stage 2 Elite Universe...", "info");
     
     try {
@@ -190,10 +166,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // Filter Top 50%
       let candidates = content.elite_universe || [];
       candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
-      const targetCount = Math.floor(candidates.length * 0.5); // Top 50%
+      const targetCount = Math.floor(candidates.length * 0.5); 
       const topCandidates = candidates.slice(0, targetCount);
 
       addLog(`Universe Loaded: ${candidates.length} -> Top 50% Selected: ${topCandidates.length} Tickers.`, "ok");
@@ -203,92 +178,51 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
       for (let i = 0; i < topCandidates.length; i++) {
           const item = topCandidates[i];
-          
           try {
               const { r, m, q } = await fetchFinancials(item.symbol);
               const currentPrice = q.price || item.price || 0;
-              
-              // 1. Piotroski F-Score
               const fScore = m.piotroskiScore !== undefined ? m.piotroskiScore : (Math.floor(Math.random() * 3) + 6); 
               
-              // 2. Intrinsic Value Logic (Multi-Model)
               const eps = m.netIncomePerShareTTM || 0;
               const bps = m.bookValuePerShareTTM || 0;
               let fairValue = 0;
 
-              // Priority 1: FMP Provided Graham Number
-              if (m.grahamNumberTTM && m.grahamNumberTTM > 0) {
-                  fairValue = m.grahamNumberTTM;
-              } 
-              // Priority 2: Manual Graham Calculation
-              else if (eps > 0 && bps > 0) {
-                  fairValue = calculateGrahamNumber(eps, bps);
-              }
-              // Priority 3: PE Multiplier Proxy (Fallback for Tech/Growth)
-              else if (eps > 0) {
-                  fairValue = eps * (r.peRatioTTM || 25); 
-              }
-              // Priority 4: Market Price as Fair Value (Neutral)
-              else {
-                  fairValue = currentPrice;
-              }
+              if (m.grahamNumberTTM && m.grahamNumberTTM > 0) fairValue = m.grahamNumberTTM;
+              else if (eps > 0 && bps > 0) fairValue = calculateGrahamNumber(eps, bps);
+              else if (eps > 0) fairValue = eps * (r.peRatioTTM || 25); 
+              else fairValue = currentPrice;
               
-              // 3. Altman Z-Score Proxy
-              let zScore = 1.8; // Default safe-ish
+              let zScore = 1.8;
               if (item.marketValue && m.totalLiabilitiesTTM) {
-                  // Simplified Z-Score approximation
                   const workingCap = m.workingCapitalTTM || 0;
                   const totalAssets = m.totalAssetsTTM || 1;
                   const retainedEarnings = m.retainedEarningsTTM || 0;
                   const ebit = m.earningsYieldTTM ? m.earningsYieldTTM * item.marketValue : 0;
-                  
-                  zScore = 1.2 * (workingCap / totalAssets) + 
-                           1.4 * (retainedEarnings / totalAssets) + 
-                           3.3 * (ebit / totalAssets) + 
-                           0.6 * (item.marketValue / m.totalLiabilitiesTTM) + 
-                           1.0; 
+                  zScore = 1.2 * (workingCap / totalAssets) + 1.4 * (retainedEarnings / totalAssets) + 3.3 * (ebit / totalAssets) + 0.6 * (item.marketValue / m.totalLiabilitiesTTM) + 1.0; 
               }
               const safeZ = isNaN(zScore) ? 1.5 : zScore; 
-              
-              // 4. Upside Calculation
               const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
 
-              // 5. Radar Data
               const radarData = {
                   valuation: normalizeScore(fairValue / (currentPrice || 1), 0.5, 2.0),
                   profitability: normalizeScore(r.returnOnEquityTTM || 0, 0, 0.3),
                   growth: normalizeScore(r.revenueGrowthTTM || 0, 0, 0.5),
                   financialHealth: normalizeScore(safeZ, 1.0, 5.0),
                   moat: normalizeScore(r.grossProfitMarginTTM || 0, 0.1, 0.6),
-                  momentum: normalizeScore(100, 0, 100) // Placeholder
+                  momentum: normalizeScore(100, 0, 100) 
               };
 
               const ticker: FundamentalTicker = {
-                  symbol: item.symbol,
-                  name: item.name,
-                  price: currentPrice,
-                  marketCap: item.marketValue,
-                  sector: item.sector,
-                  fScore: fScore,
-                  zScore: Number(safeZ.toFixed(2)),
-                  intrinsicValue: Number(fairValue.toFixed(2)),
-                  upsidePotential: Number(upside.toFixed(2)),
-                  eps: eps,
-                  bps: bps,
-                  pe: r.peRatioTTM || 0,
-                  radarData,
+                  symbol: item.symbol, name: item.name, price: currentPrice, marketCap: item.marketValue, sector: item.sector,
+                  fScore: fScore, zScore: Number(safeZ.toFixed(2)), intrinsicValue: Number(fairValue.toFixed(2)), upsidePotential: Number(upside.toFixed(2)),
+                  eps: eps, bps: bps, pe: r.peRatioTTM || 0, radarData,
                   fundamentalScore: (radarData.valuation + radarData.profitability + radarData.financialHealth) / 3,
                   lastUpdate: new Date().toISOString()
               };
-
               results.push(ticker);
-
               if (i % 5 === 0) setProgress({ current: i + 1, total: topCandidates.length });
               await new Promise(r => setTimeout(r, 250)); 
-
-          } catch (err) {
-              console.warn(`Skipping ${item.symbol}`, err);
-          }
+          } catch (err) { console.warn(`Skipping ${item.symbol}`, err); }
       }
 
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
@@ -296,26 +230,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       if (results.length > 0) handleTickerSelect(results[0]);
 
       addLog(`Audit Complete. Saving ${results.length} Qualified Assets...`, "ok");
-      
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
         manifest: { version: "5.0.0", count: results.length, strategy: "Fundamental_Fortress_Algorithms" },
         fundamental_universe: results
       };
-
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
-
       addLog(`Vault Finalized: ${fileName}`, "ok");
       if (onComplete) onComplete();
-
     } catch (e: any) {
       addLog(`Critical Failure: ${e.message}`, "err");
     } finally {
@@ -326,13 +255,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
@@ -361,7 +287,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
@@ -396,7 +321,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
-              {/* Left Column: Ticker List */}
               <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[320px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Sieve Results ({processedData.length})</p>
@@ -425,7 +349,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  </div>
               </div>
 
-              {/* Right Column: Visual Dashboard */}
               <div className="bg-black/40 rounded-3xl border border-white/5 p-4 relative flex flex-col h-[320px]">
                  {selectedTicker ? (
                      <>
@@ -444,18 +367,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                     <PolarGrid stroke="#334155" opacity={0.3} />
                                     <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
                                     <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                    <Radar
-                                        name={selectedTicker.symbol}
-                                        dataKey="A"
-                                        stroke="#06b6d4"
-                                        strokeWidth={2}
-                                        fill="#06b6d4"
-                                        fillOpacity={0.4}
-                                    />
-                                    <RechartsTooltip 
-                                        contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }}
-                                        itemStyle={{ color: '#06b6d4', fontSize: '10px' }}
-                                    />
+                                    <Radar name={selectedTicker.symbol} dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
+                                    <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#06b6d4', fontSize: '10px' }} />
                                 </RadarChart>
                             </ResponsiveContainer>
                         </div>
@@ -483,7 +396,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               </div>
           </div>
 
-          {/* Metric Explanation Panel (Bottom of Component) */}
           {(activeMetric) && (
               <div className="animate-in fade-in slide-in-from-top-4 duration-500">
                   <div className="bg-slate-900/80 p-5 rounded-[20px] border-l-4 border-emerald-500 shadow-lg">
