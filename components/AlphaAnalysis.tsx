@@ -47,7 +47,6 @@ interface Props {
   analyzingSymbols?: Set<string>;
   autoStart?: boolean;
   onComplete?: (reportContent?: string) => void;
-  isActive: boolean;
 }
 
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
@@ -103,7 +102,7 @@ const MarkdownComponents: any = {
     td: (props: any) => <td className="px-4 py-3" {...props} />,
 };
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isActive }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -112,7 +111,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
-  const [selectedStockInternal, setSelectedStockInternal] = useState<AlphaCandidate | null>(null);
+  const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
   
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
@@ -135,14 +134,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [logs]);
 
   useEffect(() => {
-    if (!isActive) return;
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
+      if (!selectedStock || !cached.find(c => c.symbol === selectedStock.symbol)) {
         const initialStock = cached[0];
-        setSelectedStockInternal(initialStock);
+        setSelectedStock(initialStock);
         onStockSelected?.(initialStock);
+      }
+    } else {
+      setSelectedStock(null);
+      onStockSelected?.(null);
     }
-  }, [selectedBrain, resultsCache, isActive]);
+  }, [selectedBrain, resultsCache]);
 
   useEffect(() => {
     if (accessToken && elite50.length === 0) loadStage5Data();
@@ -197,10 +200,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
     setSelectedMetricInfo(null);
     setActiveOverlay(null); 
-  }, [selectedStockInternal]);
+  }, [selectedStock]);
 
   const handleStockClick = (item: AlphaCandidate) => {
-      setSelectedStockInternal(item);
+      setSelectedStock(item);
       onStockSelected?.(item);
   };
 
@@ -209,20 +212,49 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
+  const removeCitations = (text?: any) => {
+      if (text === null || text === undefined) return '';
+      return String(text).replace(/\[\d+\]/g, '').trim();
+  };
+
   const cleanInsightText = (text: any) => {
     if (!text) return "";
-    return String(text).replace(/\[\d+\]/g, '').trim();
+    const str = String(text);
+    return str
+      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
+      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
+      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
+      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") 
+      .replace(/[\u{2600}-\u{26FF}]/gu, "")   
+      .replace(/[\u{2700}-\u{27BF}]/gu, "")   
+      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
+      .replace(/\[\d+\]/g, '') 
+      .trim();
+  };
+
+  const cleanMarkdown = (text?: any) => {
+      if (text === null || text === undefined) return '';
+      return String(text)
+        .replace(/\[\d+\]/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/__/g, '')
+        .replace(/\*\*/g, '') 
+        .replace(/\*/g, '')
+        .replace(/#/g, '')
+        .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
+        .trim();
   };
 
   const loadStage5Data = async () => {
     if (!accessToken) return;
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
       
-      if (listRes.files && listRes.files.length > 0) {
+      if (listRes.files?.length) {
         const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
@@ -283,7 +315,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       if (mergedFinal.length > 0) {
         const first = mergedFinal[0];
-        setSelectedStockInternal(first);
+        setSelectedStock(first);
         onStockSelected?.(first);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
@@ -444,7 +476,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
-  const currentBacktest = selectedStockInternal ? backtestData[selectedStockInternal.symbol] : null;
+  const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   const generateSyntheticData = (metrics: any) => {
       const winRate = parseFloat(String(metrics?.winRate).replace(/[^0-9.]/g, '')) || 60;
@@ -452,6 +484,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let value = 0;
       const data = [];
       const now = new Date();
+      // ALWAYS 24 MONTHS for consistency
       for (let i = 24; i >= 0; i--) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -486,14 +519,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         rawData = generateSyntheticData(currentBacktest?.metrics);
     }
 
+    // Hedge-fund Advanced Logic: Full 24-month calculation
     let runningPeak = -Infinity;
     return rawData.map((d, i) => {
         if (d.value > runningPeak) runningPeak = d.value;
         const drawdown = d.value - runningPeak;
         const prevValue = i > 0 ? rawData[i-1].value : 0;
         const delta = d.value - prevValue; 
-        const isWin = d.value >= prevValue;
+        const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
         
+        // Sharpe Ideal Regression Path
         const totalPeriods = rawData.length - 1;
         const finalVal = rawData[rawData.length - 1].value;
         const idealValue = i * (finalVal / (totalPeriods || 1));
@@ -552,7 +587,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
-                const isSelected = selectedStockInternal?.symbol === item.symbol;
+                const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
                 return (
                   <div key={item.symbol} onClick={() => handleStockClick(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
@@ -574,8 +609,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                       <span className="text-xs font-mono font-black text-slate-400 mt-1">${item.price?.toFixed(2)}</span>
                     </div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanInsightText(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner">
+                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
+                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
                       <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
@@ -583,7 +618,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="flex justify-between items-center mt-3">
                       <div className="flex flex-col">
                         <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">예상 수익률 (Exp. Return)</span>
-                        <span className="text-[10px] font-black text-emerald-400 italic">{cleanInsightText(item.expectedReturn || "TBD")}</span>
+                        <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
                       </div>
                       <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
                     </div>
@@ -654,30 +689,30 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           )}
         </div>
         
-        {activeTab === 'INDIVIDUAL' && selectedStockInternal && (
-             <div key={selectedStockInternal.symbol} className="glass-panel p-8 rounded-[50px] bg-slate-950 border-t-2 border-t-rose-600 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
+        {activeTab === 'INDIVIDUAL' && selectedStock && (
+             <div key={selectedStock.symbol} className="glass-panel p-8 rounded-[50px] bg-slate-950 border-t-2 border-t-rose-600 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
                  <div className="flex flex-col lg:flex-row items-end gap-6 mb-8">
                     <div className="flex flex-col">
-                        <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStockInternal.symbol}</h3>
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">{selectedStockInternal.name}</p>
+                        <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStock.symbol}</h3>
+                        <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">{selectedStock.name}</p>
                     </div>
                     <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStockInternal.convictionScore || selectedStockInternal.compositeAlpha || 0}%</p>
+                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
                     </div>
                  </div>
                  
                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                      <div className="lg:col-span-3 space-y-8">
                          <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative">
-                            <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStockInternal.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
+                            <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
                             <div className="prose-report min-h-[200px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(selectedStockInternal.investmentOutlook) || "_Analyzing strategic datasets for this asset..._"}
+                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
                                 </ReactMarkdown>
                             </div>
                         </div>
@@ -686,10 +721,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
                             <ul className="space-y-4">
-                                {selectedStockInternal.selectionReasons?.length ? selectedStockInternal.selectionReasons.map((r, i) => (
+                                {selectedStock.selectionReasons?.length ? selectedStock.selectionReasons.map((r, i) => (
                                 <li key={i} className="flex items-start gap-4">
                                     <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
-                                    <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanInsightText(r)}</p>
+                                    <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
                                 </li>
                                 )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
                             </ul>
@@ -708,12 +743,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
                             )}
                             {currentBacktest && (
-                                <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStockInternal.symbol}</span>
+                                <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStock.symbol}</span>
                             )}
                         </div>
                         {!currentBacktest && (
                              <button 
-                                onClick={(e) => handleRunBacktest(selectedStockInternal, e)} 
+                                onClick={(e) => handleRunBacktest(selectedStock, e)} 
                                 disabled={backtestLoading}
                                 className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
                             >
@@ -842,6 +877,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 />
                                                 <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
                                                 
+                                                {/* PROFIT_FACTOR Overlay: Monthly Magnitude Bars */}
                                                 {activeOverlay === 'PROFIT_FACTOR' && (
                                                     <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
                                                         {chartData.map((entry, index) => (
@@ -853,6 +889,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     </Bar>
                                                 )}
 
+                                                {/* MAX_DRAWDOWN Overlay: Red Loss Area */}
                                                 {activeOverlay === 'MAX_DRAWDOWN' && (
                                                     <Area 
                                                         type="monotone" 
@@ -864,6 +901,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     />
                                                 )}
 
+                                                {/* SHARPE_RATIO Overlay: Regression Path & Consistency Corridor */}
                                                 {activeOverlay === 'SHARPE_RATIO' && (
                                                     <>
                                                         <Area 
@@ -884,6 +922,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     </>
                                                 )}
 
+                                                {/* Main Cumulative Equity Area */}
                                                 <Area 
                                                     type="monotone" 
                                                     dataKey="value" 
@@ -892,8 +931,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     fillOpacity={1} 
                                                     fill={`url(#${uniqueChartId})`} 
                                                     animationDuration={1500}
+                                                    // Dot overlay for Win/Loss (Monthly Result)
                                                     dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
                                                         const { cx, cy, payload } = props;
+                                                        // Accurate logic: Is this month better than previous?
                                                         const isWin = payload.isWin;
                                                         return (
                                                             <circle 
@@ -918,7 +959,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      </h5>
                                      <div className="prose-report text-xs text-slate-300 leading-relaxed">
                                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {cleanInsightText(currentBacktest.historicalContext)}
+                                            {currentBacktest.historicalContext}
                                          </ReactMarkdown>
                                      </div>
                                  </div>

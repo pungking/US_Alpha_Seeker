@@ -25,7 +25,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  
+  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
+
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
   const [logs, setLogs] = useState<string[]>(['> Tech_Engine v5.1.5: Optimized Momentum Protocol.']);
@@ -78,12 +79,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const fetchAiTechScore = async (symbol: string, engine: ApiProvider): Promise<{ score: number, rsRating: number, squeeze: string, trend: string, errorType?: string } | null> => {
+    // [Extreme Optimization] 토큰 최소화
     const prompt = `Tech ${symbol}: Momentum. JSON: {"score":0-100,"rs":0-100,"sq":"NONE|SQ","tr":"UP|DN"}`;
-    const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
 
     try {
-      if (engine === ApiProvider.GEMINI && geminiKey) {
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+      if (engine === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -117,11 +118,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files || listRes.files.length === 0) throw new Error("Stage 3 source missing.");
+      if (!listRes.files?.length) throw new Error("Stage 3 source missing.");
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
@@ -131,14 +132,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       setProgress({ current: 0, total });
 
       const results: TechScoredTicker[] = [];
-      const aiLimit = 30; 
+      const eliteLimit = 30; // 상위 30개만 AI 정밀 분석
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let techScore = 0;
         let aiTech: any = null;
         
-        if (i < aiLimit) {
+        if (i < eliteLimit) {
              setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'G' : 'S'}`);
              aiTech = await fetchAiTechScore(item.symbol, activeEngine);
              if (aiTech?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
@@ -149,23 +150,21 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiTech || aiTech.errorType) {
-             techScore = 55 + (Math.random() * 20);
+             techScore = 55 + (Math.random() * 20); // Original Fallback
              aiTech = { rs: 75, sq: "NONE" };
           }
 
           results.push({
-            symbol: item.symbol, name: item.name, price: item.price, 
-            fundamentalScore: item.alphaScore, 
-            technicalScore: techScore, 
-            totalAlpha: (item.alphaScore * 0.4) + (techScore * 0.6),
+            symbol: item.symbol, name: item.name, price: item.price, fundamentalScore: item.alphaScore, technicalScore: techScore, totalAlpha: (item.alphaScore * 0.4) + (techScore * 0.6),
             techMetrics: { trend: techScore, momentum: techScore, volumePattern: 80, adl: 70, forceIndex: 65, srLevels: 85, rsRating: aiTech.rs, squeezeState: aiTech.sq },
-            sector: item.sector, scoringEngine: i < aiLimit ? "AI-Audit" : "Quant-Algo"
+            sector: item.sector, scoringEngine: i < eliteLimit ? "AI-Audit" : "Quant-Algo"
           });
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < aiLimit) await new Promise(r => setTimeout(r, 100));
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 150));
       }
 
+      // [FIX] 100% 보장
       setProgress({ current: total, total });
       addLog(`Tech Scan Completed. Syncing...`, "ok");
 
@@ -208,7 +207,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] border-t-2 border-t-orange-500 bg-slate-900/40 relative overflow-hidden shadow-2xl">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20`}>
+              <div className="w-12 h-12 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20">
                  <svg className={`w-5 h-5 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>

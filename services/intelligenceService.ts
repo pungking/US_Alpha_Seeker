@@ -23,15 +23,6 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
   } catch (e) { console.error(e); }
 };
 
-const cleanAiOutput = (text: string) => {
-    if (!text) return "";
-    return text
-        .replace(/\[\d+\]/g, '')
-        .replace(/^(TO|FROM|SUBJECT|DATE|RECIPIENT|SENDER):.*$/gm, '')
-        .replace(/Limited Partners/gi, 'Investor')
-        .trim();
-};
-
 export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
   try {
      const { rootFolderId, reportSubFolder } = GOOGLE_DRIVE_TARGET;
@@ -98,10 +89,10 @@ function sanitizeAndParseJson(text: string): any | null {
     let cleanText = text.trim().replace(/```json/g, "").replace(/```/g, "");
     const firstBracket = cleanText.indexOf('[');
     const lastBracket = cleanText.lastIndexOf(']');
-    if (firstBracket !== -1 && lastBracket !== -1) return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
+    if (firstBracket !== -1) return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
     const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
-    if (firstCurly !== -1 && lastCurly !== -1) return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    if (firstCurly !== -1) return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
     return JSON.parse(cleanText);
   } catch (e) { return null; }
 }
@@ -114,131 +105,55 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3): Promise<any>
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
-  const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-  const sonarKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-  const prompt = `Chief Quant Strategist Backtest for ${stock.symbol}. Period: 24M. Provide deep institutional-grade simulation data. JSON: {"metrics":{"winRate":"%","profitFactor":"#","maxDrawdown":"%","sharpeRatio":"#"},"historicalContext":"Professional Korean Markdown, No Citations"}`;
-
+  const apiKey = process.env.API_KEY as string;
+  const prompt = `Backtest ${stock.symbol}: 24mo. JSON: {"metrics":{"winRate":"%","profitFactor":"#","maxDrawdown":"%","sharpeRatio":"#"},"historicalContext":"Markdown Korean"}`;
   try {
     if (provider === ApiProvider.GEMINI) {
-      if (!geminiKey) throw new Error("API key must be set when using the Gemini API.");
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const result = await fetchWithRetry(() => ai.models.generateContent({ 
-        model: 'gemini-3-flash-preview', 
-        contents: prompt, 
-        config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA } 
-      }));
+      const ai = new GoogleGenAI({ apiKey });
+      const result = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt, config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA } }));
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      const data = sanitizeAndParseJson(result.text || "");
-      if (data) data.historicalContext = cleanAiOutput(data.historicalContext);
-      return { data, isRealData: false };
-    } else {
-      if (!sonarKey) throw new Error("Perplexity API key missing.");
-      const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
-          body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: prompt + " Output JSON only." }] })
-      });
-      const pData = await pRes.json();
-      const text = pData.choices?.[0]?.message?.content || "";
-      if (pData.usage) trackUsage(ApiProvider.PERPLEXITY, pData.usage.total_tokens || 0);
-      const data = sanitizeAndParseJson(text);
-      if (data) data.historicalContext = cleanAiOutput(data.historicalContext);
-      return { data, isRealData: false };
+      return { data: sanitizeAndParseJson(result.text || ""), isRealData: false };
     }
+    return { data: null, error: "FALLBACK_NOT_CONFIGURED" };
   } catch (e: any) { return { data: null, error: e.message }; }
 }
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
-  const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-  const sonarKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+  const apiKey = process.env.API_KEY as string;
   const top3 = candidates.slice(0, 3).map(c => `${c.symbol}: ${c.aiVerdict}`);
-  const date = new Date().toLocaleDateString();
-  const prompt = `Hedge Fund Alpha Intelligence. Date: ${date}. Targets: ${top3.join(' | ')}. Return a high-impact, actionable 3-line brief in formal Korean. No Emojis. No Citations.`;
-
+  const prompt = `Date: ${new Date().toLocaleDateString()}. Data: ${top3.join('|')}. Return 3-line Korean report. NO EMOJIS.`;
   try {
-    if (provider === ApiProvider.GEMINI && geminiKey) {
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-      trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
-      return cleanAiOutput(result.text || "BRIEF_EMPTY");
-    } else if (sonarKey) {
-      const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
-          body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: prompt }] })
-      });
-      const pData = await pRes.json();
-      const text = pData.choices?.[0]?.message?.content || "";
-      if (pData.usage) trackUsage(ApiProvider.PERPLEXITY, pData.usage.total_tokens || 0);
-      return cleanAiOutput(text || "BRIEF_EMPTY");
-    }
-    return "BRIEF_PROVIDER_ERROR";
+    const ai = new GoogleGenAI({ apiKey });
+    const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+    trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
+    return result.text || "BRIEF_EMPTY";
   } catch (e: any) { return "BRIEF_ERROR"; }
 }
 
 export async function analyzePipelineStatus(data: { currentStage: number; apiStatuses: any[]; mode: string; recommendedData?: any[]; symbols?: string[]; targetStock?: any; }, provider: ApiProvider): Promise<string> {
-  const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-  const sonarKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-  const dateStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-  const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 5).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
-  
-  const systemPrompt = `You are a professional Quant Market Analyst. Date: ${dateStr}. Target: ${dataBrief}. TASK: Rigorous investment audit in Markdown (Korean). Style: Institutional, No Emojis, No Citations.`;
-
+  const apiKey = process.env.API_KEY as string;
+  const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 4).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
+  const prompt = `Audit: ${data.mode}. Target: ${dataBrief}. Return concise Korean Markdown (Max 150 words). NO EMOJIS. Focus: Compliance/Risk.`;
   try {
-    if (provider === ApiProvider.GEMINI && geminiKey) {
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
-        const result = await fetchWithRetry(() => ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: systemPrompt }));
-        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        return cleanAiOutput(result.text || "");
-    } else if (sonarKey) {
-        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
-            body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: systemPrompt }] })
-        });
-        const pJson = await pRes.json();
-        const text = pJson.choices?.[0]?.message?.content || "";
-        if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
-        return cleanAiOutput(text || "");
-    }
-    return "ANALYSIS_PROVIDER_UNAVAILABLE";
-  } catch (e) { return "CRITICAL_NODE_FAILURE"; }
+    const ai = new GoogleGenAI({ apiKey });
+    const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+    trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
+    return result.text || "AUDIT_EMPTY";
+  } catch (e: any) { return "AUDIT_ERROR"; }
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
-  const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-  const sonarKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-  const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price})`);
-  const dateStr = new Date().toLocaleDateString();
-  const prompt = `Quant Portfolio Synthesis. Date: ${dateStr}. Targets: ${top10.join(',')}. JSON Array of objects matching required schema. Professional Korean investmentOutlook. No fake headers.`;
-
+  const apiKey = process.env.API_KEY as string;
+  const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price},S:${c.compositeAlpha})`);
+  const prompt = `Synth Top 6 from: ${top10.join(',')}. JSON Array: {"symbol","aiVerdict","convictionScore","expectedReturn","investmentOutlook"(Markdown Korean)}. NO EMOJIS.`;
   try {
-    if (provider === ApiProvider.GEMINI) {
-      if (!geminiKey) throw new Error("API key must be set when using the Gemini API.");
-      const ai = new GoogleGenAI({ apiKey: geminiKey });
-      const result = await fetchWithRetry(() => ai.models.generateContent({ 
-        model: 'gemini-3-flash-preview', 
-        contents: prompt, 
-        config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA } 
-      }));
-      trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
-      const data = sanitizeAndParseJson(result.text || "");
-      return { data };
-    } else {
-      if (!sonarKey) throw new Error("Perplexity API key missing.");
-      const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
-          body: JSON.stringify({ 
-              model: 'sonar', 
-              messages: [{ role: "user", content: prompt + " Output a valid JSON array matching the schema." }] 
-          })
-      });
-      const pData = await pRes.json();
-      const text = pData.choices?.[0]?.message?.content || "";
-      if (pData.usage) trackUsage(ApiProvider.PERPLEXITY, pData.usage.total_tokens || 0);
-      const data = sanitizeAndParseJson(text);
-      return { data };
-    }
+    const ai = new GoogleGenAI({ apiKey });
+    const result = await ai.models.generateContent({ 
+      model: 'gemini-3-flash-preview', 
+      contents: prompt, 
+      config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA } 
+    });
+    trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
+    return { data: sanitizeAndParseJson(result.text || "") };
   } catch (e: any) { return { data: null, error: e.message }; }
 }

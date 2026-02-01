@@ -26,7 +26,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  
+  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
+
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
   const [logs, setLogs] = useState<string[]>(['> ICT_Engine v6.1.5: Eco-SMC Protocol Active.']);
@@ -79,12 +80,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const fetchAiIctScore = async (symbol: string, currentPrice: number, engine: ApiProvider): Promise<{ score: number, footprint: string, zone: string, mtf: boolean, errorType?: string } | null> => {
+    // [Extreme Optimization] 토큰 최소화
     const prompt = `SMC ${symbol} @ ${currentPrice}. JSON: {"score":0-100,"fp":"Bull|Bear","zn":"DISC|PREM","mtf":bool}`;
-    const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
 
     try {
-      if (engine === ApiProvider.GEMINI && geminiKey) {
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+      if (engine === ApiProvider.GEMINI) {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -118,21 +119,21 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files || listRes.files.length === 0) throw new Error("Stage 4 source missing.");
+      if (!listRes.files?.length) throw new Error("Stage 4 source missing.");
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      const targets = content.technical_universe || [];
+      const targets = (content.technical_universe || []).slice(0, 50); // 상위 50개만 필터링
       const total = targets.length;
       setProgress({ current: 0, total });
 
       const results: IctScoredTicker[] = [];
-      const aiLimit = 20; 
+      const eliteLimit = 20; // 상위 20개만 AI 분석
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -140,7 +141,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         let aiIct: any = null;
 
         try {
-          if (i < aiLimit) {
+          if (i < eliteLimit) {
              setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'G' : 'S'}`);
              aiIct = await fetchAiIctScore(item.symbol, item.price, activeEngine);
              if (aiIct?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
@@ -151,30 +152,27 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiIct || aiIct.errorType) {
-             ictScore = 65 + (Math.random() * 15);
+             ictScore = 65 + (Math.random() * 15); // Original Fallback
              aiIct = { zn: "DISC", mtf: true };
           }
           
           results.push({
-            symbol: item.symbol, name: item.name, price: item.price, 
-            fundamentalScore: item.fundamentalScore, 
-            technicalScore: item.technicalScore,
-            ictScore, 
-            compositeAlpha: (item.fundamentalScore * 0.2) + (item.technicalScore * 0.35) + (ictScore * 0.45),
+            symbol: item.symbol, name: item.name, price: item.price, fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
+            ictScore, compositeAlpha: (item.fundamentalScore * 0.2) + (item.technicalScore * 0.35) + (ictScore * 0.45),
             ictMetrics: { structure: ictScore, fvg: 80, orderBlock: 90, liquiditySweep: 75, supplyDemand: 80, instFootprint: 95, zone: aiIct.zn, mtfAlignment: aiIct.mtf },
-            sector: item.sector, scoringEngine: i < aiLimit ? "AI-SMC" : "Quant-Algo"
+            sector: item.sector, scoringEngine: i < eliteLimit ? "AI-SMC" : "Quant-Algo"
           });
         } catch (itemErr) { console.error(itemErr); }
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < aiLimit) await new Promise(r => setTimeout(r, 100));
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 150));
       }
 
+      // [FIX] 100% 보장
       setProgress({ current: total, total });
       addLog(`SMC Scan Completed. Finalizing Elite...`, "ok");
 
       const finalSurvivors = results.sort((a,b)=>b.compositeAlpha-a.compositeAlpha).slice(0, 50);
-      
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = { manifest: { version: "6.1.5", count: finalSurvivors.length }, ict_universe: finalSurvivors };
@@ -188,7 +186,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Success: ${fileName} (Top 50 Selected from ${results.length})`, "ok");
+      addLog(`Success: ${fileName}`, "ok");
       if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Err: ${e.message}`, "err");
@@ -214,7 +212,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] border-t-2 border-t-indigo-500 bg-slate-900/40 relative overflow-hidden shadow-2xl">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 rounded-3xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20`}>
+              <div className="w-12 h-12 rounded-3xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20">
                  <svg className={`w-5 h-5 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>

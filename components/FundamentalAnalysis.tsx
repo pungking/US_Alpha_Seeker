@@ -24,13 +24,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
+  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.1.6: Neural Link Stabilized.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.1.5: Optimized Token Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -78,13 +78,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const fetchAiFundamentalScore = async (ticker: any, engine: ApiProvider): Promise<{ score: number, fScore: number, zScore: number, reason: string, errorType?: string } | null> => {
+    // [Extreme Optimization] 토큰 최소화 프롬프트
     const prompt = `Audit ${ticker.symbol}: ROE ${ticker.roe}%, PE ${ticker.per}, D/E ${ticker.debtToEquity}. JSON: {"score":0-100,"fScore":0-9,"zScore":number,"reason":"10chars"}`;
 
     try {
       if (engine === ApiProvider.GEMINI) {
-        const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
-        if (!geminiKey) return { score: 0, fScore: 0, zScore: 0, reason: "", errorType: 'API_MISSING' };
-        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -94,11 +93,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         return sanitizeJson(response.text || "");
       } else {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-        if (!perplexityKey) return { score: 0, fScore: 0, zScore: 0, reason: "", errorType: 'API_MISSING' };
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-            body: JSON.stringify({ model: 'sonar', messages: [{ role: "user", content: prompt }] })
+            body: JSON.stringify({
+                model: 'sonar', 
+                messages: [{ role: "user", content: prompt }]
+            })
         });
         const data = await pRes.json();
         if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
@@ -119,30 +120,29 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files || listRes.files.length === 0) throw new Error("Stage 2 source missing.");
+      if (!listRes.files?.length) throw new Error("Stage 2 source missing.");
       
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [FIXED] 2단계 결과물(최대 250개) 전체를 중간 누락 없이 분석
-      const targets = content.elite_universe || []; 
+      const targets = (content.elite_universe || []).sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, 250); 
       const total = targets.length;
       setProgress({ current: 0, total });
       
       const results: ScoredTicker[] = [];
-      const aiLimit = 35; 
+      const eliteLimit = 35; // 토큰 절감을 위해 AI 분석 대상을 35개로 제한
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let finalScore = 0;
         let aiData: any = null;
 
-        if (i < aiLimit) {
+        if (i < eliteLimit) {
           setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'G' : 'S'}`);
           aiData = await fetchAiFundamentalScore(item, activeEngine);
           if (aiData?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
@@ -152,6 +152,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           if (aiData && !aiData.errorType) finalScore = aiData.score;
         }
 
+        // [Original Logic Preservation] AI 실패 시 또는 비-Elite 종목은 기존 퀀트 로직 수행
         if (!aiData || aiData.errorType) {
           finalScore = Math.min(100, (Number(item.roe) || 0) * 2.5 + 40);
           aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
@@ -163,19 +164,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             profitability: Math.min(100, (item.roe || 0) * 3), growth: 70, health: 80, valuation: 60, cashflow: 75, marketCap: 50,
             fScore: aiData.fScore, zScore: aiData.zScore
           },
-          sector: item.sector || 'N/A', lastUpdate: new Date().toISOString(), scoringEngine: i < aiLimit ? "AI-Audit" : "Quant-Algo"
+          sector: item.sector || 'N/A', lastUpdate: new Date().toISOString(), scoringEngine: i < eliteLimit ? "AI-Audit" : "Quant-Algo"
         });
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < aiLimit) await new Promise(r => setTimeout(r, 100));
+        if (i < eliteLimit) await new Promise(r => setTimeout(r, 200));
       }
 
+      // [FIX] 진행률 100% 강제 도달
       setProgress({ current: total, total });
       addLog(`Audit Sequence Completed. Syncing Vault...`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
-      const payload = { manifest: { version: "4.1.6", count: results.length, timestamp: new Date().toISOString() }, fundamental_universe: results.sort((a,b)=>b.alphaScore-a.alphaScore) };
+      const payload = { manifest: { version: "4.1.5", count: results.length, timestamp: new Date().toISOString() }, fundamental_universe: results.sort((a,b)=>b.alphaScore-a.alphaScore) };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
@@ -186,7 +188,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Success: ${fileName} (${results.length} assets)`, "ok");
+      addLog(`Success: ${fileName}`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -207,6 +209,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     }).then(r => r.json()).then(r => r.id);
   };
 
+  const formatTime = (s: number) => s <= 0 ? "--:--" : `${Math.floor(s/60)}:${(s%60).toString().padStart(2,'0')}`;
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -217,7 +221,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Audit_Nexus v4.1.6</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic uppercase tracking-tighter leading-none">Audit_Nexus v4.1.5</h2>
                 <div className="flex items-center space-x-2 mt-2">
                    <span className="text-[8px] font-black px-2 py-0.5 rounded border border-cyan-500/20 bg-cyan-500/10 text-cyan-400 uppercase tracking-widest">
                        {loading ? `ENGINE: ${activeBrain}` : 'Eco-Audit Active'}
