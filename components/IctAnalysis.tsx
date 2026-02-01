@@ -80,7 +80,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const fetchAiIctScore = async (symbol: string, currentPrice: number, engine: ApiProvider): Promise<{ score: number, footprint: string, zone: string, mtf: boolean, errorType?: string } | null> => {
-    // [Extreme Optimization] 토큰 최소화
     const prompt = `SMC ${symbol} @ ${currentPrice}. JSON: {"score":0-100,"fp":"Bull|Bear","zn":"DISC|PREM","mtf":bool}`;
 
     try {
@@ -119,21 +118,21 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) throw new Error("Stage 4 source missing.");
+      if (!listRes.files || listRes.files.length === 0) throw new Error("Stage 4 source missing.");
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      const targets = (content.technical_universe || []).slice(0, 50); // 상위 50개만 필터링
+      const targets = (content.technical_universe || []).slice(0, 50);
       const total = targets.length;
       setProgress({ current: 0, total });
 
       const results: IctScoredTicker[] = [];
-      const eliteLimit = 20; // 상위 20개만 AI 분석
+      const eliteLimit = 20;
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -152,7 +151,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiIct || aiIct.errorType) {
-             ictScore = 65 + (Math.random() * 15); // Original Fallback
+             ictScore = 65 + (Math.random() * 15);
              aiIct = { zn: "DISC", mtf: true };
           }
           
@@ -168,7 +167,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         if (i < eliteLimit) await new Promise(r => setTimeout(r, 150));
       }
 
-      // [FIX] 100% 보장
       setProgress({ current: total, total });
       addLog(`SMC Scan Completed. Finalizing Elite...`, "ok");
 
@@ -212,7 +210,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] border-t-2 border-t-indigo-500 bg-slate-900/40 relative overflow-hidden shadow-2xl">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-12 h-12 rounded-3xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20">
+              <div className={`w-12 h-12 rounded-3xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20`}>
                  <svg className={`w-5 h-5 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
