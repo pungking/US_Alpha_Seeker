@@ -47,6 +47,7 @@ interface Props {
   analyzingSymbols?: Set<string>;
   autoStart?: boolean;
   onComplete?: (reportContent?: string) => void;
+  isActive: boolean; // 활성 스테이지 여부 확인을 위한 prop 추가
 }
 
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
@@ -102,7 +103,7 @@ const MarkdownComponents: any = {
     td: (props: any) => <td className="px-4 py-3" {...props} />,
 };
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isActive }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -133,15 +134,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // 브레인 변경 시 6단계 결과가 캐시되어 있다면 첫 번째 종목 자동 선택 (다른 스테이지 선택 상태 보호)
+  // [FIXED] 브레인 변경 시 6단계 활성 상태일 때만 자동 선택 로직 작동 (다른 스테이지 선택 상태 보호)
   useEffect(() => {
+    if (!isActive) return;
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
         const initialStock = cached[0];
         setSelectedStockInternal(initialStock);
         onStockSelected?.(initialStock);
     }
-  }, [selectedBrain, resultsCache]);
+  }, [selectedBrain, resultsCache, isActive]);
 
   useEffect(() => {
     if (accessToken && elite50.length === 0) loadStage5Data();
