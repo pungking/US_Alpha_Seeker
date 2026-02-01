@@ -30,6 +30,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.1.6: Neural Link Stabilized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -81,7 +82,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       if (engine === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+        const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+        if (!geminiKey) return { score: 0, fScore: 0, zScore: 0, reason: "", errorType: 'API_MISSING' };
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
           contents: prompt,
@@ -91,6 +94,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         return sanitizeJson(response.text || "");
       } else {
         const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+        if (!perplexityKey) return { score: 0, fScore: 0, zScore: 0, reason: "", errorType: 'API_MISSING' };
         const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
@@ -131,7 +135,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       setProgress({ current: 0, total });
       
       const results: ScoredTicker[] = [];
-      const aiLimit = 35; // 상위 35개에 대해서만 정밀 AI 스코어링 수행
+      const aiLimit = 35; 
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -149,7 +153,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
 
         if (!aiData || aiData.errorType) {
-          // AI 분석을 거치지 않는 종목들은 ROE 기반 퀀트 스코어로 전수 배점
           finalScore = Math.min(100, (Number(item.roe) || 0) * 2.5 + 40);
           aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
         }
