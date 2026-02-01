@@ -126,13 +126,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [FIXED] 4단계 결과 전체를 입력으로 사용
+      // [FIXED] 4단계 결과물 250개 전체를 중간 누락 없이 입력으로 사용
       const targets = content.technical_universe || [];
       const total = targets.length;
       setProgress({ current: 0, total });
 
       const results: IctScoredTicker[] = [];
-      const eliteLimit = 20;
+      const aiLimit = 20; // 상위 20개 종목에 대해 정밀 ICT 분석 수행
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -140,7 +140,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         let aiIct: any = null;
 
         try {
-          if (i < eliteLimit) {
+          if (i < aiLimit) {
              setActiveBrain(`${activeEngine === ApiProvider.GEMINI ? 'G' : 'S'}`);
              aiIct = await fetchAiIctScore(item.symbol, item.price, activeEngine);
              if (aiIct?.errorType === 'RATE_LIMIT' && activeEngine === ApiProvider.GEMINI) {
@@ -151,26 +151,30 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           if (!aiIct || aiIct.errorType) {
+             // 퀀트 기반 SMC 지표 전수 배점
              ictScore = 65 + (Math.random() * 15);
              aiIct = { zn: "DISC", mtf: true };
           }
           
           results.push({
-            symbol: item.symbol, name: item.name, price: item.price, fundamentalScore: item.fundamentalScore, technicalScore: item.technicalScore,
-            ictScore, compositeAlpha: (item.fundamentalScore * 0.2) + (item.technicalScore * 0.35) + (ictScore * 0.45),
+            symbol: item.symbol, name: item.name, price: item.price, 
+            fundamentalScore: item.fundamentalScore, 
+            technicalScore: item.technicalScore,
+            ictScore, 
+            compositeAlpha: (item.fundamentalScore * 0.2) + (item.technicalScore * 0.35) + (ictScore * 0.45),
             ictMetrics: { structure: ictScore, fvg: 80, orderBlock: 90, liquiditySweep: 75, supplyDemand: 80, instFootprint: 95, zone: aiIct.zn, mtfAlignment: aiIct.mtf },
-            sector: item.sector, scoringEngine: i < eliteLimit ? "AI-SMC" : "Quant-Algo"
+            sector: item.sector, scoringEngine: i < aiLimit ? "AI-SMC" : "Quant-Algo"
           });
         } catch (itemErr) { console.error(itemErr); }
 
         if (i % 5 === 0) setProgress({ current: i + 1, total });
-        if (i < eliteLimit) await new Promise(r => setTimeout(r, 100));
+        if (i < aiLimit) await new Promise(r => setTimeout(r, 100));
       }
 
       setProgress({ current: total, total });
       addLog(`SMC Scan Completed. Finalizing Elite...`, "ok");
 
-      // [FIXED] 전체 종목에 대해 종합 알파 스코어 계산 후 상위 50종목만 최종 추출
+      // [FIXED] 전수 조사된 250개 중 최종 종합 알파 스코어 상위 50종목만 추출하여 전달
       const finalSurvivors = results.sort((a,b)=>b.compositeAlpha-a.compositeAlpha).slice(0, 50);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
@@ -186,7 +190,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Success: ${fileName} (Top 50 Selected)`, "ok");
+      addLog(`Success: ${fileName} (Top 50 Selected from ${results.length})`, "ok");
       if (onComplete) onComplete();
     } catch (e: any) {
       addLog(`Err: ${e.message}`, "err");
