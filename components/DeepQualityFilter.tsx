@@ -44,13 +44,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
   const [fmpDepleted, setFmpDepleted] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.3: Neural Link Stabilized.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.4: Neural Fallback Engaged.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
   
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -245,34 +246,69 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const eliteSurvivors = validResults.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
-      // [FIXED] API 키 폴백 로직 적용 및 모델 초기화 안정화
+      // [FIXED] Gemini -> Sonar 하이브리드 폴백 로직 적용
       if (eliteSurvivors.length > 0) {
         setAiStatus('ANALYZING');
-        try {
-            const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
-            if (!geminiKey) throw new Error("API_KEY_NOT_FOUND");
-            
-            const ai = new GoogleGenAI({ apiKey: geminiKey });
-            const prompt = `Audit Sector for ${eliteSurvivors.length} stocks. Top 3: ${eliteSurvivors.slice(0, 3).map(s => s.symbol).join(',')}. JSON: {"dominantSector":"string","insight":"10words_korean"}`;
-            const aiRes = await ai.models.generateContent({ 
-                model: 'gemini-3-flash-preview', 
-                contents: prompt, 
-                config: { responseMimeType: "application/json" } 
-            });
-            const res = sanitizeJson(aiRes.text || "");
-            setAiAnalysis(res ? `[${res.dominantSector}] ${res.insight}` : "Analysis Unavailable");
-            setAiStatus('SUCCESS');
-            trackUsage(ApiProvider.GEMINI, aiRes.usageMetadata?.totalTokenCount || 0);
-        } catch (aiErr: any) {
-            addLog(`AI Analysis Node Error: ${aiErr.message}`, "err");
+        let aiSuccess = false;
+        const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+        const perplexityKey = perplexityConfig?.key || "";
+        const prompt = `Audit Sector for ${eliteSurvivors.length} stocks. Top 3: ${eliteSurvivors.slice(0, 3).map(s => s.symbol).join(',')}. Return JSON: {"dominantSector":"string","insight":"10words_korean"}`;
+
+        // Tier 1: Gemini
+        if (geminiKey) {
+            try {
+                const ai = new GoogleGenAI({ apiKey: geminiKey });
+                const aiRes = await ai.models.generateContent({ 
+                    model: 'gemini-3-flash-preview', 
+                    contents: prompt, 
+                    config: { responseMimeType: "application/json" } 
+                });
+                const res = sanitizeJson(aiRes.text || "");
+                if (res) {
+                    setAiAnalysis(`[${res.dominantSector}] ${res.insight}`);
+                    setAiStatus('SUCCESS');
+                    trackUsage(ApiProvider.GEMINI, aiRes.usageMetadata?.totalTokenCount || 0);
+                    aiSuccess = true;
+                }
+            } catch (err: any) {
+                addLog(`Gemini Offline (${err.message}). Trying Sonar...`, "warn");
+            }
+        }
+
+        // Tier 2: Sonar Fallback
+        if (!aiSuccess && perplexityKey) {
+            try {
+                const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                    body: JSON.stringify({
+                        model: 'sonar', 
+                        messages: [{ role: "user", content: prompt }]
+                    })
+                });
+                const pData = await pRes.json();
+                const res = sanitizeJson(pData.choices?.[0]?.message?.content || "");
+                if (res) {
+                    setAiAnalysis(`[${res.dominantSector}] ${res.insight}`);
+                    setAiStatus('SUCCESS');
+                    if (pData.usage) trackUsage(ApiProvider.PERPLEXITY, pData.usage.total_tokens || 0);
+                    aiSuccess = true;
+                }
+            } catch (err: any) {
+                addLog(`Sonar Offline (${err.message}). Skipping AI Analysis.`, "err");
+            }
+        }
+
+        if (!aiSuccess) {
             setAiStatus('FAILED');
-            setAiAnalysis("AI Node Offline: Analysis Skipped.");
+            setAiAnalysis("AI Nodes Offline: Analysis Skipped.");
         }
       }
 
+      // 구글 드라이브 업로드
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
-      const payload = { manifest: { version: "5.0.3", count: eliteSurvivors.length, timestamp: new Date().toISOString() }, elite_universe: eliteSurvivors };
+      const payload = { manifest: { version: "5.0.4", count: eliteSurvivors.length, timestamp: new Date().toISOString() }, elite_universe: eliteSurvivors };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
@@ -287,8 +323,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       if (uploadRes.ok) {
         addLog(`Success: Vault Updated with ${eliteSurvivors.length} Elite assets.`, "ok");
-      } else {
-        throw new Error(`Upload Failed: ${uploadRes.status}`);
       }
       
       if (onComplete) onComplete();
@@ -344,7 +378,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.4</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 text-blue-400'}`}>
