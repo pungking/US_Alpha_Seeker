@@ -58,7 +58,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const BATCH_SIZE = 5; 
   const DELAY_TURBO = 300;   
   const DELAY_SAFE = 2200;   
-  const TARGET_SELECTION_COUNT = 500; 
+  const TARGET_SELECTION_COUNT = 250; // [FIXED] 250종목으로 제한하여 3단계로 전달
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -246,15 +246,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const eliteSurvivors = validResults.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
-      // [FIXED] Gemini -> Sonar 하이브리드 폴백 로직 적용
       if (eliteSurvivors.length > 0) {
         setAiStatus('ANALYZING');
         let aiSuccess = false;
-        const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+        const geminiKey = process.env.API_KEY || "";
         const perplexityKey = perplexityConfig?.key || "";
         const prompt = `Audit Sector for ${eliteSurvivors.length} stocks. Top 3: ${eliteSurvivors.slice(0, 3).map(s => s.symbol).join(',')}. Return JSON: {"dominantSector":"string","insight":"10words_korean"}`;
 
-        // Tier 1: Gemini
         if (geminiKey) {
             try {
                 const ai = new GoogleGenAI({ apiKey: geminiKey });
@@ -275,7 +273,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             }
         }
 
-        // Tier 2: Sonar Fallback
         if (!aiSuccess && perplexityKey) {
             try {
                 const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -305,7 +302,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
       }
 
-      // 구글 드라이브 업로드
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = { manifest: { version: "5.0.4", count: eliteSurvivors.length, timestamp: new Date().toISOString() }, elite_universe: eliteSurvivors };
