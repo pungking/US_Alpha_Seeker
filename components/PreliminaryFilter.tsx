@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
 
 interface MasterTicker {
   symbol: string;
@@ -170,17 +169,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
-          const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
+          const geminiKey = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || process.env.API_KEY || "";
           const ai = new GoogleGenAI({ apiKey: geminiKey });
           const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: prompt,
             config: { responseMimeType: "application/json" }
           });
-          
-          // Track Usage
-          trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-          
           aiResult = sanitizeJson(response.text);
           usedProvider = 'Gemini 3 Pro';
       } catch (e: any) { /* Fallback handled below */ }
@@ -199,10 +194,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   })
               });
               const pJson = await pRes.json();
-              
-              // Track Usage
-              if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
-              
               aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
               usedProvider = 'Perplexity Sonar';
           } catch (e: any) {}

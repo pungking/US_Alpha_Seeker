@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
 
 interface QualityTicker {
   symbol: string;
@@ -292,14 +291,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         };
 
         const response = await callGemini();
-        // Track Gemini Usage
-        trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-        
         result = sanitizeJson(response.text);
         usedProvider = "Gemini 3.0";
     } catch (e: any) {
         addLog(`Gemini Failed: ${e.message.slice(0,40)}... Switching to Fallback.`, "warn");
-        trackUsage(ApiProvider.GEMINI, 0, true, e.message);
     }
 
     if (!result) {
@@ -338,15 +333,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 pData = await callPerplexity('/api/perplexity');
             }
             
-            // Track Perplexity Usage
-            if (pData.usage) trackUsage(ApiProvider.PERPLEXITY, pData.usage.total_tokens || 0);
-            
             result = sanitizeJson(pData.choices?.[0]?.message?.content);
             usedProvider = "Perplexity Sonar";
 
         } catch (e: any) {
             addLog(`Perplexity Failed: ${e.message}`, "err");
-            trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
         }
     }
 
