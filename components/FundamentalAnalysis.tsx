@@ -82,7 +82,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       if (engine === ApiProvider.GEMINI) {
-        const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+        const geminiKey = process.env.API_KEY || "";
         const ai = new GoogleGenAI({ apiKey: geminiKey });
         const response = await ai.models.generateContent({
           model: 'gemini-3-flash-preview',
@@ -127,7 +127,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [FIXED] 2단계에서 넘어온 전체 종목(최대 500개) 분석 수행
+      // [FIXED] 2단계에서 넘어온 전체 종목(최대 250개) 분석 수행
       const targets = content.elite_universe || []; 
       const total = targets.length;
       setProgress({ current: 0, total });
@@ -151,7 +151,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
 
         if (!aiData || aiData.errorType) {
-          // AI 분석 범위를 넘어선 종목은 퀀트 로직으로 기본 점수 부여
           finalScore = Math.min(100, (Number(item.roe) || 0) * 2.5 + 40);
           aiData = { fScore: finalScore > 70 ? 7 : 5, zScore: finalScore > 60 ? 3 : 2 };
         }
