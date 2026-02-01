@@ -25,7 +25,7 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
 
 const cleanAiOutput = (text: string) => {
     if (!text) return "";
-    // 인용구 [1], [2] 등 제거 및 불필요한 특수문자 정리
+    // [1], [2], [3] 등의 인용구 번호를 완전히 제거
     return text.replace(/\[\d+\]/g, '').trim();
 };
 
@@ -151,13 +151,13 @@ export async function analyzePipelineStatus(data: { currentStage: number; apiSta
   const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 5).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
   
   const systemPrompt = `You are the Chief Investment Officer (CIO) at a top-tier Wall Street Hedge Fund.
-  Current Analysis Date: ${dateStr}
+  [ANALYSIS_DATE: ${dateStr}]
   Analysis Target: ${dataBrief}
   
-  TASK: Provide a rigorous, institucional-grade investment memorandum. 
-  FOCUS: Strategic integrity, macro-economic alignment, quantitative risk metrics, and fund flow analysis.
+  TASK: Provide a rigorous, institutional-grade investment memorandum for high-net-worth investors. 
+  FOCUS: Strategic integrity, smart money fund flows, quantitative risk diagnostic, and institutional alignment.
   STYLE: Professional, decisive, sophisticated Korean.
-  RESTRICTION: DO NOT use Emojis. DO NOT include citations like [1][2][3].
+  RESTRICTION: DO NOT use Emojis. DO NOT include citations like [1][2][3]. 
   FORMAT: High-density Markdown. Start with "# [INVESTMENT_AUDIT_REPORT]" then "### ANALYSIS_DATE: ${dateStr}".`;
 
   let report = "";
