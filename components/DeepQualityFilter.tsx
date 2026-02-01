@@ -44,18 +44,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [sourceStats, setSourceStats] = useState({ fmp: 0, finnhub: 0, polygon: 0 });
   
   const [fmpDepleted, setFmpDepleted] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.2: Resilience Engine Operational.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.3: Neural Link Stabilized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
   
   const logRef = useRef<HTMLDivElement>(null);
 
   const BATCH_SIZE = 5; 
   const DELAY_TURBO = 300;   
-  const DELAY_SAFE = 2200;   // 핀허브 안정성을 위해 대기시간 소폭 상향
+  const DELAY_SAFE = 2200;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -178,9 +179,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     addLog("Phase 1: Loading Purified Matrix...", "info");
 
     try {
-      // Stage 1 데이터 로드 쿼리 개선 (최신순 정렬 및 확실한 검색)
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc,createdTime desc&pageSize=5`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).then(r => r.json());
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, { headers: { 'Authorization': `Bearer ${accessToken}` } }).then(r => r.json());
       
       if (!listRes.files?.length) throw new Error("Stage 1 missing.");
 
@@ -245,12 +245,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const eliteSurvivors = validResults.sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
-      // [FIXED] AI 분석 단계에서 API Key 로드 및 초기화 방식 수정
+      // [FIXED] API 키 폴백 로직 적용 및 모델 초기화 안정화
       if (eliteSurvivors.length > 0) {
         setAiStatus('ANALYZING');
         try {
-            // SDK 지침에 따라 process.env.API_KEY를 직접 사용
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY as string });
+            const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+            if (!geminiKey) throw new Error("API_KEY_NOT_FOUND");
+            
+            const ai = new GoogleGenAI({ apiKey: geminiKey });
             const prompt = `Audit Sector for ${eliteSurvivors.length} stocks. Top 3: ${eliteSurvivors.slice(0, 3).map(s => s.symbol).join(',')}. JSON: {"dominantSector":"string","insight":"10words_korean"}`;
             const aiRes = await ai.models.generateContent({ 
                 model: 'gemini-3-flash-preview', 
@@ -268,10 +270,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
       }
 
-      // 구글 드라이브 업로드 로직
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
-      const payload = { manifest: { version: "5.0.2", count: eliteSurvivors.length, timestamp: new Date().toISOString() }, elite_universe: eliteSurvivors };
+      const payload = { manifest: { version: "5.0.3", count: eliteSurvivors.length, timestamp: new Date().toISOString() }, elite_universe: eliteSurvivors };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
@@ -296,13 +297,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       addLog(`Fatal: ${e.message}`, "err"); 
     } finally { 
       setLoading(false); 
-      // 실행 완료 후 가드 해제 (필요시 다시 실행 가능하도록)
       setTimeout(() => { hasStartedRef.current = false; }, 5000);
     }
   };
 
   const ensureFolder = async (token: string, name: string) => {
-    // UniverseGathering의 개선된 루트 폴더 로직 적용
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
     const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
     
@@ -323,7 +322,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             if (createRoot.id) rootId = createRoot.id;
         }
     } catch (e) {
-        console.warn("Root folder recovery failed, using fallback constant.");
+        console.warn("Root folder recovery failed.");
     }
 
     const q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
@@ -345,7 +344,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 text-blue-400'}`}>
