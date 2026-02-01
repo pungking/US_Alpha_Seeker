@@ -25,8 +25,13 @@ export const trackUsage = (provider: string, tokens: number, isError: boolean = 
 
 const cleanAiOutput = (text: string) => {
     if (!text) return "";
-    // [1], [2], [3] 등의 인용구 번호를 완전히 제거
-    return text.replace(/\[\d+\]/g, '').trim();
+    // 1. [1], [2], [3] 등의 인용구 번호 제거
+    // 2. 가짜 헤더 (TO:, FROM:, SUBJECT:, Limited Partners 등) 제거
+    return text
+        .replace(/\[\d+\]/g, '')
+        .replace(/^(TO|FROM|SUBJECT|DATE|RECIPIENT|SENDER):.*$/gm, '')
+        .replace(/Limited Partners/gi, 'Investor')
+        .trim();
 };
 
 export async function archiveReport(token: string, fileName: string, content: string): Promise<boolean> {
@@ -150,15 +155,22 @@ export async function analyzePipelineStatus(data: { currentStage: number; apiSta
   const dateStr = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
   const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 5).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
   
-  const systemPrompt = `You are the Chief Investment Officer (CIO) at a top-tier Wall Street Hedge Fund.
-  [ANALYSIS_DATE: ${dateStr}]
+  const systemPrompt = `You are a professional Quant Market Analyst. 
+  Current Analysis Date: ${dateStr}
   Analysis Target: ${dataBrief}
   
-  TASK: Provide a rigorous, institutional-grade investment memorandum for high-net-worth investors. 
-  FOCUS: Strategic integrity, smart money fund flows, quantitative risk diagnostic, and institutional alignment.
-  STYLE: Professional, decisive, sophisticated Korean.
-  RESTRICTION: DO NOT use Emojis. DO NOT include citations like [1][2][3]. 
-  FORMAT: High-density Markdown. Start with "# [INVESTMENT_AUDIT_REPORT]" then "### ANALYSIS_DATE: ${dateStr}".`;
+  TASK: Provide a rigorous, evidence-based investment audit.
+  FOCUS: Technical integrity, quantitative metrics, and institutional risk profile.
+  STYLE: Professional, objective, sophisticated Korean.
+  
+  RESTRICTIONS: 
+  - DO NOT include fake headers such as 'TO:', 'FROM:', 'SUBJECT:', 'DEAR:', or list of recipients.
+  - DO NOT use Emojis. 
+  - DO NOT include citations like [1][2][3].
+  
+  FORMAT: High-density Markdown. 
+  Start with "# [INVESTMENT_AUDIT_REPORT]" 
+  Followed by "### ANALYSIS_DATE: ${dateStr}".`;
 
   let report = "";
 
@@ -195,7 +207,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   const apiKey = process.env.API_KEY || geminiConfig?.key || "";
   const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price})`);
   const dateStr = new Date().toLocaleDateString();
-  const prompt = `CIO Level Portfolio Synthesis. Date: ${dateStr}. Targets: ${top10.join(',')}. JSON Array of objects matching schema. Professional Korean investmentOutlook without Citations.`;
+  const prompt = `Quant Portfolio Synthesis. Date: ${dateStr}. Targets: ${top10.join(',')}. JSON Array of objects matching schema. Professional Korean investmentOutlook without Citations. No fake headers.`;
   try {
     const ai = new GoogleGenAI({ apiKey });
     const result = await fetchWithRetry(() => ai.models.generateContent({ 
