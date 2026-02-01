@@ -105,7 +105,8 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3): Promise<any>
 }
 
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
-  const apiKey = process.env.API_KEY as string;
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  const apiKey = process.env.API_KEY || geminiConfig?.key || "";
   const prompt = `Backtest ${stock.symbol}: 24mo. JSON: {"metrics":{"winRate":"%","profitFactor":"#","maxDrawdown":"%","sharpeRatio":"#"},"historicalContext":"Markdown Korean"}`;
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -119,7 +120,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
-  const apiKey = process.env.API_KEY as string;
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  const apiKey = process.env.API_KEY || geminiConfig?.key || "";
   const top3 = candidates.slice(0, 3).map(c => `${c.symbol}: ${c.aiVerdict}`);
   const prompt = `Date: ${new Date().toLocaleDateString()}. Data: ${top3.join('|')}. Return 3-line Korean report. NO EMOJIS.`;
   try {
@@ -131,19 +133,50 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 }
 
 export async function analyzePipelineStatus(data: { currentStage: number; apiStatuses: any[]; mode: string; recommendedData?: any[]; symbols?: string[]; targetStock?: any; }, provider: ApiProvider): Promise<string> {
-  const apiKey = process.env.API_KEY as string;
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+  const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+  const sonarKey = perplexityConfig?.key || "";
+  
   const dataBrief = data.mode === 'PORTFOLIO' ? JSON.stringify(data.recommendedData?.slice(0, 4).map(d => d.symbol)) : (data.targetStock?.symbol || data.mode);
   const prompt = `Audit: ${data.mode}. Target: ${dataBrief}. Return concise Korean Markdown (Max 150 words). NO EMOJIS. Focus: Compliance/Risk.`;
-  try {
-    const ai = new GoogleGenAI({ apiKey });
-    const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
-    trackUsage(provider, result.usageMetadata?.totalTokenCount || 0);
-    return result.text || "AUDIT_EMPTY";
-  } catch (e: any) { return "AUDIT_ERROR"; }
+  
+  // Tier 1: Gemini
+  if (provider === ApiProvider.GEMINI && geminiKey) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
+        const result = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: prompt });
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        return result.text || "AUDIT_EMPTY";
+      } catch (e) { console.warn("Gemini Audit Node Failed. Falling back..."); }
+  }
+
+  // Tier 2: Sonar (Perplexity) Fallback for Audit
+  if (sonarKey) {
+      try {
+        const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
+            body: JSON.stringify({
+                model: 'sonar',
+                messages: [{ role: "user", content: prompt + " Output as concise Markdown (Korean)." }]
+            })
+        });
+        const pJson = await pRes.json();
+        const text = pJson.choices?.[0]?.message?.content || "";
+        if (text) {
+            if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
+            return text;
+        }
+      } catch (e) { console.error("Sonar Audit Node Failed.", e); }
+  }
+
+  return "AUDIT_OFFLINE: All neural nodes are currently unreachable.";
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
-  const apiKey = process.env.API_KEY as string;
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  const apiKey = process.env.API_KEY || geminiConfig?.key || "";
   const top10 = candidates.slice(0, 10).map(c => `${c.symbol}($${c.price},S:${c.compositeAlpha})`);
   const prompt = `Synth Top 6 from: ${top10.join(',')}. JSON Array: {"symbol","aiVerdict","convictionScore","expectedReturn","investmentOutlook"(Markdown Korean)}. NO EMOJIS.`;
   try {
