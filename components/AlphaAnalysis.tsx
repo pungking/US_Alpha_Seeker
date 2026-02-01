@@ -47,7 +47,7 @@ interface Props {
   analyzingSymbols?: Set<string>;
   autoStart?: boolean;
   onComplete?: (reportContent?: string) => void;
-  isActive: boolean; // 활성 스테이지 여부 확인을 위한 prop 추가
+  isActive: boolean;
 }
 
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
@@ -134,7 +134,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // [FIXED] 브레인 변경 시 6단계 활성 상태일 때만 자동 선택 로직 작동 (다른 스테이지 선택 상태 보호)
   useEffect(() => {
     if (!isActive) return;
     const cached = resultsCache[selectedBrain];
@@ -219,11 +218,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (!accessToken) return;
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
       
-      if (listRes.files?.length) {
+      if (listRes.files && listRes.files.length > 0) {
         const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
           headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
@@ -576,7 +575,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <span className="text-xs font-mono font-black text-slate-400 mt-1">${item.price?.toFixed(2)}</span>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanInsightText(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
+                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner">
                       <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
