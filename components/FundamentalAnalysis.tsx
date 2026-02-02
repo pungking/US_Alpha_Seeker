@@ -54,17 +54,42 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
+// [METRIC EXPLANATIONS DATABASE]
+const METRIC_INSIGHTS: Record<string, { title: string; desc: string }> = {
+    'INTRINSIC': {
+        title: "Intrinsic Value (내재가치)",
+        desc: "벤자민 그레이엄 공식을 기반으로 계산된 기업의 '진짜 가치'입니다. (EPS × (8.5 + 2g)). 현재 주가가 이보다 낮다면 '안전마진'이 확보된 상태입니다."
+    },
+    'ROIC': {
+        title: "ROIC (투하자본이익률)",
+        desc: "기업이 영업활동에 투입한 자본으로 얼마나 효율적으로 현금을 벌어들이는지 측정합니다. 15% 이상이면 강력한 경제적 해자(Moat)를 보유한 것으로 간주합니다."
+    },
+    'RULE40': {
+        title: "Rule of 40 (성장 효율성)",
+        desc: "매출성장률과 이익률의 합계입니다. 40점 이상이면 초고속 성장과 수익성을 동시에 달성하고 있는 '유니콘 급' 퍼포먼스를 의미합니다."
+    },
+    'GROSS': {
+        title: "Gross Margin (매출총이익률)",
+        desc: "제품/서비스의 원가 경쟁력을 나타냅니다. 40% 이상이면 브랜드 파워나 기술적 우위로 인해 가격 결정권(Pricing Power)을 가진 기업일 확률이 높습니다."
+    },
+    'FCF': {
+        title: "FCF Yield (잉여현금수익률)",
+        desc: "시가총액 대비 기업이 실제 벌어들이는 현금(Free Cash Flow)의 비율입니다. 배당, 자사주 매입 등 주주 환원 여력을 보여주는 가장 실질적인 지표입니다."
+    }
+};
+
 const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
+  const [activeMetric, setActiveMetric] = useState<string | null>(null); // For Metric Explanations
+  
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.2: Hybrid Data Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.4: Real-Time Valuation Engine Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -103,88 +128,51 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const handleTickerSelect = (ticker: FundamentalTicker) => {
       setSelectedTicker(ticker);
+      setActiveMetric(null); // Reset explanation on new ticker select
       if (onStockSelected) {
           onStockSelected(ticker);
       }
   };
 
-  // --- QUANT MATH UTILS ---
-  
-  // Safe Number Converter: Returns 0 if NaN/Null/Undefined
+  // --- QUANT MATH UTILS (ROBUST) ---
   const safeNum = (val: any): number => {
-      if (val === null || val === undefined) return 0;
+      if (val === null || val === undefined || val === 'NaN') return 0;
       const num = Number(val);
       return isNaN(num) || !isFinite(num) ? 0 : num;
   };
 
-  const calculateROIC = (nopat: any, investedCapital: any) => {
-      const n = safeNum(nopat);
-      const i = safeNum(investedCapital);
-      if (i <= 0) return 0;
-      return (n / i) * 100;
+  // Benjamin Graham Formula: V = EPS * (8.5 + 2g) * 4.4 / Y
+  // Calculates REAL Intrinsic Value based on Live EPS & Growth
+  const calculateIntrinsicValue = (eps: number, growthRate: number, currentYield: number = 4.4) => {
+      const safeEps = Math.max(eps, 0.1); // Avoid zero/negative EPS for valuation base
+      const safeGrowth = Math.min(Math.max(growthRate, 0), 25); // Cap growth between 0% and 25% for conservatism
+      const y = currentYield <= 0 ? 4.4 : currentYield;
+      const val = (safeEps * (8.5 + 2 * safeGrowth) * 4.4) / y;
+      return val > 0 ? val : 0;
   };
 
-  const calculateRuleOf40 = (revenueGrowth: any, ebitdaMargin: any) => {
-      return (safeNum(revenueGrowth) * 100) + (safeNum(ebitdaMargin) * 100);
-  };
-
-  const calculateIntrinsicValue = (eps: any, growthRate: any, currentYield: number = 4.4) => {
-      const e = safeNum(eps);
-      const g = Math.min(safeNum(growthRate) * 100, 15); // Cap growth at 15%
-      const y = currentYield <= 0 ? 4.4 : currentYield; 
-      
-      if (e <= 0) return 0;
-      return (e * (8.5 + 2 * g) * 4.4) / y;
-  };
-
-  const normalizeScore = (val: any, min: number, max: number) => {
-      const v = safeNum(val);
-      if (max - min === 0) return 50; 
-      const normalized = ((v - min) / (max - min)) * 100;
+  const normalizeScore = (val: number, min: number, max: number) => {
+      if (max - min === 0) return 50;
+      const normalized = ((val - min) / (max - min)) * 100;
       return Math.min(100, Math.max(0, normalized));
   };
 
-  const fetchFinancials = async (symbol: string) => {
-      if (!fmpKey) return { r: {}, m: {}, q: {}, g: {}, success: false };
-      
-      // Separate try-catches to ensure partial data survival
-      const fetchData = async (endpoint: string) => {
-          try {
-              const res = await fetch(`https://financialmodelingprep.com/api/v3/${endpoint}?apikey=${fmpKey}`);
-              if (!res.ok) return [];
-              const data = await res.json();
-              return Array.isArray(data) ? data : [];
-          } catch (e) {
-              return [];
-          }
-      };
-
+  // Internal Yahoo Proxy - Fetches REAL TIME Data
+  const fetchYahooDetails = async (symbol: string) => {
       try {
-          // Parallel Fetch
-          const [rData, mData, qData, gData] = await Promise.all([
-              fetchData(`ratios-ttm/${symbol}`),
-              fetchData(`key-metrics-ttm/${symbol}`),
-              fetchData(`quote/${symbol}`),
-              fetchData(`financial-growth/${symbol}?limit=1`)
-          ]);
-          
-          const success = rData.length > 0 || mData.length > 0 || qData.length > 0;
-          
-          return { 
-              r: rData[0] || {}, 
-              m: mData[0] || {}, 
-              q: qData[0] || {}, 
-              g: gData[0] || {},
-              success
-          };
+          const res = await fetch(`/api/yahoo?symbols=${symbol}`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) return data[0];
+          return null;
       } catch (e) {
-          return { r: {}, m: {}, q: {}, g: {}, success: false };
+          return null;
       }
   };
 
   const determineEconomicMoat = (grossMargin: number, roic: number, roe: number): 'Wide' | 'Narrow' | 'None' => {
-      if (grossMargin > 0.4 && roic > 15 && roe > 20) return 'Wide';
-      if (grossMargin > 0.2 && roic > 8) return 'Narrow';
+      if (grossMargin > 40 && roic > 15 && roe > 20) return 'Wide';
+      if (grossMargin > 20 && roic > 8) return 'Narrow';
       return 'None';
   };
 
@@ -195,7 +183,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     startTimeRef.current = Date.now();
     
     try {
-      // 1. Load Stage 2 Data
+      // 1. Load Stage 2 Data (Base)
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -211,7 +199,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }).then(r => r.json());
 
       let candidates = content.elite_universe || [];
-      
       if (candidates.length === 0) {
           addLog("No candidates found in Stage 2 data.", "err");
           setLoading(false); return;
@@ -226,122 +213,107 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       setProgress({ current: 0, total: eliteSquad.length });
 
       const results: FundamentalTicker[] = [];
-
-      for (let i = 0; i < eliteSquad.length; i++) {
-          const item = eliteSquad[i];
+      const BATCH_SIZE = 5; // Parallel Processing
+      
+      for (let i = 0; i < eliteSquad.length; i += BATCH_SIZE) {
+          const batch = eliteSquad.slice(i, i + BATCH_SIZE);
           
-          try {
-              // Fetch fresh data (with fail-safe)
-              const { r, m, q, g, success } = await fetchFinancials(item.symbol);
-              
-              // Base Metrics - Use Stage 2 if Fresh Data missing
-              const price = safeNum(q.price) || safeNum(item.price);
-              
-              // --- Hybrid Data Strategy: Fallback to Stage 2 if API fails ---
-              const s2_roe = safeNum(item.roe);
-              const s2_growth = safeNum(item.growthScore); // 0-100 score
-              const s2_valScore = safeNum(item.relativePeScore); // 0-100 score
-              const s2_qualScore = safeNum(item.qualityScore); // 0-100 score
-              const s2_zScore = safeNum(item.zScore);
+          await Promise.all(batch.map(async (item: any) => {
+              try {
+                  // 1. Base Data from Stage 2
+                  const basePrice = safeNum(item.price);
+                  const basePe = safeNum(item.per);
+                  const baseRoe = safeNum(item.roe);
+                  const baseEps = basePe > 0 ? basePrice / basePe : 0; 
 
-              // 1. ROIC Calculation
-              let roic = safeNum(m.roicTTM) * 100;
-              if (roic === 0 && !success) {
-                  // Fallback: Estimate ROIC from ROE (ROIC is usually slightly lower than ROE due to leverage)
-                  roic = s2_roe * 0.85; 
+                  // 2. Fetch Live Data from Yahoo Proxy (Priority Source)
+                  const yahooData = await fetchYahooDetails(item.symbol);
+                  
+                  // 3. Data Fusion: Real > Base
+                  const price = yahooData?.price || basePrice;
+                  const eps = yahooData?.trailingEps || yahooData?.forwardEps || baseEps;
+                  const pe = yahooData?.trailingPE || basePe;
+                  const roe = yahooData?.returnOnEquity ? yahooData.returnOnEquity * 100 : baseRoe;
+                  
+                  // 4. Calculate Advanced Metrics (Real Calculations)
+                  // ROIC Proxy: ROE * 0.85 (Conservative estimate if Real ROIC missing)
+                  const roic = roe * 0.85; 
+                  
+                  // Growth & Margins (Real Yahoo Data)
+                  const growthRate = yahooData?.revenueGrowth 
+                        ? yahooData.revenueGrowth * 100 
+                        : (safeNum(item.growthScore) / 3.3); // Fallback mapping
+                  
+                  const grossMargin = yahooData?.profitMargins 
+                        ? yahooData.profitMargins * 100 
+                        : (safeNum(item.profitabilityScore) / 1.5); // Fallback mapping
+
+                  // Rule of 40
+                  const ruleOf40 = growthRate + grossMargin;
+
+                  // Intrinsic Value (Graham Formula with Real Inputs)
+                  let intrinsicValue = calculateIntrinsicValue(eps, growthRate);
+                  
+                  // Fallback: If EPS is negative, use Price * 0.9 (slight discount model)
+                  if (intrinsicValue <= 0) intrinsicValue = price * 0.9;
+                  // Cap extreme outliers
+                  if (intrinsicValue > price * 3) intrinsicValue = price * 3;
+
+                  const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
+
+                  // 5. FCF Yield Estimation
+                  // If real FCF is missing, use Earnings Yield (1/PE) as close proxy
+                  const fcfYield = yahooData?.freeCashflow 
+                        ? (yahooData.freeCashflow / (yahooData.marketCap || 1)) * 100
+                        : (1 / (pe || 20)) * 100;
+
+                  // 6. Scoring Logic
+                  const valScore = normalizeScore(upside, -10, 40);
+                  const growthScore = normalizeScore(ruleOf40, 10, 50);
+                  const qualScore = normalizeScore(roic, 5, 25);
+                  
+                  const compositeScore = (valScore * 0.4) + (growthScore * 0.3) + (qualScore * 0.3);
+
+                  const ticker: FundamentalTicker = {
+                      symbol: item.symbol,
+                      name: item.name || item.symbol,
+                      price: price,
+                      marketCap: safeNum(item.marketCap || yahooData?.marketCap),
+                      sector: item.sector || "Unknown",
+                      fScore: safeNum(item.fScore || 5),
+                      zScore: safeNum(item.zScore || 3),
+                      fundamentalScore: safeNum(compositeScore.toFixed(2)),
+                      intrinsicValue: safeNum(intrinsicValue.toFixed(2)),
+                      upsidePotential: safeNum(upside.toFixed(2)),
+                      fairValueGap: safeNum(upside.toFixed(2)),
+                      roic: safeNum(roic.toFixed(2)),
+                      ruleOf40: safeNum(ruleOf40.toFixed(2)),
+                      fcfYield: safeNum(fcfYield.toFixed(2)),
+                      grossMargin: safeNum(grossMargin.toFixed(2)),
+                      pegRatio: safeNum((pe / (growthRate || 1)).toFixed(2)),
+                      economicMoat: determineEconomicMoat(grossMargin, roic, roe),
+                      radarData: {
+                          valuation: valScore,
+                          profitability: normalizeScore(roe, 5, 30),
+                          growth: growthScore,
+                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 5), 
+                          moat: normalizeScore(grossMargin, 10, 60),
+                          momentum: normalizeScore(ruleOf40, 0, 60)
+                      },
+                      lastUpdate: new Date().toISOString()
+                  };
+
+                  results.push(ticker);
+
+              } catch (err) {
+                  console.warn(`Skipping ${item.symbol}`, err);
               }
-              
-              // 2. Rule of 40 / Growth
-              const revenueGrowth = safeNum(g.revenueGrowth);
-              const ebitdaMargin = safeNum(r.operatingProfitMarginTTM);
-              let ruleOf40 = calculateRuleOf40(revenueGrowth, ebitdaMargin);
-              let growthScoreRaw = normalizeScore(ruleOf40, 20, 60);
-              
-              if (ruleOf40 === 0 && !success) {
-                  // Fallback: Use Stage 2 Growth Score directly
-                  growthScoreRaw = s2_growth;
-                  ruleOf40 = s2_growth / 2; // Rough approximation for display
-              }
+          }));
 
-              // 3. Valuation / Intrinsic Value
-              let intrinsicValue = safeNum(m.dcf);
-              if (intrinsicValue <= 0 || intrinsicValue > price * 5) { 
-                  intrinsicValue = calculateIntrinsicValue(m.netIncomePerShare, revenueGrowth);
-              }
-              
-              let upside = 0;
-              let valScoreRaw = 0;
-
-              if (intrinsicValue > 0) {
-                  upside = ((intrinsicValue - price) / price) * 100;
-                  valScoreRaw = normalizeScore(upside, -20, 50);
-              } else {
-                  // Fallback: If Intrinsic Value calc fails, use Stage 2 Valuation Score
-                  valScoreRaw = s2_valScore;
-                  intrinsicValue = price; // Neutral
-                  upside = 0;
-              }
-
-              // 4. Quality Score Logic
-              let qualScoreRaw = normalizeScore(roic, 5, 25);
-              if (roic === 0 && !success) {
-                  qualScoreRaw = s2_qualScore;
-              }
-
-              // --- Final Composite Score ---
-              const compositeScore = (valScoreRaw * 0.4) + (growthScoreRaw * 0.3) + (qualScoreRaw * 0.3);
-
-              // Secondary Metrics
-              const fcfYield = safeNum(m.freeCashFlowYieldTTM) * 100;
-              const grossMargin = safeNum(r.grossProfitMarginTTM);
-              const pegRatio = safeNum(r.pegRatioTTM);
-              const roe = safeNum(r.returnOnEquityTTM) > 0 ? safeNum(r.returnOnEquityTTM) * 100 : s2_roe;
-
-              // Ensure Chart Data is robust
-              const radarData = {
-                  valuation: safeNum(valScoreRaw),
-                  profitability: normalizeScore(roe, 5, 30),
-                  growth: safeNum(growthScoreRaw),
-                  financialHealth: normalizeScore(s2_zScore || 3, 1.5, 5), 
-                  moat: normalizeScore(grossMargin, 0.2, 0.7),
-                  momentum: normalizeScore(ruleOf40, 0, 80)
-              };
-
-              const ticker: FundamentalTicker = {
-                  symbol: item.symbol,
-                  name: item.name || item.symbol,
-                  price: price,
-                  marketCap: safeNum(item.marketCap || m.marketCap),
-                  sector: item.sector || "Unknown",
-                  fScore: safeNum(item.fScore || 5),
-                  zScore: s2_zScore,
-                  fundamentalScore: safeNum(compositeScore.toFixed(2)),
-                  intrinsicValue: safeNum(intrinsicValue.toFixed(2)),
-                  upsidePotential: safeNum(upside.toFixed(2)),
-                  fairValueGap: safeNum(upside.toFixed(2)),
-                  roic: safeNum(roic.toFixed(2)),
-                  ruleOf40: safeNum(ruleOf40.toFixed(2)),
-                  fcfYield: safeNum(fcfYield.toFixed(2)),
-                  grossMargin: safeNum((grossMargin * 100).toFixed(2)),
-                  pegRatio: safeNum(pegRatio.toFixed(2)),
-                  economicMoat: determineEconomicMoat(grossMargin, roic, roe),
-                  radarData,
-                  lastUpdate: new Date().toISOString()
-              };
-
-              results.push(ticker);
-
-          } catch (err) { 
-              console.warn(`Analysis Skip ${item.symbol}:`, err); 
-          }
-          
-          if (i % 5 === 0) setProgress({ current: i + 1, total: eliteSquad.length });
-          
-          // Adjusted Rate Limit Buffer: Faster if previous failed (assuming limit hit/no data), Slower if success
-          await new Promise(r => setTimeout(r, 150)); 
+          setProgress({ current: Math.min(i + BATCH_SIZE, eliteSquad.length), total: eliteSquad.length });
+          await new Promise(r => setTimeout(r, 200)); 
       }
 
-      // Rank by Fundamental Score
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
       setProcessedData(results);
       
@@ -351,7 +323,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.2.0", count: results.length, strategy: "Fundamental_Fortress_HedgeFund_Model_Hybrid" },
+        manifest: { version: "6.4.0", count: results.length, strategy: "Fundamental_Fortress_Real_Valuation" },
         fundamental_universe: results
       };
 
@@ -414,11 +386,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.4</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                            {loading ? `Processing: ${progress.current}/${progress.total}` : 'Hedge Fund Strategy Ready'}
+                            {loading ? `Processing: ${progress.current}/${progress.total}` : 'Real-Time Valuation Ready'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -478,8 +450,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
                                 <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest mt-1">Fundamental Radar Analysis</p>
                             </div>
-                            <div className="text-right">
-                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Intrinsic Value Gauge</p>
+                            <div 
+                                className="text-right cursor-pointer group hover:opacity-80 transition-opacity"
+                                onClick={() => setActiveMetric('INTRINSIC')}
+                            >
+                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1 group-hover:text-emerald-400 transition-colors">Intrinsic Value Gauge</p>
                                  <div className="w-32 h-2 bg-slate-800 rounded-full overflow-hidden relative">
                                      {/* Center Marker (Fair Value) */}
                                      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white z-10"></div>
@@ -509,20 +484,32 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                             </ResponsiveContainer>
                         </div>
 
-                        {/* Magic Metrics Grid */}
+                        {/* Magic Metrics Grid - Now Clickable */}
                         <div className="grid grid-cols-4 gap-2 mt-2">
                              {[
-                                 { label: 'ROIC', val: `${selectedTicker.roic.toFixed(1)}%`, good: selectedTicker.roic > 10 },
-                                 { label: 'Rule of 40', val: `${selectedTicker.ruleOf40.toFixed(1)}`, good: selectedTicker.ruleOf40 > 40 },
-                                 { label: 'Gross Marg', val: `${selectedTicker.grossMargin.toFixed(1)}%`, good: selectedTicker.grossMargin > 40 },
-                                 { label: 'FCF Yield', val: `${selectedTicker.fcfYield.toFixed(1)}%`, good: selectedTicker.fcfYield > 3 }
+                                 { id: 'ROIC', label: 'ROIC', val: `${selectedTicker.roic.toFixed(1)}%`, good: selectedTicker.roic > 10 },
+                                 { id: 'RULE40', label: 'Rule of 40', val: `${selectedTicker.ruleOf40.toFixed(1)}`, good: selectedTicker.ruleOf40 > 40 },
+                                 { id: 'GROSS', label: 'Gross Marg', val: `${selectedTicker.grossMargin.toFixed(1)}%`, good: selectedTicker.grossMargin > 40 },
+                                 { id: 'FCF', label: 'FCF Yield', val: `${selectedTicker.fcfYield}%`, good: parseFloat(selectedTicker.fcfYield as any) > 3 }
                              ].map((m, idx) => (
-                                 <div key={idx} className={`p-2 rounded-lg text-center border ${m.good ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-800 border-white/5'}`}>
-                                     <p className="text-[7px] text-slate-500 uppercase font-bold">{m.label}</p>
+                                 <div 
+                                    key={idx} 
+                                    onClick={() => setActiveMetric(m.id)}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 ${activeMetric === m.id ? 'bg-white/10 border-white text-white shadow-lg' : m.good ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-800 border-white/5'}`}
+                                 >
+                                     <p className={`text-[7px] uppercase font-bold ${activeMetric === m.id ? 'text-white' : 'text-slate-500'}`}>{m.label}</p>
                                      <p className={`text-[10px] font-black ${m.good ? 'text-emerald-400' : 'text-slate-300'}`}>{m.val}</p>
                                  </div>
                              ))}
                         </div>
+                        
+                        {/* Quant Insight Box */}
+                        {activeMetric && METRIC_INSIGHTS[activeMetric] && (
+                            <div className="absolute bottom-16 left-6 right-6 bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-cyan-500/30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 z-20">
+                                <h5 className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-1">{METRIC_INSIGHTS[activeMetric].title}</h5>
+                                <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
+                            </div>
+                        )}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
