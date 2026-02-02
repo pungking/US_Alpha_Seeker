@@ -47,6 +47,7 @@ interface Props {
 }
 
 const CACHE_PREFIX = 'QUANT_CACHE_INSTITUTIONAL_v8_';
+const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
     const today = new Date().toISOString().split('T')[0];
@@ -66,6 +67,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
   
+  // [NEW] Drill-down State
+  const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
+
   // [NEW] Granular Analysis Phase State
   const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'PROFITABILITY' | 'STABILITY' | 'VALUATION' | 'COMPLETE'>('INIT');
   
@@ -496,25 +500,49 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           map.set(theme, (map.get(theme) || 0) + 1);
       });
 
-      return Array.from(map).map(([name, size]) => ({ name, size })).sort((a, b) => b.size - a.size);
+      // Sort by size and assign color
+      return Array.from(map)
+        .sort((a, b) => b[1] - a[1])
+        .map(([name, size], index) => ({ 
+            name, 
+            size,
+            fill: THEME_COLORS[index % THEME_COLORS.length]
+        }));
   }, [processedData]);
 
+  // Drill Down Logic
+  const themeDetails = useMemo(() => {
+      if (!selectedTheme) return [];
+      // Find top 10 stocks in this theme from the processed list
+      const stocks = processedData.filter(t => t.theme === selectedTheme);
+      return stocks.sort((a, b) => b.qualityScore - a.qualityScore);
+  }, [selectedTheme, processedData]);
+
   const CustomizedContent = (props: any) => {
-    const { x, y, width, height, name, value } = props;
+    const { x, y, width, height, name, value, fill } = props;
+    const isSmall = width < 60 || height < 40;
+    
     return (
-      <g>
+      <g onClick={() => !isSmall && setSelectedTheme(name)} style={{ cursor: isSmall ? 'default' : 'pointer' }}>
         <rect
           x={x} y={y} width={width} height={height}
-          style={{ fill: '#3b82f6', stroke: '#0f172a', strokeWidth: 2, fillOpacity: 0.8 }}
+          style={{ 
+              fill: fill || '#3b82f6', 
+              stroke: '#0f172a', 
+              strokeWidth: 2, 
+              fillOpacity: 0.9,
+              transition: 'all 0.3s ease'
+          }}
           rx={4} ry={4}
+          className="hover:opacity-80"
         />
-        {width > 50 && height > 30 && (
+        {!isSmall && (
           <>
-            <text x={x + width / 2} y={y + height / 2 - 5} textAnchor="middle" fill="#fff" fontSize={10} fontWeight="900" style={{ textTransform: 'uppercase' }}>
-              {name}
+            <text x={x + width / 2} y={y + height / 2 - 6} textAnchor="middle" fill="#fff" fontSize={10} fontWeight="900" style={{ textTransform: 'uppercase', textShadow: '0px 1px 2px rgba(0,0,0,0.8)' }}>
+              {name.length > 10 ? name.substring(0, 8) + '..' : name}
             </text>
-            <text x={x + width / 2} y={y + height / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>
-              {value}
+            <text x={x + width / 2} y={y + height / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize={9} fontWeight="bold" style={{ textShadow: '0px 1px 2px rgba(0,0,0,0.8)' }}>
+              {value} Assets
             </text>
           </>
         )}
@@ -611,11 +639,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               </div>
 
               <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative overflow-hidden">
-                 <div className="absolute top-6 left-6 z-10">
-                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Market Theme Dominance</p>
+                 <div className="absolute top-6 left-6 z-10 w-full pr-12">
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1 shadow-black drop-shadow-md">Market Theme Dominance</p>
                     <p className="text-[8px] text-slate-500 uppercase font-mono">Based on Elite 500 Selection</p>
                  </div>
-                 <div className="flex-1 w-full h-full mt-8">
+                 <div className="flex-1 w-full h-full mt-14"> {/* Increased margin-top for title visibility */}
                      {processedData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <Treemap
@@ -632,6 +660,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                                 <div className="bg-slate-900 border border-slate-700 p-2 rounded shadow-lg">
                                                     <p className="text-xs font-bold text-white">{payload[0].payload.name}</p>
                                                     <p className="text-[10px] text-blue-400">Assets: {payload[0].value}</p>
+                                                    <p className="text-[8px] text-slate-500 mt-1">Click to inspect sector</p>
                                                 </div>
                                             );
                                         }
@@ -643,12 +672,56 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
                      )}
                  </div>
+                 
+                 {/* Sector Detail Overlay */}
+                 {selectedTheme && (
+                     <div className="absolute inset-0 z-20 bg-slate-900/95 backdrop-blur-md flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
+                         <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4">
+                             <div>
+                                 <h4 className="text-lg font-black text-white italic tracking-tighter uppercase">{selectedTheme}</h4>
+                                 <p className="text-[10px] text-slate-400">Elite Assets Ranked by Quality</p>
+                             </div>
+                             <button onClick={() => setSelectedTheme(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
+                                 <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                             </button>
+                         </div>
+                         <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
+                             {themeDetails.length > 0 ? themeDetails.map((item, idx) => {
+                                 // Calculate global rank approximately by checking index in full processedData
+                                 const globalRank = processedData.findIndex(p => p.symbol === item.symbol) + 1;
+                                 return (
+                                     <div key={item.symbol} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors">
+                                         <div className="flex items-center gap-3">
+                                             <div className="flex flex-col items-center justify-center w-8 h-8 bg-black/40 rounded-lg border border-white/5">
+                                                 <span className="text-[8px] text-slate-500 uppercase">Rank</span>
+                                                 <span className="text-[10px] font-black text-blue-400">#{globalRank}</span>
+                                             </div>
+                                             <div>
+                                                 <p className="text-xs font-black text-white">{item.symbol}</p>
+                                                 <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
+                                             </div>
+                                         </div>
+                                         <div className="text-right">
+                                             <div className="flex items-center justify-end gap-2">
+                                                 <span className="text-[10px] font-mono text-emerald-400 font-bold">${item.price?.toFixed(2)}</span>
+                                             </div>
+                                             <div className="flex items-center gap-2 mt-1">
+                                                 <span className="text-[8px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">Z: {item.zScore}</span>
+                                                 <span className="text-[8px] bg-blue-900/40 px-1.5 py-0.5 rounded text-blue-300 border border-blue-500/20">Score: {item.qualityScore}</span>
+                                             </div>
+                                         </div>
+                                     </div>
+                                 );
+                             }) : <div className="text-center text-xs text-slate-500 mt-10">No data available</div>}
+                         </div>
+                     </div>
+                 )}
               </div>
           </div>
         </div>
