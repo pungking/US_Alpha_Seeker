@@ -1,6 +1,7 @@
 
 export default async function handler(req: any, res: any) {
-  // Nasdaq Official API Proxy
+  // "The Holy Grail" - TradingView Scanner Proxy
+  // Fetches entire US market + Fundamentals in ONE request.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -13,49 +14,77 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    const url = 'https://api.nasdaq.com/api/screener/stocks?tableonly=true&limit=25000&exchange=all&download=true';
+    const url = 'https://scanner.tradingview.com/america/scan';
     
+    // Requesting massive data columns: Close, Volume, MarketCap, Sector, Industry, PER, EPS, ROE
+    // range: [0, 20000] attempts to get everything sorted by volume
+    const payload = {
+        "filter": [
+            { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
+            { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit"] }
+        ],
+        "options": { "lang": "en" },
+        "symbols": { "query": { "types": [] }, "tickers": [] },
+        "columns": [
+            "name",                 // d[0]
+            "close",                // d[1]
+            "volume",               // d[2]
+            "market_cap_basic",     // d[3]
+            "sector",               // d[4]
+            "industry",             // d[5]
+            "price_earnings_ttm",   // d[6]
+            "earnings_per_share_basic_ttm", // d[7]
+            "return_on_equity_fq",  // d[8]
+            "change",               // d[9]
+            "description"           // d[10]
+        ],
+        "sort": { "sortBy": "volume", "sortOrder": "desc" },
+        "range": [0, 20000]
+    };
+
     const response = await fetch(url, {
+      method: 'POST',
       headers: {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Accept': 'application/json, text/plain, */*',
-        'Accept-Language': 'en-US,en;q=0.9',
-        'Origin': 'https://www.nasdaq.com',
-        'Referer': 'https://www.nasdaq.com/market-activity/stocks/screener',
-        'Sec-Fetch-Dest': 'empty',
-        'Sec-Fetch-Mode': 'cors',
-        'Sec-Fetch-Site': 'same-site'
-      }
+        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Content-Type': 'application/json',
+        'Origin': 'https://www.tradingview.com',
+        'Referer': 'https://www.tradingview.com/'
+      },
+      body: JSON.stringify(payload)
     });
 
     if (!response.ok) {
-        // Return 200 with empty array to allow frontend fallback gracefully
-        console.warn(`Nasdaq Upstream Error: ${response.status}`);
-        return res.status(200).json([]);
+        const txt = await response.text();
+        throw new Error(`TV Scanner Error: ${response.status} - ${txt.substring(0, 100)}`);
     }
 
-    const data = await response.json();
-    const rows = data?.data?.table?.rows || [];
-    
-    const normalized = rows.map((r: any) => ({
-        symbol: r.symbol,
-        name: r.name,
-        price: parseFloat(r.lastsale.replace('$', '').replace(',', '')) || 0,
-        change: parseFloat(r.netchange.replace('$', '').replace(',', '')) || 0,
-        pctChange: parseFloat(r.pctchange.replace('%', '').replace(',', '')) || 0,
-        marketCap: parseFloat(r.marketCap.replace(/,/g, '')) || 0,
-        volume: parseFloat(r.volume.replace(/,/g, '')) || 0,
-        sector: r.sector,
-        industry: r.industry,
-        country: r.country,
-        ipoyear: r.ipoyear
-    }));
+    const json = await response.json();
+    const rows = json.data || [];
+
+    // Map raw array to our MasterTicker/QualityTicker schema
+    const normalized = rows.map((r: any) => {
+        const d = r.d; // data array
+        return {
+            symbol: r.s.split(':')[1] || r.s, // Remove "NASDAQ:" prefix
+            name: d[10] || "",
+            price: d[1] || 0,
+            volume: d[2] || 0,
+            marketCap: d[3] || 0,
+            sector: d[4] || "Unclassified",
+            industry: d[5] || "Unknown",
+            pe: d[6] || 0,
+            eps: d[7] || 0,
+            roe: d[8] || 0, // TV returns percentage directly usually
+            change: d[9] || 0,
+            source: 'TradingView_Scan'
+        };
+    });
 
     res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
     return res.status(200).json(normalized);
 
   } catch (error: any) {
-    console.error('Nasdaq Proxy Error:', error);
-    return res.status(200).json([]); // Return empty array on error for graceful fallback
+    console.error('TV Proxy Error:', error);
+    return res.status(200).json([]); // Return empty for graceful failover
   }
 }
