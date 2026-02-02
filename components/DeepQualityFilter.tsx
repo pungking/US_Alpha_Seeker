@@ -42,8 +42,8 @@ interface Props {
   onComplete?: () => void;
 }
 
-// [CACHE SYSTEM] Daily Session Cache Key Prefix
-const CACHE_PREFIX = 'QUALITY_CACHE_REAL_v3_';
+// [CACHE SYSTEM] Updated Version to v5 to force fresh start
+const CACHE_PREFIX = 'QUALITY_CACHE_REAL_v5_';
 
 const getDailyCacheKey = (symbol: string) => {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -69,7 +69,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Free Plan Logic
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2.2: Sector Dominance Matrix Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.3.0: Permissive Filter Protocol Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -78,7 +78,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const logRef = useRef<HTMLDivElement>(null);
 
   // [ADAPTIVE STRATEGY]
-  const BATCH_SIZE = 8; // Increased batch for Yahoo efficiency
+  const BATCH_SIZE = 8; 
   const DELAY_TURBO = 300;   
   const DELAY_SAFE = 2000;   
   const TARGET_SELECTION_COUNT = 500; 
@@ -124,7 +124,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const clearStageCache = () => {
       try {
           const keysToRemove: string[] = [];
-          // Snapshot keys first to avoid mutation issues during iteration
           for (let i = 0; i < sessionStorage.length; i++) {
               const key = sessionStorage.key(i);
               if (key && key.startsWith(CACHE_PREFIX)) {
@@ -138,11 +137,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
 
           keysToRemove.forEach(k => sessionStorage.removeItem(k));
-          addLog(`[CACHE] Flushed ${keysToRemove.length} cached Stage 2 records.`, "warn");
           
-          // Reset internal state to visually confirm clear
+          // Visual feedback
           setProcessedData([]); 
           setProgress({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
+          addLog(`[CACHE] Flushed ${keysToRemove.length} records. Ready for clean test.`, "warn");
           
       } catch (e) {
           console.error("Cache clear failed", e);
@@ -163,37 +162,32 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // [NEW] Advanced Scoring Logic (Handles Missing Data Gracefully)
   const calculateQuantScores = (metrics: any, price: number, marketCap: number) => {
       // 1. Profitability (Earnings Power)
-      // If ROE is missing, we check if PER exists. If PER is negative (loss), Profitability is low.
       let roeVal = metrics.roe || 0; 
-      if (!metrics.roe && metrics.per && metrics.per < 0) roeVal = -5; // Penalty for loss-making if ROE missing
+      if (!metrics.roe && metrics.per && metrics.per < 0) roeVal = -5; 
       
-      const profitScore = Math.min(100, Math.max(0, (roeVal * 3) + 50)); // Center at 50, scale up/down
+      const profitScore = Math.min(100, Math.max(0, (roeVal * 3) + 50)); 
 
       // 2. Stability (Safety)
-      // Debt/Eq: Lower is better. Missing Debt is risky, assume 1.5
       const debt = metrics.debt !== undefined ? metrics.debt : 1.5;
-      const debtScore = Math.max(0, 100 - (debt * 25)); // 1.0 debt -> 75 score. 
+      const debtScore = Math.max(0, 100 - (debt * 25)); 
       const stabilityScore = debtScore;
 
       // 3. Growth/Value (Upside)
-      // PBR is a good fallback if PER is missing (e.g. Turnaround plays)
       let valScore = 50;
       const per = metrics.per;
       const pbr = metrics.pbr;
 
       if (per !== undefined && per > 0) {
-          // Normal PE valuation
           if (per < 15) valScore = 90;
           else if (per < 30) valScore = 70;
           else if (per < 50) valScore = 50;
           else valScore = 30;
       } else if (pbr !== undefined && pbr > 0) {
-          // Fallback to PBR valuation
           if (pbr < 1.5) valScore = 85;
           else if (pbr < 3.0) valScore = 60;
           else valScore = 40;
-      } else if (per !== undefined && per <= 0) {
-          // Loss making, but maybe high growth?
+      } else {
+          // No valid valuation metrics -> Neutral/Low score
           valScore = 40; 
       }
 
@@ -220,7 +214,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     try {
       let metrics: any = {};
       let profileData: any = {};
-      let metricsSource = "";
+      let metricsSource = "None";
       let foundData = false;
       
       // 1. Try Yahoo Finance Proxy (PRIMARY)
@@ -230,16 +224,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               const yData = await yRes.json();
               if (yData && yData.length > 0) {
                   const y = yData[0];
-                  // Relaxed Check: Accept partial data
-                  if (y.trailingPE || y.forwardPE || y.priceToBook || y.returnOnEquity) {
-                      metrics = {
-                          per: y.trailingPE || y.forwardPE,
-                          pbr: y.priceToBook,
-                          roe: y.returnOnEquity ? y.returnOnEquity * 100 : undefined,
-                          debt: y.debtToEquity ? y.debtToEquity / 100 : undefined
-                      };
-                      profileData = { name: y.name };
-                      metricsSource = "Yahoo";
+                  // Relaxed Check: Even if partial, take it
+                  metrics = {
+                      per: y.trailingPE || y.forwardPE,
+                      pbr: y.priceToBook,
+                      roe: y.returnOnEquity ? y.returnOnEquity * 100 : undefined,
+                      debt: y.debtToEquity ? y.debtToEquity / 100 : undefined
+                  };
+                  profileData = { name: y.name };
+                  metricsSource = "Yahoo";
+                  // Mark as found if we have AT LEAST ONE metric, OR valid price data
+                  if (metrics.per || metrics.pbr || metrics.roe || y.price > 0) {
                       foundData = true;
                   }
               }
@@ -250,12 +245,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       if (!foundData && !fmpDepleted) {
           try {
             const ratioRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
-            
             if (ratioRes.status === 429) {
                 setFmpDepleted(true);
                 throw new Error("FMP_LIMIT");
             }
-
             if (ratioRes.ok) {
                 const data = await ratioRes.json();
                 if (data && Array.isArray(data) && data.length > 0) {
@@ -275,22 +268,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      // [CRITICAL FIX] "Soft-Real" Filtering
-      // Instead of requiring PER && ROE, we accept ANY valid fundamental indicator.
-      // This prevents mass dropping of Growth/Turnaround stocks.
-      const hasPer = metrics.per !== undefined && metrics.per !== null;
-      const hasPbr = metrics.pbr !== undefined && metrics.pbr !== null;
-      const hasRoe = metrics.roe !== undefined && metrics.roe !== null;
-
-      // Drop ONLY if we have absolutely zero valuation/profitability data
-      if (!hasPer && !hasPbr && !hasRoe) {
-          return null;
-      }
-
+      // [CRITICAL FIX: PERMISSIVE MODE]
+      // Even if 'foundData' is technically false (no metrics), 
+      // if we have price data from Stage 1, we KEEP the stock but give it a low score.
+      // This prevents mass dropping.
+      
       const price = Number(target.price) || 0;
       const volume = Number(target.volume) || 0;
       const safeMarketValue = Number(target.marketValue || (price * volume)) || 1000000; 
 
+      // Calculate scores (handles missing metrics by assigning defaults)
       const scores = calculateQuantScores(metrics, price, safeMarketValue);
 
       const resultTicker: QualityTicker = {
@@ -303,7 +290,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         profitabilityScore: scores.profitScore,
         stabilityScore: scores.stabilityScore,
         growthScore: scores.growthScore,
-        qualityScore: scores.qualityScore,
+        qualityScore: scores.qualityScore, // If no data, this will be around 40-50
 
         per: metrics.per || 0,
         pbr: metrics.pbr || 0, 
@@ -325,6 +312,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     } catch (e: any) {
       if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e;
+      // If error is genuine network failure, we still return a fallback if we have Stage 1 data
+      if (target.price) {
+          return {
+              ...target,
+              marketValue: target.marketValue || 0,
+              profitabilityScore: 30,
+              stabilityScore: 30,
+              growthScore: 30,
+              qualityScore: 30,
+              per: 0, pbr: 0, debtToEquity: 0, roe: 0,
+              lastUpdate: new Date().toISOString(),
+              source: "Fallback"
+          };
+      }
       return null;
     }
   };
@@ -459,7 +460,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // Prioritize Liquid Large Caps to maximize data availability
       targets.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
 
-      addLog(`Universe Loaded: ${totalCandidates} Assets. Starting Strict Real-Data Scan...`, "info");
+      addLog(`Universe Loaded: ${totalCandidates} Assets. Starting Permissive Scan...`, "info");
       setProgress({ current: 0, total: totalCandidates, cacheHits: 0, filteredOut: 0 });
       
       const validResults: QualityTicker[] = [];
@@ -506,8 +507,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      addLog(`Scan Complete. ${validResults.length} Real-Data Assets Secured. (Skipped ${skippedCount} incomplete)`, "info");
+      addLog(`Scan Complete. ${validResults.length} Assets Processed. (Skipped ${skippedCount} errors)`, "info");
       
+      // Sort by Quality to get the best 500
       const eliteSurvivors = validResults
           .sort((a, b) => b.qualityScore - a.qualityScore) 
           .slice(0, TARGET_SELECTION_COUNT);
@@ -519,7 +521,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.2.2", strategy: "Strict_Real_Data_Quant", timestamp: new Date().toISOString() },
+        manifest: { version: "5.3.0", strategy: "Permissive_Real_Data_Quant", timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -652,7 +654,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.3.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
