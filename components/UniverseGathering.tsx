@@ -47,8 +47,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
   // API Keys
+  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
@@ -56,13 +56,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [stats, setStats] = useState({
     found: 0,
     synced: 0,
-    target: 20000,
+    target: 24000,
     elapsed: 0,
     provider: 'Idle',
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.4.0: TV Scanner Integration (Holy Grail Mode).']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v3.5.0: Triple Hybrid Fusion Mode.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -77,13 +77,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [cooldown]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && isActive && !isEngineRunning && cooldown === 0) {
         if (!accessToken) {
              addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
         } else {
-             addLog("AUTO-PILOT: Engaging Universe Gathering Sequence...", "signal");
+             addLog("AUTO-PILOT: Engaging Triple Fusion Sequence...", "signal");
              startEngine();
         }
     }
@@ -137,47 +136,60 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
 
     document.body.setAttribute('data-engine-running', 'true');
-    runAggregatedPipeline(accessToken);
+    runTripleFusionPipeline(accessToken);
   };
 
-  // [STRATEGY A] TradingView Scanner Proxy (The Holy Grail)
-  // Fetches 20,000+ assets with SECTOR, INDUSTRY, PE, ROE in ONE CALL.
-  const executeTVScannerStrategy = async (): Promise<MasterTicker[]> => {
-      addLog("Strategy A: TradingView Omni-Scanner (All-in-One)...", "info");
-      
-      // We rely on our local proxy api/nasdaq.ts which is actually the TV scanner
+  // [SOURCE 1] TradingView Scanner (Rich Data, ~16k)
+  const executeTVScanner = async (): Promise<MasterTicker[]> => {
+      addLog("Source A: TradingView Omni-Scanner (Rich Data)...", "info");
       const res = await fetch('/api/nasdaq'); 
-      if (!res.ok) {
-          throw new Error(`TV Scanner Proxy Failed: ${res.status}`);
-      }
-      
+      if (!res.ok) throw new Error(`TV Proxy Failed: ${res.status}`);
       const data = await res.json();
-      if (!Array.isArray(data)) throw new Error("Invalid TV Data Structure");
-      
+      if (!Array.isArray(data)) throw new Error("Invalid TV Data");
       addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
-      
       return data.map((item: any) => ({
-          symbol: item.symbol,
-          name: item.name,
-          price: item.price,
-          volume: item.volume,
-          change: item.change,
-          marketCap: item.marketCap,
-          sector: item.sector || "Unclassified",
-          industry: item.industry || "Unknown",
-          pe: item.pe,
-          roe: item.roe,
-          eps: item.eps,
-          type: 'Common Stock',
-          updated: new Date().toISOString().split('T')[0],
-          source: 'TV_Scanner'
+          symbol: item.symbol, name: item.name, price: item.price, volume: item.volume, 
+          change: item.change, marketCap: item.marketCap, sector: item.sector || "Unclassified", 
+          industry: item.industry || "Unknown", pe: item.pe, roe: item.roe, eps: item.eps,
+          type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'TV_Scanner'
       }));
   };
 
-  // [STRATEGY B] Polygon Aggregates (Primary for Coverage/Price if TV fails)
-  const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
+  // [SOURCE 2] FMP Screener (Metadata Backup, ~20k, Resets Daily)
+  const executeFMPScreener = async (): Promise<MasterTicker[]> => {
+    if (!fmpKey) {
+        addLog("FMP Key missing. Skipping FMP Source.", "warn");
+        return [];
+    }
+    addLog("Source B: FMP Screener (Metadata Backup)...", "info");
+    try {
+        const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=100&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=30000&apikey=${fmpKey}`;
+        const res = await fetch(url);
+        if (res.status === 429) throw new Error("FMP_LIMIT_HIT");
+        if (!res.ok) throw new Error(`FMP Status ${res.status}`);
+        
+        const data = await res.json();
+        addLog(`FMP Screener: Retrieved ${data.length} assets (Daily Limit Consumed).`, "ok");
+        
+        return data.map((item: any) => ({
+            symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
+            change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry,
+            type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'FMP_Screener'
+        }));
+    } catch (e: any) {
+        if (e.message === "FMP_LIMIT_HIT") {
+            addLog("FMP Daily Limit Reached. Skipping FMP Source.", "warn");
+        } else {
+            addLog(`FMP Error: ${e.message}`, "warn");
+        }
+        return [];
+    }
+  };
+
+  // [SOURCE 3] Polygon Aggregates (Quantity Max, ~25k)
+  const executePolygonAggs = async (): Promise<MasterTicker[]> => {
     if (!polygonKey) throw new Error("Polygon Key missing");
-    addLog("Strategy B: Polygon Deep Discovery (Coverage Backup)...", "info");
+    addLog("Source C: Polygon Deep Discovery (Quantity Max)...", "info");
     
     let polyResults: any[] = [];
     let success = false;
@@ -186,9 +198,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const targetDate = getInitialTargetDate(i);
         try {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-            
             if (polyRes.status === 429) { 
-                addLog("Polygon Rate Limit. Pausing...", "warn");
+                addLog("Polygon Rate Limit. Retrying...", "warn");
                 await new Promise(r => setTimeout(r, 15000)); 
                 continue; 
             }
@@ -196,7 +207,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 const data = await polyRes.json();
                 if (data.results && data.results.length > 5000) { 
                     polyResults = data.results; 
-                    addLog(`Polygon: Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    addLog(`Polygon: Success! Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
                     success = true;
                     break; 
                 }
@@ -204,79 +215,53 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         } catch (e) { }
         await new Promise(r => setTimeout(r, 500));
     }
-
-    if (!success || polyResults.length === 0) throw new Error("Polygon failed.");
+    if (!success) throw new Error("Polygon failed after retries.");
 
     return polyResults.map((p: any) => ({
-        symbol: p.T,
-        name: p.T, 
-        type: 'Common Stock',
-        price: p.c,
-        volume: p.v,
+        symbol: p.T, name: p.T, type: 'Common Stock', price: p.c, volume: p.v,
         change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
-        updated: new Date().toISOString().split('T')[0],
-        source: 'Polygon_Aggs'
+        updated: new Date().toISOString().split('T')[0], source: 'Polygon_Aggs'
     }));
   };
 
-  // [PHASE 3] Yahoo Bulk Enrichment (Supplement)
-  const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      addLog(`Phase 3: Yahoo Bulk Supplement (Targeting ${tickers.length})...`, "info");
-      setStats(prev => ({ ...prev, phase: 'Enrichment' }));
-      
-      const missingFundamentals = tickers.filter(t => !t.pe && !t.roe && !t.sector);
-      if (missingFundamentals.length < 100) {
-          addLog("Most assets already have TV data. Skipping deep enrichment.", "ok");
-          return tickers;
-      }
-      
-      // Limit enrichment to top liquid stocks to avoid timeouts
-      const candidates = missingFundamentals.sort((a,b) => b.volume - a.volume).slice(0, 1000); 
-      addLog(`Enriching top ${candidates.length} missing-data assets via Yahoo...`, "info");
+  // [FUSION] The Ultimate Merge Logic
+  const fuseDatasets = (tv: MasterTicker[], fmp: MasterTicker[], poly: MasterTicker[]): MasterTicker[] => {
+      const map = new Map<string, MasterTicker>();
 
-      const CHUNK_SIZE = 40; 
-      const chunks = [];
-      for (let i = 0; i < candidates.length; i += CHUNK_SIZE) chunks.push(candidates.slice(i, i + CHUNK_SIZE));
-
-      const enrichedMap = new Map<string, any>();
+      // Priority 1: TradingView (Richest Data)
+      tv.forEach(item => map.set(item.symbol, item));
       
-      for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          const symbols = chunk.map(t => t.symbol.replace(/\./g, '-')).join(',');
-          try {
-              const res = await fetch(`/api/yahoo?symbols=${symbols}`);
-              if (res.ok) {
-                  const data = await res.json();
-                  if (Array.isArray(data)) {
-                      data.forEach((item: any) => {
-                          const originalSymbol = item.symbol.replace(/-/g, '.');
-                          enrichedMap.set(originalSymbol, item);
-                      });
-                  }
+      // Priority 2: FMP (Fill gaps & Add missing)
+      let fmpAdded = 0;
+      fmp.forEach(item => {
+          if (map.has(item.symbol)) {
+              // If TV missed Sector/Industry but FMP has it, enrich it
+              const existing = map.get(item.symbol)!;
+              if (existing.sector === "Unclassified" && item.sector) {
+                  map.set(item.symbol, { ...existing, sector: item.sector, industry: item.industry });
               }
-          } catch (e) {}
-          await new Promise(r => setTimeout(r, 200));
-          if (i % 5 === 0) addLog(`Enrichment: ${(i+1)*CHUNK_SIZE} scanned...`, "info");
-      }
-
-      return tickers.map(t => {
-          const y = enrichedMap.get(t.symbol);
-          if (y) {
-              return {
-                  ...t,
-                  pe: t.pe || y.trailingPE || y.forwardPE || 0,
-                  roe: t.roe || (y.returnOnEquity ? y.returnOnEquity * 100 : 0),
-                  debtToEquity: y.debtToEquity ? y.debtToEquity / 100 : 0,
-                  sector: (t.sector === 'Unclassified') ? (y.sector || 'Unclassified') : t.sector,
-                  industry: (t.industry === 'Unknown') ? (y.industry || 'Unknown') : t.industry,
-                  name: t.name || y.name
-              };
+          } else {
+              // Add FMP-only stock
+              map.set(item.symbol, item);
+              fmpAdded++;
           }
-          return t;
       });
+
+      // Priority 3: Polygon (Fill gaps & Add missing tail-end)
+      let polyAdded = 0;
+      poly.forEach(item => {
+          if (!map.has(item.symbol)) {
+              // Add Polygon-only stock (likely OTC or very small cap)
+              map.set(item.symbol, item);
+              polyAdded++;
+          }
+      });
+
+      addLog(`Fusion Result: ${tv.length} TV + ${fmpAdded} FMP + ${polyAdded} Poly = ${map.size} Total.`, "ok");
+      return Array.from(map.values());
   };
 
-  const runAggregatedPipeline = async (token: string) => {
+  const runTripleFusionPipeline = async (token: string) => {
     setIsEngineRunning(true);
     const startTime = Date.now();
     setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0 }));
@@ -285,52 +270,48 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }, 1000);
 
     try {
-        // --- PHASE 1: ACQUISITION (TV SCANNER PRIORITY) ---
-        let masterList: MasterTicker[] = [];
-        
-        // 1. TradingView Scanner (The Best Source)
-        try {
-            masterList = await executeTVScannerStrategy();
-            if (masterList.length < 2000) throw new Error("TV Scanner returned partial data");
-        } catch (tvErr: any) {
-            addLog(`TV Scanner Failed: ${tvErr.message}. Falling back to Polygon...`, "err");
-            try {
-                // 2. Fallback to Polygon (Price Only)
-                masterList = await executePolygonStrategy();
-                // If Polygon only, we MUST run Yahoo Enrichment
-            } catch (polyErr: any) {
-                addLog(`Polygon Failed: ${polyErr.message}`, "err");
-                throw new Error("All Primary Data Sources Failed.");
-            }
+        // Run all sources in parallel for speed, but fail gracefully
+        const [tvData, fmpData, polyData] = await Promise.allSettled([
+            executeTVScanner(),
+            executeFMPScreener(),
+            executePolygonAggs()
+        ]);
+
+        const tv = tvData.status === 'fulfilled' ? tvData.value : [];
+        const fmp = fmpData.status === 'fulfilled' ? fmpData.value : [];
+        const poly = polyData.status === 'fulfilled' ? polyData.value : [];
+
+        if (tv.length === 0 && poly.length === 0) {
+            throw new Error("Critical Failure: TV and Polygon both failed.");
         }
 
-        const rawCount = masterList.length;
-        addLog(`Total Raw Universe: ${rawCount} Assets.`, "ok");
+        if (tvData.status === 'rejected') addLog(`TV Scanner Failed: ${tvData.reason}`, "err");
+        if (polyData.status === 'rejected') addLog(`Polygon Failed: ${polyData.reason}`, "err");
 
-        // --- PHASE 2: FILTER & ENRICH ---
-        const minPrice = 0.01; 
+        // FUSE
+        setStats(prev => ({ ...prev, phase: 'Fusion' }));
+        addLog("Executing Triple Hybrid Fusion...", "info");
+        
+        let masterList = fuseDatasets(tv, fmp, poly);
+
+        // Filter valid
+        const minPrice = 0.01;
         let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
-        
-        // If data lacks fundamentals (Polygon Path), try Yahoo
-        if (!viableCandidates[0].sector || viableCandidates[0].sector === "Unclassified") {
-             viableCandidates = await enrichWithYahoo(viableCandidates);
-        } else {
-             addLog("Skipping bulk enrichment (Data already rich).", "ok");
-        }
-        
         viableCandidates.sort((a, b) => b.volume - a.volume);
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: viableCandidates[0].source || "Hybrid" }));
+        
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Triple_Hybrid" }));
+        addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
 
-        // --- PHASE 3: COMMIT ---
+        // COMMIT
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.4.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v3.5.0.json`;
         const payload = { 
             manifest: { 
-                version: "3.4.0", 
-                provider: "TV_Scanner_Hybrid", 
+                version: "3.5.0", 
+                provider: "Triple_Fusion (TV+FMP+Poly)", 
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
-                note: "High-Quality Data from TV Scanner + Backups"
+                note: "Fused Data: TV Richness + FMP Metadata + Polygon Coverage"
             }, 
             universe: viableCandidates 
         };
@@ -355,7 +336,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const ensureFolder = async (token: string) => {
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
-    const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
     
     // Quick resolve or create logic (simplified for reliability)
     const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
@@ -444,10 +424,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.4.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.5.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'TV Scanner (Holy Grail)'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Triple Hybrid Fusion'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
@@ -466,12 +446,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               }`}
             >
               {isEngineRunning 
-                ? 'Scanning Market...' 
+                ? 'Fusing 3 Sources...' 
                 : cooldown > 0 
                     ? `Wait ${cooldown}s` 
                     : !accessToken 
                         ? 'Connect Cloud Vault' 
-                        : 'Execute Deep Scan'}
+                        : 'Execute Deep Fusion'}
             </button>
           </div>
           
