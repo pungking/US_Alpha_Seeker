@@ -82,6 +82,7 @@ const App: React.FC = () => {
                   setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               }
               
+              // [UX CHANGE] Removed Alert for seamless automation
               console.log("✅ Auto Pilot Complete: Alpha Report Processed.");
           }
       }, 3000); 
@@ -90,11 +91,13 @@ const App: React.FC = () => {
   const toggleViewMode = () => {
       if (viewMode === 'MANUAL') {
           if (!isGdriveConnected) {
+              // [UX UPGRADE] Replaced alert with inline status warning
               setAutoStatusMessage("⚠️ CONNECT CLOUD VAULT");
               setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 3000);
               return;
           }
           
+          // [MODIFIED] Removed 'confirm' dialog to support seamless Headless Automation
           setViewMode('AUTO');
           setIsAutoPilotRunning(true);
           setCurrentStage(0);
@@ -107,6 +110,12 @@ const App: React.FC = () => {
           setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
       }
   };
+
+  // Cleanup on Stage Change
+  useEffect(() => {
+    setSelectedStock(null);
+    setStockAuditCache({}); 
+  }, [currentStage]);
 
   useEffect(() => {
     setAuditBrain(selectedBrain);
@@ -219,12 +228,15 @@ const App: React.FC = () => {
         mode: mode
       }, targetBrain);
 
+      // [NEW] Fallback Toggle Logic for Manual Mode
+      // If Gemini failed, switch toggle to Sonar but do NOT auto-retry (manual mode)
       if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing")) {
          if (targetBrain === ApiProvider.GEMINI) {
              setAuditBrain(ApiProvider.PERPLEXITY);
              console.warn("Gemini Audit Failed. Switched toggle to Sonar.");
          }
       } else {
+         // [NEW] Automatic Report Archiving
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
              const date = new Date().toISOString().split('T')[0];
@@ -232,6 +244,7 @@ const App: React.FC = () => {
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
              const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
              
+             // Fire and forget
              archiveReport(token, fileName, report).then(ok => {
                  if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
              });
@@ -304,6 +317,8 @@ const App: React.FC = () => {
 
         {/* AI Resource & Drive Monitor Widget */}
         <div className={`glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto ${isMirror ? 'border-rose-500/20' : ''}`}>
+             
+             {/* Section 1: AI Brains */}
              <div className="flex flex-col border-r border-white/5 pr-5">
                  <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Session Load</span>
                  <div className="flex items-center gap-3">
@@ -328,6 +343,7 @@ const App: React.FC = () => {
                  </div>
              </div>
 
+             {/* Section 2: Vault (Drive) Storage */}
              <div className="flex flex-col min-w-[100px]">
                  <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Vault Storage</span>
                  {driveUsage ? (
@@ -347,6 +363,7 @@ const App: React.FC = () => {
                      <span className="text-[9px] font-black text-slate-600 uppercase">Not Connected</span>
                  )}
              </div>
+
         </div>
 
         {/* HYBRID MODE CONTROLLER */}
@@ -382,10 +399,10 @@ const App: React.FC = () => {
           <button
             key={stage.id}
             onClick={() => setCurrentStage(stage.id)}
-            disabled={isMirror && isAutoPilotRunning}
+            disabled={isMirror && isAutoPilotRunning} // [LOCK] Disable manual nav only while running
             className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
               isMirror && isAutoPilotRunning
-                ? 'opacity-40 cursor-not-allowed border-transparent bg-slate-900 text-slate-600'
+                ? 'opacity-40 cursor-not-allowed border-transparent bg-slate-900 text-slate-600' // Locked Style
                 : currentStage === stage.id 
                     ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' 
                     : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
@@ -397,6 +414,7 @@ const App: React.FC = () => {
       </nav>
 
       <main className="min-h-[450px]">
+        {/* Pass autoStart (true only if Mirror + running + currentStage matches) and onComplete handler */}
         <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
           <UniverseGathering 
             isActive={currentStage === 0} 
@@ -423,7 +441,6 @@ const App: React.FC = () => {
           <FundamentalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
             onComplete={() => handleStageComplete(3)}
-            onStockSelected={setSelectedStock}
           />
         </div>
         <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
@@ -454,6 +471,7 @@ const App: React.FC = () => {
         </div>
       </main>
 
+      {/* Detail Section */}
       <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
