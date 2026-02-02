@@ -136,16 +136,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       } catch (e) { console.error(e); }
   };
 
-  const sanitizeJson = (text: string) => {
-    try {
-      let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
-      const first = clean.indexOf('{');
-      const last = clean.lastIndexOf('}');
-      if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
-      return JSON.parse(clean);
-    } catch (e) { return null; }
-  };
-
   const mapIndustryToTheme = (industry: string, sector: string) => {
       if (!industry) return sector;
       const ind = industry.toLowerCase();
@@ -283,9 +273,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // [CRITICAL] Apply Institutional Scoring
       const scores = calculateInstitutionalScores(metrics, sector);
       
-      // Z-Score Cutoff (Hard Filter)
-      if (scores.zScoreProxy < 1.5) {
-          // Filter out High Risk stocks immediately (Distress Zone)
+      // Z-Score Cutoff (Relaxed to 1.2 to prevent empty results on data gaps)
+      if (scores.zScoreProxy < 1.2) {
           return null; 
       }
 
@@ -332,6 +321,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     
     if (!tickers || tickers.length === 0) {
         setAiStatus('FAILED');
+        setAiAnalysis("No assets available for audit.");
         return;
     }
 
@@ -371,8 +361,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
         setAiAnalysis(response.text);
         setAiStatus('SUCCESS');
-    } catch (e) {
-        setAiAnalysis("AI Audit Service Temporarily Unavailable.");
+        addLog("AI Risk Audit Complete.", "ok");
+    } catch (e: any) {
+        console.error("AI Audit Error", e);
+        setAiAnalysis(`AI Audit Failed: ${e.message}`);
         setAiStatus('FAILED');
     }
   };
@@ -385,6 +377,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     setAnalysisPhase('INIT');
     setProcessedData([]);
     startTimeRef.current = Date.now();
+    
+    // [FIX] Explicitly define variable here to prevent ReferenceError
+    const activeEngine = "Institutional_Quant_Algorithm";
     
     try {
       // 1. Load Stage 1
@@ -438,6 +433,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
+      if (eliteSurvivors.length === 0) {
+          addLog("Warning: No assets survived the quality filter. Check criteria.", "warn");
+      }
+
       // Trigger AI Audit
       await analyzeUniverseHealth(eliteSurvivors);
 
