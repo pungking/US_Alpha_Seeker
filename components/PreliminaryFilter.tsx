@@ -1,9 +1,11 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
 
+// [DATA PRESERVATION] Extended Interface to match Stage 0's rich output
 interface MasterTicker {
   symbol: string;
   name?: string;
@@ -12,6 +14,20 @@ interface MasterTicker {
   change: number;
   updated: string;
   type?: string;
+  
+  // Accumulated Data from Stage 0 (Fusion)
+  marketCap?: number;
+  sector?: string;
+  industry?: string;
+  pe?: number;
+  eps?: number;
+  roe?: number;
+  debtToEquity?: number;
+  pb?: number;
+  source?: string;
+  
+  // Allow for future data accumulation without breaking types
+  [key: string]: any;
 }
 
 interface AiProposal {
@@ -32,7 +48,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.2.0: Resilience Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.3.0: Data Preservation Mode Active.']);
   
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -123,7 +139,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const data = content.universe || [];
       setRawUniverse(data);
-      addLog(`Matrix Synced: ${data.length} assets. Calculating distribution stats...`, "ok");
+      addLog(`Matrix Synced: ${data.length} assets with Full Data Fidelity.`, "ok");
 
       // AI Analysis Logic...
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
@@ -246,10 +262,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const commitPurification = async () => {
-    // Ensure rawUniverse is populated before committing
     if (!accessToken || rawUniverse.length === 0) {
         if (autoStart && autoStep === 'COMMITTING') {
-             // Retry later if somehow data isn't ready
              console.warn("Commit delayed: Data not ready");
              return; 
         }
@@ -260,13 +274,15 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     addLog(`Phase 2: Purifying Universe... (P: $${minPrice}, V: ${minVolume})`, "info");
 
     try {
+      // Filter logic: Preserves the entire object structure from Stage 0
       const filtered = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
+      
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       
       const payload = {
-        manifest: { version: "2.1.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
-        investable_universe: filtered
+        manifest: { version: "2.3.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
+        investable_universe: filtered // Contains full rich data
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -278,7 +294,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Purification Success: ${filtered.length} assets committed.`, "ok");
+      addLog(`Purification Success: ${filtered.length} assets committed (Data Intact).`, "ok");
       
       if (autoStart) {
           setAutoStep('DONE');
@@ -317,7 +333,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.3.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Analyzing via ${activeAi}...` : activeAi !== 'Standby' ? `Active Brain: ${activeAi}` : 'System Standby'}
