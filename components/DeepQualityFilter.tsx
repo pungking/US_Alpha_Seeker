@@ -122,14 +122,32 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const clearStageCache = () => {
-      let count = 0;
-      Object.keys(sessionStorage).forEach(key => {
-          if (key.startsWith(CACHE_PREFIX)) {
-              sessionStorage.removeItem(key);
-              count++;
+      try {
+          const keysToRemove: string[] = [];
+          // Snapshot keys first to avoid mutation issues during iteration
+          for (let i = 0; i < sessionStorage.length; i++) {
+              const key = sessionStorage.key(i);
+              if (key && key.startsWith(CACHE_PREFIX)) {
+                  keysToRemove.push(key);
+              }
           }
-      });
-      addLog(`Cache Flushed: Removed ${count} stale records. Ready for fresh test.`, "warn");
+          
+          if (keysToRemove.length === 0) {
+              addLog("Cache is already empty.", "info");
+              return;
+          }
+
+          keysToRemove.forEach(k => sessionStorage.removeItem(k));
+          addLog(`[CACHE] Flushed ${keysToRemove.length} cached Stage 2 records.`, "warn");
+          
+          // Reset internal state to visually confirm clear
+          setProcessedData([]); 
+          setProgress({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
+          
+      } catch (e) {
+          console.error("Cache clear failed", e);
+          addLog("Error clearing cache.", "err");
+      }
   };
 
   const sanitizeJson = (text: string) => {
