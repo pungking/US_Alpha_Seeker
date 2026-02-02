@@ -465,9 +465,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
            <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-              <div className="flex items-center gap-2">
-                <span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span>
-              </div>
             </div>
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
@@ -484,7 +481,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                         <span className="truncate">{searchResult.name || searchResult.symbol}</span>
                         <div className="flex items-center gap-3">
                             <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
-                            <span className="text-[8px] text-slate-500">{searchResult.source}</span>
                             <button 
                                 onClick={handleSetTarget}
                                 className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
