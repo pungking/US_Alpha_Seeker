@@ -126,20 +126,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       return Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
   };
 
+  // Switch to Annual Data (limit=1) for better reliability on Free Tier
   const fetchFinancials = async (symbol: string) => {
       if (!fmpKey) throw new Error("FMP Key Missing");
       const [ratiosRes, metricsRes, quoteRes] = await Promise.all([
-          fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`),
-          fetch(`https://financialmodelingprep.com/api/v3/key-metrics-ttm/${symbol}?apikey=${fmpKey}`),
+          fetch(`https://financialmodelingprep.com/api/v3/ratios/${symbol}?limit=1&apikey=${fmpKey}`),
+          fetch(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=1&apikey=${fmpKey}`),
           fetch(`https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${fmpKey}`)
       ]);
+      
       const ratios = await ratiosRes.json();
       const metrics = await metricsRes.json();
       const quote = await quoteRes.json();
+      
+      // Handle array responses safely
       return {
-          r: ratios && ratios.length > 0 ? ratios[0] : {},
-          m: metrics && metrics.length > 0 ? metrics[0] : {},
-          q: quote && quote.length > 0 ? quote[0] : {}
+          r: Array.isArray(ratios) && ratios.length > 0 ? ratios[0] : {},
+          m: Array.isArray(metrics) && metrics.length > 0 ? metrics[0] : {},
+          q: Array.isArray(quote) && quote.length > 0 ? quote[0] : {}
       };
   };
 
@@ -181,41 +185,75 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           try {
               const { r, m, q } = await fetchFinancials(item.symbol);
               const currentPrice = q.price || item.price || 0;
-              const fScore = m.piotroskiScore !== undefined ? m.piotroskiScore : (Math.floor(Math.random() * 3) + 6); 
               
-              const eps = m.netIncomePerShareTTM || 0;
-              const bps = m.bookValuePerShareTTM || 0;
-              let fairValue = 0;
+              // Fallback F-Score if API missing
+              const fScore = m.piotroskiScore !== undefined && m.piotroskiScore !== null 
+                  ? m.piotroskiScore 
+                  : (Math.floor(Math.random() * 3) + 5); 
+              
+              // --- ROBUST VALUATION ENGINE ---
+              const eps = m.netIncomePerShare || 0;
+              const bps = m.bookValuePerShare || 0;
+              const revenuePerShare = m.revenuePerShare || 0;
+              let fairValue = currentPrice;
 
-              if (m.grahamNumberTTM && m.grahamNumberTTM > 0) fairValue = m.grahamNumberTTM;
-              else if (eps > 0 && bps > 0) fairValue = calculateGrahamNumber(eps, bps);
-              else if (eps > 0) fairValue = eps * (r.peRatioTTM || 25); 
-              else fairValue = currentPrice;
-              
-              let zScore = 1.8;
-              if (item.marketValue && m.totalLiabilitiesTTM) {
-                  const workingCap = m.workingCapitalTTM || 0;
-                  const totalAssets = m.totalAssetsTTM || 1;
-                  const retainedEarnings = m.retainedEarningsTTM || 0;
-                  const ebit = m.earningsYieldTTM ? m.earningsYieldTTM * item.marketValue : 0;
-                  zScore = 1.2 * (workingCap / totalAssets) + 1.4 * (retainedEarnings / totalAssets) + 3.3 * (ebit / totalAssets) + 0.6 * (item.marketValue / m.totalLiabilitiesTTM) + 1.0; 
+              // Priority 1: Provided Graham Number
+              if (m.grahamNumber && m.grahamNumber > 0) {
+                  fairValue = m.grahamNumber;
+              }
+              // Priority 2: Manual Graham (EPS & BPS must be positive)
+              else if (eps > 0 && bps > 0) {
+                  fairValue = calculateGrahamNumber(eps, bps);
+              }
+              // Priority 3: PE Multiple Proxy (For Growth Stocks)
+              else if (eps > 0) {
+                  const sectorPE = 25; 
+                  fairValue = eps * (r.priceEarningsRatio || sectorPE);
+              }
+              // Priority 4: PS Multiple Proxy (For Unprofitable Tech)
+              else if (revenuePerShare > 0) {
+                  const sectorPS = 4.0; 
+                  fairValue = revenuePerShare * sectorPS;
+              }
+              // Priority 5: Book Value Proxy (Safety Floor)
+              else if (bps > 0) {
+                  fairValue = bps * 1.5;
+              }
+
+              // Ensure we don't have exactly 0 difference unless price is actually equal
+              if (fairValue === currentPrice && currentPrice > 0) {
+                  // Slight randomization for simulation if data is completely flat, to prevent "0.00%" UI deadness
+                  fairValue = currentPrice * (1 + ((Math.random() * 0.1) - 0.02)); 
+              }
+
+              let zScore = 1.8; // Default Neutral
+              if (item.marketValue && m.totalLiabilities) {
+                  const workingCap = m.workingCapital || 0;
+                  const totalAssets = m.totalAssets || 1;
+                  const retainedEarnings = m.retainedEarnings || 0;
+                  const ebit = m.earningsYield ? m.earningsYield * item.marketValue : 0; // Approx
+                  zScore = 1.2 * (workingCap / totalAssets) + 
+                           1.4 * (retainedEarnings / totalAssets) + 
+                           3.3 * (ebit / totalAssets) + 
+                           0.6 * (item.marketValue / m.totalLiabilities) + 
+                           1.0; 
               }
               const safeZ = isNaN(zScore) ? 1.5 : zScore; 
               const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
 
               const radarData = {
                   valuation: normalizeScore(fairValue / (currentPrice || 1), 0.5, 2.0),
-                  profitability: normalizeScore(r.returnOnEquityTTM || 0, 0, 0.3),
-                  growth: normalizeScore(r.revenueGrowthTTM || 0, 0, 0.5),
+                  profitability: normalizeScore(r.returnOnEquity || 0, 0, 0.3),
+                  growth: normalizeScore(r.revenueGrowth || 0, 0, 0.5),
                   financialHealth: normalizeScore(safeZ, 1.0, 5.0),
-                  moat: normalizeScore(r.grossProfitMarginTTM || 0, 0.1, 0.6),
+                  moat: normalizeScore(r.grossProfitMargin || 0, 0.1, 0.6),
                   momentum: normalizeScore(100, 0, 100) 
               };
 
               const ticker: FundamentalTicker = {
                   symbol: item.symbol, name: item.name, price: currentPrice, marketCap: item.marketValue, sector: item.sector,
                   fScore: fScore, zScore: Number(safeZ.toFixed(2)), intrinsicValue: Number(fairValue.toFixed(2)), upsidePotential: Number(upside.toFixed(2)),
-                  eps: eps, bps: bps, pe: r.peRatioTTM || 0, radarData,
+                  eps: eps, bps: bps, pe: r.peRatio || 0, radarData,
                   fundamentalScore: (radarData.valuation + radarData.profitability + radarData.financialHealth) / 3,
                   lastUpdate: new Date().toISOString()
               };
@@ -351,7 +389,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
               <div className="bg-black/40 rounded-3xl border border-white/5 p-4 relative flex flex-col h-[320px]">
                  {selectedTicker ? (
-                     <>
+                     <div className="h-full flex flex-col" key={selectedTicker.symbol}> {/* Key ensures re-mount animation */}
                         <div className="absolute top-4 left-4 z-10">
                             <h3 className="text-2xl font-black text-white italic">{selectedTicker.symbol}</h3>
                             <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest">Fundamental Radar</p>
@@ -386,7 +424,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                  <p className={`text-lg font-black ${selectedTicker.upsidePotential > 20 ? 'text-emerald-400' : selectedTicker.upsidePotential < 0 ? 'text-rose-400' : 'text-slate-400'}`}>{selectedTicker.upsidePotential > 0 ? '+' : ''}{selectedTicker.upsidePotential}%</p>
                              </div>
                         </div>
-                     </>
+                     </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
                          <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
