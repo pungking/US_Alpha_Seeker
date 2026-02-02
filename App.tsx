@@ -113,10 +113,7 @@ const App: React.FC = () => {
 
   // Cleanup on Stage Change
   useEffect(() => {
-    // Only clear selection if we are jumping stages manually, 
-    // but typically we might want to keep selection. 
-    // For now, let's keep it to allow analysis persistence.
-    // setSelectedStock(null); 
+    // Keep selection persistence
   }, [currentStage]);
 
   useEffect(() => {
@@ -230,15 +227,17 @@ const App: React.FC = () => {
         mode: mode
       }, targetBrain);
 
-      // [NEW] Fallback Toggle Logic for Manual Mode
-      // If Gemini failed, switch toggle to Sonar but do NOT auto-retry (manual mode)
-      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing")) {
+      // [AUTO-TOGGLE] Robust Failover Logic
+      // Checks for various failure keywords including specific Quota errors
+      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing") || report.includes("QUOTA_EXCEEDED")) {
          if (targetBrain === ApiProvider.GEMINI) {
              setAuditBrain(ApiProvider.PERPLEXITY);
-             console.warn("Gemini Audit Failed. Switched toggle to Sonar.");
+             console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar.");
+             
+             // Optional: Retry immediately with Sonar if needed, but for now we just switch toggle for user to retry or next attempt
          }
       } else {
-         // [NEW] Automatic Report Archiving
+         // [NEW] Automatic Report Archiving (Only on Success)
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
              const date = new Date().toISOString().split('T')[0];
@@ -249,6 +248,7 @@ const App: React.FC = () => {
              // Fire and forget
              archiveReport(token, fileName, report).then(ok => {
                  if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
+                 else console.warn(`[Archive] Failed to save report: ${fileName}`);
              });
          }
       }
@@ -257,6 +257,7 @@ const App: React.FC = () => {
     } catch (err: any) {
       if (targetBrain === ApiProvider.GEMINI) {
          setAuditBrain(ApiProvider.PERPLEXITY);
+         console.warn("Critical Audit Error. Auto-switching to Sonar.");
       }
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
@@ -292,7 +293,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.5.0 (Pipeline Core)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.5.1 (Recovery)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
