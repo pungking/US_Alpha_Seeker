@@ -1,10 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { analyzePipelineStatus } from '../services/intelligenceService';
 
 declare global {
   interface Window {
@@ -31,6 +28,9 @@ interface MasterTicker {
   type?: string; 
   marketCap?: number;
   sector?: string;
+  industry?: string;
+  pe?: number;
+  eps?: number;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
@@ -58,10 +58,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     target: 10000,
     elapsed: 0,
     provider: 'Idle',
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.4.0: Adaptive Multi-Provider Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.5.0: Enhanced Data-Rich Acquisition Protocol.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -144,11 +144,62 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // ... (Strategies remain the same) ...
+  // Helper to enrich data with FMP Quotes (PE, EPS)
+  const enrichWithFmpQuotes = async (tickers: MasterTicker[], apiKey: string): Promise<MasterTicker[]> => {
+      const BATCH_SIZE = 500;
+      const chunks = [];
+      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+          chunks.push(tickers.slice(i, i + BATCH_SIZE));
+      }
+
+      let enrichedCount = 0;
+      const enrichedMap = new Map<string, any>();
+
+      addLog(`Enriching ${tickers.length} assets with Valuation Data (PE/EPS)...`, "info");
+      setStats(prev => ({ ...prev, phase: 'Enrichment' }));
+
+      for (const chunk of chunks) {
+          try {
+              const symbols = chunk.map(t => t.symbol).join(',');
+              const url = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${apiKey}`;
+              const res = await fetch(url);
+              if (res.ok) {
+                  const data = await res.json();
+                  if (Array.isArray(data)) {
+                      data.forEach((item: any) => {
+                          enrichedMap.set(item.symbol, item);
+                      });
+                      enrichedCount += data.length;
+                  }
+              }
+              await new Promise(r => setTimeout(r, 100)); // Rate limit safety
+          } catch (e) {
+              console.warn("Quote batch failed", e);
+          }
+      }
+
+      addLog(`Enrichment Complete: ${enrichedCount} assets updated.`, "ok");
+
+      return tickers.map(t => {
+          const q = enrichedMap.get(t.symbol);
+          return {
+              ...t,
+              pe: q?.pe,
+              eps: q?.eps,
+              marketCap: q?.marketCap || t.marketCap, // Prefer quote market cap if newer
+              // Sector fallback if missing in screener but present in quote (rare but possible)
+              // Note: FMP Quote endpoint typically doesn't return sector, but let's stick to screener sector.
+          };
+      });
+  };
+
   const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
     if (!fmpKey) throw new Error("FMP Key missing");
-    addLog("Strategy A: FMP Bulk Screener (Primary)...", "info");
-    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=12000&apikey=${fmpKey}`;
+    addLog("Strategy A: FMP Deep Screener (Primary)...", "info");
+    
+    // [ENHANCED] Added isEtf=false and isActivelyTrading=true to improve quality for Stage 2
+    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=14000&apikey=${fmpKey}`;
+    
     const res = await fetch(url);
     if (!res.ok) {
         if (res.status === 403) throw new Error("FMP_PLAN_LIMIT"); 
@@ -157,10 +208,26 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
-    addLog(`FMP: Retrieved ${data.length} assets.`, "ok");
-    return data.map((item: any) => ({
-        symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, type: 'Common Stock', updated: new Date().toISOString().split('T')[0]
+    
+    addLog(`FMP: Discovered ${data.length} Equity Assets.`, "ok");
+    
+    let candidates: MasterTicker[] = data.map((item: any) => ({
+        symbol: item.symbol, 
+        name: item.companyName, 
+        price: item.price, 
+        volume: item.volume, 
+        change: item.changesPercentage || 0, 
+        marketCap: item.marketCap, 
+        sector: item.sector, 
+        industry: item.industry,
+        type: 'Common Stock', 
+        updated: new Date().toISOString().split('T')[0]
     }));
+
+    // [NEW] Enrichment Step
+    candidates = await enrichWithFmpQuotes(candidates, fmpKey);
+
+    return candidates;
   };
 
   const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
@@ -237,8 +304,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let usedProvider = "None";
 
     try {
-        try { masterData = await executeFmpStrategy(); usedProvider = "FMP (Primary)"; } 
+        try { masterData = await executeFmpStrategy(); usedProvider = "FMP (Enriched)"; } 
         catch (fmpErr: any) {
+            addLog(`FMP Primary Failed: ${fmpErr.message}. Switch to Backup...`, "warn");
             try { masterData = await executePolygonStrategy(); usedProvider = "Polygon+Finnhub"; } 
             catch (polyErr: any) {
                  try { masterData = await executeTwelveDataStrategy(); usedProvider = "Twelve Data (List Only)"; } 
@@ -255,8 +323,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.4.0.json`;
-        const payload = { manifest: { version: "2.4.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.5.0.json`;
+        const payload = { manifest: { version: "2.5.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
 
         const folderId = await ensureFolder(token);
         if (folderId) {
@@ -387,7 +455,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.5.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
