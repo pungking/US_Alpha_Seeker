@@ -46,6 +46,9 @@ interface FundamentalTicker {
   };
   
   lastUpdate: string;
+
+  // [DATA ACCUMULATION] Preserve all data from Stage 0, 1, 2
+  [key: string]: any;
 }
 
 interface Props {
@@ -87,9 +90,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.6: Safety Margin Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.0: Hybrid Data Engine Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -173,6 +177,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
   };
 
+  // [HYBRID DATA FETCH] FMP API for Real Ratios
+  const fetchFmpRatios = async (symbol: string) => {
+      if (!fmpKey) return null;
+      try {
+          // Fetch TTM Ratios for latest data
+          const res = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (Array.isArray(data) && data.length > 0) return data[0];
+          return null;
+      } catch (e) {
+          return null;
+      }
+  };
+
   const determineEconomicMoat = (grossMargin: number, roic: number, roe: number): 'Wide' | 'Narrow' | 'None' => {
       if (grossMargin > 50 && roic > 20 && roe > 25) return 'Wide';
       if (grossMargin > 30 && roic > 10) return 'Narrow';
@@ -186,7 +205,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     startTimeRef.current = Date.now();
     
     try {
-      // 1. Load Stage 2 Data
+      // 1. Load Stage 2 Data (Accumulated Stage 0+1+2)
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -207,7 +226,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           setLoading(false); return;
       }
 
-      // Filter Top 50%
+      // Filter Top 50% based on Stage 2 Quality Score
       candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
       const cutoff = Math.ceil(candidates.length * 0.5);
       const eliteSquad = candidates.slice(0, cutoff);
@@ -225,30 +244,39 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               try {
                   // 1. Base Data from Stage 2 (Often flawed '0's)
                   const basePrice = safeNum(item.price);
-                  const basePe = safeNum(item.per);
+                  const basePe = safeNum(item.per || item.pe);
                   const baseRoe = safeNum(item.roe);
 
-                  // 2. Fetch Live Data from Yahoo Proxy (THE TRUTH)
+                  // 2. Fetch Live Data from Yahoo Proxy (Primary Price/PE)
                   const yahooData = await fetchYahooDetails(item.symbol);
                   
-                  // 3. Data Fusion: Prioritize Yahoo if Stage 2 data is suspect (0 or default)
+                  // 3. Fetch Financial Ratios from FMP (Primary Margins/FCF)
+                  const fmpData = await fetchFmpRatios(item.symbol);
+
+                  // 4. Data Fusion & Logic
                   const price = yahooData?.price || basePrice;
-                  const eps = yahooData?.trailingEps || yahooData?.forwardEps || (basePe > 0 ? basePrice / basePe : 0);
-                  const pe = yahooData?.trailingPE || basePe;
-                  const roe = yahooData?.returnOnEquity ? yahooData.returnOnEquity * 100 : baseRoe;
+                  const marketCap = safeNum(yahooData?.marketCap || item.marketCap || item.marketValue);
                   
-                  // 4. Calculate Derived Metrics (Real Calculations)
-                  // ROIC Proxy: ROE * 0.85 (Conservative)
-                  const roic = roe * 0.85; 
+                  // Gross Margin: FMP > Yahoo > Stage 2 Estimate > Sector Default
+                  let grossMargin = safeNum(fmpData?.grossProfitMarginTTM ? fmpData.grossProfitMarginTTM * 100 : 0);
+                  if (grossMargin === 0 && yahooData?.profitMargins) grossMargin = yahooData.profitMargins * 100 + 15; // Rough estimate if only Net Margin exists
+                  if (grossMargin === 0) grossMargin = 20.0; // Fallback
+
+                  // FCF Yield: FMP > Yahoo Calc > Stage 2 Estimate
+                  let fcfYield = safeNum(fmpData?.freeCashFlowYieldTTM ? fmpData.freeCashFlowYieldTTM * 100 : 0);
+                  if (fcfYield === 0 && yahooData?.freeCashflow) fcfYield = (yahooData.freeCashflow / marketCap) * 100;
                   
-                  // Growth & Margins (Real Yahoo Data)
+                  // Growth & ROIC
                   const growthRate = yahooData?.revenueGrowth 
                         ? yahooData.revenueGrowth * 100 
-                        : 8.0; // Default to moderate growth (8%) instead of 0 if unknown
+                        : (fmpData?.revenueGrowthTTM ? fmpData.revenueGrowthTTM * 100 : 8.0);
                   
-                  const grossMargin = yahooData?.profitMargins 
-                        ? yahooData.profitMargins * 100 
-                        : 20.0; 
+                  const roe = safeNum(fmpData?.returnOnEquityTTM ? fmpData.returnOnEquityTTM * 100 : (yahooData?.returnOnEquity ? yahooData.returnOnEquity * 100 : baseRoe));
+                  const roic = safeNum(fmpData?.returnOnCapitalEmployedTTM ? fmpData.returnOnCapitalEmployedTTM * 100 : roe * 0.85);
+
+                  // EPS & PE
+                  const pe = safeNum(fmpData?.peRatioTTM || yahooData?.trailingPE || basePe || 25);
+                  const eps = safeNum(yahooData?.trailingEps || yahooData?.forwardEps || (pe > 0 ? price / pe : 0));
 
                   // Rule of 40
                   const ruleOf40 = growthRate + grossMargin;
@@ -264,47 +292,44 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
                   const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
 
-                  // 5. FCF Yield Estimation
-                  const fcfYield = yahooData?.freeCashflow 
-                        ? (yahooData.freeCashflow / (yahooData.marketCap || 1)) * 100
-                        : (1 / (pe || 25)) * 100;
-
                   // 6. Scoring Logic (STRICTER THRESHOLDS)
-                  // Upside: Need >100% for max score. <0% is 0 score.
                   const valScore = normalizeScore(upside, 0, 100); 
-                  // Rule40: Need >60 for max score.
                   const growthScore = normalizeScore(ruleOf40, 20, 70);
-                  // ROIC: Need >30 for max score.
                   const qualScore = normalizeScore(roic, 5, 35);
                   
                   const compositeScore = (valScore * 0.4) + (growthScore * 0.35) + (qualScore * 0.25);
 
+                  // [DATA ACCUMULATION] Spread ...item FIRST to preserve all previous stage data
                   const ticker: FundamentalTicker = {
+                      ...item, // <--- Preserves Stage 0, 1, 2 data (including Z-Score, old scores, etc.)
+                      
                       symbol: item.symbol,
                       name: item.name || item.symbol,
                       price: price,
-                      // Fix Stage 2's zero market cap issue
-                      marketCap: safeNum(yahooData?.marketCap || item.marketValue || 0),
+                      marketCap: marketCap,
                       sector: item.sector || "Unknown",
-                      fScore: safeNum(item.fScore || 5),
-                      zScore: safeNum(item.zScore || 3),
+                      
+                      // Updated Scores
                       fundamentalScore: safeNum(compositeScore.toFixed(2)),
                       intrinsicValue: safeNum(intrinsicValue.toFixed(2)),
                       upsidePotential: safeNum(upside.toFixed(2)),
                       fairValueGap: safeNum(upside.toFixed(2)),
+                      
+                      // Real Data Metrics
                       roic: safeNum(roic.toFixed(2)),
                       ruleOf40: safeNum(ruleOf40.toFixed(2)),
                       fcfYield: safeNum(fcfYield.toFixed(2)),
                       grossMargin: safeNum(grossMargin.toFixed(2)),
                       pegRatio: safeNum((pe / (growthRate || 1)).toFixed(2)),
+                      
                       economicMoat: determineEconomicMoat(grossMargin, roic, roe),
+                      
                       radarData: {
                           valuation: valScore,
-                          profitability: normalizeScore(roe, 5, 40), // Harder to get 100
+                          profitability: normalizeScore(roe, 5, 40),
                           growth: growthScore,
-                          // Financial Health: Use real debt if possible, else Stage 2 Z-Score
-                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 6), 
-                          moat: normalizeScore(grossMargin, 15, 70), // Harder to get 100
+                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 6), // Use accumulated Z-Score if FMP fails
+                          moat: normalizeScore(grossMargin, 15, 70),
                           momentum: normalizeScore(ruleOf40, 10, 70)
                       },
                       lastUpdate: new Date().toISOString()
@@ -330,7 +355,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.6.0", count: results.length, strategy: "Fundamental_Fortress_Real_Valuation_Strict" },
+        manifest: { version: "7.0.0", count: results.length, strategy: "Fundamental_Fortress_Hybrid_RealData" },
         fundamental_universe: results
       };
 
@@ -393,7 +418,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.6</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
@@ -520,7 +545,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                          <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select an Asset to Audit</p>
                      </div>
                  )}
