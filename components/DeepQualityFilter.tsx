@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, LabelList } from 'recharts';
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea, LabelList } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
@@ -71,7 +71,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
@@ -540,14 +539,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Prepare Chart Data
-  const chartData = processedData.slice(0, 50).map(t => ({
-      symbol: t.symbol,
-      x: t.growthScore, 
-      y: t.qualityScore, 
-      z: t.marketValue, 
-      fill: t.isValueTrap ? '#ef4444' : '#10b981'
-  }));
+  // Prepare Chart Data with Jitter to prevent clustering
+  const chartData = processedData.slice(0, 50).map(t => {
+      // Add slight random jitter (+/- 0.5) to separate overlapping points
+      const jitterX = (Math.random() - 0.5); 
+      const jitterY = (Math.random() - 0.5);
+      return {
+          symbol: t.symbol,
+          x: Number((t.growthScore + jitterX).toFixed(2)), 
+          y: Number((t.qualityScore + jitterY).toFixed(2)), 
+          z: t.marketValue, 
+          // Color coding: Red for Value Trap, Green for High Quality, Blue for Standard
+          fill: t.isValueTrap ? '#ef4444' : t.qualityScore >= 80 ? '#10b981' : '#3b82f6',
+          rawX: t.growthScore,
+          rawY: t.qualityScore
+      };
+  });
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -635,43 +642,85 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               </div>
 
               {/* Quality Matrix Chart Column */}
-              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50 Elite)</p>
+              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative overflow-hidden">
+                 <div className="absolute top-6 left-6 z-10">
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Quality-Value Matrix</p>
+                    <p className="text-[8px] text-slate-500 uppercase font-mono">Top 50 Elite Candidates</p>
+                 </div>
+                 
+                 {/* Legend */}
+                 <div className="absolute top-6 right-6 z-10 flex flex-col gap-1 items-end">
+                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span className="text-[7px] font-bold text-slate-400 uppercase">Strong Buy</span></div>
+                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span><span className="text-[7px] font-bold text-slate-400 uppercase">Buy/Hold</span></div>
+                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500"></span><span className="text-[7px] font-bold text-slate-400 uppercase">Value Trap</span></div>
+                 </div>
+
                  <div className="flex-1 w-full h-full mt-4">
                      {processedData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                            <ScatterChart margin={{ top: 30, right: 20, bottom: 20, left: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                                <XAxis type="number" dataKey="x" name="Value Score" stroke="#64748b" fontSize={9} label={{ value: 'Value Score (Upside)', position: 'bottom', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
-                                <YAxis type="number" dataKey="y" name="Quality Score" stroke="#64748b" fontSize={9} label={{ value: 'Quality Score', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
+                                <XAxis 
+                                    type="number" 
+                                    dataKey="x" 
+                                    name="Value Score" 
+                                    stroke="#64748b" 
+                                    fontSize={8} 
+                                    tickLine={false}
+                                    label={{ value: 'Value (Undervalued) →', position: 'bottom', fill: '#475569', fontSize: 8, dy: -5 }} 
+                                    domain={[0, 100]} 
+                                />
+                                <YAxis 
+                                    type="number" 
+                                    dataKey="y" 
+                                    name="Quality Score" 
+                                    stroke="#64748b" 
+                                    fontSize={8} 
+                                    tickLine={false}
+                                    label={{ value: 'Quality (Profitable) →', angle: -90, position: 'insideLeft', fill: '#475569', fontSize: 8, dx: 5 }} 
+                                    domain={[0, 100]} 
+                                />
                                 <Tooltip 
                                     cursor={{ strokeDasharray: '3 3' }}
                                     content={({ active, payload }) => {
                                         if (active && payload && payload.length) {
                                             const d = payload[0].payload;
                                             return (
-                                                <div className="bg-slate-900 border border-slate-700 p-2 rounded-lg shadow-xl">
-                                                    <p className="text-xs font-black text-white">{d.symbol}</p>
-                                                    <p className="text-[9px] text-emerald-400">Q: {d.y} | V: {d.x}</p>
+                                                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-xl backdrop-blur-md">
+                                                    <p className="text-xs font-black text-white mb-1">{d.symbol}</p>
+                                                    <div className="flex gap-3 text-[9px] font-mono">
+                                                        <span className="text-emerald-400">Quality: {d.rawY}</span>
+                                                        <span className="text-blue-400">Value: {d.rawX}</span>
+                                                    </div>
                                                 </div>
                                             );
                                         }
                                         return null;
                                     }}
                                 />
-                                <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
-                                <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
-                                <Scatter name="Elite Stocks" data={chartData} fill="#3b82f6">
+                                {/* Quadrant Backgrounds */}
+                                <ReferenceArea x1={50} x2={100} y1={50} y2={100} fill="#10b981" fillOpacity={0.05} />
+                                <ReferenceArea x1={0} x2={50} y1={50} y2={100} fill="#3b82f6" fillOpacity={0.03} />
+                                <ReferenceArea x1={50} x2={100} y1={0} y2={50} fill="#f59e0b" fillOpacity={0.03} />
+                                <ReferenceArea x1={0} x2={50} y1={0} y2={50} fill="#ef4444" fillOpacity={0.05} />
+
+                                <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
+                                <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
+                                
+                                <Scatter name="Elite Stocks" data={chartData}>
                                     {chartData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.fill} />
+                                        <Cell key={`cell-${index}`} fill={entry.fill} stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
                                     ))}
-                                    <LabelList dataKey="symbol" position="top" style={{ fill: '#94a3b8', fontSize: '8px', fontWeight: 'bold' }} />
+                                    <LabelList dataKey="symbol" position="top" style={{ fill: '#94a3b8', fontSize: '7px', fontWeight: 'bold' }} />
                                 </Scatter>
                             </ScatterChart>
                         </ResponsiveContainer>
                      ) : (
-                         <div className="flex items-center justify-center h-full opacity-20">
-                             <p className="text-[10px] font-black uppercase tracking-[0.3em]">No Data Visualization</p>
+                         <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
+                             <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                             </div>
+                             <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize</p>
                          </div>
                      )}
                  </div>
