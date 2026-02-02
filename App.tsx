@@ -113,8 +113,10 @@ const App: React.FC = () => {
 
   // Cleanup on Stage Change
   useEffect(() => {
-    setSelectedStock(null);
-    setStockAuditCache({}); 
+    // Only clear selection if we are jumping stages manually, 
+    // but typically we might want to keep selection. 
+    // For now, let's keep it to allow analysis persistence.
+    // setSelectedStock(null); 
   }, [currentStage]);
 
   useEffect(() => {
@@ -441,6 +443,7 @@ const App: React.FC = () => {
           <FundamentalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
             onComplete={() => handleStageComplete(3)}
+            onStockSelected={setSelectedStock}
           />
         </div>
         <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
