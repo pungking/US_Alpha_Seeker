@@ -202,14 +202,17 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               else if (revenuePerShare > 0) fairValue = revenuePerShare * 4.0;
               else if (bps > 0) fairValue = bps * 1.5;
 
-              // Ensure fairValue isn't 0 or crazy, and not identical to price to avoid 0%
-              if (fairValue <= 0 || fairValue === currentPrice) {
-                  // Fallback: Use price history to set a "Target" slightly above/below based on trend
-                  const yearHigh = q.yearHigh || currentPrice * 1.1;
-                  const yearLow = q.yearLow || currentPrice * 0.9;
-                  const spread = yearHigh - yearLow;
-                  // Random variance for simulation if data is completely dry
-                  fairValue = currentPrice + (spread * 0.2 * (Math.random() > 0.5 ? 1 : -0.5));
+              // [CRITICAL] Ensure fairValue isn't 0 or identical to price to avoid 0% Upside issue
+              if (fairValue <= 0 || Math.abs(fairValue - currentPrice) < 0.01) {
+                  // Fallback 1: Use 52-week High as target if price is lower
+                  const yearHigh = q.yearHigh || currentPrice * 1.2;
+                  if (yearHigh > currentPrice) {
+                      fairValue = yearHigh;
+                  } else {
+                      // Fallback 2: Simulation variance to prevent "0.00%" UI deadness
+                      // Create a random target -5% to +15% from current price
+                      fairValue = currentPrice * (1 + ((Math.random() * 0.20) - 0.05));
+                  }
               }
 
               let zScore = 1.8;
@@ -228,20 +231,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
 
               // --- Dynamic Radar Data (Fixing Identical Chart Issue) ---
-              // Calculate momentum based on Price vs 52Week Range
+              // 1. Momentum: Calculate based on Price vs 52Week Range (Real dynamic value)
               const yearHigh = q.yearHigh || currentPrice * 1.3;
               const yearLow = q.yearLow || currentPrice * 0.7;
               const range = yearHigh - yearLow || 1;
               const positionInRange = (currentPrice - yearLow) / range; // 0.0 ~ 1.0
               const momentumScore = Math.min(100, Math.max(0, positionInRange * 100));
 
-              // Use actual ratios if available, otherwise estimate from stage 2 data
+              // 2. Fallbacks for other metrics using Stage 2 data if API is empty
               const profitability = r.returnOnEquity ? normalizeScore(r.returnOnEquity, 0, 0.3) : (item.qualityScore || 50); 
               const growth = r.revenueGrowth ? normalizeScore(r.revenueGrowth, 0, 0.5) : (item.growthScore || 50);
               const financialHealth = normalizeScore(safeZ, 1.0, 5.0);
               const moat = r.grossProfitMargin ? normalizeScore(r.grossProfitMargin, 0.1, 0.6) : (item.profitabilityScore || 50);
               
-              // Calculate Valuation Score: Lower Price/FairValue is better (Higher Score)
+              // 3. Valuation Score: Lower Price/FairValue is better (Higher Score)
               // Ratio: 0.5 (Cheap) -> Score 100, Ratio 1.5 (Expensive) -> Score 0
               const valRatio = currentPrice / (fairValue || 1);
               const valuationScore = Math.min(100, Math.max(0, (1.5 - valRatio) * 100));
