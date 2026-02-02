@@ -31,7 +31,6 @@ interface MasterTicker {
   industry?: string;
   pe?: number;
   eps?: number;
-  // [NEW] Added for Stage 2 Deep Quality
   roe?: number;
   debtToEquity?: number;
   pb?: number;
@@ -64,7 +63,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.8.0: Optimized Low-Latency Enrichment Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.9.0: Polygon Bulk Matrix Loaded.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -142,99 +141,115 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // [Layer 1] FMP Enrichment (Optimized for Free/Low Tier)
-  const enrichWithFmpProfiles = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      if (!fmpKey) {
-          addLog("FMP Key missing. Skipping Layer 1 Enrichment.", "warn");
+  // [NEW] Helper to map SIC codes (from Polygon) to Sectors
+  const mapSicToSector = (sicDescription: string): string => {
+      if (!sicDescription) return "Unclassified";
+      const desc = sicDescription.toLowerCase();
+      if (desc.includes("pharm") || desc.includes("bio") || desc.includes("medic") || desc.includes("health")) return "Healthcare";
+      if (desc.includes("tech") || desc.includes("computer") || desc.includes("soft") || desc.includes("semi")) return "Technology";
+      if (desc.includes("bank") || desc.includes("finan") || desc.includes("invest") || desc.includes("insur")) return "Financial";
+      if (desc.includes("oil") || desc.includes("gas") || desc.includes("energy") || desc.includes("mining")) return "Energy";
+      if (desc.includes("retail") || desc.includes("store") || desc.includes("apparel") || desc.includes("food")) return "Consumer Defensive";
+      if (desc.includes("real estate") || desc.includes("reit")) return "Real Estate";
+      if (desc.includes("util") || desc.includes("electric") || desc.includes("power")) return "Utilities";
+      if (desc.includes("transport") || desc.includes("airline") || desc.includes("rail") || desc.includes("manufactur")) return "Industrials";
+      return "Industrials"; // Default fallback
+  };
+
+  // [NEW] Layer 1: Polygon Bulk Reference (Highly Efficient)
+  // Fetches 1000 tickers per call. Covers 5000 tickers in 5 calls.
+  const enrichWithPolygonMaster = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      if (!polygonKey) {
+          addLog("Polygon Key missing. Skipping Bulk Enrichment.", "warn");
           return tickers;
       }
 
-      // [CRITICAL] Tiny batch size for Free/Starter plans to avoid 429/403
-      const BATCH_SIZE = 3; 
-      const chunks = [];
-      
-      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-          chunks.push(tickers.slice(i, i + BATCH_SIZE));
-      }
-
-      addLog(`Layer 1: FMP Profile Sync (${tickers.length} items)...`, "info");
+      addLog(`Layer 1: Polygon Bulk Matrix (1000 items/call)...`, "info");
       
       const enrichedMap = new Map<string, any>();
-      let processedCount = 0;
+      // Limit to stocks to avoid getting forex/crypto junk
+      let nextUrl = `https://api.polygon.io/v3/reference/tickers?active=true&market=stocks&limit=1000&apiKey=${polygonKey}`;
+      let pages = 0;
+      const MAX_PAGES = 15; // Scan up to 15,000 top stocks
 
-      // Only try to enrich a reasonable amount to avoid hour-long waits
-      const MAX_ENRICH_LIMIT = 2000; 
-      const limitChunks = chunks.slice(0, Math.ceil(MAX_ENRICH_LIMIT / BATCH_SIZE));
-
-      if (tickers.length > MAX_ENRICH_LIMIT) {
-          addLog(`Note: Capping FMP enrichment to top ${MAX_ENRICH_LIMIT} assets for speed/quota.`, "warn");
-      }
-
-      for (const chunk of limitChunks) {
-          try {
-              const symbols = chunk.map(t => t.symbol).join(',');
-              // 'profile' endpoint contains sector/industry/mktCap - crucial for Stage 2
-              const url = `https://financialmodelingprep.com/api/v3/profile/${symbols}?apikey=${fmpKey}`;
-              const res = await fetch(url);
-              
-              if (res.ok) {
-                  const data = await res.json();
-                  if (Array.isArray(data)) {
-                      data.forEach((item: any) => {
-                          enrichedMap.set(item.symbol, item);
-                      });
-                      processedCount += data.length;
+      try {
+          while (nextUrl && pages < MAX_PAGES) {
+              const res = await fetch(nextUrl);
+              if (!res.ok) {
+                  if (res.status === 429) {
+                      addLog("Polygon Rate Limit. Pausing 60s for refill...", "warn");
+                      await new Promise(r => setTimeout(r, 61000));
+                      continue; 
                   }
-              } else if (res.status === 429 || res.status === 403) {
-                  addLog("FMP Quota Limit Hit. Stopping Layer 1.", "warn");
-                  break; 
+                  break;
               }
-              // Aggressive throttle for free tier safety
-              await new Promise(r => setTimeout(r, 250)); 
-          } catch (e) {
-              console.warn("FMP batch failed", e);
+              
+              const data = await res.json();
+              if (data.results) {
+                  data.results.forEach((item: any) => {
+                      enrichedMap.set(item.ticker, item);
+                  });
+              }
+              
+              nextUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
+              pages++;
+              addLog(`Polygon Matrix: Scanned Page ${pages} (${enrichedMap.size} items mapped)`, "info");
+              
+              // Respect free tier limits (5 calls/min). Sleep 12s between calls ensures < 5 calls/min
+              await new Promise(r => setTimeout(r, 12000)); 
           }
-          
-          if (processedCount > 0 && processedCount % 50 === 0) {
-              // Minimal logging to reduce spam
-          }
+      } catch (e: any) {
+          addLog(`Polygon Matrix Interrupted: ${e.message}`, "warn");
       }
 
-      addLog(`Layer 1 Complete: ${processedCount} assets enriched via FMP.`, "ok");
-
-      return tickers.map(t => {
-          const p = enrichedMap.get(t.symbol);
-          if (!p) return t;
-          return {
-              ...t,
-              name: p.companyName || t.name,
-              price: p.price || t.price,
-              marketCap: p.mktCap || t.marketCap,
-              sector: p.sector || t.sector,
-              industry: p.industry || t.industry,
-              // FMP Profile doesn't have PE/ROE, usually just basic info
-          };
+      let updatedCount = 0;
+      const enriched = tickers.map(t => {
+          const polyData = enrichedMap.get(t.symbol);
+          if (polyData) {
+              updatedCount++;
+              return {
+                  ...t,
+                  name: t.name || polyData.name,
+                  marketCap: t.marketCap || polyData.market_cap, // Some tiers return this
+                  sector: t.sector || mapSicToSector(polyData.sic_description),
+                  industry: t.industry || polyData.sic_description || "Unknown",
+                  // Polygon Reference doesn't give PE/ROE, but Sector is critical for Stage 2
+              };
+          }
+          return t;
       });
+
+      addLog(`Layer 1 Complete: ${updatedCount} assets mapped via Polygon.`, "ok");
+      return enriched;
   };
 
-  // [Layer 2] Yahoo Enrichment (Robust & Throttled)
-  const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      // Reduced Batch Size to avoid 403 Forbidden from Yahoo
-      const BATCH_SIZE = 10; 
-      const chunks = [];
+  // [Layer 2] Yahoo Fallback (Emergency Low-Speed Mode)
+  // Only targets items missing critical data after Layer 1
+  const enrichWithYahooFallback = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      // Filter for missing sectors ONLY
+      const needsData = tickers.filter(t => !t.sector || t.sector === 'Unclassified');
       
-      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-          chunks.push(tickers.slice(i, i + BATCH_SIZE));
+      if (needsData.length === 0) {
+          addLog("Layer 2 Skipped: All Sectors Identified.", "ok");
+          return tickers;
       }
 
-      addLog(`Layer 2: Yahoo Deep Scan (${tickers.length} items)...`, "info");
-      setStats(prev => ({ ...prev, phase: 'Enrichment' }));
+      addLog(`Layer 2: Yahoo Emergency Scan for ${needsData.length} missing items...`, "info");
+      
+      const BATCH_SIZE = 5; // Ultra safe batch size
+      const chunks = [];
+      for (let i = 0; i < needsData.length; i += BATCH_SIZE) {
+          chunks.push(needsData.slice(i, i + BATCH_SIZE));
+      }
 
       const enrichedMap = new Map<string, any>();
       let processedCount = 0;
-      let consecutiveErrors = 0;
+      
+      // Cap fallback attempts to avoid infinite loops or bans
+      const MAX_FALLBACK_ATTEMPTS = 40; // Only try 200 stocks max as fallback
+      const limitChunks = chunks.slice(0, MAX_FALLBACK_ATTEMPTS);
 
-      for (const chunk of chunks) {
+      for (const chunk of limitChunks) {
           try {
               const symbols = chunk.map(t => t.symbol).join(',');
               const res = await fetch(`/api/yahoo?symbols=${symbols}`);
@@ -246,51 +261,37 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           enrichedMap.set(item.symbol, item);
                       });
                       processedCount += data.length;
-                      consecutiveErrors = 0;
-                  }
-              } else {
-                  consecutiveErrors++;
-                  if (consecutiveErrors > 5) {
-                      addLog("Yahoo Proxy Persistent Failure. Aborting Layer 2.", "err");
-                      break;
                   }
               }
-              // Throttle to respect upstream
-              await new Promise(r => setTimeout(r, 500)); 
+              // Ultra Slow Mode
+              await new Promise(r => setTimeout(r, 1500)); 
           } catch (e) {
-              console.warn("Yahoo batch failed", e);
-          }
-          
-          if (processedCount > 0 && processedCount % 200 === 0) {
-              addLog(`Enriched ${processedCount} / ${tickers.length} assets...`, "info");
+              console.warn("Yahoo fallback batch failed", e);
           }
       }
 
-      addLog(`Layer 2 Complete: ${processedCount} assets fully enriched.`, "ok");
-
       return tickers.map(t => {
           const y = enrichedMap.get(t.symbol);
-          if (!y) return t;
-
-          return {
-              ...t,
-              // Prioritize Yahoo data for Stage 2 essentials
-              marketCap: y.marketCap || t.marketCap,
-              sector: y.sector || t.sector || "Unclassified",
-              industry: y.industry || t.industry || "Unclassified",
-              pe: y.trailingPE || y.forwardPE || t.pe,
-              roe: y.returnOnEquity ? y.returnOnEquity * 100 : t.roe, 
-              debtToEquity: y.debtToEquity || t.debtToEquity,
-              pb: y.priceToBook || t.pb
-          };
+          if (y) {
+              return {
+                  ...t,
+                  marketCap: y.marketCap || t.marketCap,
+                  sector: y.sector || y.category || t.sector,
+                  industry: y.industry || t.industry,
+                  pe: y.trailingPE || y.forwardPE || t.pe,
+                  roe: y.returnOnEquity ? y.returnOnEquity * 100 : t.roe
+              };
+          }
+          return t;
       });
   };
 
-  // ... (Strategies executeFmpStrategy, executePolygonStrategy, executeTwelveDataStrategy remain same)
   const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
     if (!fmpKey) throw new Error("FMP Key missing");
     addLog("Strategy A: FMP Deep Screener (Primary)...", "info");
+    
     const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=14000&apikey=${fmpKey}`;
+    
     const res = await fetch(url);
     if (!res.ok) {
         if (res.status === 403) throw new Error("FMP_PLAN_LIMIT"); 
@@ -299,9 +300,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
+    
     addLog(`FMP: Discovered ${data.length} Equity Assets.`, "ok");
+    
     return data.map((item: any) => ({
-        symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry, type: 'Common Stock', updated: new Date().toISOString().split('T')[0]
+        symbol: item.symbol, 
+        name: item.companyName, 
+        price: item.price, 
+        volume: item.volume, 
+        change: item.changesPercentage || 0, 
+        marketCap: item.marketCap, 
+        sector: item.sector, 
+        industry: item.industry,
+        type: 'Common Stock', 
+        updated: new Date().toISOString().split('T')[0]
     }));
   };
 
@@ -398,48 +410,39 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         if (masterData.length === 0) throw new Error("Zero Assets Found.");
         
-        // [CRITICAL OPTIMIZATION]
-        // Filter out junk stocks *BEFORE* enrichment to save API calls.
-        // Rule: Price > $0.50 and Volume > 0. This discards thousands of inactive/penny stocks.
+        // [Optimization] Filter out junk first
         const originalCount = masterData.length;
         addLog(`Filtering ${originalCount} raw assets for viability (Price > $0.50)...`, "info");
         
         let viableCandidates = masterData.filter(t => t.price >= 0.5 && t.volume > 0);
-        
-        // Sort by Volume to prioritize liquid stocks for enrichment
         viableCandidates.sort((a, b) => b.volume - a.volume);
         
-        // If list is still huge, maybe cap it for enrichment to ensure top stocks get data
-        // But let's try to do as many as possible with the new logic.
-        
-        addLog(`Viable Universe: ${viableCandidates.length} assets selected for Deep Scan.`, "ok");
+        addLog(`Viable Universe: ${viableCandidates.length} assets selected for Matrix Mapping.`, "ok");
         setStats(prev => ({ ...prev, found: viableCandidates.length, provider: usedProvider }));
 
-        // [Multi-Layer Enrichment Strategy]
-        // 1. Try FMP Profile First (Better for Sector than Quote, use small batch)
-        viableCandidates = await enrichWithFmpProfiles(viableCandidates);
+        // [CRITICAL UPDATE] Use Polygon Bulk Reference instead of FMP/Yahoo Batching
+        // This is 100x more efficient and works on free plans.
+        viableCandidates = await enrichWithPolygonMaster(viableCandidates);
 
-        // 2. Try Yahoo Proxy Second (Backup for Sector/ROE/Debt)
-        viableCandidates = await enrichWithYahoo(viableCandidates);
+        // Fallback mainly for items that Polygon missed entirely
+        viableCandidates = await enrichWithYahooFallback(viableCandidates);
 
         // Step 3: Mapping & Commit
         setStats(prev => ({ ...prev, phase: 'Mapping' }));
-        // Note: We commit the *viable* candidates, effectively doing Stage 1's work in Stage 0 
-        // to ensure the stored universe has high quality data.
         const registryMap = new Map(viableCandidates.map(i => [i.symbol, i]));
         setRegistry(registryMap);
 
         addLog(`Phase 3: Committing ${viableCandidates.length} enriched assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.8.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.9.0.json`;
         const payload = { 
             manifest: { 
-                version: "2.8.0", 
+                version: "2.9.0", 
                 provider: usedProvider, 
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
-                note: "Filtered for Price>0.5 before enrichment"
+                note: "Enriched via Polygon Matrix"
             }, 
             universe: viableCandidates 
         };
@@ -596,7 +599,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.8.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.9.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
