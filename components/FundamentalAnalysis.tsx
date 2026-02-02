@@ -87,7 +87,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.4: Real-Time Valuation Engine Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.5: Yahoo Fusion Core Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -226,10 +226,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   const baseRoe = safeNum(item.roe);
                   const baseEps = basePe > 0 ? basePrice / basePe : 0; 
 
-                  // 2. Fetch Live Data from Yahoo Proxy (Priority Source)
+                  // 2. Fetch Live Data from Yahoo Proxy (Priority Source for Real Data)
                   const yahooData = await fetchYahooDetails(item.symbol);
                   
-                  // 3. Data Fusion: Real > Base
+                  // 3. Data Fusion: Real (Yahoo) > Base (Stage 2)
                   const price = yahooData?.price || basePrice;
                   const eps = yahooData?.trailingEps || yahooData?.forwardEps || baseEps;
                   const pe = yahooData?.trailingPE || basePe;
@@ -240,9 +240,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   const roic = roe * 0.85; 
                   
                   // Growth & Margins (Real Yahoo Data)
+                  // If Yahoo lacks growth data, assume 5% conservative growth (avoiding 0 score)
                   const growthRate = yahooData?.revenueGrowth 
                         ? yahooData.revenueGrowth * 100 
-                        : (safeNum(item.growthScore) / 3.3); // Fallback mapping
+                        : 5.0; 
                   
                   const grossMargin = yahooData?.profitMargins 
                         ? yahooData.profitMargins * 100 
@@ -254,10 +255,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   // Intrinsic Value (Graham Formula with Real Inputs)
                   let intrinsicValue = calculateIntrinsicValue(eps, growthRate);
                   
-                  // Fallback: If EPS is negative, use Price * 0.9 (slight discount model)
-                  if (intrinsicValue <= 0) intrinsicValue = price * 0.9;
-                  // Cap extreme outliers
-                  if (intrinsicValue > price * 3) intrinsicValue = price * 3;
+                  // Fallback: If EPS is negative, use Price * 0.8 (Discount Model)
+                  if (intrinsicValue <= 0) intrinsicValue = price * 0.8;
+                  // Cap extreme outliers (> 4x Price)
+                  if (intrinsicValue > price * 4) intrinsicValue = price * 4;
 
                   const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
 
@@ -268,8 +269,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         : (1 / (pe || 20)) * 100;
 
                   // 6. Scoring Logic
-                  const valScore = normalizeScore(upside, -10, 40);
-                  const growthScore = normalizeScore(ruleOf40, 10, 50);
+                  const valScore = normalizeScore(upside, -10, 50);
+                  const growthScore = normalizeScore(ruleOf40, 10, 60);
                   const qualScore = normalizeScore(roic, 5, 25);
                   
                   const compositeScore = (valScore * 0.4) + (growthScore * 0.3) + (qualScore * 0.3);
@@ -323,7 +324,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.4.0", count: results.length, strategy: "Fundamental_Fortress_Real_Valuation" },
+        manifest: { version: "6.5.0", count: results.length, strategy: "Fundamental_Fortress_Yahoo_Fusion" },
         fundamental_universe: results
       };
 
@@ -386,7 +387,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.4</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.5</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
@@ -513,7 +514,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                          <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select an Asset to Audit</p>
                      </div>
                  )}
