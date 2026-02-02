@@ -42,10 +42,12 @@ interface Props {
   onComplete?: () => void;
 }
 
-// [CACHE SYSTEM] Daily Session Cache Key
+// [CACHE SYSTEM] Daily Session Cache Key Prefix
+const CACHE_PREFIX = 'QUALITY_CACHE_REAL_v3_';
+
 const getDailyCacheKey = (symbol: string) => {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    return `QUALITY_CACHE_REAL_v3_${symbol}_${today}`;
+    return `${CACHE_PREFIX}${symbol}_${today}`;
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
@@ -117,6 +119,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
+  };
+
+  const clearStageCache = () => {
+      let count = 0;
+      Object.keys(sessionStorage).forEach(key => {
+          if (key.startsWith(CACHE_PREFIX)) {
+              sessionStorage.removeItem(key);
+              count++;
+          }
+      });
+      addLog(`Cache Flushed: Removed ${count} stale records. Ready for fresh test.`, "warn");
   };
 
   const sanitizeJson = (text: string) => {
@@ -747,7 +760,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Logs</h3>
-            <button onClick={() => { sessionStorage.clear(); addLog("Cache Cleared. Rescan needed.", "warn"); }} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors">Clear Cache</button>
+            <button onClick={clearStageCache} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors">Clear Cache</button>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
