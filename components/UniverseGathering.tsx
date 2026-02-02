@@ -49,9 +49,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   // API Keys
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
-
+  
   const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
   
@@ -64,7 +62,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.1.0: OpenBB-Style Hybrid Fusion Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v3.2.0: Deep-Dive Enrichment Mode.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -96,11 +94,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
-  const getInitialTargetDate = () => {
+  const getInitialTargetDate = (daysBack = 1) => {
     const d = new Date();
-    d.setDate(d.getDate() - 1); 
+    d.setDate(d.getDate() - daysBack); 
+    // Adjust for weekend
     if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
-    else if (d.getDay() === 6) d.setDate(d.getDate() - 1); 
+    else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
+    // Format YYYY-MM-DD
     return d.toISOString().split('T')[0];
   };
 
@@ -143,7 +143,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // [STRATEGY 1] Nasdaq Official Strategy (Primary for Metadata)
-  // Fetches from our local proxy which scrapes api.nasdaq.com
   const executeNasdaqStrategy = async (): Promise<MasterTicker[]> => {
       addLog("Strategy D: Nasdaq Official Exchange Feed (Primary Metadata)...", "info");
       
@@ -177,41 +176,41 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (!polygonKey) throw new Error("Polygon Key missing");
     addLog("Strategy B: Polygon Deep Discovery (Coverage Max)...", "info");
     
-    // Polygon Grouped Daily (Massive Coverage ~20k items)
-    let targetDate = getInitialTargetDate();
+    // Check up to 7 days back to find valid market data
     let polyResults: any[] = [];
-    let daysChecked = 0;
+    let success = false;
     
-    // Try up to 5 days back to find a trading day
-    while (daysChecked < 5) {
+    for (let i = 1; i <= 7; i++) {
+        const targetDate = getInitialTargetDate(i);
+        addLog(`Polygon: Checking market data for ${targetDate}...`, "info");
+        
         try {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
             
             if (polyRes.status === 429) { 
-                addLog("Polygon Rate Limit. Pausing 20s...", "warn");
-                await new Promise(r => setTimeout(r, 20000)); 
+                addLog("Polygon Rate Limit. Pausing 15s...", "warn");
+                await new Promise(r => setTimeout(r, 15000)); 
+                i--; // Retry this date
                 continue; 
             }
             
             if (polyRes.ok) {
                 const data = await polyRes.json();
-                if (data.results && data.results.length > 0) { 
+                if (data.results && data.results.length > 5000) { 
                     polyResults = data.results; 
-                    addLog(`Polygon: Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    addLog(`Polygon: Success! Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    success = true;
                     break; 
-                } 
+                } else {
+                    addLog(`Polygon: Low volume on ${targetDate} (${data.resultsCount || 0}). Skipping...`, "warn");
+                }
             }
         } catch (e) { console.warn("Poly date fail", e); }
         
-        // Go back 1 day
-        const d = new Date(targetDate); d.setDate(d.getDate() - 1);
-        if (d.getDay() === 0) d.setDate(d.getDate() - 2); else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
-        targetDate = d.toISOString().split('T')[0];
-        daysChecked++;
         await new Promise(r => setTimeout(r, 500));
     }
 
-    if (polyResults.length === 0) throw new Error("Polygon returned 0 results.");
+    if (!success || polyResults.length === 0) throw new Error("Polygon returned 0 results after 7 days check.");
 
     return polyResults.map((p: any) => ({
         symbol: p.T,
@@ -220,7 +219,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         price: p.c,
         volume: p.v,
         change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
-        updated: targetDate,
+        updated: new Date().toISOString().split('T')[0],
         source: 'Polygon_Aggs'
     }));
   };
@@ -239,12 +238,81 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }));
   };
 
+  // [PHASE 3] Yahoo Bulk Enrichment (Fundamentals)
+  const enrichWithFundamentals = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      addLog(`Phase 3: Yahoo Bulk Enrichment (Fundamentals for ${tickers.length} assets)...`, "info");
+      setStats(prev => ({ ...prev, phase: 'Enrichment' }));
+      
+      const CHUNK_SIZE = 50; // Yahoo allows ~50-100 symbols per request
+      const chunks = [];
+      for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
+          chunks.push(tickers.slice(i, i + CHUNK_SIZE));
+      }
+
+      const enrichedMap = new Map<string, any>();
+      let processedCount = 0;
+
+      // Process chunks with concurrency control
+      // 5 concurrent requests at a time
+      const CONCURRENCY = 3;
+      
+      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
+          const batch = chunks.slice(i, i + CONCURRENCY);
+          const promises = batch.map(async (chunk) => {
+              const symbols = chunk.map(t => t.symbol).join(',');
+              try {
+                  const res = await fetch(`/api/yahoo?symbols=${symbols}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (Array.isArray(data)) {
+                          data.forEach((item: any) => enrichedMap.set(item.symbol, item));
+                      }
+                  }
+              } catch (e) { console.warn("Yahoo batch failed", e); }
+          });
+
+          await Promise.all(promises);
+          processedCount += batch.reduce((acc, c) => acc + c.length, 0);
+          
+          if (processedCount % 1000 < CHUNK_SIZE * CONCURRENCY) {
+              addLog(`Enrichment Progress: ${processedCount} / ${tickers.length} ...`, "info");
+          }
+          
+          // Small delay to prevent rate limiting
+          await new Promise(r => setTimeout(r, 500));
+      }
+
+      // Merge Data
+      let enrichCount = 0;
+      const final = tickers.map(t => {
+          const y = enrichedMap.get(t.symbol);
+          if (y) {
+              enrichCount++;
+              return {
+                  ...t,
+                  pe: y.trailingPE || y.forwardPE || 0,
+                  roe: y.returnOnEquity ? y.returnOnEquity * 100 : 0,
+                  debtToEquity: y.debtToEquity ? y.debtToEquity / 100 : 0,
+                  pb: y.priceToBook || 0,
+                  marketCap: y.marketCap || t.marketCap,
+                  // If Sector was missing from Nasdaq, use Yahoo
+                  sector: (t.sector === 'Unclassified' || !t.sector) ? (y.sector || 'Unclassified') : t.sector,
+                  industry: (t.industry === 'Unknown' || !t.industry) ? (y.industry || 'Unknown') : t.industry,
+                  name: t.name || y.name
+              };
+          }
+          return t;
+      });
+
+      addLog(`Enrichment Complete: ${enrichCount} assets updated with Fundamentals.`, "ok");
+      return final;
+  };
+
   // [NEW] Hybrid Fusion Logic
-  // Merges High-Quality Metadata (Nasdaq) with High-Volume Coverage (Polygon)
   const fuseDatasets = (primary: MasterTicker[], secondary: MasterTicker[]): MasterTicker[] => {
       const mergedMap = new Map<string, MasterTicker>();
       
-      // 1. Load Secondary (High Volume, Low Metadata - Polygon) first
+      // 1. Load Secondary (Polygon - High Coverage) first
       secondary.forEach(item => {
           mergedMap.set(item.symbol, item);
       });
@@ -252,13 +320,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       let enrichedCount = 0;
       let newCount = 0;
 
-      // 2. Overlay Primary (High Metadata - Nasdaq)
+      // 2. Overlay Primary (Nasdaq - High Metadata)
       primary.forEach(item => {
           if (mergedMap.has(item.symbol)) {
               // Enrich existing Polygon entry with Nasdaq Sector/Industry/Name
               const existing = mergedMap.get(item.symbol)!;
               mergedMap.set(item.symbol, {
-                  ...existing, // Keep Price/Vol from Polygon (usually fresher)
+                  ...existing, // Keep Price/Vol from Polygon (fresher)
                   name: item.name || existing.name,
                   sector: item.sector || existing.sector,
                   industry: item.industry || existing.industry,
@@ -321,46 +389,49 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         let masterList: MasterTicker[] = [];
 
         if (sources.polygon && sources.nasdaq) {
-            // Best Case: Merge both
             masterList = fuseDatasets(sources.nasdaq, sources.polygon);
         } else if (sources.polygon) {
-            // Fallback: Only Polygon
             masterList = sources.polygon;
             addLog("Using Polygon Raw Data (Sector Data might be limited).", "warn");
         } else if (sources.nasdaq) {
-            // Fallback: Only Nasdaq
             masterList = sources.nasdaq;
         } else if (sources.fmp) {
-            // Fallback: FMP
             masterList = sources.fmp;
         }
 
         const rawCount = masterList.length;
         addLog(`Total Raw Universe: ${rawCount} Assets.`, "ok");
 
-        // --- PHASE 3: MINIMAL FILTERING (To reach ~20k target) ---
-        // Relaxed filter to $0.01 to ensure we don't accidentally cut valid penny stocks
+        // --- PHASE 3: FILTER & ENRICH ---
         const minPrice = 0.01; 
         addLog(`Filtering for Viability (Price > $${minPrice})...`, "info");
         
         let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
         
-        // Sort by Volume to ensure most relevant are top
+        // [IMPORTANT] Sort by Volume to prioritize liquid assets for enrichment
         viableCandidates.sort((a, b) => b.volume - a.volume);
         
-        addLog(`Viable Universe: ${viableCandidates.length} assets ready.`, "ok");
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Hybrid Fusion" }));
+        // Ensure we don't process too many junk stocks for enrichment
+        // Top 10,000 liquid stocks + any others that look decent
+        // Actually, let's just do them all but in order.
+        
+        addLog(`Viable Universe: ${viableCandidates.length} assets ready for Enrichment.`, "ok");
+        
+        // [NEW] Bulk Enrichment Phase
+        viableCandidates = await enrichWithFundamentals(viableCandidates);
+
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Hybrid Fusion + Yahoo" }));
 
         // --- PHASE 4: COMMIT ---
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.1.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v3.2.0.json`;
         const payload = { 
             manifest: { 
-                version: "3.1.0", 
-                provider: "Hybrid_Fusion (Nasdaq+Poly)", 
+                version: "3.2.0", 
+                provider: "Hybrid_Fusion (Nasdaq+Poly+Yahoo)", 
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
-                note: "Fused Data: Nasdaq Metadata + Polygon Coverage"
+                note: "Fused Data: Nasdaq Metadata + Polygon Coverage + Yahoo Fundamentals"
             }, 
             universe: viableCandidates 
         };
@@ -517,10 +588,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.1.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.2.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Hybrid Fusion Ready'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Hybrid Fusion + Deep Enrich'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
@@ -539,12 +610,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               }`}
             >
               {isEngineRunning 
-                ? 'Fusing Data Sources...' 
+                ? 'Fusing & Enriching...' 
                 : cooldown > 0 
                     ? `Wait ${cooldown}s` 
                     : !accessToken 
                         ? 'Connect Cloud Vault' 
-                        : 'Execute Hybrid Fusion'}
+                        : 'Execute Deep Fusion'}
             </button>
           </div>
           
