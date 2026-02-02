@@ -64,7 +64,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.6.0: Deep Fundamental Enrichment Module Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.6.1: Drive Upload Logic Hardened.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -350,6 +350,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             addLog(`System: Cloud Vault Sync Complete via ${usedProvider}.`, "ok");
             
             if (onComplete) onComplete(); 
+        } else {
+            throw new Error("Folder ID resolution failed. Upload aborted.");
         }
 
     } catch (e: any) {
@@ -365,34 +367,64 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const ensureFolder = async (token: string) => {
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
     const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
+    
+    // 1. Resolve Root Folder
     try {
         const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
         const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
             headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json());
-        if (resRoot.files && resRoot.files.length > 0) rootId = resRoot.files[0].id;
-        else {
-            const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: rootName, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
-            }).then(r => r.json());
-            if (createRoot.id) rootId = createRoot.id;
+        });
+        
+        if (resRoot.ok) {
+            const data = await resRoot.json();
+            if (data.files && data.files.length > 0) {
+                rootId = data.files[0].id;
+            } else {
+                // Create Root if missing
+                const createRes = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ name: rootName, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
+                });
+                if (createRes.ok) {
+                    const createData = await createRes.json();
+                    rootId = createData.id;
+                } else {
+                    console.error("Root Creation Failed", await createRes.text());
+                }
+            }
         }
-    } catch (e) { console.warn("Root folder resolution failed, using default ID", e); }
+    } catch (e) { console.warn("Root folder resolution error", e); }
 
+    if (!rootId) {
+        addLog("Critical: Root folder ID invalid.", "err");
+        return null;
+    }
+
+    // 2. Resolve/Create Target Subfolder
     const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
+    });
     
+    if (res.ok) {
+        const data = await res.json();
+        if (data.files?.length > 0) return data.files[0].id;
+    }
+
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
+    });
+    
+    if (!create.ok) {
+        const errMsg = await create.text();
+        throw new Error(`Subfolder creation failed: ${errMsg}`);
+    }
+    
+    const createData = await create.json();
+    return createData.id;
   };
 
   const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
@@ -400,9 +432,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-    return fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
     });
+
+    if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Drive Upload Failed (${res.status}): ${errorText}`);
+    }
+    return res.json();
   };
 
   const searchResult = useMemo(() => {
@@ -461,7 +500,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.6.1</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
