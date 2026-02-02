@@ -55,7 +55,10 @@ export default async function handler(req: any, res: any) {
         priceToBook: item.priceToBook,
         returnOnEquity: item.returnOnEquity, // Decimal (e.g. 0.15)
         debtToEquity: item.debtToEquity, // Usually a number like 150.4 (percentage)
-        marketCap: item.marketCap
+        marketCap: item.marketCap,
+        // Sector & Industry (Critical for Stage 2)
+        sector: item.sector || item.category, // Fallback to category if sector missing
+        industry: item.industry
     }));
 
     return res.status(200).json(mappedData);
