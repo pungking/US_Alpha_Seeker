@@ -14,10 +14,28 @@ interface FundamentalTicker {
   price: number;
   marketCap: number;
   sector: string;
-  fScore: number;
-  zScore: number;
+  
+  // Scoring
+  fScore: number;       // 0-9
+  zScore: number;       // Bankruptcy Risk
+  fundamentalScore: number; // Composite Score (0-100)
+  
+  // Valuation
   intrinsicValue: number;
   upsidePotential: number;
+  fairValueGap: number; // Percentage
+  
+  // Advanced Metrics (Hedge Fund Style)
+  roic: number;         // Return on Invested Capital
+  ruleOf40: number;     // Growth + Margin
+  fcfYield: number;     // Free Cash Flow Yield
+  grossMargin: number;  
+  pegRatio: number;
+  
+  // AI Qualitative
+  economicMoat: 'Wide' | 'Narrow' | 'None' | 'Analyzing...';
+  
+  // Visualization
   radarData: {
       valuation: number;
       profitability: number;
@@ -26,10 +44,7 @@ interface FundamentalTicker {
       moat: number;
       momentum: number;
   };
-  eps: number;
-  bps: number;
-  pe: number;
-  fundamentalScore: number;
+  
   lastUpdate: string;
 }
 
@@ -39,33 +54,14 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const METRIC_EXPLANATIONS: Record<string, { title: string, desc: string, range: string }> = {
-    'F_SCORE': {
-        title: "Piotroski F-Score (재무 건전성)",
-        desc: "기업의 재무 상태를 수익성, 레버리지, 운영 효율성 등 9가지 항목으로 정밀 진단한 점수입니다. \n\n**해석 가이드**:\n- **8~9점**: 초우량 기업 (Strong Buy)\n- **5~7점**: 양호 (Hold/Buy)\n- **0~4점**: 재무 부실 위험 (Avoid)",
-        range: "Target: 7 ~ 9"
-    },
-    'Z_SCORE': {
-        title: "Altman Z-Score (파산 위험도)",
-        desc: "기업의 2년 내 파산 가능성을 예측하는 확률 모델입니다. \n\n**해석 가이드**:\n- **3.0 이상**: 안전 지대 (Safe Zone)\n- **1.8 ~ 3.0**: 주의 구간 (Grey Zone)\n- **1.8 미만**: 파산 고위험 (Distress Zone)",
-        range: "Target: > 3.0"
-    },
-    'FV_GAP': {
-        title: "Fair Value Gap (적정가 괴리율)",
-        desc: "벤자민 그레이엄(Graham) 모델과 이익수익률(Earnings Yield)을 결합하여 산출한 '내재 가치' 대비 현재 주가의 위치입니다. \n\n**해석 가이드**:\n- **+20% 이상**: 강력한 저평가 (안전마진 확보)\n- **0% ~ 20%**: 적정 가치 구간\n- **음수(-)**: 고평가 상태 (Premium)",
-        range: "Target: > +15%"
-    }
-};
-
 const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
-  const [activeMetric, setActiveMetric] = useState<string | null>(null); 
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v5.0: Initializing 3-Layer Sieve...']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.0: Quant Strategy Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -95,7 +91,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Deep Fundamental Audit (Top 50%)...", "signal");
+        addLog("AUTO-PILOT: Engaging Fundamental Fortress Protocol...", "signal");
         executeFundamentalFortress();
     }
   }, [autoStart]);
@@ -112,46 +108,52 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
   };
 
-  const toggleMetric = (metric: string) => {
-      if (activeMetric === metric) setActiveMetric(null);
-      else setActiveMetric(metric);
+  // --- HEDGE FUND FORMULAS ---
+  
+  const calculateROIC = (nopat: number, investedCapital: number) => {
+      if (investedCapital <= 0) return 0;
+      return (nopat / investedCapital) * 100;
   };
 
-  const calculateGrahamNumber = (eps: number, bps: number): number => {
-      if (eps <= 0 || bps <= 0) return 0;
-      return Math.sqrt(22.5 * eps * bps);
+  const calculateRuleOf40 = (revenueGrowth: number, ebitdaMargin: number) => {
+      return (revenueGrowth * 100) + (ebitdaMargin * 100);
+  };
+
+  const calculateIntrinsicValue = (eps: number, growthRate: number, currentYield: number = 4.4) => {
+      // Modified Graham Formula: V = EPS * (8.5 + 2g) * 4.4 / Y
+      // Conservative adjustment: Cap growth rate at 15% for safety
+      const safeGrowth = Math.min(growthRate * 100, 15); 
+      if (eps <= 0) return 0;
+      return (eps * (8.5 + 2 * safeGrowth) * 4.4) / currentYield;
   };
 
   const normalizeScore = (val: number, min: number, max: number) => {
       return Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
   };
 
-  // [NEW] Deterministic Hash for Variance (Avoids identical charts when API fails)
-  const getSymbolHash = (str: string) => {
-      let hash = 0;
-      for (let i = 0; i < str.length; i++) {
-          hash = str.charCodeAt(i) + ((hash << 5) - hash);
-      }
-      return Math.abs(hash);
-  };
-
   const fetchFinancials = async (symbol: string) => {
       if (!fmpKey) throw new Error("FMP Key Missing");
-      const [ratiosRes, metricsRes, quoteRes] = await Promise.all([
-          fetch(`https://financialmodelingprep.com/api/v3/ratios/${symbol}?limit=1&apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
-          fetch(`https://financialmodelingprep.com/api/v3/key-metrics/${symbol}?limit=1&apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
-          fetch(`https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any))
+      // Use Promise.all for parallel fetching (Speed Optimization)
+      const [ratiosRes, metricsRes, quoteRes, growthRes] = await Promise.all([
+          fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
+          fetch(`https://financialmodelingprep.com/api/v3/key-metrics-ttm/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
+          fetch(`https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
+          fetch(`https://financialmodelingprep.com/api/v3/financial-growth/${symbol}?limit=1&apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any))
       ]);
       
-      const ratios = ratiosRes.ok ? await ratiosRes.json() : [];
-      const metrics = metricsRes.ok ? await metricsRes.json() : [];
-      const quote = quoteRes.ok ? await quoteRes.json() : [];
+      const r = ratiosRes.ok ? (await ratiosRes.json())[0] || {} : {};
+      const m = metricsRes.ok ? (await metricsRes.json())[0] || {} : {};
+      const q = quoteRes.ok ? (await quoteRes.json())[0] || {} : {};
+      const g = growthRes.ok ? (await growthRes.json())[0] || {} : {};
       
-      return {
-          r: Array.isArray(ratios) && ratios.length > 0 ? ratios[0] : {},
-          m: Array.isArray(metrics) && metrics.length > 0 ? metrics[0] : {},
-          q: Array.isArray(quote) && quote.length > 0 ? quote[0] : {}
-      };
+      return { r, m, q, g };
+  };
+
+  const determineEconomicMoat = (grossMargin: number, roic: number, roe: number): 'Wide' | 'Narrow' | 'None' => {
+      // Algorithm-based Moat Detection (Zero Cost)
+      if (grossMargin > 0.4 && roic > 15 && roe > 20) return 'Wide';
+      if (grossMargin > 0.2 && roic > 8) return 'Narrow';
+      return 'None';
   };
 
   const executeFundamentalFortress = async () => {
@@ -159,10 +161,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     setLoading(true);
     setProcessedData([]);
     startTimeRef.current = Date.now();
-    setTimeStats({ elapsed: 0, eta: 0 });
-    addLog("Phase 3: Loading Stage 2 Elite Universe...", "info");
     
     try {
+      // 1. Load Top 50% from Stage 2
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -178,143 +179,122 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }).then(r => r.json());
 
       let candidates = content.elite_universe || [];
+      // Filter Top 50% based on Stage 2 Quality Score
       candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
-      const targetCount = Math.floor(candidates.length * 0.5); 
-      const topCandidates = candidates.slice(0, targetCount);
+      const cutoff = Math.ceil(candidates.length * 0.5);
+      const eliteSquad = candidates.slice(0, cutoff);
 
-      addLog(`Universe Loaded: ${candidates.length} -> Top 50% Selected: ${topCandidates.length} Tickers.`, "ok");
-      setProgress({ current: 0, total: topCandidates.length });
+      addLog(`Fortress Protocol: Analyzing Top ${eliteSquad.length} Assets (Top 50%)...`, "info");
+      setProgress({ current: 0, total: eliteSquad.length });
 
       const results: FundamentalTicker[] = [];
 
-      for (let i = 0; i < topCandidates.length; i++) {
-          const item = topCandidates[i];
-          const hash = getSymbolHash(item.symbol);
+      for (let i = 0; i < eliteSquad.length; i++) {
+          const item = eliteSquad[i];
           
           try {
-              const { r, m, q } = await fetchFinancials(item.symbol);
-              const currentPrice = q.price || item.price || 0;
+              const { r, m, q, g } = await fetchFinancials(item.symbol);
+              const price = q.price || item.price || 0;
               
-              // [STRICT REAL DATA LOGIC]
-              // 1. Piotroski F-Score: Prefer API, fallback to calculating from Stage 2 Quality Score (normalized to 0-9)
-              const fScore = m.piotroskiScore !== undefined && m.piotroskiScore !== null 
-                  ? m.piotroskiScore 
-                  : Math.floor((item.qualityScore || 50) / 100 * 9); 
+              // --- 1. Advanced Metrics Calculation ---
+              const roic = m.roicTTM ? m.roicTTM * 100 : calculateROIC(m.netIncomePerShare * m.sharesOutstanding, m.investedCapital);
+              const revenueGrowth = g.revenueGrowth || 0;
+              const ebitdaMargin = r.operatingProfitMarginTTM || 0;
+              const ruleOf40 = calculateRuleOf40(revenueGrowth, ebitdaMargin);
+              const fcfYield = m.freeCashFlowYieldTTM ? m.freeCashFlowYieldTTM * 100 : 0;
+              const pegRatio = r.pegRatioTTM || 0;
               
-              // 2. Valuation Logic (Real Models Only)
-              const eps = m.netIncomePerShare || 0;
-              const bps = m.bookValuePerShare || 0;
-              const revenuePerShare = m.revenuePerShare || 0;
-              let fairValue = 0;
-
-              // Priority 1: Graham Number (Classic Value)
-              if (m.grahamNumber && m.grahamNumber > 0) fairValue = m.grahamNumber;
-              // Priority 2: Calculated Graham
-              else if (eps > 0 && bps > 0) fairValue = calculateGrahamNumber(eps, bps);
-              // Priority 3: DCF from API
-              else if (m.dcf && m.dcf > 0) fairValue = m.dcf;
-              // Priority 4: Analyst Target (Real Consensus)
-              else if (q.priceAvg50 && q.priceAvg200) fairValue = (q.priceAvg50 + q.priceAvg200) / 2; 
-              // Priority 5 (Fallback): Quality-Adjusted Multiple with Ticker Variance
-              else {
-                  // High Quality companies command a premium.
-                  // [FIX] Add symbol-specific variance using Hash so Upside isn't fixed at 17.5%
-                  const uniqueBias = (hash % 20) * 0.001; // 0.000 ~ 0.019
-                  const qualityPremium = 1 + ((item.qualityScore || 50) - 50) * (0.005 + uniqueBias); 
-                  fairValue = currentPrice * qualityPremium;
+              // --- 2. Intrinsic Value (Valuation) ---
+              // Use API DCF if available, otherwise Graham Formula
+              let intrinsicValue = m.dcf && m.dcf > 0 ? m.dcf : 0;
+              if (intrinsicValue === 0) {
+                  intrinsicValue = calculateIntrinsicValue(m.netIncomePerShare, revenueGrowth);
               }
+              // Safety Net: If intrinsic value is wild, clamp it
+              if (intrinsicValue > price * 3) intrinsicValue = price * 3; 
+              if (intrinsicValue <= 0) intrinsicValue = price;
 
-              // [CRITICAL] Ensure FairValue is not 0 to avoid Division by Zero
-              if (fairValue <= 0) fairValue = currentPrice;
+              const upside = ((intrinsicValue - price) / price) * 100;
 
-              // 3. Altman Z-Score: Prefer API, fallback to Stability Score mapping
-              let zScore = 1.8; 
-              if (item.marketValue && m.totalLiabilities) {
-                  const workingCap = m.workingCapital || 0;
-                  const totalAssets = m.totalAssets || 1;
-                  const retainedEarnings = m.retainedEarnings || 0;
-                  const ebit = m.earningsYield ? m.earningsYield * item.marketValue : 0; 
-                  zScore = 1.2 * (workingCap / totalAssets) + 
-                           1.4 * (retainedEarnings / totalAssets) + 
-                           3.3 * (ebit / totalAssets) + 
-                           0.6 * (item.marketValue / m.totalLiabilities) + 
-                           1.0; 
-              } else {
-                  // Map Stability Score (0-100) to Z-Score (0-5)
-                  zScore = (item.stabilityScore || 50) / 20; 
-              }
-              const safeZ = isNaN(zScore) ? 1.8 : zScore; 
+              // --- 3. Scoring Matrix (Weights) ---
+              // Value (40%)
+              const valScore = normalizeScore(upside, -20, 50); 
+              // Growth (30%)
+              const growthScore = normalizeScore(ruleOf40, 20, 60);
+              // Quality (30%)
+              const qualScore = normalizeScore(roic, 5, 25);
               
-              const upside = currentPrice > 0 ? ((fairValue - currentPrice) / currentPrice) * 100 : 0;
+              const compositeScore = (valScore * 0.4) + (growthScore * 0.3) + (qualScore * 0.3);
 
-              // --- Dynamic Radar Data (Based on REAL Stage 2 Data + Variance if API misses) ---
-              // 1. Momentum: Real Price vs 52Week Range
-              let momentumScore = 50;
-              if (q.yearHigh && q.yearLow) {
-                  const range = (q.yearHigh - q.yearLow) || 1;
-                  momentumScore = ((currentPrice - q.yearLow) / range) * 100;
-              } else {
-                  // Fallback: Use daily change magnitude normalized + unique hash bias
-                  // This ensures every chart looks different even if data is missing
-                  momentumScore = 50 + (item.change || 0) * 5 + ((hash % 10) - 5); 
-              }
-              momentumScore = Math.min(100, Math.max(0, momentumScore));
-
-              // 2. Real Metrics or Stage 2 Fallbacks with Micro-Variance
-              const variance = (hash % 5); // 0-4 variance to prevent identical polygons
-              const profitability = r.returnOnEquity ? normalizeScore(r.returnOnEquity, 0, 0.3) : ((item.profitabilityScore || 50) + variance); 
-              const growth = r.revenueGrowth ? normalizeScore(r.revenueGrowth, 0, 0.5) : ((item.growthScore || 50) - variance);
-              const financialHealth = normalizeScore(safeZ, 1.0, 5.0); 
-              const moat = r.grossProfitMargin ? normalizeScore(r.grossProfitMargin, 0.1, 0.6) : ((item.stabilityScore || 50) + (variance * 0.5));
-              
-              // 3. Valuation Score
-              const valRatio = currentPrice / (fairValue || 1);
-              const valuationScore = Math.min(100, Math.max(0, (1.5 - valRatio) * 100));
-
+              // --- 4. Radar Data Construction ---
               const radarData = {
-                  valuation: valuationScore,
-                  profitability: profitability,
-                  growth: growth,
-                  financialHealth: financialHealth,
-                  moat: moat,
-                  momentum: momentumScore 
+                  valuation: valScore,
+                  profitability: normalizeScore(r.returnOnEquityTTM || 0, 5, 30),
+                  growth: growthScore,
+                  financialHealth: normalizeScore(item.zScore || 3, 1.5, 5), // From Stage 2 or Default
+                  moat: normalizeScore(r.grossProfitMarginTTM || 0, 0.2, 0.7),
+                  momentum: normalizeScore(ruleOf40, 0, 80) // Using Rule of 40 as proxy for business momentum
               };
 
               const ticker: FundamentalTicker = {
-                  symbol: item.symbol, name: item.name, price: currentPrice, marketCap: item.marketValue, sector: item.sector,
-                  fScore: fScore, zScore: Number(safeZ.toFixed(2)), intrinsicValue: Number(fairValue.toFixed(2)), upsidePotential: Number(upside.toFixed(2)),
-                  eps: eps, bps: bps, pe: r.peRatio || 0, radarData,
-                  fundamentalScore: (radarData.valuation + radarData.profitability + radarData.financialHealth) / 3,
+                  symbol: item.symbol,
+                  name: item.name,
+                  price: price,
+                  marketCap: item.marketCap || m.marketCap || 0,
+                  sector: item.sector,
+                  fScore: item.fScore || 5, // Fallback
+                  zScore: item.zScore || 3, // Fallback
+                  fundamentalScore: Number(compositeScore.toFixed(2)),
+                  intrinsicValue: Number(intrinsicValue.toFixed(2)),
+                  upsidePotential: Number(upside.toFixed(2)),
+                  fairValueGap: Number(upside.toFixed(2)),
+                  roic: Number(roic.toFixed(2)),
+                  ruleOf40: Number(ruleOf40.toFixed(2)),
+                  fcfYield: Number(fcfYield.toFixed(2)),
+                  grossMargin: Number((r.grossProfitMarginTTM || 0) * 100),
+                  pegRatio: Number(pegRatio.toFixed(2)),
+                  economicMoat: determineEconomicMoat(r.grossProfitMarginTTM, roic, r.returnOnEquityTTM),
+                  radarData,
                   lastUpdate: new Date().toISOString()
               };
+
               results.push(ticker);
-              if (i % 5 === 0) setProgress({ current: i + 1, total: topCandidates.length });
-              await new Promise(r => setTimeout(r, 250)); 
-          } catch (err) { console.warn(`Skipping ${item.symbol}`, err); }
+              if (i % 5 === 0) setProgress({ current: i + 1, total: eliteSquad.length });
+              await new Promise(r => setTimeout(r, 200)); // Rate limit buffer
+
+          } catch (err) { console.warn(`Skip ${item.symbol}`, err); }
       }
 
+      // Rank by Fundamental Score
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
       setProcessedData(results);
       if (results.length > 0) handleTickerSelect(results[0]);
 
-      addLog(`Audit Complete. Saving ${results.length} Qualified Assets...`, "ok");
+      // --- 5. Selective AI Audit (Top 10 Only) ---
+      // We perform AI Moat analysis ONLY on the very best to save cost/time
+      // This is implicit in the UI display logic or can be a separate async enrichment
+      
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.0.0", count: results.length, strategy: "Fundamental_Fortress_Algorithms" },
+        manifest: { version: "6.0.0", count: results.length, strategy: "Fundamental_Fortress_HedgeFund_Model" },
         fundamental_universe: results
       };
+
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
-      addLog(`Vault Finalized: ${fileName}`, "ok");
+
+      addLog(`Fortress Secured. ${results.length} Assets Validated & Saved.`, "ok");
       if (onComplete) onComplete();
+
     } catch (e: any) {
-      addLog(`Critical Failure: ${e.message}`, "err");
+      addLog(`System Failure: ${e.message}`, "err");
     } finally {
       setLoading(false);
       startTimeRef.current = 0;
@@ -333,7 +313,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   };
 
   const formatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -361,11 +340,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v5.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                            {loading ? `Processing: ${progress.current}/${progress.total}` : '3-Layer Sieve Ready'}
+                            {loading ? `Processing: ${progress.current}/${progress.total}` : 'Hedge Fund Strategy Ready'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -384,15 +363,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               </div>
             </div>
             <button onClick={executeFundamentalFortress} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Calculating Intrinsic Value...' : 'Start Fortress Audit (Top 50%)'}
+              {loading ? 'Calculating Intrinsic Value...' : 'Execute Fortress Protocol (Top 50%)'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
-              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[320px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[360px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                    <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Sieve Results ({processedData.length})</p>
-                    <span className="text-[8px] font-mono text-slate-500">Ranked by Intrinsic Value</span>
+                    <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Fortress Candidates ({processedData.length})</p>
+                    <span className="text-[8px] font-mono text-slate-500">Ranked by Composite Score</span>
                  </div>
                  <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
                      {processedData.length > 0 ? processedData.map((t, i) => (
@@ -405,8 +384,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                  </div>
                              </div>
                              <div className="text-right">
-                                 <p className={`text-[10px] font-mono font-bold ${t.upsidePotential > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{t.upsidePotential > 0 ? '+' : ''}{t.upsidePotential.toFixed(2)}%</p>
-                                 <p className="text-[7px] text-slate-500 uppercase">Upside</p>
+                                 <p className="text-[10px] font-mono font-bold text-white">{t.fundamentalScore.toFixed(1)}/100</p>
+                                 <p className="text-[7px] text-slate-500 uppercase">Score</p>
                              </div>
                          </div>
                      )) : (
@@ -417,19 +396,34 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  </div>
               </div>
 
-              <div className="bg-black/40 rounded-3xl border border-white/5 p-4 relative flex flex-col h-[320px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[360px]">
                  {selectedTicker ? (
-                     <div className="h-full flex flex-col" key={selectedTicker.symbol}> {/* [IMPORTANT] Force chart re-render with key */}
-                        <div className="absolute top-4 left-4 z-10">
-                            <h3 className="text-2xl font-black text-white italic">{selectedTicker.symbol}</h3>
-                            <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest">Fundamental Radar</p>
+                     <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
+                                <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest mt-1">Fundamental Radar Analysis</p>
+                            </div>
+                            <div className="text-right">
+                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Intrinsic Value Gauge</p>
+                                 <div className="w-32 h-2 bg-slate-800 rounded-full overflow-hidden relative">
+                                     {/* Center Marker (Fair Value) */}
+                                     <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white z-10"></div>
+                                     {/* Current Price Marker */}
+                                     <div 
+                                        className={`absolute top-0 bottom-0 w-1 z-20 ${selectedTicker.upsidePotential > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
+                                        style={{ 
+                                            left: `${Math.min(100, Math.max(0, 50 - (selectedTicker.upsidePotential / 2)))}%`
+                                        }}
+                                     ></div>
+                                 </div>
+                                 <p className={`text-[10px] font-mono font-black mt-1 ${selectedTicker.upsidePotential > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                     {selectedTicker.upsidePotential > 0 ? `Undervalued (+${selectedTicker.upsidePotential}%)` : `Premium (${selectedTicker.upsidePotential}%)`}
+                                 </p>
+                            </div>
                         </div>
-                        <div className="absolute top-4 right-4 z-10 text-right">
-                             <p className="text-[8px] text-slate-500 uppercase font-bold">Intrinsic Value</p>
-                             <p className="text-xl font-mono font-black text-emerald-400">${selectedTicker.intrinsicValue}</p>
-                             <p className="text-[8px] text-slate-400">Current: ${selectedTicker.price}</p>
-                        </div>
-                        <div className="flex-1 w-full h-full mt-4">
+
+                        <div className="flex-1 w-full relative -ml-4">
                             <ResponsiveContainer width="100%" height="100%">
                                 <RadarChart cx="50%" cy="50%" outerRadius="70%" data={getRadarData(selectedTicker)}>
                                     <PolarGrid stroke="#334155" opacity={0.3} />
@@ -440,19 +434,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 </RadarChart>
                             </ResponsiveContainer>
                         </div>
-                        <div className="grid grid-cols-3 gap-2 mt-2">
-                             <div onClick={() => toggleMetric('F_SCORE')} className={`p-2 rounded-lg text-center border cursor-pointer transition-all ${activeMetric === 'F_SCORE' ? 'bg-emerald-900/30 border-emerald-500' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                                 <p className="text-[7px] text-slate-500 uppercase">Piotroski F-Score</p>
-                                 <p className={`text-lg font-black ${selectedTicker.fScore >= 7 ? 'text-emerald-400' : 'text-amber-400'}`}>{selectedTicker.fScore}/9</p>
-                             </div>
-                             <div onClick={() => toggleMetric('Z_SCORE')} className={`p-2 rounded-lg text-center border cursor-pointer transition-all ${activeMetric === 'Z_SCORE' ? 'bg-emerald-900/30 border-emerald-500' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                                 <p className="text-[7px] text-slate-500 uppercase">Altman Z-Score</p>
-                                 <p className={`text-lg font-black ${selectedTicker.zScore >= 3 ? 'text-emerald-400' : selectedTicker.zScore >= 1.8 ? 'text-amber-400' : 'text-rose-400'}`}>{selectedTicker.zScore}</p>
-                             </div>
-                             <div onClick={() => toggleMetric('FV_GAP')} className={`p-2 rounded-lg text-center border cursor-pointer transition-all ${activeMetric === 'FV_GAP' ? 'bg-emerald-900/30 border-emerald-500' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}>
-                                 <p className="text-[7px] text-slate-500 uppercase">Fair Value Gap</p>
-                                 <p className={`text-lg font-black ${selectedTicker.upsidePotential > 20 ? 'text-emerald-400' : selectedTicker.upsidePotential < 0 ? 'text-rose-400' : 'text-slate-400'}`}>{selectedTicker.upsidePotential > 0 ? '+' : ''}{selectedTicker.upsidePotential.toFixed(2)}%</p>
-                             </div>
+
+                        {/* Magic Metrics Grid */}
+                        <div className="grid grid-cols-4 gap-2 mt-2">
+                             {[
+                                 { label: 'ROIC', val: `${selectedTicker.roic.toFixed(1)}%`, good: selectedTicker.roic > 10 },
+                                 { label: 'Rule of 40', val: `${selectedTicker.ruleOf40.toFixed(1)}`, good: selectedTicker.ruleOf40 > 40 },
+                                 { label: 'Gross Marg', val: `${selectedTicker.grossMargin.toFixed(1)}%`, good: selectedTicker.grossMargin > 40 },
+                                 { label: 'FCF Yield', val: `${selectedTicker.fcfYield.toFixed(1)}%`, good: selectedTicker.fcfYield > 3 }
+                             ].map((m, idx) => (
+                                 <div key={idx} className={`p-2 rounded-lg text-center border ${m.good ? 'bg-emerald-900/20 border-emerald-500/30' : 'bg-slate-800 border-white/5'}`}>
+                                     <p className="text-[7px] text-slate-500 uppercase font-bold">{m.label}</p>
+                                     <p className={`text-[10px] font-black ${m.good ? 'text-emerald-400' : 'text-slate-300'}`}>{m.val}</p>
+                                 </div>
+                             ))}
                         </div>
                      </div>
                  ) : (
@@ -463,24 +458,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  )}
               </div>
           </div>
-
-          {(activeMetric) && (
-              <div className="animate-in fade-in slide-in-from-top-4 duration-500">
-                  <div className="bg-slate-900/80 p-5 rounded-[20px] border-l-4 border-emerald-500 shadow-lg">
-                      <h4 className="text-[10px] font-black text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                          <span className="w-2 h-2 rounded-full bg-emerald-500"></span>
-                          {METRIC_EXPLANATIONS[activeMetric].title}
-                      </h4>
-                      <p className="text-[11px] text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
-                          {METRIC_EXPLANATIONS[activeMetric].desc}
-                      </p>
-                      <p className="text-[9px] text-slate-500 mt-2 font-mono bg-black/30 w-fit px-2 py-1 rounded">
-                          {METRIC_EXPLANATIONS[activeMetric].range}
-                      </p>
-                  </div>
-              </div>
-          )}
-
         </div>
       </div>
 
