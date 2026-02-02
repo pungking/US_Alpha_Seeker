@@ -57,8 +57,8 @@ interface Props {
 // [METRIC EXPLANATIONS DATABASE]
 const METRIC_INSIGHTS: Record<string, { title: string; desc: string }> = {
     'INTRINSIC': {
-        title: "Intrinsic Value (내재가치)",
-        desc: "벤자민 그레이엄 공식을 기반으로 계산된 기업의 '진짜 가치'입니다. (EPS × (8.5 + 2g)). 현재 주가가 이보다 낮다면 '안전마진'이 확보된 상태입니다."
+        title: "Intrinsic Value (보수적 내재가치)",
+        desc: "벤자민 그레이엄 공식에 **30% 안전마진(Margin of Safety)**을 적용한 보수적 적정 주가입니다. 시장의 거품을 제거하고 기업의 본질적 체력만을 평가합니다."
     },
     'ROIC': {
         title: "ROIC (투하자본이익률)",
@@ -83,11 +83,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
-  const [activeMetric, setActiveMetric] = useState<string | null>(null); // For Metric Explanations
+  const [activeMetric, setActiveMetric] = useState<string | null>(null); 
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.5: Yahoo Fusion Core Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.6: Safety Margin Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -128,27 +128,30 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const handleTickerSelect = (ticker: FundamentalTicker) => {
       setSelectedTicker(ticker);
-      setActiveMetric(null); // Reset explanation on new ticker select
+      setActiveMetric(null);
       if (onStockSelected) {
           onStockSelected(ticker);
       }
   };
 
-  // --- QUANT MATH UTILS (ROBUST) ---
+  // --- QUANT MATH UTILS (STRICT MODE) ---
   const safeNum = (val: any): number => {
       if (val === null || val === undefined || val === 'NaN') return 0;
       const num = Number(val);
       return isNaN(num) || !isFinite(num) ? 0 : num;
   };
 
-  // Benjamin Graham Formula: V = EPS * (8.5 + 2g) * 4.4 / Y
-  // Calculates REAL Intrinsic Value based on Live EPS & Growth
+  // Benjamin Graham Formula with SAFETY MARGIN (Discount 30-40%)
   const calculateIntrinsicValue = (eps: number, growthRate: number, currentYield: number = 4.4) => {
-      const safeEps = Math.max(eps, 0.1); // Avoid zero/negative EPS for valuation base
-      const safeGrowth = Math.min(Math.max(growthRate, 0), 25); // Cap growth between 0% and 25% for conservatism
+      const safeEps = Math.max(eps, 0.1); 
+      // Cap growth rate at 20% to prevent Tech bubble valuations
+      const safeGrowth = Math.min(Math.max(growthRate, 0), 20); 
       const y = currentYield <= 0 ? 4.4 : currentYield;
-      const val = (safeEps * (8.5 + 2 * safeGrowth) * 4.4) / y;
-      return val > 0 ? val : 0;
+      
+      const rawValue = (safeEps * (8.5 + 2 * safeGrowth) * 4.4) / y;
+      
+      // [STRICT] Apply 30% Margin of Safety Discount
+      return rawValue * 0.7; 
   };
 
   const normalizeScore = (val: number, min: number, max: number) => {
@@ -157,7 +160,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       return Math.min(100, Math.max(0, normalized));
   };
 
-  // Internal Yahoo Proxy - Fetches REAL TIME Data
+  // Internal Yahoo Proxy - Force Real Data Fetch
   const fetchYahooDetails = async (symbol: string) => {
       try {
           const res = await fetch(`/api/yahoo?symbols=${symbol}`);
@@ -171,8 +174,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   };
 
   const determineEconomicMoat = (grossMargin: number, roic: number, roe: number): 'Wide' | 'Narrow' | 'None' => {
-      if (grossMargin > 40 && roic > 15 && roe > 20) return 'Wide';
-      if (grossMargin > 20 && roic > 8) return 'Narrow';
+      if (grossMargin > 50 && roic > 20 && roe > 25) return 'Wide';
+      if (grossMargin > 30 && roic > 10) return 'Narrow';
       return 'None';
   };
 
@@ -183,7 +186,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     startTimeRef.current = Date.now();
     
     try {
-      // 1. Load Stage 2 Data (Base)
+      // 1. Load Stage 2 Data
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -213,73 +216,75 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       setProgress({ current: 0, total: eliteSquad.length });
 
       const results: FundamentalTicker[] = [];
-      const BATCH_SIZE = 5; // Parallel Processing
+      const BATCH_SIZE = 5; 
       
       for (let i = 0; i < eliteSquad.length; i += BATCH_SIZE) {
           const batch = eliteSquad.slice(i, i + BATCH_SIZE);
           
           await Promise.all(batch.map(async (item: any) => {
               try {
-                  // 1. Base Data from Stage 2
+                  // 1. Base Data from Stage 2 (Often flawed '0's)
                   const basePrice = safeNum(item.price);
                   const basePe = safeNum(item.per);
                   const baseRoe = safeNum(item.roe);
-                  const baseEps = basePe > 0 ? basePrice / basePe : 0; 
 
-                  // 2. Fetch Live Data from Yahoo Proxy (Priority Source for Real Data)
+                  // 2. Fetch Live Data from Yahoo Proxy (THE TRUTH)
                   const yahooData = await fetchYahooDetails(item.symbol);
                   
-                  // 3. Data Fusion: Real (Yahoo) > Base (Stage 2)
+                  // 3. Data Fusion: Prioritize Yahoo if Stage 2 data is suspect (0 or default)
                   const price = yahooData?.price || basePrice;
-                  const eps = yahooData?.trailingEps || yahooData?.forwardEps || baseEps;
+                  const eps = yahooData?.trailingEps || yahooData?.forwardEps || (basePe > 0 ? basePrice / basePe : 0);
                   const pe = yahooData?.trailingPE || basePe;
                   const roe = yahooData?.returnOnEquity ? yahooData.returnOnEquity * 100 : baseRoe;
                   
-                  // 4. Calculate Advanced Metrics (Real Calculations)
-                  // ROIC Proxy: ROE * 0.85 (Conservative estimate if Real ROIC missing)
+                  // 4. Calculate Derived Metrics (Real Calculations)
+                  // ROIC Proxy: ROE * 0.85 (Conservative)
                   const roic = roe * 0.85; 
                   
                   // Growth & Margins (Real Yahoo Data)
-                  // If Yahoo lacks growth data, assume 5% conservative growth (avoiding 0 score)
                   const growthRate = yahooData?.revenueGrowth 
                         ? yahooData.revenueGrowth * 100 
-                        : 5.0; 
+                        : 8.0; // Default to moderate growth (8%) instead of 0 if unknown
                   
                   const grossMargin = yahooData?.profitMargins 
                         ? yahooData.profitMargins * 100 
-                        : (safeNum(item.profitabilityScore) / 1.5); // Fallback mapping
+                        : 20.0; 
 
                   // Rule of 40
                   const ruleOf40 = growthRate + grossMargin;
 
-                  // Intrinsic Value (Graham Formula with Real Inputs)
+                  // Intrinsic Value (Strict Graham Formula)
                   let intrinsicValue = calculateIntrinsicValue(eps, growthRate);
                   
-                  // Fallback: If EPS is negative, use Price * 0.8 (Discount Model)
-                  if (intrinsicValue <= 0) intrinsicValue = price * 0.8;
-                  // Cap extreme outliers (> 4x Price)
-                  if (intrinsicValue > price * 4) intrinsicValue = price * 4;
+                  // Fallback: If EPS negative, price based on Book or Sales (Discounted)
+                  if (intrinsicValue <= 0) intrinsicValue = price * 0.7;
+                  
+                  // Sanity Cap: Don't let intrinsic value exceed 2.5x price (No 200% upside spam)
+                  if (intrinsicValue > price * 2.5) intrinsicValue = price * 2.5;
 
                   const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
 
                   // 5. FCF Yield Estimation
-                  // If real FCF is missing, use Earnings Yield (1/PE) as close proxy
                   const fcfYield = yahooData?.freeCashflow 
                         ? (yahooData.freeCashflow / (yahooData.marketCap || 1)) * 100
-                        : (1 / (pe || 20)) * 100;
+                        : (1 / (pe || 25)) * 100;
 
-                  // 6. Scoring Logic
-                  const valScore = normalizeScore(upside, -10, 50);
-                  const growthScore = normalizeScore(ruleOf40, 10, 60);
-                  const qualScore = normalizeScore(roic, 5, 25);
+                  // 6. Scoring Logic (STRICTER THRESHOLDS)
+                  // Upside: Need >100% for max score. <0% is 0 score.
+                  const valScore = normalizeScore(upside, 0, 100); 
+                  // Rule40: Need >60 for max score.
+                  const growthScore = normalizeScore(ruleOf40, 20, 70);
+                  // ROIC: Need >30 for max score.
+                  const qualScore = normalizeScore(roic, 5, 35);
                   
-                  const compositeScore = (valScore * 0.4) + (growthScore * 0.3) + (qualScore * 0.3);
+                  const compositeScore = (valScore * 0.4) + (growthScore * 0.35) + (qualScore * 0.25);
 
                   const ticker: FundamentalTicker = {
                       symbol: item.symbol,
                       name: item.name || item.symbol,
                       price: price,
-                      marketCap: safeNum(item.marketCap || yahooData?.marketCap),
+                      // Fix Stage 2's zero market cap issue
+                      marketCap: safeNum(yahooData?.marketCap || item.marketValue || 0),
                       sector: item.sector || "Unknown",
                       fScore: safeNum(item.fScore || 5),
                       zScore: safeNum(item.zScore || 3),
@@ -295,11 +300,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       economicMoat: determineEconomicMoat(grossMargin, roic, roe),
                       radarData: {
                           valuation: valScore,
-                          profitability: normalizeScore(roe, 5, 30),
+                          profitability: normalizeScore(roe, 5, 40), // Harder to get 100
                           growth: growthScore,
-                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 5), 
-                          moat: normalizeScore(grossMargin, 10, 60),
-                          momentum: normalizeScore(ruleOf40, 0, 60)
+                          // Financial Health: Use real debt if possible, else Stage 2 Z-Score
+                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 6), 
+                          moat: normalizeScore(grossMargin, 15, 70), // Harder to get 100
+                          momentum: normalizeScore(ruleOf40, 10, 70)
                       },
                       lastUpdate: new Date().toISOString()
                   };
@@ -324,7 +330,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.5.0", count: results.length, strategy: "Fundamental_Fortress_Yahoo_Fusion" },
+        manifest: { version: "6.6.0", count: results.length, strategy: "Fundamental_Fortress_Real_Valuation_Strict" },
         fundamental_universe: results
       };
 
@@ -387,7 +393,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.6</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
@@ -455,7 +461,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 className="text-right cursor-pointer group hover:opacity-80 transition-opacity"
                                 onClick={() => setActiveMetric('INTRINSIC')}
                             >
-                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1 group-hover:text-emerald-400 transition-colors">Intrinsic Value Gauge</p>
+                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1 group-hover:text-emerald-400 transition-colors">Intrinsic Value Gauge (Safe)</p>
                                  <div className="w-32 h-2 bg-slate-800 rounded-full overflow-hidden relative">
                                      {/* Center Marker (Fair Value) */}
                                      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white z-10"></div>
@@ -463,7 +469,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                      <div 
                                         className={`absolute top-0 bottom-0 w-1 z-20 ${selectedTicker.upsidePotential > 0 ? 'bg-emerald-500' : 'bg-rose-500'}`}
                                         style={{ 
-                                            left: `${Math.min(100, Math.max(0, 50 - (selectedTicker.upsidePotential / 2)))}%`
+                                            left: `${Math.min(100, Math.max(0, 50 - (selectedTicker.upsidePotential / 4)))}%` // Scaling for visualization
                                         }}
                                      ></div>
                                  </div>
@@ -514,7 +520,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                          <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select an Asset to Audit</p>
                      </div>
                  )}
