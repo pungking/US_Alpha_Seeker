@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
-import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine, ReferenceArea, LabelList } from 'recharts';
+import { Treemap, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
@@ -67,7 +67,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Free Plan Logic
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2.1: Resilience Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2.2: Sector Dominance Matrix Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -488,7 +488,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.2.1", strategy: "Strict_Real_Data_Quant", timestamp: new Date().toISOString() },
+        manifest: { version: "5.2.2", strategy: "Strict_Real_Data_Quant", timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -536,22 +536,79 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Prepare Chart Data with Jitter to prevent clustering
-  const chartData = processedData.slice(0, 50).map(t => {
-      // Add slight random jitter (+/- 0.5) to separate overlapping points
-      const jitterX = (Math.random() - 0.5); 
-      const jitterY = (Math.random() - 0.5);
-      return {
-          symbol: t.symbol,
-          x: Number((t.growthScore + jitterX).toFixed(2)), 
-          y: Number((t.qualityScore + jitterY).toFixed(2)), 
-          z: t.marketValue, 
-          // Color coding: Red for Value Trap, Green for High Quality, Blue for Standard
-          fill: t.isValueTrap ? '#ef4444' : t.qualityScore >= 80 ? '#10b981' : '#3b82f6',
-          rawX: t.growthScore,
-          rawY: t.qualityScore
-      };
-  });
+  // [NEW] Sector Distribution Logic (Real Data Aggregation)
+  const sectorData = useMemo(() => {
+      if (processedData.length === 0) return [];
+      
+      const map = new Map<string, number>();
+      processedData.forEach(item => {
+          const sector = item.sector && item.sector !== 'Unknown' ? item.sector : 'Other';
+          map.set(sector, (map.get(sector) || 0) + 1);
+      });
+
+      // Convert to array and sort by size
+      const data = Array.from(map).map(([name, size]) => ({ name, size }));
+      return data.sort((a, b) => b.size - a.size);
+  }, [processedData]);
+
+  // [NEW] Custom Treemap Content Renderer
+  const CustomizedContent = (props: any) => {
+    const { x, y, width, height, index, name, value } = props;
+    const colors = [
+        '#10b981', // Emerald
+        '#3b82f6', // Blue
+        '#8b5cf6', // Violet
+        '#f59e0b', // Amber
+        '#ec4899', // Pink
+        '#06b6d4', // Cyan
+        '#6366f1', // Indigo
+        '#ef4444'  // Red (others)
+    ];
+    
+    return (
+      <g>
+        <rect
+          x={x}
+          y={y}
+          width={width}
+          height={height}
+          style={{
+            fill: colors[index % colors.length],
+            stroke: '#0f172a', // Match background for gap effect
+            strokeWidth: 2,
+            fillOpacity: 0.85,
+          }}
+          rx={4}
+          ry={4}
+        />
+        {width > 40 && height > 20 && (
+          <>
+            <text
+              x={x + width / 2}
+              y={y + height / 2 - 2}
+              textAnchor="middle"
+              fill="#fff"
+              fontSize={Math.min(width / 8, 12)}
+              fontWeight="900"
+              style={{ textTransform: 'uppercase', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
+            >
+              {name.split(' ')[0]} {/* Show first word of sector */}
+            </text>
+            <text
+              x={x + width / 2}
+              y={y + height / 2 + 10}
+              textAnchor="middle"
+              fill="rgba(255,255,255,0.8)"
+              fontSize={9}
+              fontWeight="bold"
+            >
+              {value}
+            </text>
+          </>
+        )}
+      </g>
+    );
+  };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
@@ -564,7 +621,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -638,86 +695,46 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   </div>
               </div>
 
-              {/* Quality Matrix Chart Column */}
+              {/* Quality Matrix Chart Column -> [CHANGED] Sector Treemap */}
               <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative overflow-hidden">
                  <div className="absolute top-6 left-6 z-10">
-                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Quality-Value Matrix</p>
-                    <p className="text-[8px] text-slate-500 uppercase font-mono">Top 50 Elite Candidates</p>
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Sector Dominance Map</p>
+                    <p className="text-[8px] text-slate-500 uppercase font-mono">Real-Data Distribution (Top {processedData.length})</p>
                  </div>
                  
-                 {/* Legend */}
-                 <div className="absolute top-6 right-6 z-10 flex flex-col gap-1 items-end">
-                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span><span className="text-[7px] font-bold text-slate-400 uppercase">Strong Buy</span></div>
-                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span><span className="text-[7px] font-bold text-slate-400 uppercase">Buy/Hold</span></div>
-                    <div className="flex items-center gap-1.5"><span className="w-1.5 h-1.5 rounded-full bg-red-500"></span><span className="text-[7px] font-bold text-slate-400 uppercase">Value Trap</span></div>
-                 </div>
-
-                 <div className="flex-1 w-full h-full mt-4">
+                 <div className="flex-1 w-full h-full mt-8">
                      {processedData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
-                            <ScatterChart margin={{ top: 30, right: 20, bottom: 20, left: 0 }}>
-                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                                <XAxis 
-                                    type="number" 
-                                    dataKey="x" 
-                                    name="Value Score" 
-                                    stroke="#64748b" 
-                                    fontSize={8} 
-                                    tickLine={false}
-                                    label={{ value: 'Value (Undervalued) →', position: 'bottom', fill: '#475569', fontSize: 8, dy: -5 }} 
-                                    domain={[0, 100]} 
-                                />
-                                <YAxis 
-                                    type="number" 
-                                    dataKey="y" 
-                                    name="Quality Score" 
-                                    stroke="#64748b" 
-                                    fontSize={8} 
-                                    tickLine={false}
-                                    label={{ value: 'Quality (Profitable) →', angle: -90, position: 'insideLeft', fill: '#475569', fontSize: 8, dx: 5 }} 
-                                    domain={[0, 100]} 
-                                />
-                                <Tooltip 
-                                    cursor={{ strokeDasharray: '3 3' }}
+                            <Treemap
+                                data={sectorData}
+                                dataKey="size"
+                                aspectRatio={4 / 3}
+                                stroke="#0f172a"
+                                content={<CustomizedContent />}
+                            >
+                                <RechartsTooltip 
                                     content={({ active, payload }) => {
                                         if (active && payload && payload.length) {
                                             const d = payload[0].payload;
                                             return (
                                                 <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-xl backdrop-blur-md">
-                                                    <p className="text-xs font-black text-white mb-1">{d.symbol}</p>
-                                                    <div className="flex gap-3 text-[9px] font-mono">
-                                                        <span className="text-emerald-400">Quality: {d.rawY}</span>
-                                                        <span className="text-blue-400">Value: {d.rawX}</span>
-                                                    </div>
+                                                    <p className="text-xs font-black text-white mb-1">{d.name}</p>
+                                                    <p className="text-[9px] text-emerald-400 font-mono">Count: {d.size} Stocks</p>
+                                                    <p className="text-[9px] text-slate-500 font-mono">Share: {((d.size / processedData.length) * 100).toFixed(1)}%</p>
                                                 </div>
                                             );
                                         }
                                         return null;
                                     }}
                                 />
-                                {/* Quadrant Backgrounds */}
-                                <ReferenceArea x1={50} x2={100} y1={50} y2={100} fill="#10b981" fillOpacity={0.05} />
-                                <ReferenceArea x1={0} x2={50} y1={50} y2={100} fill="#3b82f6" fillOpacity={0.03} />
-                                <ReferenceArea x1={50} x2={100} y1={0} y2={50} fill="#f59e0b" fillOpacity={0.03} />
-                                <ReferenceArea x1={0} x2={50} y1={0} y2={50} fill="#ef4444" fillOpacity={0.05} />
-
-                                <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                
-                                <Scatter name="Elite Stocks" data={chartData}>
-                                    {chartData.map((entry, index) => (
-                                        <Cell key={`cell-${index}`} fill={entry.fill} stroke="rgba(255,255,255,0.2)" strokeWidth={1} />
-                                    ))}
-                                    <LabelList dataKey="symbol" position="top" style={{ fill: '#94a3b8', fontSize: '7px', fontWeight: 'bold' }} />
-                                </Scatter>
-                            </ScatterChart>
+                            </Treemap>
                         </ResponsiveContainer>
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
                              </div>
-                             <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize</p>
+                             <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Real Sectors</p>
                          </div>
                      )}
                  </div>
