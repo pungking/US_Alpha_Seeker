@@ -1,8 +1,8 @@
+
 export default async function handler(req: any, res: any) {
-  // Yahoo Finance Proxy - Enhanced for bypassing bot detection
-  // Uses v7/finance/quote for lighter, batch-friendly requests
+  // Yahoo Finance Proxy - Enhanced for Real Data Acquisition (Fundamentals)
+  // Uses v7/finance/quote which supports batching and fundamental fields
   
-  // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
   res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
@@ -20,10 +20,8 @@ export default async function handler(req: any, res: any) {
   }
 
   try {
-    // Use query2 or query1. v7/finance/quote is efficient for batching.
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
     
-    // CRITICAL: Yahoo blocks requests without a valid browser User-Agent
     const response = await fetch(url, {
         headers: {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -43,14 +41,21 @@ export default async function handler(req: any, res: any) {
     const data = await response.json();
     const result = data.quoteResponse?.result || [];
 
-    // Map to simple format expected by frontend
+    // Map expanded fundamentals for Stage 2 & 3
     const mappedData = result.map((item: any) => ({
         symbol: item.symbol,
         price: item.regularMarketPrice,
         change: item.regularMarketChangePercent,
         changeAmount: item.regularMarketChange,
         prevClose: item.regularMarketPreviousClose,
-        name: item.shortName || item.longName
+        name: item.shortName || item.longName,
+        // Fundamentals
+        trailingPE: item.trailingPE,
+        forwardPE: item.forwardPE,
+        priceToBook: item.priceToBook,
+        returnOnEquity: item.returnOnEquity, // Decimal (e.g. 0.15)
+        debtToEquity: item.debtToEquity, // Usually a number like 150.4 (percentage)
+        marketCap: item.marketCap
     }));
 
     return res.status(200).json(mappedData);
