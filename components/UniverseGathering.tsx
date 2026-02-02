@@ -62,7 +62,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.5.0: Triple Hybrid Fusion Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v3.5.1: Triple Hybrid Fusion Mode.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -299,6 +299,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
         viableCandidates.sort((a, b) => b.volume - a.volume);
         
+        // [FIX] POPULATE REGISTRY FOR SEARCH
+        const newRegistry = new Map<string, MasterTicker>();
+        viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
+        setRegistry(newRegistry); // Update state so Search works immediately
+        addLog("System Registry Updated. Global Validator Active.", "ok");
+
         setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Triple_Hybrid" }));
         addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
 
@@ -377,6 +383,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const handleSetTarget = () => {
       if (searchResult && onStockSelected) {
           onStockSelected(searchResult);
+          addLog(`Target Set: ${searchResult.symbol}. Auditing Matrix Triggered.`, "ok");
       }
   };
 
@@ -424,7 +431,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.5.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.5.1</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Triple Hybrid Fusion'}
