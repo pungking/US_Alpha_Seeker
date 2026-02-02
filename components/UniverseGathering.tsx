@@ -62,7 +62,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.2.0: Deep-Dive Enrichment Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v3.3.0: High-Precision Gathering & Enrichment.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -226,8 +226,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
     if (!fmpKey) throw new Error("FMP Key missing");
-    addLog("Strategy A: FMP Deep Screener...", "info");
-    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=25000&apikey=${fmpKey}`;
+    addLog("Strategy A: FMP Deep Screener (Backup Metadata)...", "info");
+    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=20000&apikey=${fmpKey}`;
     const res = await fetch(url);
     if (!res.ok) throw new Error(res.status === 403 ? "FMP_PLAN_LIMIT" : "FMP_ERROR");
     const data = await res.json();
@@ -239,11 +239,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // [PHASE 3] Yahoo Bulk Enrichment (Fundamentals)
+  // FIXED: Symbol normalization (DOT to HYPHEN)
   const enrichWithFundamentals = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
       addLog(`Phase 3: Yahoo Bulk Enrichment (Fundamentals for ${tickers.length} assets)...`, "info");
       setStats(prev => ({ ...prev, phase: 'Enrichment' }));
       
-      const CHUNK_SIZE = 50; // Yahoo allows ~50-100 symbols per request
+      const CHUNK_SIZE = 30; // Reduced from 50 to prevent overflow
       const chunks = [];
       for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
           chunks.push(tickers.slice(i, i + CHUNK_SIZE));
@@ -251,22 +252,31 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       const enrichedMap = new Map<string, any>();
       let processedCount = 0;
+      let enrichmentSuccessCount = 0;
 
       // Process chunks with concurrency control
-      // 5 concurrent requests at a time
-      const CONCURRENCY = 3;
+      const CONCURRENCY = 2; // Reduced for reliability
       
       for (let i = 0; i < chunks.length; i += CONCURRENCY) {
           const batch = chunks.slice(i, i + CONCURRENCY);
           const promises = batch.map(async (chunk) => {
-              const symbols = chunk.map(t => t.symbol).join(',');
+              // [CRITICAL FIX] Convert 'BRK.B' -> 'BRK-B' for Yahoo
+              const symbols = chunk.map(t => t.symbol.replace(/\./g, '-')).join(',');
+              
               try {
                   const res = await fetch(`/api/yahoo?symbols=${symbols}`);
                   if (res.ok) {
                       const data = await res.json();
-                      if (Array.isArray(data)) {
-                          data.forEach((item: any) => enrichedMap.set(item.symbol, item));
+                      if (Array.isArray(data) && data.length > 0) {
+                          data.forEach((item: any) => {
+                              // [CRITICAL FIX] Convert back 'BRK-B' -> 'BRK.B' to match MasterTicker
+                              const originalSymbol = item.symbol.replace(/-/g, '.');
+                              enrichedMap.set(originalSymbol, item);
+                              enrichmentSuccessCount++;
+                          });
                       }
+                  } else {
+                      console.warn("Yahoo batch response not OK", res.status);
                   }
               } catch (e) { console.warn("Yahoo batch failed", e); }
           });
@@ -275,19 +285,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           processedCount += batch.reduce((acc, c) => acc + c.length, 0);
           
           if (processedCount % 1000 < CHUNK_SIZE * CONCURRENCY) {
-              addLog(`Enrichment Progress: ${processedCount} / ${tickers.length} ...`, "info");
+              addLog(`Enrichment: ${processedCount} processed, ${enrichmentSuccessCount} hits...`, "info");
           }
           
-          // Small delay to prevent rate limiting
-          await new Promise(r => setTimeout(r, 500));
+          // Delay to prevent rate limiting
+          await new Promise(r => setTimeout(r, 300));
       }
 
       // Merge Data
-      let enrichCount = 0;
+      let finalEnriched = 0;
       const final = tickers.map(t => {
           const y = enrichedMap.get(t.symbol);
           if (y) {
-              enrichCount++;
+              finalEnriched++;
               return {
                   ...t,
                   pe: y.trailingPE || y.forwardPE || 0,
@@ -304,7 +314,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           return t;
       });
 
-      addLog(`Enrichment Complete: ${enrichCount} assets updated with Fundamentals.`, "ok");
+      addLog(`Enrichment Complete: ${finalEnriched} assets updated with Fundamentals.`, finalEnriched > 0 ? "ok" : "warn");
       return final;
   };
 
@@ -331,7 +341,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   sector: item.sector || existing.sector,
                   industry: item.industry || existing.industry,
                   marketCap: item.marketCap || existing.marketCap,
-                  source: `Poly+Nasdaq`
+                  source: `Poly+${item.source?.includes('FMP') ? 'FMP' : 'Nasdaq'}`
               });
               enrichedCount++;
           } else {
@@ -341,7 +351,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           }
       });
 
-      addLog(`Fusion Stats: ${enrichedCount} Enriched, ${newCount} Added Unique from Nasdaq.`, "info");
+      addLog(`Fusion Stats: ${enrichedCount} Enriched, ${newCount} Added Unique.`, "info");
       return Array.from(mergedMap.values());
   };
 
@@ -355,32 +365,34 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     try {
         // --- PHASE 1: MULTI-SOURCE ACQUISITION ---
-        const sources: { nasdaq?: MasterTicker[], polygon?: MasterTicker[], fmp?: MasterTicker[] } = {};
+        const sources: { metadata?: MasterTicker[], polygon?: MasterTicker[] } = {};
         
-        // 1. Nasdaq (Primary for Metadata)
-        try {
-            sources.nasdaq = await executeNasdaqStrategy();
-        } catch (e: any) { 
-            addLog(`Nasdaq Source Failed: ${e.message}`, "warn"); 
-        }
-
-        // 2. Polygon (Primary for Coverage)
+        // 1. Polygon (Primary for Coverage)
         try {
             sources.polygon = await executePolygonStrategy();
         } catch (e: any) { 
             addLog(`Polygon Source Failed: ${e.message}`, "warn"); 
         }
 
-        // 3. FMP (Backup)
-        if (!sources.nasdaq && !sources.polygon) {
-            try { 
-                sources.fmp = await executeFmpStrategy(); 
-            } catch (e: any) { 
-                addLog(`FMP Failed: ${e.message}`, "err"); 
+        // 2. Metadata Source (Nasdaq OR FMP)
+        try {
+            const nasdaqData = await executeNasdaqStrategy();
+            if (nasdaqData && nasdaqData.length > 500) {
+                sources.metadata = nasdaqData;
+            } else {
+                addLog("Nasdaq returned empty/low data. Falling back to FMP...", "warn");
+                sources.metadata = await executeFmpStrategy();
+            }
+        } catch (e: any) { 
+            addLog(`Nasdaq Strategy Failed: ${e.message}. Trying FMP Backup...`, "warn"); 
+            try {
+                sources.metadata = await executeFmpStrategy();
+            } catch (fmpErr: any) {
+                addLog(`FMP Backup Failed: ${fmpErr.message}`, "err");
             }
         }
 
-        if (!sources.nasdaq && !sources.polygon && !sources.fmp) {
+        if (!sources.metadata && !sources.polygon) {
             throw new Error("All Data Sources Exhausted.");
         }
 
@@ -388,15 +400,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         addLog("Phase 2: Executing Hybrid Data Fusion...", "info");
         let masterList: MasterTicker[] = [];
 
-        if (sources.polygon && sources.nasdaq) {
-            masterList = fuseDatasets(sources.nasdaq, sources.polygon);
+        if (sources.polygon && sources.metadata) {
+            masterList = fuseDatasets(sources.metadata, sources.polygon);
         } else if (sources.polygon) {
             masterList = sources.polygon;
             addLog("Using Polygon Raw Data (Sector Data might be limited).", "warn");
-        } else if (sources.nasdaq) {
-            masterList = sources.nasdaq;
-        } else if (sources.fmp) {
-            masterList = sources.fmp;
+        } else if (sources.metadata) {
+            masterList = sources.metadata;
         }
 
         const rawCount = masterList.length;
@@ -411,10 +421,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         // [IMPORTANT] Sort by Volume to prioritize liquid assets for enrichment
         viableCandidates.sort((a, b) => b.volume - a.volume);
         
-        // Ensure we don't process too many junk stocks for enrichment
-        // Top 10,000 liquid stocks + any others that look decent
-        // Actually, let's just do them all but in order.
-        
         addLog(`Viable Universe: ${viableCandidates.length} assets ready for Enrichment.`, "ok");
         
         // [NEW] Bulk Enrichment Phase
@@ -424,14 +430,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         // --- PHASE 4: COMMIT ---
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.2.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v3.3.0.json`;
         const payload = { 
             manifest: { 
-                version: "3.2.0", 
-                provider: "Hybrid_Fusion (Nasdaq+Poly+Yahoo)", 
+                version: "3.3.0", 
+                provider: "Hybrid_Fusion (Nasdaq+Poly+FMP+Yahoo)", 
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
-                note: "Fused Data: Nasdaq Metadata + Polygon Coverage + Yahoo Fundamentals"
+                note: "Fused Data: Nasdaq/FMP Metadata + Polygon Coverage + Yahoo Fundamentals"
             }, 
             universe: viableCandidates 
         };
@@ -588,7 +594,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.3.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Hybrid Fusion + Deep Enrich'}
