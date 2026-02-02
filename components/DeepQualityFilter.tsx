@@ -56,10 +56,10 @@ const getDailyCacheKey = (symbol: string) => {
 
 // [Sector Benchmarks for Relative Valuation] - derived from S&P 500 averages
 const SECTOR_BENCHMARKS: Record<string, number> = {
-    'Technology': 28.5, 'Health Services': 22.0, 'Consumer Services': 25.0,
-    'Finance': 14.5, 'Energy Minerals': 12.0, 'Consumer Non-Durables': 20.0,
-    'Producer Manufacturing': 18.5, 'Utilities': 17.0, 'Transportation': 21.0,
-    'Non-Energy Minerals': 16.0, 'Commercial Services': 24.0, 'Communications': 19.0
+    'Technology': 35.0, 'Health Services': 25.0, 'Consumer Services': 28.0, // Adjusted for Tech Premium
+    'Finance': 15.0, 'Energy Minerals': 14.0, 'Consumer Non-Durables': 22.0,
+    'Producer Manufacturing': 20.0, 'Utilities': 18.0, 'Transportation': 22.0,
+    'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
@@ -81,7 +81,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v6.0: Institutional Alpha Filter Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v6.1: Mega-Cap Safety Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -144,35 +144,38 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       if (!industry) return sector;
       const ind = industry.toLowerCase();
       if (ind.includes('semi')) return 'Semiconductors';
-      if (ind.includes('software') || ind.includes('data')) return 'SaaS & AI';
+      if (ind.includes('software') || ind.includes('data') || ind.includes('tech')) return 'SaaS & AI';
       if (ind.includes('biotech') || ind.includes('pharma')) return 'Bio/Pharma';
-      if (ind.includes('bank') || ind.includes('invest')) return 'Financials';
+      if (ind.includes('bank') || ind.includes('invest') || ind.includes('insur')) return 'Financials';
       if (ind.includes('oil') || ind.includes('gas') || ind.includes('energy')) return 'Energy';
       if (ind.includes('aerospace') || ind.includes('defense')) return 'Defense';
-      if (ind.includes('reit')) return 'Real Estate';
+      if (ind.includes('reit') || ind.includes('real estate')) return 'Real Estate';
+      if (ind.includes('auto') || ind.includes('vehicle')) return 'Automotive';
       return sector; // Default to sector if no specific theme match
   };
 
-  // [CORE LOGIC] Institutional Scoring Model
-  const calculateInstitutionalScores = (metrics: any, sector: string) => {
+  // [CORE LOGIC] Institutional Scoring Model (Enhanced for Mega Caps)
+  const calculateInstitutionalScores = (metrics: any, sector: string, marketCap: number = 0) => {
       // 1. Profitability (Piotroski F-Score Proxy)
-      // Range 0-100 based on ROE and Op Margin
       const roe = metrics.roe || 0;
       let profitScore = 0;
-      if (roe > 20) profitScore = 100;
+      if (roe > 25) profitScore = 100;
       else if (roe > 15) profitScore = 90;
       else if (roe > 10) profitScore = 80;
       else if (roe > 0) profitScore = 60;
       else profitScore = 20;
 
       // 2. Stability (Altman Z-Score Logic)
-      // Z-Score approximation using Debt/Equity (Safety)
-      const de = metrics.debt || 2.0;
+      // [LOGIC PATCH] If Debt is missing (API limit), infer from Market Cap
+      // Mega Caps (>20B) rarely go bankrupt overnight. Assume neutral debt (1.0).
+      let de = metrics.debt;
+      if (de === undefined || de === null) {
+          de = (marketCap > 20_000_000_000) ? 1.0 : 2.0; // Mega-Cap Safety Net
+      }
+
       let stabilityScore = 0;
       let zScoreProxy = 0;
       
-      // Z-Score Simulation (Simplified for available data)
-      // Safe > 3.0, Grey 1.8-3.0, Distress < 1.8
       if (de < 0.5) { stabilityScore = 100; zScoreProxy = 4.5; }
       else if (de < 1.0) { stabilityScore = 90; zScoreProxy = 3.5; }
       else if (de < 1.5) { stabilityScore = 70; zScoreProxy = 2.5; }
@@ -184,7 +187,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const pe = metrics.per || 25;
       let valScore = 0;
       
-      // Relative PE Score
       const relativePe = pe / sectorAvgPE;
       if (relativePe < 0.6) valScore = 95; // Deep Value
       else if (relativePe < 0.9) valScore = 85; // Value
@@ -192,17 +194,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       else if (relativePe < 1.5) valScore = 50; // Growth Premium
       else valScore = 30; // Expensive
 
+      // [GROWTH PATCH] If ROE is elite (>25%), forgive high PE (Quality Growth)
+      if (roe > 25 && valScore < 60) valScore = 60; 
+
       // F-Score Simulation (0-9)
       let fScore = 0;
       if (roe > 0) fScore++;
       if (metrics.operatingCashFlow > 0) fScore++;
       if (de < 1.0) fScore++;
       if (metrics.currentRatio > 1.0) fScore++;
-      // ... assume neutral for other unavailable metrics, normalize to 5 base
       fScore += 3; 
 
-      // Final Quality Score
-      const qualityScore = Number(((profitScore * 0.4) + (stabilityScore * 0.35) + (valScore * 0.25)).toFixed(2));
+      // Final Quality Score with Market Cap Bias (Too big to fail factor)
+      // Mega Caps get a slight nudge to ensure they survive the "Data Missing" penalty
+      const sizeBonus = marketCap > 50_000_000_000 ? 10 : 0;
+      const rawScore = ((profitScore * 0.4) + (stabilityScore * 0.35) + (valScore * 0.25)) + sizeBonus;
+      const qualityScore = Number(Math.min(100, rawScore).toFixed(2));
 
       return { profitScore, stabilityScore, valScore, qualityScore, zScoreProxy, fScore };
   };
@@ -210,13 +217,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
     if (!target || !target.symbol) return null;
     
-    // Cache Check
     const cacheKey = getDailyCacheKey(target.symbol);
     const cachedRaw = sessionStorage.getItem(cacheKey);
     if (cachedRaw) {
         try {
             const cachedData = JSON.parse(cachedRaw);
-            if (cachedData.qualityScore) { // Validate integrity
+            if (cachedData.qualityScore) { 
                 setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
                 return cachedData;
             }
@@ -228,10 +234,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       let profileData: any = {};
       let sector = target.sector;
       
-      // Data Acquisition Logic (Yahoo/FMP)
       let foundData = false;
       
-      // Try Yahoo first (Robust)
       try {
           const yRes = await fetch(`/api/yahoo?symbols=${target.symbol}`);
           if (yRes.ok) {
@@ -251,7 +255,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       } catch (e) { }
 
-      // Try FMP if data missing and quota allows
       if ((!foundData || !metrics.roe) && !fmpDepleted && fmpKey) {
           try {
             const ratioRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
@@ -275,10 +278,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       if (sector === 'Unknown' || !sector) sector = "Unclassified";
 
       // [CRITICAL] Apply Institutional Scoring
-      const scores = calculateInstitutionalScores(metrics, sector);
+      const scores = calculateInstitutionalScores(metrics, sector, target.marketCap);
       
-      // Z-Score Cutoff (Relaxed to 1.2 to prevent empty results on data gaps)
-      if (scores.zScoreProxy < 1.2) {
+      // Relaxed Z-Score for Mega Caps (Allow them even if Z-Score is slightly lower due to aggressive leverage)
+      const zCutoff = (target.marketCap > 50_000_000_000) ? 1.0 : 1.2;
+      if (scores.zScoreProxy < zCutoff) {
           return null; 
       }
 
@@ -382,7 +386,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     setProcessedData([]);
     startTimeRef.current = Date.now();
     
-    // [FIX] Explicitly define variable here to prevent ReferenceError
     const activeEngine = "Institutional_Quant_Algorithm";
     
     try {
@@ -448,7 +451,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.0.0", strategy: "Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: activeEngine },
+        manifest: { version: "6.1.0", strategy: "Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: activeEngine },
         elite_universe: eliteSurvivors
       };
 
@@ -495,12 +498,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const map = new Map<string, number>();
       
       processedData.forEach(item => {
-          // Ensure we only graph Common Stocks (filtered in execute)
           const theme = item.theme || "Other";
           map.set(theme, (map.get(theme) || 0) + 1);
       });
 
-      // Sort by size and assign color
       return Array.from(map)
         .sort((a, b) => b[1] - a[1])
         .map(([name, size], index) => ({ 
@@ -513,7 +514,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Drill Down Logic
   const themeDetails = useMemo(() => {
       if (!selectedTheme) return [];
-      // Find top 10 stocks in this theme from the processed list
       const stocks = processedData.filter(t => t.theme === selectedTheme);
       return stocks.sort((a, b) => b.qualityScore - a.qualityScore);
   }, [selectedTheme, processedData]);
@@ -533,12 +533,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               fillOpacity: 0.9,
               transition: 'all 0.3s ease'
           }}
-          rx={4} ry={4}
+          rx={6} ry={6}
           className="hover:opacity-80"
         />
         {!isSmall && (
           <>
-            <text x={x + width / 2} y={y + height / 2 - 6} textAnchor="middle" fill="#fff" fontSize={10} fontWeight="900" style={{ textTransform: 'uppercase', textShadow: '0px 1px 2px rgba(0,0,0,0.8)' }}>
+            <text x={x + width / 2} y={y + height / 2 - 6} textAnchor="middle" fill="#fff" fontSize={11} fontWeight="900" style={{ textTransform: 'uppercase', textShadow: '0px 2px 4px rgba(0,0,0,0.9)' }}>
               {name.length > 10 ? name.substring(0, 8) + '..' : name}
             </text>
             <text x={x + width / 2} y={y + height / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.9)" fontSize={9} fontWeight="bold" style={{ textShadow: '0px 1px 2px rgba(0,0,0,0.8)' }}>
@@ -552,24 +552,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   // Phase Indicator Helper
   const getPhaseStyle = (phase: string) => {
-      // Logic: If current phase matches or passed, allow lighting up
       const phases = ['PROFITABILITY', 'STABILITY', 'VALUATION'];
       const currentIdx = phases.indexOf(analysisPhase);
       const targetIdx = phases.indexOf(phase);
       
-      // If COMPLETE, all green.
       if (analysisPhase === 'COMPLETE') return 'text-emerald-400 font-bold';
-      
-      // If INIT, all grey
       if (analysisPhase === 'INIT') return 'text-slate-600';
-
-      // Active Phase
       if (currentIdx === targetIdx) return 'text-blue-400 animate-pulse font-black scale-105';
-      
-      // Passed Phase
       if (currentIdx > targetIdx) return 'text-slate-400';
-      
-      // Future Phase
       return 'text-slate-700';
   };
 
@@ -584,7 +574,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v6.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -672,7 +662,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
@@ -693,7 +683,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                          </div>
                          <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
                              {themeDetails.length > 0 ? themeDetails.map((item, idx) => {
-                                 // Calculate global rank approximately by checking index in full processedData
                                  const globalRank = processedData.findIndex(p => p.symbol === item.symbol) + 1;
                                  return (
                                      <div key={item.symbol} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors">
