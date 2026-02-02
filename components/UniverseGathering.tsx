@@ -64,7 +64,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.7.0: Multi-Layer Enrichment Strategy Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.8.0: Optimized Low-Latency Enrichment Mode.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -142,32 +142,39 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // [NEW] Layer 1: FMP Quote Enrichment (Reliable for PE, EPS, Sector)
-  // Even free plans usually allow batch quotes
-  const enrichWithFmpQuotes = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+  // [Layer 1] FMP Enrichment (Optimized for Free/Low Tier)
+  const enrichWithFmpProfiles = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
       if (!fmpKey) {
           addLog("FMP Key missing. Skipping Layer 1 Enrichment.", "warn");
           return tickers;
       }
 
-      // FMP Batch limit is usually around 500-1000 for quotes
-      const BATCH_SIZE = 500;
-      const filteredTickers = tickers.filter(t => t.type !== 'ETF' && t.type !== 'FUND');
+      // [CRITICAL] Tiny batch size for Free/Starter plans to avoid 429/403
+      const BATCH_SIZE = 3; 
       const chunks = [];
       
-      for (let i = 0; i < filteredTickers.length; i += BATCH_SIZE) {
-          chunks.push(filteredTickers.slice(i, i + BATCH_SIZE));
+      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+          chunks.push(tickers.slice(i, i + BATCH_SIZE));
       }
 
-      addLog(`Layer 1: FMP Quote Enrichment (${filteredTickers.length} items)...`, "info");
+      addLog(`Layer 1: FMP Profile Sync (${tickers.length} items)...`, "info");
       
       const enrichedMap = new Map<string, any>();
       let processedCount = 0;
 
-      for (const chunk of chunks) {
+      // Only try to enrich a reasonable amount to avoid hour-long waits
+      const MAX_ENRICH_LIMIT = 2000; 
+      const limitChunks = chunks.slice(0, Math.ceil(MAX_ENRICH_LIMIT / BATCH_SIZE));
+
+      if (tickers.length > MAX_ENRICH_LIMIT) {
+          addLog(`Note: Capping FMP enrichment to top ${MAX_ENRICH_LIMIT} assets for speed/quota.`, "warn");
+      }
+
+      for (const chunk of limitChunks) {
           try {
               const symbols = chunk.map(t => t.symbol).join(',');
-              const url = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${fmpKey}`;
+              // 'profile' endpoint contains sector/industry/mktCap - crucial for Stage 2
+              const url = `https://financialmodelingprep.com/api/v3/profile/${symbols}?apikey=${fmpKey}`;
               const res = await fetch(url);
               
               if (res.ok) {
@@ -178,50 +185,54 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       });
                       processedCount += data.length;
                   }
-              } else if (res.status === 429) {
-                  addLog("FMP Quote Rate Limit Hit. Skipping remaining chunks.", "warn");
+              } else if (res.status === 429 || res.status === 403) {
+                  addLog("FMP Quota Limit Hit. Stopping Layer 1.", "warn");
                   break; 
               }
-              await new Promise(r => setTimeout(r, 200)); 
+              // Aggressive throttle for free tier safety
+              await new Promise(r => setTimeout(r, 250)); 
           } catch (e) {
               console.warn("FMP batch failed", e);
           }
+          
+          if (processedCount > 0 && processedCount % 50 === 0) {
+              // Minimal logging to reduce spam
+          }
       }
 
-      addLog(`Layer 1 Complete: ${processedCount} assets updated via FMP.`, "ok");
+      addLog(`Layer 1 Complete: ${processedCount} assets enriched via FMP.`, "ok");
 
       return tickers.map(t => {
-          const q = enrichedMap.get(t.symbol);
-          if (!q) return t;
+          const p = enrichedMap.get(t.symbol);
+          if (!p) return t;
           return {
               ...t,
-              price: q.price || t.price,
-              marketCap: q.marketCap || t.marketCap,
-              pe: q.pe || t.pe,
-              eps: q.eps || t.eps,
-              // FMP Quote often doesn't give Sector, but let's check
-              // FMP Profile is separate, but Quote is faster.
+              name: p.companyName || t.name,
+              price: p.price || t.price,
+              marketCap: p.mktCap || t.marketCap,
+              sector: p.sector || t.sector,
+              industry: p.industry || t.industry,
+              // FMP Profile doesn't have PE/ROE, usually just basic info
           };
       });
   };
 
-  // [NEW] Layer 2: Yahoo Enrichment (Critical for ROE, Debt, Sector)
+  // [Layer 2] Yahoo Enrichment (Robust & Throttled)
   const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      // Reduced Batch Size for Stability
-      const BATCH_SIZE = 20; 
-      const filteredTickers = tickers.filter(t => t.price > 0 && t.type !== 'ETF'); 
+      // Reduced Batch Size to avoid 403 Forbidden from Yahoo
+      const BATCH_SIZE = 10; 
       const chunks = [];
       
-      for (let i = 0; i < filteredTickers.length; i += BATCH_SIZE) {
-          chunks.push(filteredTickers.slice(i, i + BATCH_SIZE));
+      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
+          chunks.push(tickers.slice(i, i + BATCH_SIZE));
       }
 
-      addLog(`Layer 2: Yahoo Deep Enrichment (${filteredTickers.length} items)...`, "info");
+      addLog(`Layer 2: Yahoo Deep Scan (${tickers.length} items)...`, "info");
       setStats(prev => ({ ...prev, phase: 'Enrichment' }));
 
       const enrichedMap = new Map<string, any>();
       let processedCount = 0;
-      let errorCount = 0;
+      let consecutiveErrors = 0;
 
       for (const chunk of chunks) {
           try {
@@ -235,19 +246,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           enrichedMap.set(item.symbol, item);
                       });
                       processedCount += data.length;
+                      consecutiveErrors = 0;
                   }
               } else {
-                  errorCount++;
-                  if (errorCount % 10 === 0) addLog(`Yahoo Batch Failed (x${errorCount})`, "warn");
+                  consecutiveErrors++;
+                  if (consecutiveErrors > 5) {
+                      addLog("Yahoo Proxy Persistent Failure. Aborting Layer 2.", "err");
+                      break;
+                  }
               }
-              // Throttle slightly more to prevent 429
-              await new Promise(r => setTimeout(r, 200)); 
+              // Throttle to respect upstream
+              await new Promise(r => setTimeout(r, 500)); 
           } catch (e) {
               console.warn("Yahoo batch failed", e);
           }
           
-          if (processedCount > 0 && processedCount % 500 === 0) {
-              addLog(`Enriched ${processedCount} assets...`, "info");
+          if (processedCount > 0 && processedCount % 200 === 0) {
+              addLog(`Enriched ${processedCount} / ${tickers.length} assets...`, "info");
           }
       }
 
@@ -264,19 +279,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               sector: y.sector || t.sector || "Unclassified",
               industry: y.industry || t.industry || "Unclassified",
               pe: y.trailingPE || y.forwardPE || t.pe,
-              roe: y.returnOnEquity ? y.returnOnEquity * 100 : t.roe, // Convert to % if decimal
+              roe: y.returnOnEquity ? y.returnOnEquity * 100 : t.roe, 
               debtToEquity: y.debtToEquity || t.debtToEquity,
               pb: y.priceToBook || t.pb
           };
       });
   };
 
+  // ... (Strategies executeFmpStrategy, executePolygonStrategy, executeTwelveDataStrategy remain same)
   const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
     if (!fmpKey) throw new Error("FMP Key missing");
     addLog("Strategy A: FMP Deep Screener (Primary)...", "info");
-    
     const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=14000&apikey=${fmpKey}`;
-    
     const res = await fetch(url);
     if (!res.ok) {
         if (res.status === 403) throw new Error("FMP_PLAN_LIMIT"); 
@@ -285,20 +299,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
     const data = await res.json();
     if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
-    
     addLog(`FMP: Discovered ${data.length} Equity Assets.`, "ok");
-    
     return data.map((item: any) => ({
-        symbol: item.symbol, 
-        name: item.companyName, 
-        price: item.price, 
-        volume: item.volume, 
-        change: item.changesPercentage || 0, 
-        marketCap: item.marketCap, 
-        sector: item.sector, 
-        industry: item.industry,
-        type: 'Common Stock', 
-        updated: new Date().toISOString().split('T')[0]
+        symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry, type: 'Common Stock', updated: new Date().toISOString().split('T')[0]
     }));
   };
 
@@ -376,7 +379,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let usedProvider = "None";
 
     try {
-        // Step 1: Discovery
+        // Step 1: Discovery (Fetch Raw List)
         try { 
             masterData = await executeFmpStrategy(); 
             usedProvider = "FMP (Screener)"; 
@@ -394,30 +397,57 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         }
 
         if (masterData.length === 0) throw new Error("Zero Assets Found.");
-        setStats(prev => ({ ...prev, found: masterData.length, provider: usedProvider }));
+        
+        // [CRITICAL OPTIMIZATION]
+        // Filter out junk stocks *BEFORE* enrichment to save API calls.
+        // Rule: Price > $0.50 and Volume > 0. This discards thousands of inactive/penny stocks.
+        const originalCount = masterData.length;
+        addLog(`Filtering ${originalCount} raw assets for viability (Price > $0.50)...`, "info");
+        
+        let viableCandidates = masterData.filter(t => t.price >= 0.5 && t.volume > 0);
+        
+        // Sort by Volume to prioritize liquid stocks for enrichment
+        viableCandidates.sort((a, b) => b.volume - a.volume);
+        
+        // If list is still huge, maybe cap it for enrichment to ensure top stocks get data
+        // But let's try to do as many as possible with the new logic.
+        
+        addLog(`Viable Universe: ${viableCandidates.length} assets selected for Deep Scan.`, "ok");
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: usedProvider }));
 
-        // [CRITICAL] Multi-Layer Enrichment Strategy
-        // 1. Try FMP Quotes First (Even on free plan, Quotes often work when Screener fails)
-        masterData = await enrichWithFmpQuotes(masterData);
+        // [Multi-Layer Enrichment Strategy]
+        // 1. Try FMP Profile First (Better for Sector than Quote, use small batch)
+        viableCandidates = await enrichWithFmpProfiles(viableCandidates);
 
-        // 2. Try Yahoo Proxy Second (Backup for Sector/ROE/Debt which FMP Quote misses)
-        masterData = await enrichWithYahoo(masterData);
+        // 2. Try Yahoo Proxy Second (Backup for Sector/ROE/Debt)
+        viableCandidates = await enrichWithYahoo(viableCandidates);
 
         // Step 3: Mapping & Commit
         setStats(prev => ({ ...prev, phase: 'Mapping' }));
-        const registryMap = new Map(masterData.map(i => [i.symbol, i]));
+        // Note: We commit the *viable* candidates, effectively doing Stage 1's work in Stage 0 
+        // to ensure the stored universe has high quality data.
+        const registryMap = new Map(viableCandidates.map(i => [i.symbol, i]));
         setRegistry(registryMap);
 
-        addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
+        addLog(`Phase 3: Committing ${viableCandidates.length} enriched assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.0.json`;
-        const payload = { manifest: { version: "2.7.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.8.0.json`;
+        const payload = { 
+            manifest: { 
+                version: "2.8.0", 
+                provider: usedProvider, 
+                date: new Date().toISOString(), 
+                count: viableCandidates.length,
+                note: "Filtered for Price>0.5 before enrichment"
+            }, 
+            universe: viableCandidates 
+        };
 
         const folderId = await ensureFolder(token);
         if (folderId) {
             await uploadFile(token, folderId, fileName, payload);
-            setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
+            setStats(prev => ({ ...prev, synced: viableCandidates.length, phase: 'Finalized' }));
             addLog(`System: Cloud Vault Sync Complete via ${usedProvider}.`, "ok");
             
             if (onComplete) onComplete(); 
@@ -439,7 +469,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
     const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
     
-    // 1. Resolve Root Folder
     try {
         const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
         const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
@@ -451,7 +480,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             if (data.files && data.files.length > 0) {
                 rootId = data.files[0].id;
             } else {
-                // Create Root if missing
                 const createRes = await fetch(`https://www.googleapis.com/drive/v3/files`, {
                     method: 'POST',
                     headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -460,8 +488,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 if (createRes.ok) {
                     const createData = await createRes.json();
                     rootId = createData.id;
-                } else {
-                    console.error("Root Creation Failed", await createRes.text());
                 }
             }
         }
@@ -472,7 +498,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         return null;
     }
 
-    // 2. Resolve/Create Target Subfolder
     const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
@@ -571,7 +596,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.8.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
