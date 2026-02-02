@@ -42,8 +42,8 @@ interface Props {
   onComplete?: () => void;
 }
 
-// [CACHE SYSTEM] Updated Version to v5 to force fresh start
-const CACHE_PREFIX = 'QUALITY_CACHE_REAL_v5_';
+// [CACHE SYSTEM] Updated Version to v6 to force fresh start
+const CACHE_PREFIX = 'QUALITY_CACHE_REAL_v6_';
 
 const getDailyCacheKey = (symbol: string) => {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
@@ -69,7 +69,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Free Plan Logic
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.3.0: Permissive Filter Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.4.0: Full-Spectrum Scan Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -79,8 +79,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   // [ADAPTIVE STRATEGY]
   const BATCH_SIZE = 8; 
-  const DELAY_TURBO = 300;   
-  const DELAY_SAFE = 2000;   
+  const DELAY_TURBO = 250;   
+  const DELAY_SAFE = 1500;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -224,7 +224,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               const yData = await yRes.json();
               if (yData && yData.length > 0) {
                   const y = yData[0];
-                  // Relaxed Check: Even if partial, take it
                   metrics = {
                       per: y.trailingPE || y.forwardPE,
                       pbr: y.priceToBook,
@@ -233,7 +232,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   };
                   profileData = { name: y.name };
                   metricsSource = "Yahoo";
-                  // Mark as found if we have AT LEAST ONE metric, OR valid price data
                   if (metrics.per || metrics.pbr || metrics.roe || y.price > 0) {
                       foundData = true;
                   }
@@ -268,16 +266,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      // [CRITICAL FIX: PERMISSIVE MODE]
-      // Even if 'foundData' is technically false (no metrics), 
-      // if we have price data from Stage 1, we KEEP the stock but give it a low score.
-      // This prevents mass dropping.
-      
+      // [PERMISSIVE MODE] Keep data even if incomplete, to filter later
       const price = Number(target.price) || 0;
       const volume = Number(target.volume) || 0;
       const safeMarketValue = Number(target.marketValue || (price * volume)) || 1000000; 
 
-      // Calculate scores (handles missing metrics by assigning defaults)
       const scores = calculateQuantScores(metrics, price, safeMarketValue);
 
       const resultTicker: QualityTicker = {
@@ -290,7 +283,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         profitabilityScore: scores.profitScore,
         stabilityScore: scores.stabilityScore,
         growthScore: scores.growthScore,
-        qualityScore: scores.qualityScore, // If no data, this will be around 40-50
+        qualityScore: scores.qualityScore, 
 
         per: metrics.per || 0,
         pbr: metrics.pbr || 0, 
@@ -312,28 +305,75 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     } catch (e: any) {
       if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e;
-      // If error is genuine network failure, we still return a fallback if we have Stage 1 data
       if (target.price) {
           return {
               ...target,
               marketValue: target.marketValue || 0,
-              profitabilityScore: 30,
-              stabilityScore: 30,
-              growthScore: 30,
-              qualityScore: 30,
+              profitabilityScore: 30, stabilityScore: 30, growthScore: 30, qualityScore: 30,
               per: 0, pbr: 0, debtToEquity: 0, roe: 0,
-              lastUpdate: new Date().toISOString(),
-              source: "Fallback"
+              lastUpdate: new Date().toISOString(), source: "Fallback"
           };
       }
       return null;
     }
   };
 
+  // [NEW] Enrich missing sectors using FMP Profile
+  const enrichSectors = async (tickers: QualityTicker[]) => {
+    if (!fmpKey) return tickers;
+    
+    // Filter items that need sector info
+    const unknowns = tickers.filter(t => !t.sector || t.sector === 'Unknown' || t.sector === 'Other');
+    if (unknowns.length === 0) return tickers;
+
+    addLog(`Enriching Sectors for ${unknowns.length} assets...`, "info");
+    
+    // Batch in 50s
+    const batches = [];
+    for (let i = 0; i < unknowns.length; i += 50) {
+        batches.push(unknowns.slice(i, i + 50).map(t => t.symbol));
+    }
+
+    const sectorMap = new Map<string, string>();
+
+    for (const batch of batches) {
+        try {
+            const url = `https://financialmodelingprep.com/api/v3/profile/${batch.join(',')}?apikey=${fmpKey}`;
+            const res = await fetch(url);
+            if (res.ok) {
+                const data = await res.json();
+                if (Array.isArray(data)) {
+                    data.forEach((item: any) => {
+                        if (item.symbol && item.sector) {
+                            sectorMap.set(item.symbol, item.sector);
+                        }
+                    });
+                }
+            }
+            await new Promise(r => setTimeout(r, 200)); // Rate limit safety
+        } catch (e) {
+            console.warn("Sector enrichment failed for batch", e);
+        }
+    }
+
+    // Apply updates
+    let updatedCount = 0;
+    const enriched = tickers.map(t => {
+        if (sectorMap.has(t.symbol)) {
+            updatedCount++;
+            return { ...t, sector: sectorMap.get(t.symbol)! };
+        }
+        return t;
+    });
+
+    addLog(`Sector Data Recovered: ${updatedCount}/${unknowns.length}`, "ok");
+    return enriched;
+  };
+
   const analyzeValueTrapsAndSectors = async (tickers: QualityTicker[]) => {
     setAiStatus('ANALYZING');
-    setAiAnalysis("📡 Gemini 3.0: Scanning for Value Traps & Sector Trends...");
-    addLog("Initiating AI Value Trap Detection...", "info");
+    setAiAnalysis("📡 Gemini 3.0: Verifying Financial Integrity...");
+    addLog("Initiating AI Financial Health Check...", "info");
     
     if (!tickers || tickers.length === 0) {
         setAiAnalysis("⚠️ Analysis Skipped: No Tickers.");
@@ -342,9 +382,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
 
     const top5 = tickers.slice(0, 5);
+    // [UPDATED] Prompt focused on QUALITY VALIDATION instead of Sector Trends
     const prompt = `
-    [Role: Senior Hedge Fund Risk Manager]
-    Task: Analyze these top 5 high-quality stocks for "Value Traps" (Red Flags) and identify the dominant sector trend.
+    [Role: Senior Financial Auditor]
+    Task: Audit these 5 high-ranking stocks. Explain WHY they are financially solid (Quality).
     
     Candidates: ${JSON.stringify(top5.map(t => ({
         s: t.symbol, n: t.name, 
@@ -355,11 +396,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     })))}
     
     Requirements:
-    1. **Sector**: Identify the dominant sector.
-    2. **Value Trap Check**: Are any of these companies historically known for accounting irregularities, massive lawsuits, or dying industries?
-    3. **Insight**: Provide a brief 1-sentence strategic insight in Korean.
+    1. **Quality Check**: Confirm if they have strong Balance Sheets, High ROE, or Stable Earnings.
+    2. **Risk Check**: Are there any accounting red flags?
+    3. **Summary**: Provide a 1-sentence verification in Korean (e.g., "Confirmed: High ROE and Low Debt indicates superior financial health.").
     
-    Return JSON: { "dominantSector": "string", "insight": "string (Korean)", "redFlags": ["symbol1 if bad", "symbol2 if bad"] }
+    Return JSON: { "dominantSector": "Quality Growth", "insight": "string (Korean)", "redFlags": [] }
     `;
     
     let result = null;
@@ -403,8 +444,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
 
     if (result && result.insight) {
-        const flags = result.redFlags?.length > 0 ? `⚠️ Red Flags: ${result.redFlags.join(', ')}` : "✅ No Major Red Flags Detected.";
-        const msg = `[${result.dominantSector}] ${result.insight} | ${flags}`;
+        const flags = result.redFlags?.length > 0 ? `⚠️ Risks: ${result.redFlags.join(', ')}` : "✅ Financial Integrity Verified.";
+        const msg = `[Quality Audit] ${result.insight} | ${flags}`;
         setAiAnalysis(`${usedProvider}: ${msg}`);
         setAiStatus('SUCCESS');
         
@@ -416,7 +457,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             setProcessedData(updated);
         }
         
-        addLog(`Deep Audit Complete via ${usedProvider}`, "ok");
+        addLog(`Financial Audit Complete via ${usedProvider}`, "ok");
     } else {
         setAiAnalysis("⚠️ AI Audit Unavailable.");
         setAiStatus('FAILED');
@@ -460,14 +501,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // Prioritize Liquid Large Caps to maximize data availability
       targets.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
 
-      addLog(`Universe Loaded: ${totalCandidates} Assets. Starting Permissive Scan...`, "info");
+      addLog(`Universe Loaded: ${totalCandidates} Assets. Starting Full-Spectrum Scan...`, "info");
       setProgress({ current: 0, total: totalCandidates, cacheHits: 0, filteredOut: 0 });
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
       let skippedCount = 0;
 
-      while (currentIndex < totalCandidates && validResults.length < TARGET_SELECTION_COUNT) {
+      // [CRITICAL FIX] Removed 'validResults.length < TARGET_SELECTION_COUNT' check.
+      // Now scans ALL items (or up to safety limit) to find the BEST ones, not just the first ones.
+      const SAFETY_LIMIT = 2500; 
+
+      while (currentIndex < totalCandidates && currentIndex < SAFETY_LIMIT) {
           setNetworkStatus(fmpDepleted ? `Safe Mode (Delay ${DELAY_SAFE}ms)` : `Turbo Mode (Delay ${DELAY_TURBO}ms)`);
           
           const currentBatchSize = BATCH_SIZE;
@@ -507,12 +552,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      addLog(`Scan Complete. ${validResults.length} Assets Processed. (Skipped ${skippedCount} errors)`, "info");
+      addLog(`Scan Complete. ${validResults.length} Assets Processed. Selecting Elite 500...`, "info");
       
       // Sort by Quality to get the best 500
-      const eliteSurvivors = validResults
+      let eliteSurvivors = validResults
           .sort((a, b) => b.qualityScore - a.qualityScore) 
           .slice(0, TARGET_SELECTION_COUNT);
+
+      // [NEW] Enrich Sectors for the top 500 so the graph works
+      eliteSurvivors = await enrichSectors(eliteSurvivors);
 
       setProcessedData(eliteSurvivors);
       
@@ -521,7 +569,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.3.0", strategy: "Permissive_Real_Data_Quant", timestamp: new Date().toISOString() },
+        manifest: { version: "5.4.0", strategy: "Full_Spectrum_Permissive_Quant", timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -654,7 +702,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.3.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.4.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -710,18 +758,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                     </div>
                     <div className="flex justify-between text-[8px] uppercase font-bold text-slate-500">
-                        <span>Profitability Check</span>
-                        <span>Stability Check</span>
-                        <span>Value Check</span>
+                        {/* [MODIFIED] Dynamic Check Indicators */}
+                        <span className={`transition-all duration-500 ${loading ? 'text-emerald-400 animate-pulse' : ''}`}>
+                            {loading ? '● ' : ''}Profitability Check
+                        </span>
+                        <span className={`transition-all duration-500 ${loading ? 'text-blue-400 animate-pulse delay-75' : ''}`}>
+                            {loading ? '● ' : ''}Stability Check
+                        </span>
+                        <span className={`transition-all duration-500 ${loading ? 'text-purple-400 animate-pulse delay-150' : ''}`}>
+                            {loading ? '● ' : ''}Value Check
+                        </span>
                     </div>
                   </div>
 
                   <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
                      <div className="flex justify-between items-center mb-2">
-                        <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Value Trap Detector</p>
+                        <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Financial Health Auditor</p>
                      </div>
                      <p className={`text-xs font-bold leading-relaxed italic ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
-                        {aiAnalysis || "Awaiting Top-Tier Candidate Analysis..."}
+                        {aiAnalysis || "Awaiting Financial Quality Verification..."}
                      </p>
                      {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
                      {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
