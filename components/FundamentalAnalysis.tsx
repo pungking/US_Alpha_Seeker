@@ -61,7 +61,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.0: Quant Strategy Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v6.1: Mathematical Integrity Check Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -108,49 +108,74 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
   };
 
-  // --- HEDGE FUND FORMULAS ---
+  // --- QUANT MATH UTILS (CRITICAL FOR NAN PREVENTION) ---
   
-  const calculateROIC = (nopat: number, investedCapital: number) => {
-      if (investedCapital <= 0) return 0;
-      return (nopat / investedCapital) * 100;
+  // Safe Number Converter: Returns 0 if NaN/Null/Undefined
+  const safeNum = (val: any): number => {
+      if (val === null || val === undefined) return 0;
+      const num = Number(val);
+      return isNaN(num) || !isFinite(num) ? 0 : num;
   };
 
-  const calculateRuleOf40 = (revenueGrowth: number, ebitdaMargin: number) => {
-      return (revenueGrowth * 100) + (ebitdaMargin * 100);
+  const calculateROIC = (nopat: any, investedCapital: any) => {
+      const n = safeNum(nopat);
+      const i = safeNum(investedCapital);
+      if (i <= 0) return 0; // Prevent div by zero
+      return (n / i) * 100;
   };
 
-  const calculateIntrinsicValue = (eps: number, growthRate: number, currentYield: number = 4.4) => {
-      // Modified Graham Formula: V = EPS * (8.5 + 2g) * 4.4 / Y
-      // Conservative adjustment: Cap growth rate at 15% for safety
-      const safeGrowth = Math.min(growthRate * 100, 15); 
-      if (eps <= 0) return 0;
-      return (eps * (8.5 + 2 * safeGrowth) * 4.4) / currentYield;
+  const calculateRuleOf40 = (revenueGrowth: any, ebitdaMargin: any) => {
+      return (safeNum(revenueGrowth) * 100) + (safeNum(ebitdaMargin) * 100);
   };
 
-  const normalizeScore = (val: number, min: number, max: number) => {
-      return Math.min(100, Math.max(0, ((val - min) / (max - min)) * 100));
+  const calculateIntrinsicValue = (eps: any, growthRate: any, currentYield: number = 4.4) => {
+      const e = safeNum(eps);
+      const g = Math.min(safeNum(growthRate) * 100, 15); // Cap growth at 15%
+      const y = currentYield <= 0 ? 4.4 : currentYield; // Prevent div by zero
+      
+      if (e <= 0) return 0;
+      return (e * (8.5 + 2 * g) * 4.4) / y;
+  };
+
+  const normalizeScore = (val: any, min: number, max: number) => {
+      const v = safeNum(val);
+      if (max - min === 0) return 50; // Safety
+      const normalized = ((v - min) / (max - min)) * 100;
+      return Math.min(100, Math.max(0, normalized));
   };
 
   const fetchFinancials = async (symbol: string) => {
-      if (!fmpKey) throw new Error("FMP Key Missing");
-      // Use Promise.all for parallel fetching (Speed Optimization)
-      const [ratiosRes, metricsRes, quoteRes, growthRes] = await Promise.all([
-          fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
-          fetch(`https://financialmodelingprep.com/api/v3/key-metrics-ttm/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
-          fetch(`https://financialmodelingprep.com/api/v3/quote/${symbol}?apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any)),
-          fetch(`https://financialmodelingprep.com/api/v3/financial-growth/${symbol}?limit=1&apikey=${fmpKey}`).catch(() => ({ ok: false, json: async () => [] } as any))
+      if (!fmpKey) return { r: {}, m: {}, q: {}, g: {} };
+      
+      // Separate try-catches to ensure partial data survival
+      const fetchData = async (endpoint: string) => {
+          try {
+              const res = await fetch(`https://financialmodelingprep.com/api/v3/${endpoint}?apikey=${fmpKey}`);
+              if (!res.ok) return [];
+              const data = await res.json();
+              return Array.isArray(data) ? data : [];
+          } catch (e) {
+              return [];
+          }
+      };
+
+      // Parallel Fetch
+      const [rData, mData, qData, gData] = await Promise.all([
+          fetchData(`ratios-ttm/${symbol}`),
+          fetchData(`key-metrics-ttm/${symbol}`),
+          fetchData(`quote/${symbol}`),
+          fetchData(`financial-growth/${symbol}?limit=1`)
       ]);
       
-      const r = ratiosRes.ok ? (await ratiosRes.json())[0] || {} : {};
-      const m = metricsRes.ok ? (await metricsRes.json())[0] || {} : {};
-      const q = quoteRes.ok ? (await quoteRes.json())[0] || {} : {};
-      const g = growthRes.ok ? (await growthRes.json())[0] || {} : {};
-      
-      return { r, m, q, g };
+      return { 
+          r: rData[0] || {}, 
+          m: mData[0] || {}, 
+          q: qData[0] || {}, 
+          g: gData[0] || {} 
+      };
   };
 
   const determineEconomicMoat = (grossMargin: number, roic: number, roe: number): 'Wide' | 'Narrow' | 'None' => {
-      // Algorithm-based Moat Detection (Zero Cost)
       if (grossMargin > 0.4 && roic > 15 && roe > 20) return 'Wide';
       if (grossMargin > 0.2 && roic > 8) return 'Narrow';
       return 'None';
@@ -163,7 +188,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     startTimeRef.current = Date.now();
     
     try {
-      // 1. Load Top 50% from Stage 2
+      // 1. Load Stage 2 Data
       const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -179,7 +204,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }).then(r => r.json());
 
       let candidates = content.elite_universe || [];
-      // Filter Top 50% based on Stage 2 Quality Score
+      
+      // Ensure we have candidates
+      if (candidates.length === 0) {
+          addLog("No candidates found in Stage 2 data.", "err");
+          setLoading(false); return;
+      }
+
+      // Filter Top 50%
       candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
       const cutoff = Math.ceil(candidates.length * 0.5);
       const eliteSquad = candidates.slice(0, cutoff);
@@ -193,91 +225,110 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           const item = eliteSquad[i];
           
           try {
+              // Fetch fresh data (Robust)
               const { r, m, q, g } = await fetchFinancials(item.symbol);
-              const price = q.price || item.price || 0;
               
-              // --- 1. Advanced Metrics Calculation ---
-              const roic = m.roicTTM ? m.roicTTM * 100 : calculateROIC(m.netIncomePerShare * m.sharesOutstanding, m.investedCapital);
-              const revenueGrowth = g.revenueGrowth || 0;
-              const ebitdaMargin = r.operatingProfitMarginTTM || 0;
+              // Safe Value Extraction
+              const price = safeNum(q.price) || safeNum(item.price);
+              
+              // --- 1. Advanced Metrics Calculation (Strictly Safe Math) ---
+              // ROIC: Use Key Metrics API first, else calculate.
+              let roic = safeNum(m.roicTTM) * 100;
+              if (roic === 0) {
+                  // Fallback: Net Income / (Total Equity + Total Debt) could be approximated
+                  // But sticking to simple fallback to avoid complex fetching errors
+                  roic = calculateROIC(m.netIncomePerShare * m.sharesOutstanding, m.investedCapital);
+              }
+              
+              const revenueGrowth = safeNum(g.revenueGrowth);
+              const ebitdaMargin = safeNum(r.operatingProfitMarginTTM);
               const ruleOf40 = calculateRuleOf40(revenueGrowth, ebitdaMargin);
-              const fcfYield = m.freeCashFlowYieldTTM ? m.freeCashFlowYieldTTM * 100 : 0;
-              const pegRatio = r.pegRatioTTM || 0;
+              const fcfYield = safeNum(m.freeCashFlowYieldTTM) * 100;
+              const grossMargin = safeNum(r.grossProfitMarginTTM);
+              const pegRatio = safeNum(r.pegRatioTTM);
+              const roe = safeNum(r.returnOnEquityTTM) * 100;
               
               // --- 2. Intrinsic Value (Valuation) ---
-              // Use API DCF if available, otherwise Graham Formula
-              let intrinsicValue = m.dcf && m.dcf > 0 ? m.dcf : 0;
-              if (intrinsicValue === 0) {
+              // Use API DCF if available and reasonable
+              let intrinsicValue = safeNum(m.dcf);
+              if (intrinsicValue <= 0 || intrinsicValue > price * 5) { // Sanity check for API DCF
                   intrinsicValue = calculateIntrinsicValue(m.netIncomePerShare, revenueGrowth);
               }
-              // Safety Net: If intrinsic value is wild, clamp it
-              if (intrinsicValue > price * 3) intrinsicValue = price * 3; 
-              if (intrinsicValue <= 0) intrinsicValue = price;
+              
+              // Extreme Safety Fallback
+              if (intrinsicValue <= 0) intrinsicValue = price; 
 
-              const upside = ((intrinsicValue - price) / price) * 100;
+              const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
 
               // --- 3. Scoring Matrix (Weights) ---
-              // Value (40%)
+              // Normalized scores (0-100)
               const valScore = normalizeScore(upside, -20, 50); 
-              // Growth (30%)
               const growthScore = normalizeScore(ruleOf40, 20, 60);
-              // Quality (30%)
               const qualScore = normalizeScore(roic, 5, 25);
               
+              // Composite (Weighted)
               const compositeScore = (valScore * 0.4) + (growthScore * 0.3) + (qualScore * 0.3);
 
               // --- 4. Radar Data Construction ---
+              // Ensure ALL values are valid numbers for Recharts
               const radarData = {
-                  valuation: valScore,
-                  profitability: normalizeScore(r.returnOnEquityTTM || 0, 5, 30),
-                  growth: growthScore,
-                  financialHealth: normalizeScore(item.zScore || 3, 1.5, 5), // From Stage 2 or Default
-                  moat: normalizeScore(r.grossProfitMarginTTM || 0, 0.2, 0.7),
-                  momentum: normalizeScore(ruleOf40, 0, 80) // Using Rule of 40 as proxy for business momentum
+                  valuation: safeNum(valScore),
+                  profitability: normalizeScore(roe, 5, 30),
+                  growth: safeNum(growthScore),
+                  financialHealth: normalizeScore(safeNum(item.zScore || 3), 1.5, 5), 
+                  moat: normalizeScore(grossMargin, 0.2, 0.7),
+                  momentum: normalizeScore(ruleOf40, 0, 80)
               };
 
               const ticker: FundamentalTicker = {
                   symbol: item.symbol,
-                  name: item.name,
+                  name: item.name || item.symbol,
                   price: price,
-                  marketCap: item.marketCap || m.marketCap || 0,
-                  sector: item.sector,
-                  fScore: item.fScore || 5, // Fallback
-                  zScore: item.zScore || 3, // Fallback
-                  fundamentalScore: Number(compositeScore.toFixed(2)),
-                  intrinsicValue: Number(intrinsicValue.toFixed(2)),
-                  upsidePotential: Number(upside.toFixed(2)),
-                  fairValueGap: Number(upside.toFixed(2)),
-                  roic: Number(roic.toFixed(2)),
-                  ruleOf40: Number(ruleOf40.toFixed(2)),
-                  fcfYield: Number(fcfYield.toFixed(2)),
-                  grossMargin: Number((r.grossProfitMarginTTM || 0) * 100),
-                  pegRatio: Number(pegRatio.toFixed(2)),
-                  economicMoat: determineEconomicMoat(r.grossProfitMarginTTM, roic, r.returnOnEquityTTM),
+                  marketCap: safeNum(item.marketCap || m.marketCap),
+                  sector: item.sector || "Unknown",
+                  fScore: safeNum(item.fScore || 5),
+                  zScore: safeNum(item.zScore || 3),
+                  fundamentalScore: safeNum(compositeScore.toFixed(2)),
+                  intrinsicValue: safeNum(intrinsicValue.toFixed(2)),
+                  upsidePotential: safeNum(upside.toFixed(2)),
+                  fairValueGap: safeNum(upside.toFixed(2)),
+                  roic: safeNum(roic.toFixed(2)),
+                  ruleOf40: safeNum(ruleOf40.toFixed(2)),
+                  fcfYield: safeNum(fcfYield.toFixed(2)),
+                  grossMargin: safeNum((grossMargin * 100).toFixed(2)),
+                  pegRatio: safeNum(pegRatio.toFixed(2)),
+                  economicMoat: determineEconomicMoat(grossMargin, roic, roe),
                   radarData,
                   lastUpdate: new Date().toISOString()
               };
 
               results.push(ticker);
-              if (i % 5 === 0) setProgress({ current: i + 1, total: eliteSquad.length });
-              await new Promise(r => setTimeout(r, 200)); // Rate limit buffer
 
-          } catch (err) { console.warn(`Skip ${item.symbol}`, err); }
+          } catch (err) { 
+              console.warn(`Fundamental Analysis Skip ${item.symbol}:`, err); 
+              // Even if it fails, we shouldn't push a broken object, 
+              // BUT we continue the loop.
+          }
+          
+          // Progress Update
+          if (i % 5 === 0) setProgress({ current: i + 1, total: eliteSquad.length });
+          
+          // Rate Limit Buffer (FMP free tier is strict)
+          await new Promise(r => setTimeout(r, 200)); 
       }
 
       // Rank by Fundamental Score
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
       setProcessedData(results);
+      
+      // Auto-select first ticker for UI
       if (results.length > 0) handleTickerSelect(results[0]);
 
-      // --- 5. Selective AI Audit (Top 10 Only) ---
-      // We perform AI Moat analysis ONLY on the very best to save cost/time
-      // This is implicit in the UI display logic or can be a separate async enrichment
-      
+      // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.0.0", count: results.length, strategy: "Fundamental_Fortress_HedgeFund_Model" },
+        manifest: { version: "6.1.0", count: results.length, strategy: "Fundamental_Fortress_HedgeFund_Model_Patched" },
         fundamental_universe: results
       };
 
@@ -320,13 +371,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const getRadarData = (ticker: FundamentalTicker | null) => {
       if (!ticker) return [];
+      // Ensure all values are Numbers and Finite
       return [
-          { subject: 'Valuation', A: ticker.radarData.valuation, fullMark: 100 },
-          { subject: 'Profit', A: ticker.radarData.profitability, fullMark: 100 },
-          { subject: 'Growth', A: ticker.radarData.growth, fullMark: 100 },
-          { subject: 'Health', A: ticker.radarData.financialHealth, fullMark: 100 },
-          { subject: 'Moat', A: ticker.radarData.moat, fullMark: 100 },
-          { subject: 'Momentum', A: ticker.radarData.momentum, fullMark: 100 },
+          { subject: 'Valuation', A: safeNum(ticker.radarData.valuation), fullMark: 100 },
+          { subject: 'Profit', A: safeNum(ticker.radarData.profitability), fullMark: 100 },
+          { subject: 'Growth', A: safeNum(ticker.radarData.growth), fullMark: 100 },
+          { subject: 'Health', A: safeNum(ticker.radarData.financialHealth), fullMark: 100 },
+          { subject: 'Moat', A: safeNum(ticker.radarData.moat), fullMark: 100 },
+          { subject: 'Momentum', A: safeNum(ticker.radarData.momentum), fullMark: 100 },
       ];
   };
 
@@ -340,7 +392,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v6.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
@@ -452,7 +504,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                          <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select an Asset to Audit</p>
                      </div>
                  )}
