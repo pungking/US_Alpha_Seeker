@@ -34,6 +34,7 @@ interface MasterTicker {
   roe?: number;
   debtToEquity?: number;
   pb?: number;
+  source?: string;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
@@ -57,13 +58,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [stats, setStats] = useState({
     found: 0,
     synced: 0,
-    target: 10000,
+    target: 20000,
     elapsed: 0,
     provider: 'Idle',
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.0.0: Full Universe Deep-Scan Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v3.1.0: OpenBB-Style Hybrid Fusion Mode.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -141,280 +142,139 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // [NEW] Enhanced Sector Mapping Logic using SIC Codes
-  const getSectorFromSic = (code: number) => {
-      if (!code) return "Unclassified";
-      if (code >= 100 && code <= 999) return "Basic Materials"; // Agriculture
-      if (code >= 1000 && code <= 1499) return "Energy"; // Mining/Oil
-      if (code >= 1500 && code <= 1799) return "Industrials"; // Construction
-      if (code >= 2000 && code <= 3999) {
-          // Manufacturing split
-          if (code >= 2800 && code <= 2836) return "Healthcare"; // Pharma
-          if (code >= 3500 && code <= 3699) return "Technology"; // Electronics/Machinery
-          return "Consumer Cyclical"; 
-      }
-      if (code >= 4000 && code <= 4999) return "Utilities"; // Trans/Util
-      if (code >= 5000 && code <= 5199) return "Consumer Defensive"; // Wholesale
-      if (code >= 5200 && code <= 5999) return "Consumer Cyclical"; // Retail
-      if (code >= 6000 && code <= 6799) return "Financial";
-      if (code >= 7000 && code <= 8999) return "Communication Services"; // Services
-      return "Industrials";
-  };
-
-  // Helper to map SIC codes (from Polygon) to Sectors with Fallback
-  const mapSicToSector = (sicDescription: string, sicCode?: number): string => {
-      // 1. Try description matching
-      if (sicDescription) {
-          const desc = sicDescription.toLowerCase();
-          if (desc.includes("pharm") || desc.includes("bio") || desc.includes("medic") || desc.includes("health")) return "Healthcare";
-          if (desc.includes("tech") || desc.includes("computer") || desc.includes("soft") || desc.includes("semi")) return "Technology";
-          if (desc.includes("bank") || desc.includes("finan") || desc.includes("invest") || desc.includes("insur")) return "Financial";
-          if (desc.includes("oil") || desc.includes("gas") || desc.includes("energy") || desc.includes("mining")) return "Energy";
-          if (desc.includes("retail") || desc.includes("store") || desc.includes("apparel") || desc.includes("food")) return "Consumer Defensive";
-          if (desc.includes("real estate") || desc.includes("reit")) return "Real Estate";
-          if (desc.includes("util") || desc.includes("electric") || desc.includes("power")) return "Utilities";
-          if (desc.includes("transport") || desc.includes("airline") || desc.includes("rail") || desc.includes("manufactur")) return "Industrials";
+  // [STRATEGY 1] Nasdaq Official Strategy (Primary for Metadata)
+  // Fetches from our local proxy which scrapes api.nasdaq.com
+  const executeNasdaqStrategy = async (): Promise<MasterTicker[]> => {
+      addLog("Strategy D: Nasdaq Official Exchange Feed (Primary Metadata)...", "info");
+      
+      const res = await fetch('/api/nasdaq');
+      if (!res.ok) {
+          throw new Error(`Nasdaq Proxy Failed: ${res.status}`);
       }
       
-      // 2. Try SIC Code range
-      if (sicCode) {
-          return getSectorFromSic(sicCode);
-      }
-
-      return "Unclassified";
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error("Invalid Nasdaq Data Structure");
+      
+      addLog(`Nasdaq Feed: Retrieved ${data.length} Authoritative Listings.`, "ok");
+      
+      return data.map((item: any) => ({
+          symbol: item.symbol,
+          name: item.name,
+          price: item.price,
+          volume: item.volume,
+          change: item.pctChange,
+          marketCap: item.marketCap,
+          sector: item.sector || "Unclassified",
+          industry: item.industry || "Unknown",
+          type: 'Common Stock',
+          updated: new Date().toISOString().split('T')[0],
+          source: 'Nasdaq_Official'
+      }));
   };
 
-  // [NEW] Layer 1: Polygon Bulk Reference (Highly Efficient)
-  const enrichWithPolygonMaster = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      if (!polygonKey) {
-          addLog("Polygon Key missing. Skipping Bulk Enrichment.", "warn");
-          return tickers;
-      }
-
-      addLog(`Layer 1: Polygon Matrix Scanning (1000 items/page)...`, "info");
-      
-      const enrichedMap = new Map<string, any>();
-      // Limit to stocks to avoid getting forex/crypto junk
-      let nextUrl = `https://api.polygon.io/v3/reference/tickers?active=true&market=stocks&limit=1000&apiKey=${polygonKey}`;
-      let pages = 0;
-      const MAX_PAGES = 30; // Increased to capture full 20k universe
-
-      try {
-          while (nextUrl && pages < MAX_PAGES) {
-              const res = await fetch(nextUrl);
-              if (!res.ok) {
-                  if (res.status === 429) {
-                      addLog("Polygon Rate Limit. Pausing 65s for refill...", "warn");
-                      await new Promise(r => setTimeout(r, 65000));
-                      continue; 
-                  }
-                  break;
-              }
-              
-              const data = await res.json();
-              if (data.results) {
-                  data.results.forEach((item: any) => {
-                      enrichedMap.set(item.ticker, item);
-                  });
-              }
-              
-              nextUrl = data.next_url ? `${data.next_url}&apiKey=${polygonKey}` : '';
-              pages++;
-              
-              if (pages % 2 === 0) addLog(`Polygon Matrix: Scanned Page ${pages} (${enrichedMap.size} items mapped)`, "info");
-              
-              // Respect free tier limits (5 calls/min). 
-              await new Promise(r => setTimeout(r, 12500)); 
-          }
-      } catch (e: any) {
-          addLog(`Polygon Matrix Interrupted: ${e.message}`, "warn");
-      }
-
-      let updatedCount = 0;
-      const enriched = tickers.map(t => {
-          const polyData = enrichedMap.get(t.symbol);
-          if (polyData) {
-              updatedCount++;
-              return {
-                  ...t,
-                  name: t.name || polyData.name,
-                  marketCap: t.marketCap || polyData.market_cap, 
-                  sector: t.sector || mapSicToSector(polyData.sic_description, polyData.sic_code),
-                  industry: t.industry || polyData.sic_description || "Unknown",
-              };
-          }
-          return t;
-      });
-
-      addLog(`Layer 1 Complete: ${updatedCount} assets mapped via Polygon.`, "ok");
-      return enriched;
-  };
-
-  // [Layer 2] Yahoo Fallback (Robust Batching)
-  // [MODIFIED] Removes limitChunks to process ALL items, ensuring full enrichment.
-  const enrichWithYahooFallback = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      // Filter for missing sectors OR missing PE (Quality Data)
-      // If price > 5, we prioritize getting fundamental data
-      const needsData = tickers.filter(t => 
-          t.sector === 'Unclassified' || 
-          (t.price > 5 && (!t.pe || t.pe === 0))
-      );
-      
-      if (needsData.length === 0) {
-          addLog("Layer 2 Skipped: All Sectors Identified.", "ok");
-          return tickers;
-      }
-
-      addLog(`Layer 2: Yahoo Deep Scan for ${needsData.length} items (Fundamentals)...`, "info");
-      
-      const BATCH_SIZE = 20; 
-      const chunks = [];
-      for (let i = 0; i < needsData.length; i += BATCH_SIZE) {
-          chunks.push(needsData.slice(i, i + BATCH_SIZE));
-      }
-
-      const enrichedMap = new Map<string, any>();
-      let processedCount = 0;
-      
-      // [CHANGE] Iterate ALL chunks to ensure full coverage
-      for (let i = 0; i < chunks.length; i++) {
-          const chunk = chunks[i];
-          try {
-              const symbols = chunk.map(t => t.symbol).join(',');
-              const res = await fetch(`/api/yahoo?symbols=${symbols}`);
-              
-              if (res.ok) {
-                  const data = await res.json();
-                  if (Array.isArray(data)) {
-                      data.forEach((item: any) => {
-                          enrichedMap.set(item.symbol, item);
-                      });
-                      processedCount += data.length;
-                  }
-              }
-              // Throttle to respect proxy limits
-              await new Promise(r => setTimeout(r, 800)); 
-              
-              if ((i + 1) % 10 === 0) {
-                  addLog(`Yahoo Progress: ${(i + 1) * BATCH_SIZE} / ${needsData.length} scanned...`, "info");
-              }
-
-          } catch (e) {
-              console.warn("Yahoo fallback batch failed", e);
-          }
-      }
-
-      addLog(`Layer 2 Complete: ${processedCount} assets enriched via Yahoo.`, "ok");
-
-      return tickers.map(t => {
-          const y = enrichedMap.get(t.symbol);
-          if (y) {
-              return {
-                  ...t,
-                  marketCap: y.marketCap || t.marketCap,
-                  sector: (t.sector === 'Unclassified') ? (y.sector || y.category || 'Unclassified') : t.sector,
-                  industry: y.industry || t.industry,
-                  pe: y.trailingPE || y.forwardPE || t.pe,
-                  roe: y.returnOnEquity ? y.returnOnEquity * 100 : t.roe,
-                  debtToEquity: y.debtToEquity || t.debtToEquity,
-                  pb: y.priceToBook || t.pb
-              };
-          }
-          return t;
-      });
-  };
-
-  const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
-    if (!fmpKey) throw new Error("FMP Key missing");
-    addLog("Strategy A: FMP Deep Screener (Primary)...", "info");
-    
-    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=25000&apikey=${fmpKey}`;
-    
-    const res = await fetch(url);
-    if (!res.ok) {
-        if (res.status === 403) throw new Error("FMP_PLAN_LIMIT"); 
-        if (res.status === 429) throw new Error("FMP Rate Limit");
-        throw new Error(`FMP Status ${res.status}`);
-    }
-    const data = await res.json();
-    if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
-    
-    addLog(`FMP: Discovered ${data.length} Equity Assets.`, "ok");
-    
-    return data.map((item: any) => ({
-        symbol: item.symbol, 
-        name: item.companyName, 
-        price: item.price, 
-        volume: item.volume, 
-        change: item.changesPercentage || 0, 
-        marketCap: item.marketCap, 
-        sector: item.sector, 
-        industry: item.industry,
-        type: 'Common Stock', 
-        updated: new Date().toISOString().split('T')[0]
-    }));
-  };
-
+  // [STRATEGY 2] Polygon Aggregates (Primary for Coverage/Price)
   const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
-    if (!finnhubKey || !polygonKey) throw new Error("Finnhub or Polygon Key missing");
-    addLog("Strategy B: Finnhub Discovery + Polygon Pricing (Fallback)...", "info");
-    const fhRes = await fetch(`https://finnhub.io/api/v1/stock/symbol?exchange=US&token=${finnhubKey}`);
-    if (!fhRes.ok) throw new Error("Finnhub API Error");
-    const fhData = await fhRes.json();
-    const symbolMap = new Map();
-    fhData.forEach((s: any) => {
-        const type = s.type || 'Common Stock';
-        if (['Common Stock', 'ADR', 'REIT'].includes(type)) {
-            symbolMap.set(s.symbol, { name: s.description, type });
-        }
-    });
-    addLog(`Finnhub: Found ${symbolMap.size} symbols. Syncing Polygon market data...`, "info");
+    if (!polygonKey) throw new Error("Polygon Key missing");
+    addLog("Strategy B: Polygon Deep Discovery (Coverage Max)...", "info");
+    
+    // Polygon Grouped Daily (Massive Coverage ~20k items)
     let targetDate = getInitialTargetDate();
     let polyResults: any[] = [];
     let daysChecked = 0;
+    
+    // Try up to 5 days back to find a trading day
     while (daysChecked < 5) {
-        let retryCount = 0;
-        let successOnDay = false;
-        while (retryCount < 3) {
+        try {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-            if (polyRes.status === 429) { await new Promise(r => setTimeout(r, 20000)); retryCount++; continue; }
+            
+            if (polyRes.status === 429) { 
+                addLog("Polygon Rate Limit. Pausing 20s...", "warn");
+                await new Promise(r => setTimeout(r, 20000)); 
+                continue; 
+            }
+            
             if (polyRes.ok) {
                 const data = await polyRes.json();
-                if (data.results && data.results.length > 0) { polyResults = data.results; successOnDay = true; } 
-                break; 
-            } else { break; }
-        }
-        if (successOnDay && polyResults.length > 0) break;
+                if (data.results && data.results.length > 0) { 
+                    polyResults = data.results; 
+                    addLog(`Polygon: Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    break; 
+                } 
+            }
+        } catch (e) { console.warn("Poly date fail", e); }
+        
+        // Go back 1 day
         const d = new Date(targetDate); d.setDate(d.getDate() - 1);
         if (d.getDay() === 0) d.setDate(d.getDate() - 2); else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
         targetDate = d.toISOString().split('T')[0];
         daysChecked++;
-        if (daysChecked < 5) await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 500));
     }
-    const results: MasterTicker[] = [];
-    const polyMap = new Map(polyResults.map((p: any) => [p.T, p]));
-    symbolMap.forEach((meta, symbol) => {
-        const p = polyMap.get(symbol);
-        results.push({
-            symbol: symbol, name: meta.name, type: meta.type, price: p ? p.c : 0, volume: p ? p.v : 0, change: p && p.o ? ((p.c - p.o) / p.o) * 100 : 0, updated: p ? targetDate : 'N/A'
-        });
-    });
-    return results;
+
+    if (polyResults.length === 0) throw new Error("Polygon returned 0 results.");
+
+    return polyResults.map((p: any) => ({
+        symbol: p.T,
+        name: p.T, // Placeholder, enriched later by Nasdaq
+        type: 'Common Stock',
+        price: p.c,
+        volume: p.v,
+        change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
+        updated: targetDate,
+        source: 'Polygon_Aggs'
+    }));
   };
 
-  const executeTwelveDataStrategy = async (): Promise<MasterTicker[]> => {
-    if (!twelveDataKey) throw new Error("Twelve Data Key missing");
-    addLog("Strategy C: Twelve Data Symbol List (Deep Backup)...", "info");
-    const [nasdaq, nyse] = await Promise.all([
-        fetch(`https://api.twelvedata.com/stocks?exchange=NASDAQ&country=US&apikey=${twelveDataKey}`),
-        fetch(`https://api.twelvedata.com/stocks?exchange=NYSE&country=US&apikey=${twelveDataKey}`)
-    ]);
-    const d1 = await nasdaq.json(); const d2 = await nyse.json();
-    const all = [...(d1.data || []), ...(d2.data || [])];
-    if (all.length === 0) throw new Error("Twelve Data returned 0 symbols.");
-    return all.map((item: any) => ({
-        symbol: item.symbol, name: item.name, price: 0, volume: 0, change: 0, type: item.type || 'Common Stock', updated: new Date().toISOString().split('T')[0]
+  const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
+    if (!fmpKey) throw new Error("FMP Key missing");
+    addLog("Strategy A: FMP Deep Screener...", "info");
+    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=25000&apikey=${fmpKey}`;
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(res.status === 403 ? "FMP_PLAN_LIMIT" : "FMP_ERROR");
+    const data = await res.json();
+    return data.map((item: any) => ({
+        symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
+        change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry,
+        type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'FMP_Screener'
     }));
+  };
+
+  // [NEW] Hybrid Fusion Logic
+  // Merges High-Quality Metadata (Nasdaq) with High-Volume Coverage (Polygon)
+  const fuseDatasets = (primary: MasterTicker[], secondary: MasterTicker[]): MasterTicker[] => {
+      const mergedMap = new Map<string, MasterTicker>();
+      
+      // 1. Load Secondary (High Volume, Low Metadata - Polygon) first
+      secondary.forEach(item => {
+          mergedMap.set(item.symbol, item);
+      });
+
+      let enrichedCount = 0;
+      let newCount = 0;
+
+      // 2. Overlay Primary (High Metadata - Nasdaq)
+      primary.forEach(item => {
+          if (mergedMap.has(item.symbol)) {
+              // Enrich existing Polygon entry with Nasdaq Sector/Industry/Name
+              const existing = mergedMap.get(item.symbol)!;
+              mergedMap.set(item.symbol, {
+                  ...existing, // Keep Price/Vol from Polygon (usually fresher)
+                  name: item.name || existing.name,
+                  sector: item.sector || existing.sector,
+                  industry: item.industry || existing.industry,
+                  marketCap: item.marketCap || existing.marketCap,
+                  source: `Poly+Nasdaq`
+              });
+              enrichedCount++;
+          } else {
+              // Add unique Nasdaq entry (if Polygon missed it)
+              mergedMap.set(item.symbol, item);
+              newCount++;
+          }
+      });
+
+      addLog(`Fusion Stats: ${enrichedCount} Enriched, ${newCount} Added Unique from Nasdaq.`, "info");
+      return Array.from(mergedMap.values());
   };
 
   const runAggregatedPipeline = async (token: string) => {
@@ -425,61 +285,82 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       setStats(prev => ({ ...prev, elapsed: Math.floor((Date.now() - startTime) / 1000) }));
     }, 1000);
 
-    let masterData: MasterTicker[] = [];
-    let usedProvider = "None";
-
     try {
-        // Step 1: Discovery (Fetch Raw List)
-        try { 
-            masterData = await executeFmpStrategy(); 
-            usedProvider = "FMP (Screener)"; 
-        } catch (fmpErr: any) {
-            addLog(`FMP Primary Failed: ${fmpErr.message}. Switch to Backup...`, "warn");
+        // --- PHASE 1: MULTI-SOURCE ACQUISITION ---
+        const sources: { nasdaq?: MasterTicker[], polygon?: MasterTicker[], fmp?: MasterTicker[] } = {};
+        
+        // 1. Nasdaq (Primary for Metadata)
+        try {
+            sources.nasdaq = await executeNasdaqStrategy();
+        } catch (e: any) { 
+            addLog(`Nasdaq Source Failed: ${e.message}`, "warn"); 
+        }
+
+        // 2. Polygon (Primary for Coverage)
+        try {
+            sources.polygon = await executePolygonStrategy();
+        } catch (e: any) { 
+            addLog(`Polygon Source Failed: ${e.message}`, "warn"); 
+        }
+
+        // 3. FMP (Backup)
+        if (!sources.nasdaq && !sources.polygon) {
             try { 
-                masterData = await executePolygonStrategy(); 
-                usedProvider = "Polygon+Finnhub (Enriched)"; 
-            } catch (polyErr: any) {
-                 try { 
-                     masterData = await executeTwelveDataStrategy(); 
-                     usedProvider = "Twelve Data (Enriched)"; 
-                 } catch (tdErr: any) { throw new Error("All Market Data Providers Exhausted."); }
+                sources.fmp = await executeFmpStrategy(); 
+            } catch (e: any) { 
+                addLog(`FMP Failed: ${e.message}`, "err"); 
             }
         }
 
-        if (masterData.length === 0) throw new Error("Zero Assets Found.");
+        if (!sources.nasdaq && !sources.polygon && !sources.fmp) {
+            throw new Error("All Data Sources Exhausted.");
+        }
+
+        // --- PHASE 2: HYBRID FUSION ---
+        addLog("Phase 2: Executing Hybrid Data Fusion...", "info");
+        let masterList: MasterTicker[] = [];
+
+        if (sources.polygon && sources.nasdaq) {
+            // Best Case: Merge both
+            masterList = fuseDatasets(sources.nasdaq, sources.polygon);
+        } else if (sources.polygon) {
+            // Fallback: Only Polygon
+            masterList = sources.polygon;
+            addLog("Using Polygon Raw Data (Sector Data might be limited).", "warn");
+        } else if (sources.nasdaq) {
+            // Fallback: Only Nasdaq
+            masterList = sources.nasdaq;
+        } else if (sources.fmp) {
+            // Fallback: FMP
+            masterList = sources.fmp;
+        }
+
+        const rawCount = masterList.length;
+        addLog(`Total Raw Universe: ${rawCount} Assets.`, "ok");
+
+        // --- PHASE 3: MINIMAL FILTERING (To reach ~20k target) ---
+        // Relaxed filter to $0.01 to ensure we don't accidentally cut valid penny stocks
+        const minPrice = 0.01; 
+        addLog(`Filtering for Viability (Price > $${minPrice})...`, "info");
         
-        const originalCount = masterData.length;
-        addLog(`Filtering ${originalCount} raw assets for viability (Price > $0.01)...`, "info");
+        let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
         
-        // [MODIFIED] Relaxed Filter: > $0.01 to capture full 20k universe
-        let viableCandidates = masterData.filter(t => t.price >= 0.01 && t.volume > 0);
+        // Sort by Volume to ensure most relevant are top
         viableCandidates.sort((a, b) => b.volume - a.volume);
         
-        addLog(`Viable Universe: ${viableCandidates.length} assets selected for Matrix Mapping.`, "ok");
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: usedProvider }));
+        addLog(`Viable Universe: ${viableCandidates.length} assets ready.`, "ok");
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Hybrid Fusion" }));
 
-        // [CRITICAL UPDATE] Use Polygon Bulk Reference with SIC Code Mapping
-        viableCandidates = await enrichWithPolygonMaster(viableCandidates);
-
-        // [CRITICAL UPDATE] Unleash Yahoo to fill missing fundamentals for potentially ALL items
-        viableCandidates = await enrichWithYahooFallback(viableCandidates);
-
-        // Step 3: Mapping & Commit
-        setStats(prev => ({ ...prev, phase: 'Mapping' }));
-        const registryMap = new Map(viableCandidates.map(i => [i.symbol, i]));
-        setRegistry(registryMap);
-
-        addLog(`Phase 3: Committing ${viableCandidates.length} enriched assets to Vault...`, "info");
+        // --- PHASE 4: COMMIT ---
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.0.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v3.1.0.json`;
         const payload = { 
             manifest: { 
-                version: "3.0.0", 
-                provider: usedProvider, 
+                version: "3.1.0", 
+                provider: "Hybrid_Fusion (Nasdaq+Poly)", 
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
-                note: "Enriched via Polygon Matrix + Deep Yahoo Scan"
+                note: "Fused Data: Nasdaq Metadata + Polygon Coverage"
             }, 
             universe: viableCandidates 
         };
@@ -488,7 +369,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         if (folderId) {
             await uploadFile(token, folderId, fileName, payload);
             setStats(prev => ({ ...prev, synced: viableCandidates.length, phase: 'Finalized' }));
-            addLog(`System: Cloud Vault Sync Complete via ${usedProvider}.`, "ok");
+            addLog(`System: Cloud Vault Sync Complete.`, "ok");
             
             if (onComplete) onComplete(); 
         } else {
@@ -636,10 +517,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.0.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.1.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Hybrid Fusion Ready'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
@@ -658,12 +539,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               }`}
             >
               {isEngineRunning 
-                ? 'Acquiring Universe...' 
+                ? 'Fusing Data Sources...' 
                 : cooldown > 0 
                     ? `Wait ${cooldown}s` 
                     : !accessToken 
                         ? 'Connect Cloud Vault' 
-                        : 'Execute Data Fusion'}
+                        : 'Execute Hybrid Fusion'}
             </button>
           </div>
           
@@ -689,6 +570,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                         <span className="truncate">{searchResult.name || searchResult.symbol}</span>
                         <div className="flex items-center gap-3">
                             <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
+                            <span className="text-[8px] text-slate-500">{searchResult.source}</span>
                             <button 
                                 onClick={handleSetTarget}
                                 className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
