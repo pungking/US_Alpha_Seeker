@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // Yahoo Finance Proxy - Enhanced for Resilience (v2.8)
+  // Yahoo Finance Proxy - Enhanced for Resilience (v3.0 - Hybrid Mode)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -12,12 +12,37 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { symbols } = req.query;
+  const { symbols, modules } = req.query;
 
   if (!symbols) {
     return res.status(400).json({ error: 'Missing symbols query param' });
   }
 
+  // [NEW] Detailed Data Mode for Stage 3 (Real Data Acquisition)
+  if (modules) {
+    try {
+      const symbol = symbols.split(',')[0]; // QuoteSummary endpoint supports single symbol
+      const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=${modules}`;
+      
+      const response = await fetch(url, {
+          headers: {
+              'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36'
+          }
+      });
+
+      if (!response.ok) {
+          return res.status(response.status).json({});
+      }
+
+      const data = await response.json();
+      const result = data.quoteSummary?.result?.[0] || {};
+      return res.status(200).json(result);
+    } catch (error: any) {
+      return res.status(500).json({ error: error.message });
+    }
+  }
+
+  // [EXISTING] Bulk Quote Mode (Preserved for Stage 0, 1, 2)
   try {
     const url = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
     
