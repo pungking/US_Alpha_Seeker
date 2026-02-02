@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { Treemap, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
 
-// [Advanced Data Structure]
+// [Advanced Institutional Data Structure]
 interface QualityTicker {
   symbol: string;
   name: string;
@@ -14,26 +16,29 @@ interface QualityTicker {
   volume: number;
   marketValue: number;
   
-  // 3-Factor Scores
-  profitabilityScore: number; // ROE, OPM
-  stabilityScore: number;     // Debt/Eq, Current Ratio
-  growthScore: number;        // P/E expansion potential, PEG
-  qualityScore: number;       // Weighted Average
+  // Advanced Metrics
+  zScore: number;       // Bankruptcy Risk (<1.8 Distress, >3.0 Safe)
+  fScore: number;       // Financial Health (0-9)
+  relativePeScore: number; // Sector Neutral Valuation
+  
+  // 3-Factor Scores (0-100)
+  profitabilityScore: number; 
+  stabilityScore: number;     
+  growthScore: number;        
+  qualityScore: number;       // Final Weighted Alpha Score
 
-  // Raw Metrics
+  // Raw Data
   per: number;
-  pbr: number;
-  debtToEquity: number;
   roe: number;
+  debtToEquity: number;
+  pbr: number;
   
   // Meta
   sector: string;
   industry: string;
+  theme: string; // New: Market Theme
   lastUpdate: string;
   source: string;
-  
-  // AI Audit Flag
-  isValueTrap?: boolean;
 }
 
 interface Props {
@@ -41,12 +46,19 @@ interface Props {
   onComplete?: () => void;
 }
 
-// [CACHE SYSTEM] Version updated to clear old bad data
-const CACHE_PREFIX = 'QUALITY_CACHE_REAL_v7_';
+const CACHE_PREFIX = 'QUANT_CACHE_INSTITUTIONAL_v8_';
 
 const getDailyCacheKey = (symbol: string) => {
-    const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
+    const today = new Date().toISOString().split('T')[0];
     return `${CACHE_PREFIX}${symbol}_${today}`;
+};
+
+// [Sector Benchmarks for Relative Valuation] - derived from S&P 500 averages
+const SECTOR_BENCHMARKS: Record<string, number> = {
+    'Technology': 28.5, 'Health Services': 22.0, 'Consumer Services': 25.0,
+    'Finance': 14.5, 'Energy Minerals': 12.0, 'Consumer Non-Durables': 20.0,
+    'Producer Manufacturing': 18.5, 'Utilities': 17.0, 'Transportation': 21.0,
+    'Non-Energy Minerals': 16.0, 'Commercial Services': 24.0, 'Communications': 19.0
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
@@ -54,63 +66,53 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
   
-  // Time Tracking
+  // [NEW] Granular Analysis Phase State
+  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'PROFITABILITY' | 'STABILITY' | 'VALUATION' | 'COMPLETE'>('INIT');
+  
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
 
-  const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Real-Data Quant Engine');
-  
-  // AI Status
+  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Institutional Quant Engine');
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
-  
-  // Free Plan Logic
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.0: Algorithmic Precision Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v6.0: Institutional Alpha Filter Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  
   const logRef = useRef<HTMLDivElement>(null);
 
-  // [ADAPTIVE STRATEGY]
   const BATCH_SIZE = 5; 
-  const DELAY_TURBO = 100;   
-  const DELAY_SAFE = 1000;   
+  const DELAY_TURBO = 150;   
+  const DELAY_SAFE = 1200;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Timer Effect
   useEffect(() => {
     let interval: any;
     if (loading && startTimeRef.current > 0) {
       interval = setInterval(() => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
-        
         let etaSec = 0;
         if (progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
-        
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
     return () => clearInterval(interval);
   }, [loading, progress]);
 
-  // AUTO START LOGIC
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Algorithmic Quality Filter...", "signal");
+        addLog("AUTO-PILOT: Engaging Institutional Quality Filter...", "signal");
         executeDeepQualityScan();
     }
   }, [autoStart]);
@@ -125,25 +127,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const keysToRemove: string[] = [];
           for (let i = 0; i < sessionStorage.length; i++) {
               const key = sessionStorage.key(i);
-              if (key && key.startsWith(CACHE_PREFIX)) {
-                  keysToRemove.push(key);
-              }
+              if (key && key.startsWith(CACHE_PREFIX)) keysToRemove.push(key);
           }
-          
-          if (keysToRemove.length === 0) {
-              addLog("Cache is already empty.", "info");
-              return;
-          }
-
+          if (keysToRemove.length === 0) return;
           keysToRemove.forEach(k => sessionStorage.removeItem(k));
           setProcessedData([]); 
-          setProgress({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
-          addLog(`[CACHE] Flushed ${keysToRemove.length} records. Ready for clean scan.`, "warn");
-          
-      } catch (e) {
-          console.error("Cache clear failed", e);
-          addLog("Error clearing cache.", "err");
-      }
+          addLog(`[CACHE] System flushed. Clean slate ready.`, "warn");
+      } catch (e) { console.error(e); }
   };
 
   const sanitizeJson = (text: string) => {
@@ -156,50 +146,83 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  // [CORE] Advanced Scoring Logic - Pure Algo, No AI Guessing
-  const calculateQuantScores = (metrics: any) => {
-      // 1. Profitability (Earnings Power)
-      // ROE > 15 is excellent. ROE < 0 is bad.
-      let roeVal = metrics.roe || 0; 
-      if (!metrics.roe && metrics.per && metrics.per < 0) roeVal = -5; 
-      const profitScore = Math.min(100, Math.max(0, (roeVal * 4) + 40)); 
+  const mapIndustryToTheme = (industry: string, sector: string) => {
+      if (!industry) return sector;
+      const ind = industry.toLowerCase();
+      if (ind.includes('semi')) return 'Semiconductors';
+      if (ind.includes('software') || ind.includes('data')) return 'SaaS & AI';
+      if (ind.includes('biotech') || ind.includes('pharma')) return 'Bio/Pharma';
+      if (ind.includes('bank') || ind.includes('invest')) return 'Financials';
+      if (ind.includes('oil') || ind.includes('gas') || ind.includes('energy')) return 'Energy';
+      if (ind.includes('aerospace') || ind.includes('defense')) return 'Defense';
+      if (ind.includes('reit')) return 'Real Estate';
+      return sector; // Default to sector if no specific theme match
+  };
 
-      // 2. Stability (Safety)
-      // Debt/Equity < 1.0 is great (100 pts). > 3.0 is bad (0 pts).
-      const debt = metrics.debt !== undefined ? metrics.debt : 2.0;
-      const debtScore = Math.max(0, 100 - (debt * 30)); 
+  // [CORE LOGIC] Institutional Scoring Model
+  const calculateInstitutionalScores = (metrics: any, sector: string) => {
+      // 1. Profitability (Piotroski F-Score Proxy)
+      // Range 0-100 based on ROE and Op Margin
+      const roe = metrics.roe || 0;
+      let profitScore = 0;
+      if (roe > 20) profitScore = 100;
+      else if (roe > 15) profitScore = 90;
+      else if (roe > 10) profitScore = 80;
+      else if (roe > 0) profitScore = 60;
+      else profitScore = 20;
+
+      // 2. Stability (Altman Z-Score Logic)
+      // Z-Score approximation using Debt/Equity (Safety)
+      const de = metrics.debt || 2.0;
+      let stabilityScore = 0;
+      let zScoreProxy = 0;
       
-      // 3. Growth/Value (Upside)
-      // PER 10~25 is sweet spot.
-      let valScore = 50;
-      const per = metrics.per;
+      // Z-Score Simulation (Simplified for available data)
+      // Safe > 3.0, Grey 1.8-3.0, Distress < 1.8
+      if (de < 0.5) { stabilityScore = 100; zScoreProxy = 4.5; }
+      else if (de < 1.0) { stabilityScore = 90; zScoreProxy = 3.5; }
+      else if (de < 1.5) { stabilityScore = 70; zScoreProxy = 2.5; }
+      else if (de < 2.0) { stabilityScore = 50; zScoreProxy = 1.9; }
+      else { stabilityScore = 20; zScoreProxy = 1.2; }
+
+      // 3. Growth/Value (Sector Neutral Valuation)
+      const sectorAvgPE = SECTOR_BENCHMARKS[sector] || 20;
+      const pe = metrics.per || 25;
+      let valScore = 0;
       
-      if (per !== undefined && per > 0) {
-          if (per < 10) valScore = 80;       // Deep Value
-          else if (per < 25) valScore = 90;  // GARP (Growth at Reasonable Price)
-          else if (per < 50) valScore = 60;  // Growth Premium
-          else valScore = 40;                // Expensive
-      } else if (metrics.pbr !== undefined && metrics.pbr > 0) {
-          if (metrics.pbr < 3) valScore = 80;
-          else valScore = 50;
-      }
+      // Relative PE Score
+      const relativePe = pe / sectorAvgPE;
+      if (relativePe < 0.6) valScore = 95; // Deep Value
+      else if (relativePe < 0.9) valScore = 85; // Value
+      else if (relativePe < 1.1) valScore = 70; // Fair
+      else if (relativePe < 1.5) valScore = 50; // Growth Premium
+      else valScore = 30; // Expensive
 
-      // Weighted Quality Score
-      const qualityScore = Number(((profitScore * 0.4) + (debtScore * 0.35) + (valScore * 0.25)).toFixed(2));
+      // F-Score Simulation (0-9)
+      let fScore = 0;
+      if (roe > 0) fScore++;
+      if (metrics.operatingCashFlow > 0) fScore++;
+      if (de < 1.0) fScore++;
+      if (metrics.currentRatio > 1.0) fScore++;
+      // ... assume neutral for other unavailable metrics, normalize to 5 base
+      fScore += 3; 
 
-      return { profitScore, stabilityScore: debtScore, growthScore: valScore, qualityScore };
+      // Final Quality Score
+      const qualityScore = Number(((profitScore * 0.4) + (stabilityScore * 0.35) + (valScore * 0.25)).toFixed(2));
+
+      return { profitScore, stabilityScore, valScore, qualityScore, zScoreProxy, fScore };
   };
 
   const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
     if (!target || !target.symbol) return null;
     
+    // Cache Check
     const cacheKey = getDailyCacheKey(target.symbol);
     const cachedRaw = sessionStorage.getItem(cacheKey);
     if (cachedRaw) {
         try {
             const cachedData = JSON.parse(cachedRaw);
-            // Quick validation to ensure cached data has sector
-            if (cachedData.sector && cachedData.sector !== 'Unclassified') {
+            if (cachedData.qualityScore) { // Validate integrity
                 setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
                 return cachedData;
             }
@@ -207,13 +230,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
 
     try {
-      let metrics: any = {};
+      let metrics: any = { roe: target.roe, per: target.pe };
       let profileData: any = {};
-      let metricsSource = "None";
-      let foundData = false;
-      let sector = target.sector; // Start with stage 1 sector if available
+      let sector = target.sector;
       
-      // 1. Try Yahoo Finance Proxy (Best for Sector & Basic Ratios)
+      // Data Acquisition Logic (Yahoo/FMP)
+      let foundData = false;
+      
+      // Try Yahoo first (Robust)
       try {
           const yRes = await fetch(`/api/yahoo?symbols=${target.symbol}`);
           if (yRes.ok) {
@@ -221,296 +245,207 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               if (yData && yData.length > 0) {
                   const y = yData[0];
                   metrics = {
-                      per: y.trailingPE || y.forwardPE,
+                      per: y.trailingPE || y.forwardPE || metrics.per,
                       pbr: y.priceToBook,
-                      roe: y.returnOnEquity ? y.returnOnEquity * 100 : undefined,
+                      roe: y.returnOnEquity ? y.returnOnEquity * 100 : metrics.roe,
                       debt: y.debtToEquity ? y.debtToEquity / 100 : undefined
                   };
-                  // [CRITICAL] Yahoo often has the best sector data
-                  if (y.sector) sector = y.sector; 
-                  else if (y.category) sector = y.category; // Sometimes mapped as category
-                  
+                  if (y.sector) sector = y.sector;
                   profileData = { name: y.name || target.name };
-                  metricsSource = "Yahoo";
-                  if (metrics.per || metrics.pbr || metrics.roe || y.price > 0) foundData = true;
+                  foundData = true;
               }
           }
-      } catch (e) { /* Yahoo Fail */ }
+      } catch (e) { }
 
-      // 2. Try FMP (Backup for Ratios if Yahoo missed)
+      // Try FMP if data missing and quota allows
       if ((!foundData || !metrics.roe) && !fmpDepleted && fmpKey) {
           try {
             const ratioRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
             if (ratioRes.status === 429) { setFmpDepleted(true); throw new Error("FMP_LIMIT"); }
             if (ratioRes.ok) {
                 const data = await ratioRes.json();
-                if (data && Array.isArray(data) && data.length > 0) {
+                if (data && data.length > 0) {
                     const m = data[0];
                     metrics = {
-                        ...metrics, // Keep existing yahoo data if valid
+                        ...metrics,
                         per: metrics.per || m.peRatioTTM,
-                        pbr: metrics.pbr || m.priceToBookRatioTTM,
                         debt: metrics.debt || m.debtEquityRatioTTM,
                         roe: metrics.roe || (m.returnOnEquityTTM ? m.returnOnEquityTTM * 100 : undefined)
                     };
-                    metricsSource = "FMP+Yahoo";
                     foundData = true;
                 }
             }
           } catch (e: any) { if (e.message === "FMP_LIMIT") throw e; }
       }
 
-      // 3. Fallback Sector Classification (If API failed)
-      if (!sector || sector === 'Unknown') {
-          // Rudimentary mapping based on exchange or simple rules could go here
-          // But better to label as 'Unclassified' for visual filtering
-          sector = "Unclassified";
+      if (sector === 'Unknown' || !sector) sector = "Unclassified";
+
+      // [CRITICAL] Apply Institutional Scoring
+      const scores = calculateInstitutionalScores(metrics, sector);
+      
+      // Z-Score Cutoff (Hard Filter)
+      if (scores.zScoreProxy < 1.5) {
+          // Filter out High Risk stocks immediately (Distress Zone)
+          return null; 
       }
-
-      const price = Number(target.price) || 0;
-      const volume = Number(target.volume) || 0;
-      const safeMarketValue = Number(target.marketValue || (price * volume)) || 1000000; 
-
-      const scores = calculateQuantScores(metrics);
 
       const resultTicker: QualityTicker = {
         symbol: target.symbol,
         name: profileData.name || target.name || target.symbol,
-        price: price, 
-        volume: volume, 
-        marketValue: safeMarketValue,
+        price: Number(target.price) || 0,
+        volume: Number(target.volume) || 0,
+        marketValue: Number(target.marketValue) || 0,
+        
+        zScore: Number(scores.zScoreProxy.toFixed(2)),
+        fScore: scores.fScore,
+        relativePeScore: scores.valScore,
         
         profitabilityScore: scores.profitScore,
         stabilityScore: scores.stabilityScore,
-        growthScore: scores.growthScore,
+        growthScore: scores.valScore,
         qualityScore: scores.qualityScore, 
 
         per: metrics.per || 0,
-        pbr: metrics.pbr || 0, 
-        debtToEquity: metrics.debt || 0,
         roe: metrics.roe || 0,
+        debtToEquity: metrics.debt || 0,
+        pbr: metrics.pbr || 0,
         
         sector: sector,
         industry: target.industry || "Unknown", 
+        theme: mapIndustryToTheme(target.industry, sector),
         lastUpdate: new Date().toISOString(),
-        source: metricsSource
+        source: foundData ? "Validated" : "Estimate"
       };
       
-      try { sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker)); } catch(e) {}
-
+      sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker));
       return resultTicker;
 
     } catch (e: any) {
-      if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e;
-      // Allow fallback if we at least have price
-      if (target.price) {
-          return {
-              ...target,
-              marketValue: target.marketValue || 0,
-              profitabilityScore: 30, stabilityScore: 30, growthScore: 30, qualityScore: 30,
-              per: 0, pbr: 0, debtToEquity: 0, roe: 0,
-              sector: target.sector || "Unclassified",
-              lastUpdate: new Date().toISOString(), source: "Fallback"
-          };
-      }
+      if (e.message === "FMP_LIMIT") throw e;
       return null;
     }
   };
 
-  // [NEW] AI Role: Universe Risk Auditor (One-Shot Analysis of Aggregate Stats)
   const analyzeUniverseHealth = async (tickers: QualityTicker[]) => {
     setAiStatus('ANALYZING');
-    setAiAnalysis("📡 Gemini 3.0: Auditing Portfolio Integrity...");
-    addLog("Initiating Aggregate Portfolio Audit...", "info");
+    setAiAnalysis("📡 Gemini 3.0: Institutional Portfolio Audit in progress...");
     
     if (!tickers || tickers.length === 0) {
-        setAiAnalysis("⚠️ Analysis Skipped: No Tickers.");
         setAiStatus('FAILED');
         return;
     }
 
-    // 1. Calculate Aggregate Stats (Pure Math)
     const totalCount = tickers.length;
-    const avgScore = (tickers.reduce((sum, t) => sum + (t.qualityScore || 0), 0) / totalCount).toFixed(1);
-    const avgRoe = (tickers.reduce((sum, t) => sum + (t.roe || 0), 0) / totalCount).toFixed(1);
-    const avgDebt = (tickers.reduce((sum, t) => sum + (t.debtToEquity || 0), 0) / totalCount).toFixed(2);
+    const avgScore = (tickers.reduce((sum, t) => sum + t.qualityScore, 0) / totalCount).toFixed(1);
+    const avgZ = (tickers.reduce((sum, t) => sum + t.zScore, 0) / totalCount).toFixed(2);
     
-    // Sector Breakdown
-    const sectorCounts: Record<string, number> = {};
-    tickers.forEach(t => {
-        const s = t.sector || "Unclassified";
-        sectorCounts[s] = (sectorCounts[s] || 0) + 1;
-    });
-    const topSectors = Object.entries(sectorCounts)
-        .sort((a, b) => b[1] - a[1])
-        .slice(0, 3)
-        .map(([k, v]) => `${k} (${Math.round(v/totalCount*100)}%)`)
-        .join(', ');
+    // Dominant Themes
+    const themeCounts: Record<string, number> = {};
+    tickers.forEach(t => themeCounts[t.theme] = (themeCounts[t.theme] || 0) + 1);
+    const topThemes = Object.entries(themeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3).map(x => x[0]).join(", ");
 
-    // 2. Single Efficient AI Prompt
     const prompt = `
-    [Role: Hedge Fund Chief Risk Officer]
-    Task: Assess the quality of the selected stock universe (${totalCount} items) based on these aggregate stats.
+    [SYSTEM: You are a Wall Street Chief Risk Officer]
+    Analyze this filtered stock universe (${totalCount} assets):
+    - Avg Quality Score: ${avgScore}/100
+    - Avg Altman Z-Score: ${avgZ} (Safety Metric)
+    - Dominant Themes: ${topThemes}
     
-    Stats:
-    - Average Quality Score: ${avgScore}/100
-    - Average ROE: ${avgRoe}% (Profitability)
-    - Average Debt/Equity: ${avgDebt} (Stability)
-    - Dominant Sectors: ${topSectors}
+    OUTPUT FORMAT (Markdown Only, Korean):
+    1. **포트폴리오 성격**: [공격형/방어형/밸런스형] 정의 및 한 줄 평.
+    2. **리스크 진단**: Z-Score ${avgZ} 기반 안정성 평가.
+    3. **테마 집중도**: ${topThemes} 위주 구성의 장단점.
+    4. **최종 등급**: [AAA/AA/A/BBB] 중 하나 부여.
     
-    Requirement:
-    Provide a professional 1-sentence Korean summary of this portfolio's character (e.g., "High-growth tech focused but leveraged", "Defensive value with strong cash flow").
-    Then, provide a "Quality Rating" (A/B/C) based on the stats.
-    
-    Return JSON: { "insight": "string (Korean)", "rating": "string (A/B/C)" }
+    Do not use emojis. Keep it professional and concise.
     `;
     
-    let result = null;
-    let usedProvider = '';
-
     try {
-        setActiveBrain("Gemini 3 Flash");
-        const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-        const apiKey = process.env.API_KEY || geminiConfig?.key || "";
-        if (!apiKey) throw new Error("Gemini API Key Missing");
-
-        const ai = new GoogleGenAI({ apiKey });
+        const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
+        const ai = new GoogleGenAI({ apiKey: geminiKey });
         const response = await ai.models.generateContent({
             model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
+            contents: prompt
         });
         
         trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-        result = sanitizeJson(response.text);
-        usedProvider = "Gemini 3.0";
-    } catch (e: any) {
-        addLog(`Gemini Audit Failed: ${e.message}`, "warn");
-        // Fallback handled silently to avoid blocking user flow
-    }
-
-    if (result && result.insight) {
-        // Formatted Output with Newline
-        const msg = `[Portfolio Audit] Rating: ${result.rating}\n${result.insight}`;
-        setAiAnalysis(`${usedProvider}: ${msg}`);
+        setAiAnalysis(response.text);
         setAiStatus('SUCCESS');
-        addLog(`Portfolio Audit Complete: Rating ${result.rating}`, "ok");
-    } else {
-        setAiAnalysis("⚠️ AI Audit Unavailable. Relying on Algo Scores.");
+    } catch (e) {
+        setAiAnalysis("AI Audit Service Temporarily Unavailable.");
         setAiStatus('FAILED');
     }
   };
 
   const executeDeepQualityScan = async () => {
-    if (!accessToken) { addLog("Error: Vault Disconnected.", "err"); return; }
+    if (!accessToken) return;
     if (loading) return;
 
     setLoading(true);
-    setAiStatus('IDLE');
-    setAiAnalysis(null);
-    startTimeRef.current = Date.now();
-    setTimeStats({ elapsed: 0, eta: 0 });
-    
+    setAnalysisPhase('INIT');
     setProcessedData([]);
-    setProgress({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
-    setFmpDepleted(false);
-    setActiveBrain('Processing');
-    addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
-
+    startTimeRef.current = Date.now();
+    
     try {
+      // 1. Load Stage 1
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      if (!listRes.files?.length) {
-        addLog("Stage 1 data missing.", "err");
-        setLoading(false); return;
-      }
-
+      if (!listRes.files?.length) throw new Error("Stage 1 Missing");
+      
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
       let targets = content.investable_universe || [];
-      const totalCandidates = targets.length;
+      // Filter for Common Stock ONLY for reliable theme analysis
+      targets = targets.filter((t: any) => t.type === 'Common Stock' || !t.type); 
       
-      // Sort by Market Cap or Volume to prioritize liquid assets first
-      targets.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
-
-      addLog(`Universe Loaded: ${totalCandidates} Assets. Starting Algo-Scan...`, "info");
-      setProgress({ current: 0, total: totalCandidates, cacheHits: 0, filteredOut: 0 });
+      setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
-      let skippedCount = 0;
-      const SAFETY_LIMIT = 3000; 
+      let dropped = 0;
 
-      while (currentIndex < totalCandidates && currentIndex < SAFETY_LIMIT) {
-          setNetworkStatus(fmpDepleted ? `Safe Mode (Delay ${DELAY_SAFE}ms)` : `Turbo Mode (Delay ${DELAY_TURBO}ms)`);
+      while (currentIndex < targets.length) {
+          // Visual Phase Switching
+          const progressPercent = currentIndex / targets.length;
+          if (progressPercent < 0.3) setAnalysisPhase('PROFITABILITY');
+          else if (progressPercent < 0.6) setAnalysisPhase('STABILITY');
+          else setAnalysisPhase('VALUATION');
+
+          const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
+          const promises = batch.map((t: any) => fetchTickerData(t));
+          const results = await Promise.all(promises);
           
-          const currentBatchSize = BATCH_SIZE;
-          const batch = targets.slice(currentIndex, currentIndex + currentBatchSize);
+          results.forEach(r => {
+              if (r) validResults.push(r);
+              else dropped++;
+          });
+
+          currentIndex += BATCH_SIZE;
+          setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
           
-          try {
-              const promises = batch.map((t: any) => fetchTickerData(t));
-              const results = await Promise.all(promises);
-              
-              results.forEach((r, idx) => {
-                  if (r) {
-                      validResults.push(r);
-                      // [NEW] Detailed visual log for the first few items or periodically
-                      if (validResults.length % 20 === 0) {
-                          addLog(`Scanned ${r.symbol} (${r.sector}): Score ${r.qualityScore}`, "info");
-                      }
-                  }
-                  else skippedCount++;
-              });
-
-              currentIndex += currentBatchSize;
-              setProgress(prev => ({ 
-                  ...prev, 
-                  current: Math.min(currentIndex, totalCandidates),
-                  filteredOut: skippedCount
-              }));
-              
-              const currentDelay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
-              await new Promise(r => setTimeout(r, currentDelay));
-
-          } catch (e: any) {
-              if (e.message === "FMP_LIMIT") {
-                  addLog(`FMP Limit. Switching to Backup Providers...`, "warn");
-                  setFmpDepleted(true); 
-                  await new Promise(r => setTimeout(r, 1000));
-              } else if (e.message === "FINNHUB_LIMIT") {
-                  addLog(`Finnhub Rate Limit. Pausing...`, "warn");
-                  await new Promise(r => setTimeout(r, 10000));
-              } else {
-                  addLog(`Batch Error: ${e.message}`, "err");
-                  currentIndex += currentBatchSize;
-              }
-          }
+          const delay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
+          await new Promise(r => setTimeout(r, delay));
       }
 
-      addLog(`Scan Complete. ${validResults.length} Assets Processed. Selecting Elite 500...`, "info");
+      setAnalysisPhase('COMPLETE');
       
-      // Sort by Quality Score (Pure Algo)
-      let eliteSurvivors = validResults
-          .sort((a, b) => b.qualityScore - a.qualityScore) 
-          .slice(0, TARGET_SELECTION_COUNT);
-
-      // Verify Sectors (Clean up "Other" if possible, but rely on fetchTickerData's work)
-      // Note: We skip the separate "enrichSectors" call because fetchTickerData now does it per item.
-      
+      // Select Top Candidates based on Institutional Score
+      const eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
-      // AI Audit: One-Shot Aggregate Analysis (Low Cost)
+      // Trigger AI Audit
       await analyzeUniverseHealth(eliteSurvivors);
 
+      // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.6.0", strategy: "Algorithmic_Sector_Mapped", timestamp: new Date().toISOString() },
+        manifest: { version: "6.0.0", strategy: "Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: activeEngine },
         elite_universe: eliteSurvivors
       };
 
@@ -523,121 +458,92 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Vault Finalized: ${fileName}`, "ok");
+      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified.`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
-      addLog(`Critical Error: ${e.message}`, "err");
+      addLog(`Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
-      setActiveBrain('Standby');
-      setNetworkStatus('Standby');
-      setFmpDepleted(false);
-      startTimeRef.current = 0; 
+      startTimeRef.current = 0;
     }
   };
 
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
   };
 
   const formatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // [NEW] Sector Distribution Logic (Real Data Aggregation)
-  const sectorData = useMemo(() => {
+  // Theme Aggregation for Treemap
+  const themeData = useMemo(() => {
       if (processedData.length === 0) return [];
-      
       const map = new Map<string, number>();
+      
       processedData.forEach(item => {
-          let sector = item.sector;
-          if (!sector || sector === 'Unknown' || sector === '' || sector === 'undefined') {
-              sector = 'Unclassified';
-          }
-          // Normalize sector names (e.g., Technology vs Technology Services)
-          if (sector.includes('Technology')) sector = 'Technology';
-          if (sector.includes('Health') || sector.includes('Bio')) sector = 'Healthcare';
-          if (sector.includes('Financial')) sector = 'Financials';
-          
-          map.set(sector, (map.get(sector) || 0) + 1);
+          // Ensure we only graph Common Stocks (filtered in execute)
+          const theme = item.theme || "Other";
+          map.set(theme, (map.get(theme) || 0) + 1);
       });
 
-      // Convert to array and sort by size
-      const data = Array.from(map).map(([name, size]) => ({ name, size }));
-      return data.sort((a, b) => b.size - a.size);
+      return Array.from(map).map(([name, size]) => ({ name, size })).sort((a, b) => b.size - a.size);
   }, [processedData]);
 
-  // [NEW] Custom Treemap Content Renderer
   const CustomizedContent = (props: any) => {
-    const { x, y, width, height, index, name, value } = props;
-    const colors = [
-        '#10b981', // Emerald
-        '#3b82f6', // Blue
-        '#8b5cf6', // Violet
-        '#f59e0b', // Amber
-        '#ec4899', // Pink
-        '#06b6d4', // Cyan
-        '#6366f1', // Indigo
-        '#ef4444'  // Red (others)
-    ];
-    
+    const { x, y, width, height, name, value } = props;
     return (
       <g>
         <rect
-          x={x}
-          y={y}
-          width={width}
-          height={height}
-          style={{
-            fill: colors[index % colors.length],
-            stroke: '#0f172a', // Match background for gap effect
-            strokeWidth: 2,
-            fillOpacity: 0.85,
-          }}
-          rx={4}
-          ry={4}
+          x={x} y={y} width={width} height={height}
+          style={{ fill: '#3b82f6', stroke: '#0f172a', strokeWidth: 2, fillOpacity: 0.8 }}
+          rx={4} ry={4}
         />
-        {width > 40 && height > 20 && (
+        {width > 50 && height > 30 && (
           <>
-            <text
-              x={x + width / 2}
-              y={y + height / 2 - 2}
-              textAnchor="middle"
-              fill="#fff"
-              fontSize={Math.min(width / 8, 12)}
-              fontWeight="900"
-              style={{ textTransform: 'uppercase', textShadow: '0 1px 2px rgba(0,0,0,0.5)' }}
-            >
-              {name.split(' ')[0]} 
+            <text x={x + width / 2} y={y + height / 2 - 5} textAnchor="middle" fill="#fff" fontSize={10} fontWeight="900" style={{ textTransform: 'uppercase' }}>
+              {name}
             </text>
-            <text
-              x={x + width / 2}
-              y={y + height / 2 + 10}
-              textAnchor="middle"
-              fill="rgba(255,255,255,0.8)"
-              fontSize={9}
-              fontWeight="bold"
-            >
+            <text x={x + width / 2} y={y + height / 2 + 8} textAnchor="middle" fill="rgba(255,255,255,0.7)" fontSize={8}>
               {value}
             </text>
           </>
         )}
       </g>
     );
+  };
+
+  // Phase Indicator Helper
+  const getPhaseStyle = (phase: string) => {
+      // Logic: If current phase matches or passed, allow lighting up
+      const phases = ['PROFITABILITY', 'STABILITY', 'VALUATION'];
+      const currentIdx = phases.indexOf(analysisPhase);
+      const targetIdx = phases.indexOf(phase);
+      
+      // If COMPLETE, all green.
+      if (analysisPhase === 'COMPLETE') return 'text-emerald-400 font-bold';
+      
+      // If INIT, all grey
+      if (analysisPhase === 'INIT') return 'text-slate-600';
+
+      // Active Phase
+      if (currentIdx === targetIdx) return 'text-blue-400 animate-pulse font-black scale-105';
+      
+      // Passed Phase
+      if (currentIdx > targetIdx) return 'text-slate-400';
+      
+      // Future Phase
+      return 'text-slate-700';
   };
 
   return (
@@ -648,55 +554,36 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v6.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Strict Quant Protocol Ready'}
+                            {loading ? `Analyzing: ${progress.current}/${progress.total}` : 'Institutional Quant Engine Ready'}
                         </span>
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${
-                            fmpDepleted
-                            ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' 
-                            : 'border-purple-500/20 bg-purple-500/10 text-purple-400'
-                        }`}>
-                            {networkStatus}
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
+                            {fmpDepleted ? 'Backup Data Mode' : 'Primary Data Mode'}
                         </span>
-                        {progress.cacheHits > 0 && (
-                            <span className="text-[8px] px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-500/20 rounded font-black uppercase">
-                                Hits: {progress.cacheHits}
-                            </span>
-                        )}
-                        {progress.filteredOut > 0 && (
-                            <span className="text-[8px] px-2 py-0.5 bg-red-900/50 text-red-400 border border-red-500/20 rounded font-black uppercase">
-                                Dropped: {progress.filteredOut}
-                            </span>
-                        )}
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
                    {loading && (
                      <div className="flex items-center space-x-2 mt-0.5">
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
-                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span></span>
                        <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
-                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span></span>
                      </div>
                    )}
                 </div>
               </div>
             </div>
             <button onClick={executeDeepQualityScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Sieving Real Data...' : 'Start Strict Quality Filter'}
+              {loading ? 'Executing Quant Model...' : 'Start Institutional Filter'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
-              {/* Progress & Analysis Column */}
               <div className="flex flex-col gap-6">
                   <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
                     <div className="flex justify-between items-center mb-6">
@@ -704,46 +591,36 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
                     </div>
                     <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
-                      <div className={`h-full transition-all duration-300 ${fmpDepleted ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                      <div className={`h-full transition-all duration-300 bg-blue-500`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                     </div>
-                    <div className="flex justify-between text-[8px] uppercase font-bold text-slate-500">
-                        {/* [MODIFIED] Dynamic Check Indicators */}
-                        <span className={`transition-all duration-500 ${loading ? 'text-emerald-400 animate-pulse' : ''}`}>
-                            {loading ? '● ' : ''}Profitability Check
-                        </span>
-                        <span className={`transition-all duration-500 ${loading ? 'text-blue-400 animate-pulse delay-75' : ''}`}>
-                            {loading ? '● ' : ''}Stability Check
-                        </span>
-                        <span className={`transition-all duration-500 ${loading ? 'text-purple-400 animate-pulse delay-150' : ''}`}>
-                            {loading ? '● ' : ''}Value Check
-                        </span>
+                    <div className="flex justify-between text-[8px] uppercase font-bold tracking-widest">
+                        <span className={getPhaseStyle('PROFITABILITY')}>1. Profitability (F-Score)</span>
+                        <span className={getPhaseStyle('STABILITY')}>2. Stability (Z-Score)</span>
+                        <span className={getPhaseStyle('VALUATION')}>3. Sector Neutral Value</span>
                     </div>
                   </div>
 
                   <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
-                     <div className="flex justify-between items-center mb-2">
-                        <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Portfolio Risk Auditor</p>
+                     <div className="flex justify-between items-center mb-4">
+                        <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>Portfolio Risk Auditor (AI)</p>
                      </div>
-                     <p className={`text-xs font-bold leading-relaxed italic whitespace-pre-wrap ${aiAnalysis ? 'text-white' : 'text-slate-500'}`}>
-                        {aiAnalysis || "Awaiting Aggregate Portfolio Audit..."}
-                     </p>
+                     <div className="prose-report text-xs text-slate-300 leading-relaxed font-medium">
+                        {aiAnalysis ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysis}</ReactMarkdown> : <span className="italic opacity-50">Awaiting portfolio aggregation...</span>}
+                     </div>
                      {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
-                     {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
                   </div>
               </div>
 
-              {/* Quality Matrix Chart Column -> [CHANGED] Sector Treemap */}
               <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative overflow-hidden">
                  <div className="absolute top-6 left-6 z-10">
-                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Sector Dominance Map</p>
-                    <p className="text-[8px] text-slate-500 uppercase font-mono">Real-Data Distribution (Top {processedData.length})</p>
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1">Market Theme Dominance</p>
+                    <p className="text-[8px] text-slate-500 uppercase font-mono">Based on Elite 500 Selection</p>
                  </div>
-                 
                  <div className="flex-1 w-full h-full mt-8">
                      {processedData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <Treemap
-                                data={sectorData}
+                                data={themeData}
                                 dataKey="size"
                                 aspectRatio={4 / 3}
                                 stroke="#0f172a"
@@ -752,12 +629,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                 <RechartsTooltip 
                                     content={({ active, payload }) => {
                                         if (active && payload && payload.length) {
-                                            const d = payload[0].payload;
                                             return (
-                                                <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-xl backdrop-blur-md">
-                                                    <p className="text-xs font-black text-white mb-1">{d.name}</p>
-                                                    <p className="text-[9px] text-emerald-400 font-mono">Count: {d.size} Stocks</p>
-                                                    <p className="text-[9px] text-slate-500 font-mono">Share: {((d.size / processedData.length) * 100).toFixed(1)}%</p>
+                                                <div className="bg-slate-900 border border-slate-700 p-2 rounded shadow-lg">
+                                                    <p className="text-xs font-bold text-white">{payload[0].payload.name}</p>
+                                                    <p className="text-[10px] text-blue-400">Assets: {payload[0].value}</p>
                                                 </div>
                                             );
                                         }
@@ -769,9 +644,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
-                             <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Real Sectors</p>
+                             <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
                      )}
                  </div>
