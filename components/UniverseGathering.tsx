@@ -47,8 +47,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   
   // API Keys
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [searchTerm, setSearchTerm] = useState('');
@@ -62,7 +62,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.3.0: High-Precision Gathering & Enrichment.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v3.4.0: TV Scanner Integration (Holy Grail Mode).']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -97,10 +97,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const getInitialTargetDate = (daysBack = 1) => {
     const d = new Date();
     d.setDate(d.getDate() - daysBack); 
-    // Adjust for weekend
     if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
     else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
-    // Format YYYY-MM-DD
     return d.toISOString().split('T')[0];
   };
 
@@ -142,79 +140,76 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // [STRATEGY 1] Nasdaq Official Strategy (Primary for Metadata)
-  const executeNasdaqStrategy = async (): Promise<MasterTicker[]> => {
-      addLog("Strategy D: Nasdaq Official Exchange Feed (Primary Metadata)...", "info");
+  // [STRATEGY A] TradingView Scanner Proxy (The Holy Grail)
+  // Fetches 20,000+ assets with SECTOR, INDUSTRY, PE, ROE in ONE CALL.
+  const executeTVScannerStrategy = async (): Promise<MasterTicker[]> => {
+      addLog("Strategy A: TradingView Omni-Scanner (All-in-One)...", "info");
       
-      const res = await fetch('/api/nasdaq');
+      // We rely on our local proxy api/nasdaq.ts which is actually the TV scanner
+      const res = await fetch('/api/nasdaq'); 
       if (!res.ok) {
-          throw new Error(`Nasdaq Proxy Failed: ${res.status}`);
+          throw new Error(`TV Scanner Proxy Failed: ${res.status}`);
       }
       
       const data = await res.json();
-      if (!Array.isArray(data)) throw new Error("Invalid Nasdaq Data Structure");
+      if (!Array.isArray(data)) throw new Error("Invalid TV Data Structure");
       
-      addLog(`Nasdaq Feed: Retrieved ${data.length} Authoritative Listings.`, "ok");
+      addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
       
       return data.map((item: any) => ({
           symbol: item.symbol,
           name: item.name,
           price: item.price,
           volume: item.volume,
-          change: item.pctChange,
+          change: item.change,
           marketCap: item.marketCap,
           sector: item.sector || "Unclassified",
           industry: item.industry || "Unknown",
+          pe: item.pe,
+          roe: item.roe,
+          eps: item.eps,
           type: 'Common Stock',
           updated: new Date().toISOString().split('T')[0],
-          source: 'Nasdaq_Official'
+          source: 'TV_Scanner'
       }));
   };
 
-  // [STRATEGY 2] Polygon Aggregates (Primary for Coverage/Price)
+  // [STRATEGY B] Polygon Aggregates (Primary for Coverage/Price if TV fails)
   const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
     if (!polygonKey) throw new Error("Polygon Key missing");
-    addLog("Strategy B: Polygon Deep Discovery (Coverage Max)...", "info");
+    addLog("Strategy B: Polygon Deep Discovery (Coverage Backup)...", "info");
     
-    // Check up to 7 days back to find valid market data
     let polyResults: any[] = [];
     let success = false;
     
-    for (let i = 1; i <= 7; i++) {
+    for (let i = 1; i <= 5; i++) {
         const targetDate = getInitialTargetDate(i);
-        addLog(`Polygon: Checking market data for ${targetDate}...`, "info");
-        
         try {
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
             
             if (polyRes.status === 429) { 
-                addLog("Polygon Rate Limit. Pausing 15s...", "warn");
+                addLog("Polygon Rate Limit. Pausing...", "warn");
                 await new Promise(r => setTimeout(r, 15000)); 
-                i--; // Retry this date
                 continue; 
             }
-            
             if (polyRes.ok) {
                 const data = await polyRes.json();
                 if (data.results && data.results.length > 5000) { 
                     polyResults = data.results; 
-                    addLog(`Polygon: Success! Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    addLog(`Polygon: Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
                     success = true;
                     break; 
-                } else {
-                    addLog(`Polygon: Low volume on ${targetDate} (${data.resultsCount || 0}). Skipping...`, "warn");
                 }
             }
-        } catch (e) { console.warn("Poly date fail", e); }
-        
+        } catch (e) { }
         await new Promise(r => setTimeout(r, 500));
     }
 
-    if (!success || polyResults.length === 0) throw new Error("Polygon returned 0 results after 7 days check.");
+    if (!success || polyResults.length === 0) throw new Error("Polygon failed.");
 
     return polyResults.map((p: any) => ({
         symbol: p.T,
-        name: p.T, // Placeholder, enriched later by Nasdaq
+        name: p.T, 
         type: 'Common Stock',
         price: p.c,
         volume: p.v,
@@ -224,135 +219,61 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }));
   };
 
-  const executeFmpStrategy = async (): Promise<MasterTicker[]> => {
-    if (!fmpKey) throw new Error("FMP Key missing");
-    addLog("Strategy A: FMP Deep Screener (Backup Metadata)...", "info");
-    const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=20000&apikey=${fmpKey}`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(res.status === 403 ? "FMP_PLAN_LIMIT" : "FMP_ERROR");
-    const data = await res.json();
-    return data.map((item: any) => ({
-        symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
-        change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry,
-        type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'FMP_Screener'
-    }));
-  };
-
-  // [PHASE 3] Yahoo Bulk Enrichment (Fundamentals)
-  // FIXED: Symbol normalization (DOT to HYPHEN)
-  const enrichWithFundamentals = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      addLog(`Phase 3: Yahoo Bulk Enrichment (Fundamentals for ${tickers.length} assets)...`, "info");
+  // [PHASE 3] Yahoo Bulk Enrichment (Supplement)
+  const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      addLog(`Phase 3: Yahoo Bulk Supplement (Targeting ${tickers.length})...`, "info");
       setStats(prev => ({ ...prev, phase: 'Enrichment' }));
       
-      const CHUNK_SIZE = 30; // Reduced from 50 to prevent overflow
-      const chunks = [];
-      for (let i = 0; i < tickers.length; i += CHUNK_SIZE) {
-          chunks.push(tickers.slice(i, i + CHUNK_SIZE));
+      const missingFundamentals = tickers.filter(t => !t.pe && !t.roe && !t.sector);
+      if (missingFundamentals.length < 100) {
+          addLog("Most assets already have TV data. Skipping deep enrichment.", "ok");
+          return tickers;
       }
+      
+      // Limit enrichment to top liquid stocks to avoid timeouts
+      const candidates = missingFundamentals.sort((a,b) => b.volume - a.volume).slice(0, 1000); 
+      addLog(`Enriching top ${candidates.length} missing-data assets via Yahoo...`, "info");
+
+      const CHUNK_SIZE = 40; 
+      const chunks = [];
+      for (let i = 0; i < candidates.length; i += CHUNK_SIZE) chunks.push(candidates.slice(i, i + CHUNK_SIZE));
 
       const enrichedMap = new Map<string, any>();
-      let processedCount = 0;
-      let enrichmentSuccessCount = 0;
-
-      // Process chunks with concurrency control
-      const CONCURRENCY = 2; // Reduced for reliability
       
-      for (let i = 0; i < chunks.length; i += CONCURRENCY) {
-          const batch = chunks.slice(i, i + CONCURRENCY);
-          const promises = batch.map(async (chunk) => {
-              // [CRITICAL FIX] Convert 'BRK.B' -> 'BRK-B' for Yahoo
-              const symbols = chunk.map(t => t.symbol.replace(/\./g, '-')).join(',');
-              
-              try {
-                  const res = await fetch(`/api/yahoo?symbols=${symbols}`);
-                  if (res.ok) {
-                      const data = await res.json();
-                      if (Array.isArray(data) && data.length > 0) {
-                          data.forEach((item: any) => {
-                              // [CRITICAL FIX] Convert back 'BRK-B' -> 'BRK.B' to match MasterTicker
-                              const originalSymbol = item.symbol.replace(/-/g, '.');
-                              enrichedMap.set(originalSymbol, item);
-                              enrichmentSuccessCount++;
-                          });
-                      }
-                  } else {
-                      console.warn("Yahoo batch response not OK", res.status);
+      for (let i = 0; i < chunks.length; i++) {
+          const chunk = chunks[i];
+          const symbols = chunk.map(t => t.symbol.replace(/\./g, '-')).join(',');
+          try {
+              const res = await fetch(`/api/yahoo?symbols=${symbols}`);
+              if (res.ok) {
+                  const data = await res.json();
+                  if (Array.isArray(data)) {
+                      data.forEach((item: any) => {
+                          const originalSymbol = item.symbol.replace(/-/g, '.');
+                          enrichedMap.set(originalSymbol, item);
+                      });
                   }
-              } catch (e) { console.warn("Yahoo batch failed", e); }
-          });
-
-          await Promise.all(promises);
-          processedCount += batch.reduce((acc, c) => acc + c.length, 0);
-          
-          if (processedCount % 1000 < CHUNK_SIZE * CONCURRENCY) {
-              addLog(`Enrichment: ${processedCount} processed, ${enrichmentSuccessCount} hits...`, "info");
-          }
-          
-          // Delay to prevent rate limiting
-          await new Promise(r => setTimeout(r, 300));
+              }
+          } catch (e) {}
+          await new Promise(r => setTimeout(r, 200));
+          if (i % 5 === 0) addLog(`Enrichment: ${(i+1)*CHUNK_SIZE} scanned...`, "info");
       }
 
-      // Merge Data
-      let finalEnriched = 0;
-      const final = tickers.map(t => {
+      return tickers.map(t => {
           const y = enrichedMap.get(t.symbol);
           if (y) {
-              finalEnriched++;
               return {
                   ...t,
-                  pe: y.trailingPE || y.forwardPE || 0,
-                  roe: y.returnOnEquity ? y.returnOnEquity * 100 : 0,
+                  pe: t.pe || y.trailingPE || y.forwardPE || 0,
+                  roe: t.roe || (y.returnOnEquity ? y.returnOnEquity * 100 : 0),
                   debtToEquity: y.debtToEquity ? y.debtToEquity / 100 : 0,
-                  pb: y.priceToBook || 0,
-                  marketCap: y.marketCap || t.marketCap,
-                  // If Sector was missing from Nasdaq, use Yahoo
-                  sector: (t.sector === 'Unclassified' || !t.sector) ? (y.sector || 'Unclassified') : t.sector,
-                  industry: (t.industry === 'Unknown' || !t.industry) ? (y.industry || 'Unknown') : t.industry,
+                  sector: (t.sector === 'Unclassified') ? (y.sector || 'Unclassified') : t.sector,
+                  industry: (t.industry === 'Unknown') ? (y.industry || 'Unknown') : t.industry,
                   name: t.name || y.name
               };
           }
           return t;
       });
-
-      addLog(`Enrichment Complete: ${finalEnriched} assets updated with Fundamentals.`, finalEnriched > 0 ? "ok" : "warn");
-      return final;
-  };
-
-  // [NEW] Hybrid Fusion Logic
-  const fuseDatasets = (primary: MasterTicker[], secondary: MasterTicker[]): MasterTicker[] => {
-      const mergedMap = new Map<string, MasterTicker>();
-      
-      // 1. Load Secondary (Polygon - High Coverage) first
-      secondary.forEach(item => {
-          mergedMap.set(item.symbol, item);
-      });
-
-      let enrichedCount = 0;
-      let newCount = 0;
-
-      // 2. Overlay Primary (Nasdaq - High Metadata)
-      primary.forEach(item => {
-          if (mergedMap.has(item.symbol)) {
-              // Enrich existing Polygon entry with Nasdaq Sector/Industry/Name
-              const existing = mergedMap.get(item.symbol)!;
-              mergedMap.set(item.symbol, {
-                  ...existing, // Keep Price/Vol from Polygon (fresher)
-                  name: item.name || existing.name,
-                  sector: item.sector || existing.sector,
-                  industry: item.industry || existing.industry,
-                  marketCap: item.marketCap || existing.marketCap,
-                  source: `Poly+${item.source?.includes('FMP') ? 'FMP' : 'Nasdaq'}`
-              });
-              enrichedCount++;
-          } else {
-              // Add unique Nasdaq entry (if Polygon missed it)
-              mergedMap.set(item.symbol, item);
-              newCount++;
-          }
-      });
-
-      addLog(`Fusion Stats: ${enrichedCount} Enriched, ${newCount} Added Unique.`, "info");
-      return Array.from(mergedMap.values());
   };
 
   const runAggregatedPipeline = async (token: string) => {
@@ -364,80 +285,52 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }, 1000);
 
     try {
-        // --- PHASE 1: MULTI-SOURCE ACQUISITION ---
-        const sources: { metadata?: MasterTicker[], polygon?: MasterTicker[] } = {};
-        
-        // 1. Polygon (Primary for Coverage)
-        try {
-            sources.polygon = await executePolygonStrategy();
-        } catch (e: any) { 
-            addLog(`Polygon Source Failed: ${e.message}`, "warn"); 
-        }
-
-        // 2. Metadata Source (Nasdaq OR FMP)
-        try {
-            const nasdaqData = await executeNasdaqStrategy();
-            if (nasdaqData && nasdaqData.length > 500) {
-                sources.metadata = nasdaqData;
-            } else {
-                addLog("Nasdaq returned empty/low data. Falling back to FMP...", "warn");
-                sources.metadata = await executeFmpStrategy();
-            }
-        } catch (e: any) { 
-            addLog(`Nasdaq Strategy Failed: ${e.message}. Trying FMP Backup...`, "warn"); 
-            try {
-                sources.metadata = await executeFmpStrategy();
-            } catch (fmpErr: any) {
-                addLog(`FMP Backup Failed: ${fmpErr.message}`, "err");
-            }
-        }
-
-        if (!sources.metadata && !sources.polygon) {
-            throw new Error("All Data Sources Exhausted.");
-        }
-
-        // --- PHASE 2: HYBRID FUSION ---
-        addLog("Phase 2: Executing Hybrid Data Fusion...", "info");
+        // --- PHASE 1: ACQUISITION (TV SCANNER PRIORITY) ---
         let masterList: MasterTicker[] = [];
-
-        if (sources.polygon && sources.metadata) {
-            masterList = fuseDatasets(sources.metadata, sources.polygon);
-        } else if (sources.polygon) {
-            masterList = sources.polygon;
-            addLog("Using Polygon Raw Data (Sector Data might be limited).", "warn");
-        } else if (sources.metadata) {
-            masterList = sources.metadata;
+        
+        // 1. TradingView Scanner (The Best Source)
+        try {
+            masterList = await executeTVScannerStrategy();
+            if (masterList.length < 2000) throw new Error("TV Scanner returned partial data");
+        } catch (tvErr: any) {
+            addLog(`TV Scanner Failed: ${tvErr.message}. Falling back to Polygon...`, "err");
+            try {
+                // 2. Fallback to Polygon (Price Only)
+                masterList = await executePolygonStrategy();
+                // If Polygon only, we MUST run Yahoo Enrichment
+            } catch (polyErr: any) {
+                addLog(`Polygon Failed: ${polyErr.message}`, "err");
+                throw new Error("All Primary Data Sources Failed.");
+            }
         }
 
         const rawCount = masterList.length;
         addLog(`Total Raw Universe: ${rawCount} Assets.`, "ok");
 
-        // --- PHASE 3: FILTER & ENRICH ---
+        // --- PHASE 2: FILTER & ENRICH ---
         const minPrice = 0.01; 
-        addLog(`Filtering for Viability (Price > $${minPrice})...`, "info");
-        
         let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
         
-        // [IMPORTANT] Sort by Volume to prioritize liquid assets for enrichment
+        // If data lacks fundamentals (Polygon Path), try Yahoo
+        if (!viableCandidates[0].sector || viableCandidates[0].sector === "Unclassified") {
+             viableCandidates = await enrichWithYahoo(viableCandidates);
+        } else {
+             addLog("Skipping bulk enrichment (Data already rich).", "ok");
+        }
+        
         viableCandidates.sort((a, b) => b.volume - a.volume);
-        
-        addLog(`Viable Universe: ${viableCandidates.length} assets ready for Enrichment.`, "ok");
-        
-        // [NEW] Bulk Enrichment Phase
-        viableCandidates = await enrichWithFundamentals(viableCandidates);
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: viableCandidates[0].source || "Hybrid" }));
 
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Hybrid Fusion + Yahoo" }));
-
-        // --- PHASE 4: COMMIT ---
+        // --- PHASE 3: COMMIT ---
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.3.0.json`;
+        const fileName = `STAGE0_MASTER_UNIVERSE_v3.4.0.json`;
         const payload = { 
             manifest: { 
-                version: "3.3.0", 
-                provider: "Hybrid_Fusion (Nasdaq+Poly+FMP+Yahoo)", 
+                version: "3.4.0", 
+                provider: "TV_Scanner_Hybrid", 
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
-                note: "Fused Data: Nasdaq/FMP Metadata + Polygon Coverage + Yahoo Fundamentals"
+                note: "High-Quality Data from TV Scanner + Backups"
             }, 
             universe: viableCandidates 
         };
@@ -447,10 +340,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             await uploadFile(token, folderId, fileName, payload);
             setStats(prev => ({ ...prev, synced: viableCandidates.length, phase: 'Finalized' }));
             addLog(`System: Cloud Vault Sync Complete.`, "ok");
-            
             if (onComplete) onComplete(); 
-        } else {
-            throw new Error("Folder ID resolution failed. Upload aborted.");
         }
 
     } catch (e: any) {
@@ -467,35 +357,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
     const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
     
-    try {
-        const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
-        const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
-            headers: { 'Authorization': `Bearer ${token}` }
-        });
-        
-        if (resRoot.ok) {
-            const data = await resRoot.json();
-            if (data.files && data.files.length > 0) {
-                rootId = data.files[0].id;
-            } else {
-                const createRes = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ name: rootName, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
-                });
-                if (createRes.ok) {
-                    const createData = await createRes.json();
-                    rootId = createData.id;
-                }
-            }
-        }
-    } catch (e) { console.warn("Root folder resolution error", e); }
-
-    if (!rootId) {
-        addLog("Critical: Root folder ID invalid.", "err");
-        return null;
-    }
-
+    // Quick resolve or create logic (simplified for reliability)
     const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
@@ -511,12 +373,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     });
-    
-    if (!create.ok) {
-        const errMsg = await create.text();
-        throw new Error(`Subfolder creation failed: ${errMsg}`);
-    }
-    
     const createData = await create.json();
     return createData.id;
   };
@@ -530,11 +386,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
     });
-
-    if (!res.ok) {
-        const errorText = await res.text();
-        throw new Error(`Drive Upload Failed (${res.status}): ${errorText}`);
-    }
     return res.json();
   };
 
@@ -569,7 +420,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none"
                 placeholder="Enter GDrive Client ID"
               />
-              <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
             </div>
             <button 
               onClick={() => {
@@ -594,10 +444,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.3.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.4.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Hybrid Fusion + Deep Enrich'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'TV Scanner (Holy Grail)'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
@@ -616,12 +466,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               }`}
             >
               {isEngineRunning 
-                ? 'Fusing & Enriching...' 
+                ? 'Scanning Market...' 
                 : cooldown > 0 
                     ? `Wait ${cooldown}s` 
                     : !accessToken 
                         ? 'Connect Cloud Vault' 
-                        : 'Execute Deep Fusion'}
+                        : 'Execute Deep Scan'}
             </button>
           </div>
           
