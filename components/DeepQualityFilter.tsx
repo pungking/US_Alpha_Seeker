@@ -45,7 +45,7 @@ interface Props {
 // [CACHE SYSTEM] Daily Session Cache Key
 const getDailyCacheKey = (symbol: string) => {
     const today = new Date().toISOString().split('T')[0]; // YYYY-MM-DD
-    return `QUALITY_CACHE_REAL_v2_${symbol}_${today}`;
+    return `QUALITY_CACHE_REAL_v3_${symbol}_${today}`;
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
@@ -67,7 +67,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Free Plan Logic
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2.0: Strict Real-Data Protocol Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2.1: Resilience Protocol Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -129,35 +129,47 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  // [NEW] Advanced Scoring Logic (Strict Real Data)
+  // [NEW] Advanced Scoring Logic (Handles Missing Data Gracefully)
   const calculateQuantScores = (metrics: any, price: number, marketCap: number) => {
       // 1. Profitability (Earnings Power)
-      // ROE: Higher is better. >15% is good.
-      const roeScore = Math.min(100, Math.max(0, (metrics.roe || 0) * 4)); 
-      const profitScore = roeScore;
+      // If ROE is missing, we check if PER exists. If PER is negative (loss), Profitability is low.
+      let roeVal = metrics.roe || 0; 
+      if (!metrics.roe && metrics.per && metrics.per < 0) roeVal = -5; // Penalty for loss-making if ROE missing
+      
+      const profitScore = Math.min(100, Math.max(0, (roeVal * 3) + 50)); // Center at 50, scale up/down
 
       // 2. Stability (Safety)
-      // Debt/Eq: Lower is better. <1.0 is safe.
-      const debt = metrics.debt || 1.0;
-      const debtScore = Math.max(0, 100 - (debt * 30)); // 1.0 debt -> 70 score. 3.0 debt -> 10 score.
+      // Debt/Eq: Lower is better. Missing Debt is risky, assume 1.5
+      const debt = metrics.debt !== undefined ? metrics.debt : 1.5;
+      const debtScore = Math.max(0, 100 - (debt * 25)); // 1.0 debt -> 75 score. 
       const stabilityScore = debtScore;
 
       // 3. Growth/Value (Upside)
-      // PER: 10~25 is ideal. <10 is cheap but risky. >50 is expensive.
-      const per = metrics.per || 25;
+      // PBR is a good fallback if PER is missing (e.g. Turnaround plays)
       let valScore = 50;
-      if (per > 0 && per < 10) valScore = 90; // Deep Value
-      else if (per >= 10 && per < 25) valScore = 80; // Reasonable
-      else if (per >= 25 && per < 50) valScore = 60; // Growth priced
-      else if (per >= 50) valScore = 40; // Expensive
-      else valScore = 30; // Negative PE (Loss)
-      
-      const growthScore = valScore;
+      const per = metrics.per;
+      const pbr = metrics.pbr;
+
+      if (per !== undefined && per > 0) {
+          // Normal PE valuation
+          if (per < 15) valScore = 90;
+          else if (per < 30) valScore = 70;
+          else if (per < 50) valScore = 50;
+          else valScore = 30;
+      } else if (pbr !== undefined && pbr > 0) {
+          // Fallback to PBR valuation
+          if (pbr < 1.5) valScore = 85;
+          else if (pbr < 3.0) valScore = 60;
+          else valScore = 40;
+      } else if (per !== undefined && per <= 0) {
+          // Loss making, but maybe high growth?
+          valScore = 40; 
+      }
 
       // Weighted Quality Score
-      const qualityScore = Number(((profitScore * 0.4) + (stabilityScore * 0.3) + (growthScore * 0.3)).toFixed(2));
+      const qualityScore = Number(((profitScore * 0.4) + (stabilityScore * 0.3) + (valScore * 0.3)).toFixed(2));
 
-      return { profitScore, stabilityScore, growthScore, qualityScore };
+      return { profitScore, stabilityScore, growthScore: valScore, qualityScore };
   };
 
   const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
@@ -178,31 +190,33 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       let metrics: any = {};
       let profileData: any = {};
       let metricsSource = "";
+      let foundData = false;
       
-      // 1. Try Yahoo Finance Proxy (PRIMARY - FREE & ROBUST)
+      // 1. Try Yahoo Finance Proxy (PRIMARY)
       try {
           const yRes = await fetch(`/api/yahoo?symbols=${target.symbol}`);
           if (yRes.ok) {
               const yData = await yRes.json();
               if (yData && yData.length > 0) {
                   const y = yData[0];
-                  // Strict Check: Must have fundamental data
-                  if (y.trailingPE || y.returnOnEquity || y.priceToBook) {
+                  // Relaxed Check: Accept partial data
+                  if (y.trailingPE || y.forwardPE || y.priceToBook || y.returnOnEquity) {
                       metrics = {
                           per: y.trailingPE || y.forwardPE,
                           pbr: y.priceToBook,
-                          roe: (y.returnOnEquity || 0) * 100, // Convert decimal to %
-                          debt: (y.debtToEquity || 0) / 100   // Yahoo sends % (e.g. 150), we need ratio (1.5)
+                          roe: y.returnOnEquity ? y.returnOnEquity * 100 : undefined,
+                          debt: y.debtToEquity ? y.debtToEquity / 100 : undefined
                       };
                       profileData = { name: y.name };
                       metricsSource = "Yahoo";
+                      foundData = true;
                   }
               }
           }
       } catch (e) { /* Yahoo Fail */ }
 
-      // 2. Try FMP (If Yahoo missing or FMP preferred)
-      if ((!metrics.per || !metrics.roe) && !fmpDepleted) {
+      // 2. Try FMP (Backup)
+      if (!foundData && !fmpDepleted) {
           try {
             const ratioRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
             
@@ -216,12 +230,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 if (data && Array.isArray(data) && data.length > 0) {
                     const m = data[0];
                     metrics = {
-                        per: Number(m.peRatioTTM),
-                        pbr: Number(m.priceToBookRatioTTM),
-                        debt: Number(m.debtEquityRatioTTM),
-                        roe: Number(m.returnOnEquityTTM) * 100
+                        per: m.peRatioTTM,
+                        pbr: m.priceToBookRatioTTM,
+                        debt: m.debtEquityRatioTTM,
+                        roe: m.returnOnEquityTTM ? m.returnOnEquityTTM * 100 : undefined
                     };
                     metricsSource = "FMP";
+                    foundData = true;
                 }
             }
           } catch (e: any) {
@@ -229,31 +244,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      // 3. Fallback to Finnhub
-      if (!metrics.per && !metrics.roe) {
-          try {
-            const fhRes = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${target.symbol}&metric=all&token=${finnhubKey}`);
-            if (fhRes.status === 429) {
-                throw new Error("FINNHUB_LIMIT");
-            } else if (fhRes.ok) {
-                const data = await fhRes.json();
-                metrics = {
-                    per: Number(data.metric?.peNormalized),
-                    pbr: Number(data.metric?.pbAnnual),
-                    debt: Number(data.metric?.totalDebtEquityRatioQuarterly),
-                    roe: Number(data.metric?.roeTTM)
-                };
-                metricsSource = "Finnhub";
-            }
-          } catch(e: any) {
-              if (e.message === "FINNHUB_LIMIT") throw e;
-          }
-      }
+      // [CRITICAL FIX] "Soft-Real" Filtering
+      // Instead of requiring PER && ROE, we accept ANY valid fundamental indicator.
+      // This prevents mass dropping of Growth/Turnaround stocks.
+      const hasPer = metrics.per !== undefined && metrics.per !== null;
+      const hasPbr = metrics.pbr !== undefined && metrics.pbr !== null;
+      const hasRoe = metrics.roe !== undefined && metrics.roe !== null;
 
-      // [CRITICAL STRICT FILTER]
-      // If we STILL don't have valid PE or ROE, we MUST skip this stock.
-      // Do NOT insert fake default values.
-      if (!metrics.per || !metrics.roe || isNaN(metrics.per)) {
+      // Drop ONLY if we have absolutely zero valuation/profitability data
+      if (!hasPer && !hasPbr && !hasRoe) {
           return null;
       }
 
@@ -261,7 +260,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const volume = Number(target.volume) || 0;
       const safeMarketValue = Number(target.marketValue || (price * volume)) || 1000000; 
 
-      // Calculate Advanced 3-Factor Scores
       const scores = calculateQuantScores(metrics, price, safeMarketValue);
 
       const resultTicker: QualityTicker = {
@@ -276,10 +274,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         growthScore: scores.growthScore,
         qualityScore: scores.qualityScore,
 
-        per: metrics.per,
-        pbr: metrics.pbr, 
-        debtToEquity: metrics.debt,
-        roe: metrics.roe,
+        per: metrics.per || 0,
+        pbr: metrics.pbr || 0, 
+        debtToEquity: metrics.debt || 0,
+        roe: metrics.roe || 0,
         
         sector: target.sector || "Unknown",
         industry: target.industry || "Unknown", 
@@ -290,7 +288,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // [CACHE SAVE]
       try {
           sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker));
-      } catch(e) { /* Quota exceeded, ignore */ }
+      } catch(e) { /* Quota exceeded */ }
 
       return resultTicker;
 
@@ -440,7 +438,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       while (currentIndex < totalCandidates && validResults.length < TARGET_SELECTION_COUNT) {
           setNetworkStatus(fmpDepleted ? `Safe Mode (Delay ${DELAY_SAFE}ms)` : `Turbo Mode (Delay ${DELAY_TURBO}ms)`);
           
-          // Adaptive Batch: If we need more, grab more. 
           const currentBatchSize = BATCH_SIZE;
           const batch = targets.slice(currentIndex, currentIndex + currentBatchSize);
           
@@ -491,7 +488,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "5.2.0", strategy: "Strict_Real_Data_Quant", timestamp: new Date().toISOString() },
+        manifest: { version: "5.2.1", strategy: "Strict_Real_Data_Quant", timestamp: new Date().toISOString() },
         elite_universe: eliteSurvivors
       };
 
@@ -567,7 +564,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
