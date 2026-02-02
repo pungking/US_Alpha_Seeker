@@ -31,13 +31,16 @@ interface MasterTicker {
   industry?: string;
   pe?: number;
   eps?: number;
+  // [NEW] Added for Stage 2 Deep Quality
+  roe?: number;
+  debtToEquity?: number;
+  pb?: number;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
-  // [RESTORED] 기본 클라이언트 ID 자동 입력 (사용자 편의성 및 동작 보장)
   const [clientId, setClientId] = useState<string>(() => 
     localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com'
   );
@@ -61,7 +64,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.5.0: Enhanced Data-Rich Acquisition Protocol.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.6.0: Deep Fundamental Enrichment Module Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -110,9 +113,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return;
     }
 
-    // 1. Check Auth First
     if (!accessToken) {
-      document.body.setAttribute('data-engine-running', 'true'); // Pause ticker during auth
+      document.body.setAttribute('data-engine-running', 'true'); 
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
@@ -122,8 +124,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              
-              // [UX CHANGE] Do NOT run immediately. Let user click the blue button.
               addLog("Cloud Vault Linked. Ready to Execute Fusion.", "ok");
               document.body.removeAttribute('data-engine-running'); 
             }
@@ -132,63 +132,73 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
         addLog(`Auth Error: ${e.message}`, "err");
-        // [FIX] 인증 실패 시 설정창 자동 오픈 (ID 수정 기회 제공)
         setShowConfig(true);
         document.body.removeAttribute('data-engine-running');
       }
       return;
     }
 
-    // 2. If Auth exists, Run Pipeline
     document.body.setAttribute('data-engine-running', 'true');
     runAggregatedPipeline(accessToken);
   };
 
-  // Helper to enrich data with FMP Quotes (PE, EPS)
-  const enrichWithFmpQuotes = async (tickers: MasterTicker[], apiKey: string): Promise<MasterTicker[]> => {
-      const BATCH_SIZE = 500;
+  // [NEW] Robust Yahoo Enrichment for Stage 2 Critical Data (ROE, Debt, Sector)
+  const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      const BATCH_SIZE = 50; // Yahoo limit per req
+      const filteredTickers = tickers.filter(t => t.price > 0 && t.type !== 'ETF'); // Focus on viable equities
       const chunks = [];
-      for (let i = 0; i < tickers.length; i += BATCH_SIZE) {
-          chunks.push(tickers.slice(i, i + BATCH_SIZE));
+      
+      for (let i = 0; i < filteredTickers.length; i += BATCH_SIZE) {
+          chunks.push(filteredTickers.slice(i, i + BATCH_SIZE));
       }
 
-      let enrichedCount = 0;
-      const enrichedMap = new Map<string, any>();
-
-      addLog(`Enriching ${tickers.length} assets with Valuation Data (PE/EPS)...`, "info");
+      addLog(`Phase 2: Enriching ${filteredTickers.length} assets via Yahoo (ROE/Sector/Debt)...`, "info");
       setStats(prev => ({ ...prev, phase: 'Enrichment' }));
+
+      const enrichedMap = new Map<string, any>();
+      let processedCount = 0;
 
       for (const chunk of chunks) {
           try {
               const symbols = chunk.map(t => t.symbol).join(',');
-              const url = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${apiKey}`;
-              const res = await fetch(url);
+              const res = await fetch(`/api/yahoo?symbols=${symbols}`);
+              
               if (res.ok) {
                   const data = await res.json();
                   if (Array.isArray(data)) {
                       data.forEach((item: any) => {
                           enrichedMap.set(item.symbol, item);
                       });
-                      enrichedCount += data.length;
+                      processedCount += data.length;
                   }
               }
-              await new Promise(r => setTimeout(r, 100)); // Rate limit safety
+              // Throttle slightly to be nice to the proxy
+              await new Promise(r => setTimeout(r, 100)); 
           } catch (e) {
-              console.warn("Quote batch failed", e);
+              console.warn("Yahoo batch failed", e);
+          }
+          
+          if (processedCount % 500 === 0 && processedCount > 0) {
+              addLog(`Enriched ${processedCount} / ${filteredTickers.length} assets...`, "info");
           }
       }
 
-      addLog(`Enrichment Complete: ${enrichedCount} assets updated.`, "ok");
+      addLog(`Enrichment Complete: ${processedCount} assets upgraded with Fundamentals.`, "ok");
 
       return tickers.map(t => {
-          const q = enrichedMap.get(t.symbol);
+          const y = enrichedMap.get(t.symbol);
+          if (!y) return t;
+
           return {
               ...t,
-              pe: q?.pe,
-              eps: q?.eps,
-              marketCap: q?.marketCap || t.marketCap, // Prefer quote market cap if newer
-              // Sector fallback if missing in screener but present in quote (rare but possible)
-              // Note: FMP Quote endpoint typically doesn't return sector, but let's stick to screener sector.
+              // Prioritize Yahoo data for Stage 2 essentials
+              marketCap: y.marketCap || t.marketCap,
+              sector: y.sector || t.sector || "Unclassified",
+              industry: y.industry || t.industry || "Unclassified",
+              pe: y.trailingPE || y.forwardPE || t.pe,
+              roe: y.returnOnEquity ? y.returnOnEquity * 100 : undefined, // Convert to % if decimal
+              debtToEquity: y.debtToEquity,
+              pb: y.priceToBook
           };
       });
   };
@@ -197,7 +207,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (!fmpKey) throw new Error("FMP Key missing");
     addLog("Strategy A: FMP Deep Screener (Primary)...", "info");
     
-    // [ENHANCED] Added isEtf=false and isActivelyTrading=true to improve quality for Stage 2
     const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=10000000&volumeMoreThan=5000&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=14000&apikey=${fmpKey}`;
     
     const res = await fetch(url);
@@ -211,7 +220,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     
     addLog(`FMP: Discovered ${data.length} Equity Assets.`, "ok");
     
-    let candidates: MasterTicker[] = data.map((item: any) => ({
+    return data.map((item: any) => ({
         symbol: item.symbol, 
         name: item.companyName, 
         price: item.price, 
@@ -223,11 +232,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         type: 'Common Stock', 
         updated: new Date().toISOString().split('T')[0]
     }));
-
-    // [NEW] Enrichment Step
-    candidates = await enrichWithFmpQuotes(candidates, fmpKey);
-
-    return candidates;
   };
 
   const executePolygonStrategy = async (): Promise<MasterTicker[]> => {
@@ -304,27 +308,40 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let usedProvider = "None";
 
     try {
-        try { masterData = await executeFmpStrategy(); usedProvider = "FMP (Enriched)"; } 
-        catch (fmpErr: any) {
+        // Step 1: Discovery
+        try { 
+            masterData = await executeFmpStrategy(); 
+            usedProvider = "FMP (Screener)"; 
+        } catch (fmpErr: any) {
             addLog(`FMP Primary Failed: ${fmpErr.message}. Switch to Backup...`, "warn");
-            try { masterData = await executePolygonStrategy(); usedProvider = "Polygon+Finnhub"; } 
-            catch (polyErr: any) {
-                 try { masterData = await executeTwelveDataStrategy(); usedProvider = "Twelve Data (List Only)"; } 
-                 catch (tdErr: any) { throw new Error("All Market Data Providers Exhausted."); }
+            try { 
+                masterData = await executePolygonStrategy(); 
+                usedProvider = "Polygon+Finnhub (Enriched)"; 
+            } catch (polyErr: any) {
+                 try { 
+                     masterData = await executeTwelveDataStrategy(); 
+                     usedProvider = "Twelve Data (Enriched)"; 
+                 } catch (tdErr: any) { throw new Error("All Market Data Providers Exhausted."); }
             }
         }
 
         if (masterData.length === 0) throw new Error("Zero Assets Found.");
+        setStats(prev => ({ ...prev, found: masterData.length, provider: usedProvider }));
 
-        setStats(prev => ({ ...prev, found: masterData.length, provider: usedProvider, phase: 'Mapping' }));
+        // Step 2: Critical Enrichment (Yahoo)
+        // Ensure we have Sector, ROE, Debt for Stage 2 Quality Check
+        masterData = await enrichWithYahoo(masterData);
+
+        // Step 3: Mapping & Commit
+        setStats(prev => ({ ...prev, phase: 'Mapping' }));
         const registryMap = new Map(masterData.map(i => [i.symbol, i]));
         setRegistry(registryMap);
 
         addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.5.0.json`;
-        const payload = { manifest: { version: "2.5.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.6.0.json`;
+        const payload = { manifest: { version: "2.6.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
 
         const folderId = await ensureFolder(token);
         if (folderId) {
@@ -332,7 +349,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             setStats(prev => ({ ...prev, synced: masterData.length, phase: 'Finalized' }));
             addLog(`System: Cloud Vault Sync Complete via ${usedProvider}.`, "ok");
             
-            // AUTO PILOT TRIGGER COMPLETE
             if (onComplete) onComplete(); 
         }
 
@@ -347,21 +363,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const ensureFolder = async (token: string) => {
-    // 1. Resolve Root Folder ID dynamically (Handles deleted folder scenario)
-    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; // Fallback
+    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
     const rootName = GOOGLE_DRIVE_TARGET.rootFolderName;
-    
     try {
-        // Try to find the root folder by name to recover from deletion/ID change
         const qRoot = encodeURIComponent(`name = '${rootName}' and 'root' in parents and trashed = false`);
         const resRoot = await fetch(`https://www.googleapis.com/drive/v3/files?q=${qRoot}`, {
             headers: { 'Authorization': `Bearer ${token}` }
         }).then(r => r.json());
-        
-        if (resRoot.files && resRoot.files.length > 0) {
-            rootId = resRoot.files[0].id;
-        } else {
-            // If not found (deleted), create new Root Folder
+        if (resRoot.files && resRoot.files.length > 0) rootId = resRoot.files[0].id;
+        else {
             const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
                 method: 'POST',
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
@@ -369,11 +379,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             }).then(r => r.json());
             if (createRoot.id) rootId = createRoot.id;
         }
-    } catch (e) {
-        console.warn("Root folder resolution failed, using default ID", e);
-    }
+    } catch (e) { console.warn("Root folder resolution failed, using default ID", e); }
 
-    // 2. Ensure Target Subfolder (Stage 0) exists inside the resolved Root ID
     const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
@@ -411,7 +418,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-       {/* [MODIFIED] Configuration Modal: Z-Index Increased to 9999 for visibility */}
        {showConfig && (
         <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
           <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
@@ -455,7 +461,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.5.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.6.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
