@@ -59,18 +59,18 @@ interface Props {
 }
 
 // [ENGINEERING] Sector Benchmarks for Data Imputation
-// Used when real API data is missing to provide a realistic "Best Guess" based on industry standards.
+// Used ONLY when real API data is completely missing.
 const SECTOR_STATS: Record<string, { gm: number; fcf: number; roic: number; pe: number }> = {
     'Technology': { gm: 52.0, fcf: 12.0, roic: 18.0, pe: 35.0 },
     'Software': { gm: 70.0, fcf: 20.0, roic: 25.0, pe: 45.0 },
     'Semiconductors': { gm: 55.0, fcf: 18.0, roic: 22.0, pe: 40.0 },
     'Healthcare': { gm: 58.0, fcf: 10.0, roic: 14.0, pe: 28.0 },
     'Consumer Services': { gm: 40.0, fcf: 8.0, roic: 15.0, pe: 25.0 },
-    'Financials': { gm: 90.0, fcf: 5.0, roic: 10.0, pe: 15.0 }, // Banks represent margin differently
+    'Financials': { gm: 90.0, fcf: 5.0, roic: 10.0, pe: 15.0 }, 
     'Energy': { gm: 35.0, fcf: 15.0, roic: 12.0, pe: 12.0 },
     'Industrials': { gm: 28.0, fcf: 7.0, roic: 13.0, pe: 20.0 },
     'Utilities': { gm: 30.0, fcf: 4.0, roic: 6.0, pe: 18.0 },
-    'Real Estate': { gm: 65.0, fcf: 6.0, roic: 5.0, pe: 35.0 }, // REITs use FFO, margin is high
+    'Real Estate': { gm: 65.0, fcf: 6.0, roic: 5.0, pe: 35.0 },
     'Basic Materials': { gm: 25.0, fcf: 8.0, roic: 11.0, pe: 16.0 },
     'Communication Services': { gm: 45.0, fcf: 11.0, roic: 14.0, pe: 22.0 },
     'Consumer Defensive': { gm: 32.0, fcf: 6.0, roic: 16.0, pe: 24.0 },
@@ -108,7 +108,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.1: Hybrid Data Engine Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.2: Real-Data Integration Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -181,20 +181,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       return Math.min(100, Math.max(0, normalized));
   };
 
-  // Internal Yahoo Proxy - Force Real Data Fetch
-  const fetchYahooDetails = async (symbol: string) => {
+  // [HYBRID DATA FETCH] Priority 1: Yahoo Finance Real Data Modules
+  const fetchRealFinancials = async (symbol: string) => {
       try {
-          const res = await fetch(`/api/yahoo?symbols=${symbol}`);
+          // Fetch critical modules for Real Data calculation
+          const modules = "financialData,defaultKeyStatistics,cashflowStatementHistory,summaryDetail";
+          const res = await fetch(`/api/yahoo?symbols=${symbol}&modules=${modules}`);
           if (!res.ok) return null;
-          const data = await res.json();
-          if (Array.isArray(data) && data.length > 0) return data[0];
-          return null;
+          return await res.json();
       } catch (e) {
           return null;
       }
   };
 
-  // [HYBRID DATA FETCH] FMP API for Real Ratios
+  // [HYBRID DATA FETCH] Priority 2: FMP API for Real Ratios (Backup)
   const fetchFmpRatios = async (symbol: string) => {
       if (!fmpKey) return null;
       try {
@@ -216,17 +216,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   };
 
   const getSectorStats = (sector: string, industry: string) => {
-     // Match logic
      if (sector === "Technology Services" || industry.includes("Software")) return SECTOR_STATS['Software'];
      if (industry.includes("Semiconductors")) return SECTOR_STATS['Semiconductors'];
      if (sector === "Finance" && industry.includes("Bank")) return SECTOR_STATS['Financials'];
-     
-     // General Sector Fallback
      for (const key of Object.keys(SECTOR_STATS)) {
          if (sector.includes(key)) return SECTOR_STATS[key];
      }
-     
-     // Global Default if no match
      return { gm: 30, fcf: 8, roic: 10, pe: 20 };
   };
 
@@ -258,7 +253,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           setLoading(false); return;
       }
 
-      // Filter Top 50% based on Stage 2 Quality Score
       candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0));
       const cutoff = Math.ceil(candidates.length * 0.5);
       const eliteSquad = candidates.slice(0, cutoff);
@@ -274,108 +268,110 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           
           await Promise.all(batch.map(async (item: any) => {
               try {
-                  // 1. Base Data from Stage 2 (Often flawed '0's)
                   const basePrice = safeNum(item.price);
                   const basePe = safeNum(item.per || item.pe);
                   const baseRoe = safeNum(item.roe);
                   const baseSector = item.sector || "Unknown";
                   const baseIndustry = item.industry || "Unknown";
 
-                  // 2. Fetch Live Data from Yahoo Proxy (Primary Price/PE)
-                  const yahooData = await fetchYahooDetails(item.symbol);
+                  // [STEP 1] Fetch Real Data from Yahoo (Priority)
+                  const realData = await fetchRealFinancials(item.symbol);
                   
-                  // 3. Fetch Financial Ratios from FMP (Primary Margins/FCF)
+                  // [STEP 2] Fetch Backup Data from FMP (Secondary)
                   const fmpData = await fetchFmpRatios(item.symbol);
 
-                  // 4. Data Fusion & Logic
-                  const price = yahooData?.price || basePrice;
-                  const marketCap = safeNum(yahooData?.marketCap || item.marketCap || item.marketValue);
+                  // [STEP 3] Data Logic & Calculation
+                  let dataSource = "Estimate";
                   
-                  // [HYBRID] Gross Margin Logic: FMP -> Sector Model Imputation
-                  let grossMargin = safeNum(fmpData?.grossProfitMarginTTM ? fmpData.grossProfitMarginTTM * 100 : 0);
-                  let dataSource = "FMP_Real";
-                  
-                  if (grossMargin === 0) {
-                      // Impute from Sector Stats
+                  // --- GROSS MARGIN ---
+                  let grossMargin = 0;
+                  if (realData?.financialData?.grossMargins?.raw) {
+                      grossMargin = safeNum(realData.financialData.grossMargins.raw * 100);
+                      dataSource = "Yahoo_Real";
+                  } else if (fmpData?.grossProfitMarginTTM) {
+                      grossMargin = safeNum(fmpData.grossProfitMarginTTM * 100);
+                      dataSource = "FMP_Real";
+                  } else {
                       const stats = getSectorStats(baseSector, baseIndustry);
                       grossMargin = stats.gm;
-                      
-                      // Adjust based on ROE (High ROE implies higher margin)
+                      // Adjust based on ROE
                       if (baseRoe > 20) grossMargin *= 1.2;
                       if (baseRoe < 5) grossMargin *= 0.8;
-                      
                       dataSource = "Sector_Model";
                   }
 
-                  // [HYBRID] FCF Yield Logic
-                  let fcfYield = safeNum(fmpData?.freeCashFlowYieldTTM ? fmpData.freeCashFlowYieldTTM * 100 : 0);
-                  if (fcfYield === 0) {
-                       const stats = getSectorStats(baseSector, baseIndustry);
-                       fcfYield = stats.fcf;
-                       // Adjust based on PE (Low PE often means higher yield or distress)
-                       if (basePe > 0 && basePe < 15) fcfYield *= 1.1; 
+                  // --- FCF YIELD CALCULATION (OCF - CapEx) ---
+                  let fcfYield = 0;
+                  const marketCap = safeNum(realData?.summaryDetail?.marketCap?.raw || item.marketCap || item.marketValue);
+                  
+                  if (realData?.cashflowStatementHistory?.cashflowStatements?.[0]) {
+                      const statement = realData.cashflowStatementHistory.cashflowStatements[0];
+                      const ocf = safeNum(statement.totalCashFromOperatingActivities?.raw);
+                      const capex = safeNum(statement.capitalExpenditures?.raw);
+                      const fcf = ocf + capex; // CapEx is usually negative in Yahoo
+                      if (marketCap > 0) fcfYield = (fcf / marketCap) * 100;
                   }
                   
-                  // Growth & ROIC
-                  const growthRate = yahooData?.revenueGrowth 
-                        ? yahooData.revenueGrowth * 100 
-                        : (fmpData?.revenueGrowthTTM ? fmpData.revenueGrowthTTM * 100 : 8.0);
+                  if (fcfYield === 0 && fmpData?.freeCashFlowYieldTTM) {
+                      fcfYield = safeNum(fmpData.freeCashFlowYieldTTM * 100);
+                  }
                   
-                  // If growth is missing, infer from PE (PEG = 1.5 assumption)
-                  const imputedGrowth = growthRate === 0 && basePe > 0 ? basePe / 1.5 : growthRate;
-
-                  const roe = safeNum(fmpData?.returnOnEquityTTM ? fmpData.returnOnEquityTTM * 100 : (yahooData?.returnOnEquity ? yahooData.returnOnEquity * 100 : baseRoe));
+                  if (fcfYield === 0) {
+                      const stats = getSectorStats(baseSector, baseIndustry);
+                      fcfYield = stats.fcf;
+                      // Adjust based on PE (Low PE often means higher yield)
+                      if (basePe > 0 && basePe < 15) fcfYield *= 1.1; 
+                  }
                   
-                  // ROIC Imputation
-                  let roic = safeNum(fmpData?.returnOnCapitalEmployedTTM ? fmpData.returnOnCapitalEmployedTTM * 100 : 0);
+                  // --- GROWTH & PEG ---
+                  let growthRate = safeNum(realData?.financialData?.revenueGrowth?.raw * 100);
+                  if (growthRate === 0) {
+                       growthRate = safeNum(fmpData?.revenueGrowthTTM * 100);
+                  }
+                  
+                  // Impute growth if missing (Reverse Engineer from PE, assuming PEG=1.5)
+                  const imputedGrowth = growthRate === 0 && basePe > 0 ? basePe / 1.5 : (growthRate || 8.0);
+                  
+                  const pe = safeNum(realData?.summaryDetail?.trailingPE?.raw || fmpData?.peRatioTTM || basePe || 25);
+                  const eps = safeNum(realData?.defaultKeyStatistics?.trailingEps?.raw || (pe > 0 ? basePrice / pe : 0));
+                  const roe = safeNum(realData?.financialData?.returnOnEquity?.raw * 100 || fmpData?.returnOnEquityTTM * 100 || baseRoe);
+                  
+                  // --- ROIC ---
+                  let roic = safeNum(fmpData?.returnOnCapitalEmployedTTM * 100);
                   if (roic === 0) {
-                      // Estimate ROIC from ROE (Usually ROIC is 60-80% of ROE for leveraged firms)
+                      // Estimate ROIC from ROE (Usually 60-80% of ROE)
                       roic = roe * 0.75;
                       if (roic === 0) roic = getSectorStats(baseSector, baseIndustry).roic;
                   }
 
-                  // EPS & PE
-                  const pe = safeNum(fmpData?.peRatioTTM || yahooData?.trailingPE || basePe || 25);
-                  const eps = safeNum(yahooData?.trailingEps || yahooData?.forwardEps || (pe > 0 ? price / pe : 0));
+                  // --- INTRINSIC VALUE ---
+                  let intrinsicValue = calculateIntrinsicValue(eps, imputedGrowth);
+                  if (intrinsicValue <= 0) intrinsicValue = basePrice * 0.7; // Fallback to discount
+                  // Cap insane valuations
+                  if (intrinsicValue > basePrice * 3.0) intrinsicValue = basePrice * 3.0;
 
-                  // Rule of 40
+                  const upside = basePrice > 0 ? ((intrinsicValue - basePrice) / basePrice) * 100 : 0;
                   const ruleOf40 = imputedGrowth + grossMargin;
 
-                  // Intrinsic Value (Strict Graham Formula)
-                  let intrinsicValue = calculateIntrinsicValue(eps, imputedGrowth);
-                  
-                  // Fallback: If EPS negative, price based on Book or Sales (Discounted)
-                  if (intrinsicValue <= 0) intrinsicValue = price * 0.7;
-                  
-                  // Sanity Cap: Don't let intrinsic value exceed 2.5x price (No 200% upside spam)
-                  if (intrinsicValue > price * 2.5) intrinsicValue = price * 2.5;
-
-                  const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
-
-                  // 6. Scoring Logic (STRICTER THRESHOLDS)
+                  // Scoring
                   const valScore = normalizeScore(upside, 0, 100); 
                   const growthScore = normalizeScore(ruleOf40, 20, 70);
                   const qualScore = normalizeScore(roic, 5, 35);
-                  
                   const compositeScore = (valScore * 0.4) + (growthScore * 0.35) + (qualScore * 0.25);
 
-                  // [DATA ACCUMULATION] Spread ...item FIRST to preserve all previous stage data
                   const ticker: FundamentalTicker = {
-                      ...item, // <--- Preserves Stage 0, 1, 2 data (including Z-Score, old scores, etc.)
-                      
+                      ...item,
                       symbol: item.symbol,
                       name: item.name || item.symbol,
-                      price: price,
+                      price: basePrice,
                       marketCap: marketCap,
                       sector: baseSector,
                       
-                      // Updated Scores
                       fundamentalScore: safeNum(compositeScore.toFixed(2)),
                       intrinsicValue: safeNum(intrinsicValue.toFixed(2)),
                       upsidePotential: safeNum(upside.toFixed(2)),
                       fairValueGap: safeNum(upside.toFixed(2)),
                       
-                      // Real Data Metrics
                       roic: safeNum(roic.toFixed(2)),
                       ruleOf40: safeNum(ruleOf40.toFixed(2)),
                       fcfYield: safeNum(fcfYield.toFixed(2)),
@@ -383,13 +379,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       pegRatio: safeNum((pe / (imputedGrowth || 1)).toFixed(2)),
                       
                       economicMoat: determineEconomicMoat(grossMargin, roic, roe),
-                      source: dataSource, // Tag source for audit
+                      source: dataSource,
                       
                       radarData: {
                           valuation: valScore,
                           profitability: normalizeScore(roe, 5, 40),
                           growth: growthScore,
-                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 6), // Use accumulated Z-Score if FMP fails
+                          financialHealth: normalizeScore(item.zScore || 3, 1.5, 6),
                           moat: normalizeScore(grossMargin, 15, 70),
                           momentum: normalizeScore(ruleOf40, 10, 70)
                       },
@@ -404,7 +400,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           }));
 
           setProgress({ current: Math.min(i + BATCH_SIZE, eliteSquad.length), total: eliteSquad.length });
-          await new Promise(r => setTimeout(r, 200)); 
+          await new Promise(r => setTimeout(r, 250)); // Gentle Throttle
       }
 
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
@@ -416,7 +412,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "7.1.0", count: results.length, strategy: "Fundamental_Fortress_Hybrid_RealData" },
+        manifest: { version: "7.2.0", count: results.length, strategy: "Fundamental_Fortress_Hybrid_RealData_v2" },
         fundamental_universe: results
       };
 
@@ -479,11 +475,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                            {loading ? `Processing: ${progress.current}/${progress.total}` : 'Real-Time Valuation Ready'}
+                            {loading ? `Processing: ${progress.current}/${progress.total}` : 'Real-Data Engine (Yahoo+FMP) Active'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -502,7 +498,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               </div>
             </div>
             <button onClick={executeFundamentalFortress} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95 transition-all">
-              {loading ? 'Calculating Intrinsic Value...' : 'Execute Fortress Protocol (Top 50%)'}
+              {loading ? 'Crunching Real Financials...' : 'Execute Fortress Protocol (Top 50%)'}
             </button>
           </div>
 
@@ -583,7 +579,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                  { id: 'ROIC', label: 'ROIC', val: `${selectedTicker.roic.toFixed(1)}%`, good: selectedTicker.roic > 10 },
                                  { id: 'RULE40', label: 'Rule of 40', val: `${selectedTicker.ruleOf40.toFixed(1)}`, good: selectedTicker.ruleOf40 > 40 },
                                  { id: 'GROSS', label: 'Gross Marg', val: `${selectedTicker.grossMargin.toFixed(1)}%`, good: selectedTicker.grossMargin > 40 },
-                                 { id: 'FCF', label: 'FCF Yield', val: `${selectedTicker.fcfYield}%`, good: parseFloat(selectedTicker.fcfYield as any) > 3 }
+                                 { id: 'FCF', label: 'FCF Yield', val: `${selectedTicker.fcfYield.toFixed(1)}%`, good: parseFloat(selectedTicker.fcfYield as any) > 3 }
                              ].map((m, idx) => (
                                  <div 
                                     key={idx} 
