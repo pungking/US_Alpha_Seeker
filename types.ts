@@ -9,7 +9,8 @@ export enum ApiProvider {
   POLYGON = 'Polygon',
   RAPID_API = 'RapidAPI',
   GOOGLE_DRIVE = 'Google Drive',
-  GEMINI = 'Google Gemini'
+  GEMINI = 'Google Gemini',
+  NASDAQ = 'Nasdaq Exchange'
 }
 
 export interface ApiStatus {
