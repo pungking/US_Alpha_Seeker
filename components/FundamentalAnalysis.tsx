@@ -59,7 +59,7 @@ interface Props {
 }
 
 // [ENGINEERING] Sector Benchmarks for Data Imputation
-// Used ONLY when real API data is completely missing.
+// Used ONLY when real API data is completely missing (Fallback of Fallback).
 const SECTOR_STATS: Record<string, { gm: number; fcf: number; roic: number; pe: number }> = {
     'Technology': { gm: 52.0, fcf: 12.0, roic: 18.0, pe: 35.0 },
     'Software': { gm: 70.0, fcf: 20.0, roic: 25.0, pe: 45.0 },
@@ -108,7 +108,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.2: Real-Data Integration Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.3: Real-Data Integration Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -299,6 +299,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       if (baseRoe < 5) grossMargin *= 0.8;
                       dataSource = "Sector_Model";
                   }
+                  
+                  // Sanity check for Margin (Banks usually have high margins, but 108% is bug)
+                  if (grossMargin > 100) grossMargin = 99.9;
 
                   // --- FCF YIELD CALCULATION (OCF - CapEx) ---
                   let fcfYield = 0;
@@ -412,7 +415,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "7.2.0", count: results.length, strategy: "Fundamental_Fortress_Hybrid_RealData_v2" },
+        manifest: { version: "7.3.0", count: results.length, strategy: "Fundamental_Fortress_RealData_Priority" },
         fundamental_universe: results
       };
 
@@ -475,7 +478,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
