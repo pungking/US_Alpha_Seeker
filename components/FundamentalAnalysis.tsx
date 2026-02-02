@@ -46,6 +46,7 @@ interface FundamentalTicker {
   };
   
   lastUpdate: string;
+  source: string; // Source of data (Real vs Model)
 
   // [DATA ACCUMULATION] Preserve all data from Stage 0, 1, 2
   [key: string]: any;
@@ -57,7 +58,24 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// [METRIC EXPLANATIONS DATABASE]
+// [ENGINEERING] Sector Benchmarks for Data Imputation
+// Used when real API data is missing to provide a realistic "Best Guess" based on industry standards.
+const SECTOR_STATS: Record<string, { gm: number; fcf: number; roic: number; pe: number }> = {
+    'Technology': { gm: 52.0, fcf: 12.0, roic: 18.0, pe: 35.0 },
+    'Software': { gm: 70.0, fcf: 20.0, roic: 25.0, pe: 45.0 },
+    'Semiconductors': { gm: 55.0, fcf: 18.0, roic: 22.0, pe: 40.0 },
+    'Healthcare': { gm: 58.0, fcf: 10.0, roic: 14.0, pe: 28.0 },
+    'Consumer Services': { gm: 40.0, fcf: 8.0, roic: 15.0, pe: 25.0 },
+    'Financials': { gm: 90.0, fcf: 5.0, roic: 10.0, pe: 15.0 }, // Banks represent margin differently
+    'Energy': { gm: 35.0, fcf: 15.0, roic: 12.0, pe: 12.0 },
+    'Industrials': { gm: 28.0, fcf: 7.0, roic: 13.0, pe: 20.0 },
+    'Utilities': { gm: 30.0, fcf: 4.0, roic: 6.0, pe: 18.0 },
+    'Real Estate': { gm: 65.0, fcf: 6.0, roic: 5.0, pe: 35.0 }, // REITs use FFO, margin is high
+    'Basic Materials': { gm: 25.0, fcf: 8.0, roic: 11.0, pe: 16.0 },
+    'Communication Services': { gm: 45.0, fcf: 11.0, roic: 14.0, pe: 22.0 },
+    'Consumer Defensive': { gm: 32.0, fcf: 6.0, roic: 16.0, pe: 24.0 },
+};
+
 const METRIC_INSIGHTS: Record<string, { title: string; desc: string }> = {
     'INTRINSIC': {
         title: "Intrinsic Value (보수적 내재가치)",
@@ -90,7 +108,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.0: Hybrid Data Engine Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Fortress v7.1: Hybrid Data Engine Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -138,7 +156,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
   };
 
-  // --- QUANT MATH UTILS (STRICT MODE) ---
   const safeNum = (val: any): number => {
       if (val === null || val === undefined || val === 'NaN') return 0;
       const num = Number(val);
@@ -198,6 +215,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       return 'None';
   };
 
+  const getSectorStats = (sector: string, industry: string) => {
+     // Match logic
+     if (sector === "Technology Services" || industry.includes("Software")) return SECTOR_STATS['Software'];
+     if (industry.includes("Semiconductors")) return SECTOR_STATS['Semiconductors'];
+     if (sector === "Finance" && industry.includes("Bank")) return SECTOR_STATS['Financials'];
+     
+     // General Sector Fallback
+     for (const key of Object.keys(SECTOR_STATS)) {
+         if (sector.includes(key)) return SECTOR_STATS[key];
+     }
+     
+     // Global Default if no match
+     return { gm: 30, fcf: 8, roic: 10, pe: 20 };
+  };
+
   const executeFundamentalFortress = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
@@ -246,6 +278,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   const basePrice = safeNum(item.price);
                   const basePe = safeNum(item.per || item.pe);
                   const baseRoe = safeNum(item.roe);
+                  const baseSector = item.sector || "Unknown";
+                  const baseIndustry = item.industry || "Unknown";
 
                   // 2. Fetch Live Data from Yahoo Proxy (Primary Price/PE)
                   const yahooData = await fetchYahooDetails(item.symbol);
@@ -257,32 +291,58 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   const price = yahooData?.price || basePrice;
                   const marketCap = safeNum(yahooData?.marketCap || item.marketCap || item.marketValue);
                   
-                  // Gross Margin: FMP > Yahoo > Stage 2 Estimate > Sector Default
+                  // [HYBRID] Gross Margin Logic: FMP -> Sector Model Imputation
                   let grossMargin = safeNum(fmpData?.grossProfitMarginTTM ? fmpData.grossProfitMarginTTM * 100 : 0);
-                  if (grossMargin === 0 && yahooData?.profitMargins) grossMargin = yahooData.profitMargins * 100 + 15; // Rough estimate if only Net Margin exists
-                  if (grossMargin === 0) grossMargin = 20.0; // Fallback
+                  let dataSource = "FMP_Real";
+                  
+                  if (grossMargin === 0) {
+                      // Impute from Sector Stats
+                      const stats = getSectorStats(baseSector, baseIndustry);
+                      grossMargin = stats.gm;
+                      
+                      // Adjust based on ROE (High ROE implies higher margin)
+                      if (baseRoe > 20) grossMargin *= 1.2;
+                      if (baseRoe < 5) grossMargin *= 0.8;
+                      
+                      dataSource = "Sector_Model";
+                  }
 
-                  // FCF Yield: FMP > Yahoo Calc > Stage 2 Estimate
+                  // [HYBRID] FCF Yield Logic
                   let fcfYield = safeNum(fmpData?.freeCashFlowYieldTTM ? fmpData.freeCashFlowYieldTTM * 100 : 0);
-                  if (fcfYield === 0 && yahooData?.freeCashflow) fcfYield = (yahooData.freeCashflow / marketCap) * 100;
+                  if (fcfYield === 0) {
+                       const stats = getSectorStats(baseSector, baseIndustry);
+                       fcfYield = stats.fcf;
+                       // Adjust based on PE (Low PE often means higher yield or distress)
+                       if (basePe > 0 && basePe < 15) fcfYield *= 1.1; 
+                  }
                   
                   // Growth & ROIC
                   const growthRate = yahooData?.revenueGrowth 
                         ? yahooData.revenueGrowth * 100 
                         : (fmpData?.revenueGrowthTTM ? fmpData.revenueGrowthTTM * 100 : 8.0);
                   
+                  // If growth is missing, infer from PE (PEG = 1.5 assumption)
+                  const imputedGrowth = growthRate === 0 && basePe > 0 ? basePe / 1.5 : growthRate;
+
                   const roe = safeNum(fmpData?.returnOnEquityTTM ? fmpData.returnOnEquityTTM * 100 : (yahooData?.returnOnEquity ? yahooData.returnOnEquity * 100 : baseRoe));
-                  const roic = safeNum(fmpData?.returnOnCapitalEmployedTTM ? fmpData.returnOnCapitalEmployedTTM * 100 : roe * 0.85);
+                  
+                  // ROIC Imputation
+                  let roic = safeNum(fmpData?.returnOnCapitalEmployedTTM ? fmpData.returnOnCapitalEmployedTTM * 100 : 0);
+                  if (roic === 0) {
+                      // Estimate ROIC from ROE (Usually ROIC is 60-80% of ROE for leveraged firms)
+                      roic = roe * 0.75;
+                      if (roic === 0) roic = getSectorStats(baseSector, baseIndustry).roic;
+                  }
 
                   // EPS & PE
                   const pe = safeNum(fmpData?.peRatioTTM || yahooData?.trailingPE || basePe || 25);
                   const eps = safeNum(yahooData?.trailingEps || yahooData?.forwardEps || (pe > 0 ? price / pe : 0));
 
                   // Rule of 40
-                  const ruleOf40 = growthRate + grossMargin;
+                  const ruleOf40 = imputedGrowth + grossMargin;
 
                   // Intrinsic Value (Strict Graham Formula)
-                  let intrinsicValue = calculateIntrinsicValue(eps, growthRate);
+                  let intrinsicValue = calculateIntrinsicValue(eps, imputedGrowth);
                   
                   // Fallback: If EPS negative, price based on Book or Sales (Discounted)
                   if (intrinsicValue <= 0) intrinsicValue = price * 0.7;
@@ -307,7 +367,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       name: item.name || item.symbol,
                       price: price,
                       marketCap: marketCap,
-                      sector: item.sector || "Unknown",
+                      sector: baseSector,
                       
                       // Updated Scores
                       fundamentalScore: safeNum(compositeScore.toFixed(2)),
@@ -320,9 +380,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       ruleOf40: safeNum(ruleOf40.toFixed(2)),
                       fcfYield: safeNum(fcfYield.toFixed(2)),
                       grossMargin: safeNum(grossMargin.toFixed(2)),
-                      pegRatio: safeNum((pe / (growthRate || 1)).toFixed(2)),
+                      pegRatio: safeNum((pe / (imputedGrowth || 1)).toFixed(2)),
                       
                       economicMoat: determineEconomicMoat(grossMargin, roic, roe),
+                      source: dataSource, // Tag source for audit
                       
                       radarData: {
                           valuation: valScore,
@@ -355,7 +416,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "7.0.0", count: results.length, strategy: "Fundamental_Fortress_Hybrid_RealData" },
+        manifest: { version: "7.1.0", count: results.length, strategy: "Fundamental_Fortress_Hybrid_RealData" },
         fundamental_universe: results
       };
 
@@ -418,7 +479,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Fortress v7.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
@@ -542,6 +603,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
                             </div>
                         )}
+                        {/* Source Tag */}
+                        <div className="absolute bottom-2 left-6">
+                            <span className={`text-[8px] font-mono uppercase tracking-widest ${selectedTicker.source?.includes("Real") ? 'text-emerald-500' : 'text-amber-500'}`}>
+                                DATA_SOURCE: {selectedTicker.source || "UNKNOWN"}
+                            </span>
+                        </div>
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
