@@ -64,7 +64,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Enrichment' | 'Mapping' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v2.6.1: Drive Upload Logic Hardened.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v2.7.0: Multi-Layer Enrichment Strategy Loaded.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -142,21 +142,86 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runAggregatedPipeline(accessToken);
   };
 
-  // [NEW] Robust Yahoo Enrichment for Stage 2 Critical Data (ROE, Debt, Sector)
-  const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
-      const BATCH_SIZE = 50; // Yahoo limit per req
-      const filteredTickers = tickers.filter(t => t.price > 0 && t.type !== 'ETF'); // Focus on viable equities
+  // [NEW] Layer 1: FMP Quote Enrichment (Reliable for PE, EPS, Sector)
+  // Even free plans usually allow batch quotes
+  const enrichWithFmpQuotes = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      if (!fmpKey) {
+          addLog("FMP Key missing. Skipping Layer 1 Enrichment.", "warn");
+          return tickers;
+      }
+
+      // FMP Batch limit is usually around 500-1000 for quotes
+      const BATCH_SIZE = 500;
+      const filteredTickers = tickers.filter(t => t.type !== 'ETF' && t.type !== 'FUND');
       const chunks = [];
       
       for (let i = 0; i < filteredTickers.length; i += BATCH_SIZE) {
           chunks.push(filteredTickers.slice(i, i + BATCH_SIZE));
       }
 
-      addLog(`Phase 2: Enriching ${filteredTickers.length} assets via Yahoo (ROE/Sector/Debt)...`, "info");
+      addLog(`Layer 1: FMP Quote Enrichment (${filteredTickers.length} items)...`, "info");
+      
+      const enrichedMap = new Map<string, any>();
+      let processedCount = 0;
+
+      for (const chunk of chunks) {
+          try {
+              const symbols = chunk.map(t => t.symbol).join(',');
+              const url = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${fmpKey}`;
+              const res = await fetch(url);
+              
+              if (res.ok) {
+                  const data = await res.json();
+                  if (Array.isArray(data)) {
+                      data.forEach((item: any) => {
+                          enrichedMap.set(item.symbol, item);
+                      });
+                      processedCount += data.length;
+                  }
+              } else if (res.status === 429) {
+                  addLog("FMP Quote Rate Limit Hit. Skipping remaining chunks.", "warn");
+                  break; 
+              }
+              await new Promise(r => setTimeout(r, 200)); 
+          } catch (e) {
+              console.warn("FMP batch failed", e);
+          }
+      }
+
+      addLog(`Layer 1 Complete: ${processedCount} assets updated via FMP.`, "ok");
+
+      return tickers.map(t => {
+          const q = enrichedMap.get(t.symbol);
+          if (!q) return t;
+          return {
+              ...t,
+              price: q.price || t.price,
+              marketCap: q.marketCap || t.marketCap,
+              pe: q.pe || t.pe,
+              eps: q.eps || t.eps,
+              // FMP Quote often doesn't give Sector, but let's check
+              // FMP Profile is separate, but Quote is faster.
+          };
+      });
+  };
+
+  // [NEW] Layer 2: Yahoo Enrichment (Critical for ROE, Debt, Sector)
+  const enrichWithYahoo = async (tickers: MasterTicker[]): Promise<MasterTicker[]> => {
+      // Reduced Batch Size for Stability
+      const BATCH_SIZE = 20; 
+      const filteredTickers = tickers.filter(t => t.price > 0 && t.type !== 'ETF'); 
+      const chunks = [];
+      
+      for (let i = 0; i < filteredTickers.length; i += BATCH_SIZE) {
+          chunks.push(filteredTickers.slice(i, i + BATCH_SIZE));
+      }
+
+      addLog(`Layer 2: Yahoo Deep Enrichment (${filteredTickers.length} items)...`, "info");
       setStats(prev => ({ ...prev, phase: 'Enrichment' }));
 
       const enrichedMap = new Map<string, any>();
       let processedCount = 0;
+      let errorCount = 0;
 
       for (const chunk of chunks) {
           try {
@@ -171,19 +236,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       });
                       processedCount += data.length;
                   }
+              } else {
+                  errorCount++;
+                  if (errorCount % 10 === 0) addLog(`Yahoo Batch Failed (x${errorCount})`, "warn");
               }
-              // Throttle slightly to be nice to the proxy
-              await new Promise(r => setTimeout(r, 100)); 
+              // Throttle slightly more to prevent 429
+              await new Promise(r => setTimeout(r, 200)); 
           } catch (e) {
               console.warn("Yahoo batch failed", e);
           }
           
-          if (processedCount % 500 === 0 && processedCount > 0) {
-              addLog(`Enriched ${processedCount} / ${filteredTickers.length} assets...`, "info");
+          if (processedCount > 0 && processedCount % 500 === 0) {
+              addLog(`Enriched ${processedCount} assets...`, "info");
           }
       }
 
-      addLog(`Enrichment Complete: ${processedCount} assets upgraded with Fundamentals.`, "ok");
+      addLog(`Layer 2 Complete: ${processedCount} assets fully enriched.`, "ok");
 
       return tickers.map(t => {
           const y = enrichedMap.get(t.symbol);
@@ -196,9 +264,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               sector: y.sector || t.sector || "Unclassified",
               industry: y.industry || t.industry || "Unclassified",
               pe: y.trailingPE || y.forwardPE || t.pe,
-              roe: y.returnOnEquity ? y.returnOnEquity * 100 : undefined, // Convert to % if decimal
-              debtToEquity: y.debtToEquity,
-              pb: y.priceToBook
+              roe: y.returnOnEquity ? y.returnOnEquity * 100 : t.roe, // Convert to % if decimal
+              debtToEquity: y.debtToEquity || t.debtToEquity,
+              pb: y.priceToBook || t.pb
           };
       });
   };
@@ -328,8 +396,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         if (masterData.length === 0) throw new Error("Zero Assets Found.");
         setStats(prev => ({ ...prev, found: masterData.length, provider: usedProvider }));
 
-        // Step 2: Critical Enrichment (Yahoo)
-        // Ensure we have Sector, ROE, Debt for Stage 2 Quality Check
+        // [CRITICAL] Multi-Layer Enrichment Strategy
+        // 1. Try FMP Quotes First (Even on free plan, Quotes often work when Screener fails)
+        masterData = await enrichWithFmpQuotes(masterData);
+
+        // 2. Try Yahoo Proxy Second (Backup for Sector/ROE/Debt which FMP Quote misses)
         masterData = await enrichWithYahoo(masterData);
 
         // Step 3: Mapping & Commit
@@ -340,8 +411,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         addLog(`Phase 3: Committing ${masterData.length} assets to Vault...`, "info");
         setStats(prev => ({ ...prev, phase: 'Commit' }));
 
-        const fileName = `STAGE0_MASTER_UNIVERSE_v2.6.0.json`;
-        const payload = { manifest: { version: "2.6.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
+        const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.0.json`;
+        const payload = { manifest: { version: "2.7.0", provider: usedProvider, date: new Date().toISOString(), count: masterData.length }, universe: masterData };
 
         const folderId = await ensureFolder(token);
         if (folderId) {
@@ -500,7 +571,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.6.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Multi-Provider_Ready'}
