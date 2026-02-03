@@ -1,3 +1,4 @@
+
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
@@ -585,14 +586,27 @@ export async function analyzePipelineStatus(data: {
       4. **최종 포트폴리오 성향**: '공격형', '밸런스형', '방어형' 중 선택 및 이유.
       `;
   } else {
+      let fundamentalContext = "";
+      if (stock.fundamentalScore) {
+          fundamentalContext = `
+          [STAGE 3 FUNDAMENTAL DATA DETECTED]
+          - Quality Score: ${stock.fundamentalScore}
+          - Intrinsic Value (Safe Gauge): $${stock.intrinsicValue} (Upside: ${stock.upsidePotential}%)
+          - Core Metrics: ROIC ${stock.roic}%, Rule of 40 ${stock.ruleOf40}, Gross Margin ${stock.grossMargin}%, FCF Yield ${stock.fcfYield}%
+          - Radar Scores: Valuation ${stock.radarData?.valuation}, Profit ${stock.radarData?.profitability}, Growth ${stock.radarData?.growth}, Health ${stock.radarData?.financialHealth}, Moat ${stock.radarData?.moat}, Momentum ${stock.radarData?.momentum}
+          `;
+      }
+
       userPrompt = `
       [SINGLE ASSET DEEP DIVE AUDIT]
       대상: ${stock.symbol}
       데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
+      ${fundamentalContext}
       분석 일자: ${today}
 
       당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
+      **[STAGE 3 FUNDAMENTAL DATA DETECTED]** 섹션이 존재할 경우, 해당 수치(ROIC, Rule of 40, Intrinsic Value 등)를 반드시 분석에 인용하여 펀더멘털의 건전성을 평가하십시오.
       
       **작성 원칙**:
       1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
@@ -611,13 +625,17 @@ export async function analyzePipelineStatus(data: {
       2. **기관 수급 추적 (Smart Money Flow)**:
          - 현재 구간에서 기관/세력은 매집 중인가, 차익 실현 중인가?
          - 거래량 분석을 통한 "진짜 돈"의 흐름 포착.
+      
+      3. **펀더멘털 건전성 진단 (Fundamental Audit)**:
+         - ROIC 및 Rule of 40 기반의 기업 효율성 평가.
+         - 현재 주가 대비 내재가치(Intrinsic Value)의 괴리율 분석.
          
-      3. **실전 매매 가이드**:
+      4. **실전 매매 가이드**:
          - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대)
          - **필수 손절 라인**: 추세 붕괴로 간주하는 가격.
          - **청산 목표가**: 1차/2차 저항 라인.
          
-      4. **최종 감사 의견 (Final Verdict)**:
+      5. **최종 감사 의견 (Final Verdict)**:
          - 매수 승인 / 보류 / 즉시 청산 중 하나를 선택하고 그 이유를 한 문장으로 요약.
       `;
   }
