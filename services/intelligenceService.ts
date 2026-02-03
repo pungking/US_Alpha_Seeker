@@ -636,7 +636,11 @@ export async function analyzePipelineStatus(data: {
       
       **[STAGE 3 FUNDAMENTAL DATA]**, **[STAGE 4 TECHNICAL MOMENTUM DATA]**, 그리고 **[STAGE 5 INSTITUTIONAL FOOTPRINT (ICT) DATA]** 섹션이 존재할 경우, 해당 수치들을 반드시 분석에 인용하여 펀더멘털, 기술적 모멘텀, 그리고 기관 수급(ICT)의 조화를 종합적으로 평가하십시오.
       
-      특히 **ICT 지표(Displacement, MSS, Sweep, Whales)**를 통해 세력의 의도를 파악하고, **RSI/RVOL**과 결합하여 진입 시점을 정밀하게 타격하십시오.
+      **특히 다음 4가지 핵심 기술적 지표(Tech Momentum)를 반드시 분석에 포함하십시오:**
+      1. **RSI (14)**: 현재 과열권(70+)인지 침체권(30-)인지 판단.
+      2. **TTM Squeeze**: 변동성 폭발(Squeeze Fired) 가능성 진단.
+      3. **Relative Volume (RVOL)**: 기관 수급의 강도 평가 (1.5x 이상 여부).
+      4. **Trend (EMA)**: 추세의 방향성(정배열/역배열) 확인.
       
       **작성 원칙**:
       1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
@@ -654,9 +658,7 @@ export async function analyzePipelineStatus(data: {
          
       2. **기관 수급 및 모멘텀 진단 (Smart Money & Momentum)**:
          - **ICT 구조(MSS/Displacement)**: 현재 시장 구조가 상승 전환(MSS)되었는지, 세력의 강한 개입(Displacement)이 있는지 평가.
-         - **고래 활동(Whales)**: 스마트 머니의 유입 강도 확인.
-         - **모멘텀(RSI/RVOL)**: 과열 여부 및 거래량 동반 상승 여부.
-         - **TTM Squeeze**: 변동성 폭발 임박 신호 확인.
+         - **핵심 모멘텀 지표 (RSI/RVOL/Squeeze)**: RSI의 상태, RVOL을 통한 수급 강도, TTM Squeeze의 발동 여부를 종합하여 기술적 타점을 분석.
       
       3. **펀더멘털 건전성 진단 (Fundamental Audit)**:
          - ROIC 및 Rule of 40 기반의 기업 효율성 평가.
