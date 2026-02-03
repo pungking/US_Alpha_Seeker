@@ -609,18 +609,34 @@ export async function analyzePipelineStatus(data: {
           `;
       }
 
+      let ictContext = "";
+      if (stock.ictScore || stock.ictMetrics) {
+          ictContext = `
+          [STAGE 5 INSTITUTIONAL FOOTPRINT (ICT) DATA DETECTED]
+          - ICT Score: ${stock.ictScore || 'N/A'}/100
+          - DISPLACEMENT (Semiconductors/Force): ${stock.ictMetrics?.displacement?.toFixed(0) || 'N/A'} (Score > 50 = Strong Institutional Move)
+          - STRUCTURE (MSS): ${stock.ictMetrics?.marketStructure?.toFixed(0) || 'N/A'} (Score > 70 = Bullish Break confirmed)
+          - SWEEP (Liquidity): ${stock.ictMetrics?.liquiditySweep?.toFixed(0) || 'N/A'} (Score > 80 = Stop Hunt Completed)
+          - WHALES (Smart Money): ${stock.ictMetrics?.smartMoneyFlow?.toFixed(0) || 'N/A'}% (Flow > 50% = Accumulation)
+          - Market State: ${stock.marketState || 'UNKNOWN'}
+          `;
+      }
+
       userPrompt = `
       [SINGLE ASSET DEEP DIVE AUDIT]
       대상: ${stock.symbol}
       데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
       ${fundamentalContext}
       ${technicalContext}
+      ${ictContext}
       분석 일자: ${today}
 
       당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
       
-      **[STAGE 3 FUNDAMENTAL DATA DETECTED]** 및 **[STAGE 4 TECHNICAL MOMENTUM DATA DETECTED]** 섹션이 존재할 경우, 해당 수치(ROIC, Rule of 40, RSI, TTM Squeeze, RVOL 등)를 반드시 분석에 인용하여 펀더멘털과 모멘텀의 조화를 평가하십시오. 특히 **RSI**의 과열 여부와 **RVOL**을 통한 수급 분석에 집중하십시오.
+      **[STAGE 3 FUNDAMENTAL DATA]**, **[STAGE 4 TECHNICAL MOMENTUM DATA]**, 그리고 **[STAGE 5 INSTITUTIONAL FOOTPRINT (ICT) DATA]** 섹션이 존재할 경우, 해당 수치들을 반드시 분석에 인용하여 펀더멘털, 기술적 모멘텀, 그리고 기관 수급(ICT)의 조화를 종합적으로 평가하십시오.
+      
+      특히 **ICT 지표(Displacement, MSS, Sweep, Whales)**를 통해 세력의 의도를 파악하고, **RSI/RVOL**과 결합하여 진입 시점을 정밀하게 타격하십시오.
       
       **작성 원칙**:
       1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
@@ -634,11 +650,12 @@ export async function analyzePipelineStatus(data: {
       
       1. **리스크 시나리오 (Red Team Analysis)**:
          - 이 트레이딩이 실패한다면 원인은 무엇인가? (구체적인 악재나 기술적 붕괴 지점)
-         - "세력"이 개미를 털어내는 속임수(Fake-out) 패턴 예상 지점.
+         - "세력"이 개미를 털어내는 속임수(Fake-out) 패턴 예상 지점 (Liquidity Sweep 관점).
          
-      2. **기관 수급 및 모멘텀 진단 (Technical & Momentum)**:
-         - **RSI/과열권**: 현재 주가가 과매수(70+) 상태인지 과매도(30-) 상태인지 평가.
-         - **거래량(RVOL)**: 세력의 실질적인 유입 여부 확인.
+      2. **기관 수급 및 모멘텀 진단 (Smart Money & Momentum)**:
+         - **ICT 구조(MSS/Displacement)**: 현재 시장 구조가 상승 전환(MSS)되었는지, 세력의 강한 개입(Displacement)이 있는지 평가.
+         - **고래 활동(Whales)**: 스마트 머니의 유입 강도 확인.
+         - **모멘텀(RSI/RVOL)**: 과열 여부 및 거래량 동반 상승 여부.
          - **TTM Squeeze**: 변동성 폭발 임박 신호 확인.
       
       3. **펀더멘털 건전성 진단 (Fundamental Audit)**:
@@ -646,7 +663,7 @@ export async function analyzePipelineStatus(data: {
          - 현재 주가 대비 내재가치(Intrinsic Value)의 괴리율 분석.
          
       4. **실전 매매 가이드**:
-         - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대)
+         - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대, Order Block 참고)
          - **필수 손절 라인**: 추세 붕괴로 간주하는 가격.
          - **청산 목표가**: 1차/2차 저항 라인.
          
