@@ -1,10 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import { GOOGLE_DRIVE_TARGET } from '../constants';
 
 interface IctScoredTicker {
   symbol: string;
@@ -33,44 +30,67 @@ interface IctScoredTicker {
   
   sector: string;
   scoringEngine?: string;
+  
+  // [DATA PRESERVATION]
+  [key: string]: any;
 }
 
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
+  onStockSelected?: (stock: any) => void;
 }
+
+// [KNOWLEDGE BASE] Definitions for UI Tooltips/Overlays
+const ICT_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
+    'DISPLACEMENT': {
+        title: "Displacement (변위/세력개입)",
+        desc: "기관(Smart Money)이 시장에 진입했음을 알리는 강력한 신호입니다.",
+        interpretation: "평소 대비 2배 이상의 거래량과 긴 몸통의 캔들이 발생했는가? 점수가 높을수록 세력이 의도적으로 가격을 밀어올리고 있음을 의미합니다."
+    },
+    'MSS': {
+        title: "Market Structure Shift (시장구조전환)",
+        desc: "하락 추세에서 상승 추세로의 구조적 변화가 발생한 지점입니다.",
+        interpretation: "이전 고점(Lower High)을 강하게 돌파했는가? MSS가 발생했다면 단기 반등이 아닌 '추세 반전'의 시작일 확률이 매우 높습니다."
+    },
+    'SWEEP': {
+        title: "Liquidity Sweep (유동성 스윕)",
+        desc: "개인 투자자들의 손절 물량(Stop Loss)을 체결시키고 가격을 말아올리는 패턴입니다.",
+        interpretation: "전저점을 살짝 깼다가 급반등했는가? 이는 세력이 물량을 확보(Stop Hunt)했다는 강력한 매집 증거입니다."
+    },
+    'WHALES': {
+        title: "Whale Activity (고래/기관 수급)",
+        desc: "거대 자금의 실질적인 유입 강도를 추정한 복합 지표입니다.",
+        interpretation: "거래량, 변동성, 오더블록 지지력을 종합하여 '진짜 돈'이 들어왔는지 판단합니다. 80점 이상이면 기관이 주포(Driver)입니다."
+    }
+};
+
+const MARKET_STATE_INFO: Record<string, string> = {
+    'ACCUMULATION': "매집 단계: 세력이 가격을 일정 범위에 가두고 물량을 모으는 구간. 저점 매수의 기회.",
+    'MARKUP': "상승 단계: 매집이 끝나고 가격을 본격적으로 들어 올리는 슈팅 구간. 추격 매수 유효.",
+    'DISTRIBUTION': "분산 단계: 세력이 개인에게 물량을 넘기는 고점 구간. 하락 전환 주의.",
+    'MANIPULATION': "속임수 단계: 방향성을 주기 전 개미를 털어내는 혼조세 구간. 진입 유의."
+};
 
 // [QUANT ENGINE] Smart Money Scoring Logic
 const calculateIctScore = (item: any) => {
-    // 1. Displacement Index (변위 지수): 강한 거래량을 동반한 가격 이동
-    // RVOL (Relative Volume) * Momentum
     const rvol = item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
     const displacement = Math.min(100, (rvol * 20) + (momentum > 60 ? 30 : 0));
 
-    // 2. Market Structure Shift (MSS): 추세 전환
-    // Trend Score + Moving Average Alignment
     const trend = item.techMetrics?.trend || 50;
     const mss = trend;
 
-    // 3. Liquidity Sweep (유동성 스윕): 변동성 활용
-    // Bollinger Band Squeeze or High Volatility w/ Reversal
     const isSqueeze = item.techMetrics?.squeezeState === 'SQUEEZE_ON';
-    const sweepScore = isSqueeze ? 90 : 50; // 스퀴즈 상태는 곧 폭발(Liquidity Run)을 의미
+    const sweepScore = isSqueeze ? 90 : 50; 
 
-    // 4. Order Block (오더 블록): 지지력
-    // RSI가 40~60 사이(건전한 조정)이거나 70 이상(강력한 추세)일 때 가점
     const rsi = item.techMetrics?.rsRating || 50;
     let obScore = 50;
-    if (rsi >= 40 && rsi <= 60) obScore = 85; // Retracement into OB
-    else if (rsi > 70) obScore = 95; // Strong Markup
+    if (rsi >= 40 && rsi <= 60) obScore = 85; 
+    else if (rsi > 70) obScore = 95; 
     else obScore = 40;
 
-    // 5. Smart Money Flow (기관 수급)
-    // Combined Metric
     const smFlow = (displacement * 0.4) + (mss * 0.3) + (obScore * 0.3);
-
-    // Final ICT Score
     const finalScore = (displacement * 0.3) + (mss * 0.2) + (sweepScore * 0.2) + (obScore * 0.3);
 
     return {
@@ -86,22 +106,21 @@ const calculateIctScore = (item: any) => {
 };
 
 const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' => {
-    if (metrics.liquiditySweep > 80 && metrics.displacement < 50) return 'MANIPULATION'; // Squeeze but no move yet
-    if (metrics.marketStructure > 70 && metrics.displacement > 70) return 'MARKUP'; // Strong trend
-    if (metrics.orderBlock > 80 && metrics.displacement < 60) return 'ACCUMULATION'; // Holding support
-    return 'DISTRIBUTION'; // Weak structure
+    if (metrics.liquiditySweep > 80 && metrics.displacement < 50) return 'MANIPULATION';
+    if (metrics.marketStructure > 70 && metrics.displacement > 70) return 'MARKUP';
+    if (metrics.orderBlock > 80 && metrics.displacement < 60) return 'ACCUMULATION';
+    return 'DISTRIBUTION';
 };
 
-const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
+const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<IctScoredTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<IctScoredTicker | null>(null);
+  const [activeInsight, setActiveInsight] = useState<string | null>(null); // For overlay
   
-  // Time Tracking
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-
   const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.1.0: Advanced Smart Money MTF Core.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -111,21 +130,30 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Timer Effect
+  // Click Outside Handler for Insights
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.insight-card') && !target.closest('.insight-badge')) {
+            setActiveInsight(null);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
   useEffect(() => {
     let interval: any;
     if (loading && startTimeRef.current > 0) {
       interval = setInterval(() => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
-        
         let etaSec = 0;
         if (progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
-        
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
@@ -161,6 +189,15 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       ];
   };
 
+  const handleTickerSelect = (ticker: IctScoredTicker) => {
+      setSelectedTicker(ticker);
+      setActiveInsight(null);
+      // [CRITICAL] Bubble up to parent for Audit Matrix
+      if (onStockSelected) {
+          onStockSelected(ticker); 
+      }
+  };
+
   const executeIntegratedIctProtocol = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
@@ -169,7 +206,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     addLog("Phase 5: Initiating Institutional Liquidity Sieve...", "info");
     
     try {
-      // 1. Load Stage 4 Data
       const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -193,15 +229,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         
-        // [HEAVY LIFTING] Calculate ICT Metrics deterministically
         const ictAnalysis = calculateIctScore(item);
         const marketState = determineMarketState(ictAnalysis.metrics);
         
-        // Composite Alpha: Fundamental(20) + Technical(30) + ICT(50)
-        // ICT is weighted highest as it represents "Smart Money"
         const composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
 
         const ticker: IctScoredTicker = {
+            ...item, // [DATA ACCUMULATION] Preserve previous stages
             symbol: item.symbol, 
             name: item.name, 
             price: item.price,
@@ -212,7 +246,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             ictMetrics: ictAnalysis.metrics,
             marketState: marketState,
             verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
-            radarData: [], // Populated dynamically in UI
+            radarData: [],
             sector: item.sector,
             scoringEngine: "ICT_Quant_Engine_v6"
         };
@@ -221,22 +255,19 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
         if (i % 20 === 0) {
             setProgress({ current: i + 1, total });
-            // Sort and update UI periodically
             const tempResults = [...results].sort((a,b) => b.compositeAlpha - a.compositeAlpha);
             setProcessedData(tempResults);
-            if (!selectedTicker && tempResults.length > 0) setSelectedTicker(tempResults[0]);
-            await new Promise(r => setTimeout(r, 10)); // UI Yield
+            if (!selectedTicker && tempResults.length > 0) handleTickerSelect(tempResults[0]);
+            await new Promise(r => setTimeout(r, 10)); 
         }
       }
 
-      // Final Sort: Elite 50 Selection
       results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-      const finalSurvivors = results.slice(0, 50); // Cutoff at Top 50
+      const finalSurvivors = results.slice(0, 50); 
       
-      setProcessedData(results); // Show full list in UI, but save only Elite 50? No, let's save Elite 50.
-      if (finalSurvivors.length > 0) setSelectedTicker(finalSurvivors[0]);
+      setProcessedData(results); 
+      if (finalSurvivors.length > 0) handleTickerSelect(finalSurvivors[0]);
       
-      // Save Elite 50 to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
@@ -281,7 +312,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const getSectorStyle = (sector: string) => {
     const s = (sector || '').toLowerCase();
-    // Indigo/Violet Theme for Stage 5
     if (s.includes('tech') || s.includes('software')) return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30';
     if (s.includes('finance')) return 'bg-violet-500/20 text-violet-400 border-violet-500/30';
     if (s.includes('health')) return 'bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30';
@@ -334,7 +364,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                  </div>
                  <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
                      {processedData.length > 0 ? processedData.map((t, i) => (
-                         <div key={i} onClick={() => setSelectedTicker(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
+                         <div key={i} onClick={() => handleTickerSelect(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-indigo-900/30 border-indigo-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
                              <div className="flex items-center gap-3">
                                  <span className={`text-[10px] font-black w-4 ${i < 10 ? 'text-indigo-400' : 'text-slate-500'}`}>{i + 1}</span>
                                  <div>
@@ -374,12 +404,16 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                                     <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${getSectorStyle(selectedTicker.sector)}`}>
                                         {selectedTicker.sector}
                                     </span>
-                                    <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${
-                                        selectedTicker.marketState === 'MARKUP' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
-                                        selectedTicker.marketState === 'ACCUMULATION' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' :
-                                        selectedTicker.marketState === 'MANIPULATION' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
-                                        'bg-rose-500/20 text-rose-400 border-rose-500/30'
-                                    }`}>
+                                    {/* Market State Badge with Insight Overlay */}
+                                    <span 
+                                        className={`insight-badge text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border cursor-help hover:opacity-80 transition-opacity ${
+                                            selectedTicker.marketState === 'MARKUP' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                            selectedTicker.marketState === 'ACCUMULATION' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' :
+                                            selectedTicker.marketState === 'MANIPULATION' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
+                                            'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                                        }`}
+                                        onClick={() => setActiveInsight(selectedTicker.marketState)}
+                                    >
                                         {selectedTicker.marketState}
                                     </span>
                                 </div>
@@ -402,33 +436,52 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             </ResponsiveContainer>
                         </div>
 
-                        {/* 4 Core ICT Metrics Cards */}
+                        {/* 4 Core ICT Metrics Cards - CLICKABLE */}
                         <div className="grid grid-cols-4 gap-2 mt-2">
-                             <div className="p-2 rounded-lg text-center border bg-slate-900/50 border-white/5">
-                                 <p className="text-[7px] text-slate-500 uppercase font-bold">Displacement</p>
-                                 <p className={`text-[10px] font-black ${selectedTicker.ictMetrics.displacement > 70 ? 'text-emerald-400' : 'text-slate-300'}`}>
-                                     {selectedTicker.ictMetrics.displacement.toFixed(0)}
-                                 </p>
-                             </div>
-                             <div className="p-2 rounded-lg text-center border bg-slate-900/50 border-white/5">
-                                 <p className="text-[7px] text-slate-500 uppercase font-bold">Structure (MSS)</p>
-                                 <p className={`text-[10px] font-black ${selectedTicker.ictMetrics.marketStructure > 70 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                     {selectedTicker.ictMetrics.marketStructure > 70 ? 'BREAK' : 'WEAK'}
-                                 </p>
-                             </div>
-                             <div className="p-2 rounded-lg text-center border bg-slate-900/50 border-white/5">
-                                 <p className="text-[7px] text-slate-500 uppercase font-bold">Sweep</p>
-                                 <p className={`text-[10px] font-black ${selectedTicker.ictMetrics.liquiditySweep > 80 ? 'text-amber-400' : 'text-slate-300'}`}>
-                                     {selectedTicker.ictMetrics.liquiditySweep > 80 ? 'YES' : 'NO'}
-                                 </p>
-                             </div>
-                             <div className="p-2 rounded-lg text-center border bg-slate-900/50 border-white/5">
-                                 <p className="text-[7px] text-slate-500 uppercase font-bold">Whales</p>
-                                 <p className={`text-[10px] font-black ${selectedTicker.ictMetrics.smartMoneyFlow > 80 ? 'text-indigo-400' : 'text-slate-300'}`}>
-                                     {selectedTicker.ictMetrics.smartMoneyFlow.toFixed(0)}%
-                                 </p>
-                             </div>
+                             {[
+                                { id: 'DISPLACEMENT', label: 'Displacement', val: selectedTicker.ictMetrics.displacement.toFixed(0), good: selectedTicker.ictMetrics.displacement > 70 },
+                                { id: 'MSS', label: 'Structure (MSS)', val: selectedTicker.ictMetrics.marketStructure > 70 ? 'BREAK' : 'WEAK', good: selectedTicker.ictMetrics.marketStructure > 70 },
+                                { id: 'SWEEP', label: 'Sweep', val: selectedTicker.ictMetrics.liquiditySweep > 80 ? 'YES' : 'NO', good: selectedTicker.ictMetrics.liquiditySweep > 80 },
+                                { id: 'WHALES', label: 'Whales', val: `${selectedTicker.ictMetrics.smartMoneyFlow.toFixed(0)}%`, good: selectedTicker.ictMetrics.smartMoneyFlow > 80 }
+                             ].map((m) => (
+                                 <div 
+                                    key={m.id}
+                                    onClick={() => setActiveInsight(m.id)}
+                                    className={`insight-card p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 ${activeInsight === m.id ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' : 'bg-slate-900/50 border-white/5 hover:bg-slate-800'}`}
+                                 >
+                                     <p className={`text-[7px] uppercase font-bold ${activeInsight === m.id ? 'text-white' : 'text-slate-500'}`}>{m.label}</p>
+                                     <p className={`text-[10px] font-black ${m.good ? 'text-emerald-400' : 'text-slate-300'}`}>
+                                         {m.val}
+                                     </p>
+                                 </div>
+                             ))}
                         </div>
+
+                        {/* Insight Overlay */}
+                        {activeInsight && (
+                            <div className="absolute inset-x-4 bottom-4 z-20 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-indigo-500/30 shadow-2xl relative">
+                                    <button onClick={() => setActiveInsight(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                    {ICT_DEFINITIONS[activeInsight] ? (
+                                        <>
+                                            <h5 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{ICT_DEFINITIONS[activeInsight].title}</h5>
+                                            <p className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">{ICT_DEFINITIONS[activeInsight].desc}</p>
+                                            <div className="bg-white/5 p-2 rounded border border-white/5">
+                                                <p className="text-[8px] text-emerald-400 font-bold">💡 Checkpoint:</p>
+                                                <p className="text-[8px] text-slate-400">{ICT_DEFINITIONS[activeInsight].interpretation}</p>
+                                            </div>
+                                        </>
+                                    ) : MARKET_STATE_INFO[activeInsight] ? (
+                                        <>
+                                            <h5 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{activeInsight} PHASE</h5>
+                                            <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{MARKET_STATE_INFO[activeInsight]}</p>
+                                        </>
+                                    ) : null}
+                                </div>
+                            </div>
+                        )}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
