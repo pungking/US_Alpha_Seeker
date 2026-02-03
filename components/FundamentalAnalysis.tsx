@@ -582,7 +582,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                         {selectedTicker.sector}
                                     </span>
                                 </div>
-                                <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest mt-2">Fundamental Radar Analysis</p>
                             </div>
                             <div 
                                 className="text-right cursor-pointer group hover:opacity-80 transition-opacity"
@@ -644,7 +643,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
                             </div>
                         )}
-                        {/* Source Tag Removed */}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
