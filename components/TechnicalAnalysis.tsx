@@ -443,7 +443,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                  <span className={`text-[10px] font-black w-4 ${i < 3 ? 'text-orange-400' : 'text-slate-500'}`}>{i + 1}</span>
                                  <div>
                                      <p className="text-xs font-black text-white">{t.symbol}</p>
-                                     <p className="text-[8px] text-slate-400 truncate w-20">{t.scoringEngine}</p>
+                                     <p className="text-[8px] text-slate-400 truncate w-24">{t.name}</p>
                                  </div>
                              </div>
                              <div className="text-right flex items-center gap-3">
@@ -468,7 +468,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      <div className="h-full flex flex-col justify-between"> 
                         <div className="flex justify-between items-start">
                             <div>
-                                <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
+                                <div className="flex items-baseline gap-3">
+                                    <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
+                                </div>
                                 <div className="flex items-center gap-2 mt-1">
                                     <p className="text-[9px] text-orange-500 font-bold uppercase tracking-widest">Technical Quant Cockpit</p>
                                     {selectedTicker.scoringEngine?.includes("Fallback") && (
