@@ -1,12 +1,14 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { GoogleGenAI } from "@google/genai";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import { trackUsage, archiveReport } from '../services/intelligenceService';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // [QUANT ENGINE] Mathematical Indicator Logic
-// These functions calculate technical indicators locally to ensure 100% accuracy without AI hallucination.
-
 const calcSMA = (data: number[], period: number) => {
   if (data.length < period) return 0;
   const slice = data.slice(0, period);
@@ -17,7 +19,6 @@ const calcRSI = (closes: number[], period: number = 14) => {
   if (closes.length < period + 1) return 50;
   let gains = 0, losses = 0;
   
-  // Initial Average
   for (let i = 1; i <= period; i++) {
     const diff = closes[closes.length - 1 - i + 1] - closes[closes.length - 1 - i];
     if (diff >= 0) gains += diff;
@@ -44,8 +45,27 @@ const calcBollinger = (closes: number[], period: number = 20, multiplier: number
     upper: sma + (multiplier * stdDev),
     lower: sma - (multiplier * stdDev),
     middle: sma,
-    width: ((sma + (multiplier * stdDev)) - (sma - (multiplier * stdDev))) / sma // Bandwidth %
+    width: ((sma + (multiplier * stdDev)) - (sma - (multiplier * stdDev))) / sma
   };
+};
+
+const TECH_METRIC_INSIGHTS: Record<string, { title: string; desc: string }> = {
+    'RSI': {
+        title: "RSI (상대강도지수)",
+        desc: "최근 주가 상승폭과 하락폭의 강도를 백분율로 나타냅니다. 70 이상은 매수세 과열(Overbought), 30 이하는 매도세 과열(Oversold)을 의미합니다. 트렌드장에서는 50 이상 유지가 중요합니다."
+    },
+    'SQUEEZE': {
+        title: "TTM Squeeze (변동성 압축)",
+        desc: "볼린저 밴드가 켈트너 채널 안으로 들어가며 변동성이 극도로 축소된 상태입니다. 에너지가 응축된 상태로, 곧 상방 또는 하방으로의 강한 발산(Explosion)이 임박했음을 시사합니다."
+    },
+    'RVOL': {
+        title: "Relative Volume (상대 거래량)",
+        desc: "평소 평균 거래량 대비 현재 거래량의 비율입니다. 1.0 이상이면 평소보다 거래가 활발하며, 1.5 이상은 기관/세력의 개입 가능성이 높은 '수급 변곡점'입니다."
+    },
+    'TREND': {
+        title: "Trend Strength (EMA 추세)",
+        desc: "단기(20일) 및 중기(50일) 이동평균선의 정배열 여부를 판단합니다. 주가가 EMA 위에 위치하고 EMA가 상향 기울기일 때 강력한 상승 추세(BULLISH)로 간주합니다."
+    }
 };
 
 interface TechScoredTicker {
@@ -58,7 +78,6 @@ interface TechScoredTicker {
   techMetrics: { trend: number; momentum: number; volumePattern: number; adl: number; forceIndex: number; srLevels: number; rsRating?: number; squeezeState?: string; };
   sector: string;
   scoringEngine?: string;
-  // [DATA ACCUMULATION] Preserve previous stages
   [key: string]: any;
 }
 
@@ -74,6 +93,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [selectedTicker, setSelectedTicker] = useState<TechScoredTicker | null>(null);
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
   
+  // Auditor State
+  const [auditReports, setAuditReports] = useState<Record<string, string>>({});
+  const [auditLoading, setAuditLoading] = useState(false);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  const [activeMetric, setActiveMetric] = useState<string | null>(null);
+
   // Time Tracking
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -114,6 +139,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart]);
 
+  useEffect(() => {
+      // Clear metric selection when switching stocks
+      setActiveMetric(null);
+  }, [selectedTicker]);
+
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
@@ -123,7 +153,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       if (!polygonKey) return [];
       
       const toDate = new Date().toISOString().split('T')[0];
-      const fromDate = new Date(Date.now() - 150 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 150 days back
+      const fromDate = new Date(Date.now() - 150 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
       
       try {
           const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=desc&limit=100&apiKey=${polygonKey}`;
@@ -145,25 +175,21 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       const closes = history.map(d => d.c); // Index 0 = Newest
       const currentPrice = closes[0];
       
-      // 1. Trend (SMA 20 vs 50) - Simplified EMA
       const sma20 = calcSMA(closes, 20);
       const sma50 = calcSMA(closes, 50);
       const trendScore = (currentPrice > sma20 && sma20 > sma50) ? 100 : (currentPrice < sma20) ? 30 : 60;
 
-      // 2. Momentum (RSI)
       const rsi = calcRSI(closes, 14);
       let momentumScore = 50;
-      if (rsi > 50 && rsi < 70) momentumScore = 90; // Sweet spot
-      else if (rsi >= 70) momentumScore = 70; // Overbought but strong
-      else if (rsi < 30) momentumScore = 40; // Oversold (weak)
+      if (rsi > 50 && rsi < 70) momentumScore = 90;
+      else if (rsi >= 70) momentumScore = 70;
+      else if (rsi < 30) momentumScore = 40;
       else momentumScore = 60;
 
-      // 3. Volatility Squeeze (Bollinger Bandwidth)
       const bb = calcBollinger(closes, 20, 2.0);
       const isSqueeze = bb.width < 0.10; 
       const squeezeState = isSqueeze ? "SQUEEZE_ON" : "EXPANSION";
 
-      // 4. Relative Volume (RVOL)
       const volumes = history.map(d => d.v);
       const avgVol20 = calcSMA(volumes, 20);
       const currentVol = volumes[0];
@@ -185,6 +211,77 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           rsi: rsi,
           squeeze: squeezeState
       };
+  };
+
+  const runAudit = async () => {
+      if (!selectedTicker || auditLoading) return;
+      setAuditLoading(true);
+      const targetBrain = auditBrain;
+      
+      const prompt = `
+      [SYSTEM: Expert Technical Analyst (CMT/CFA)]
+      Target: ${selectedTicker.symbol}
+      Price: $${selectedTicker.price}
+      
+      Technical Data (Real-time Calculated):
+      - RSI (14): ${selectedTicker.techMetrics.rsRating?.toFixed(1)}
+      - TTM Squeeze: ${selectedTicker.techMetrics.squeezeState}
+      - Relative Volume: ${(selectedTicker.techMetrics.volumePattern / 50).toFixed(2)}x
+      - Trend Score: ${selectedTicker.techMetrics.trend}/100
+      
+      Analyze this setup. Is it a Buy, Sell, or Wait? 
+      Provide 3 bullet points of logic and a final verdict.
+      **Output in KOREAN. Use Markdown.**
+      `;
+      
+      try {
+          let report = "";
+          
+          if (targetBrain === ApiProvider.GEMINI) {
+               try {
+                   const apiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
+                   const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+                   const res = await ai.models.generateContent({
+                       model: 'gemini-3-flash-preview',
+                       contents: prompt
+                   });
+                   report = res.text;
+               } catch (e) {
+                   console.warn("Gemini Failed, switching to Sonar");
+                   setAuditBrain(ApiProvider.PERPLEXITY);
+                   // Retry with Sonar logic below implicitly or explicitly
+                   throw new Error("Switch to Sonar");
+               }
+          }
+          
+          if (!report || targetBrain === ApiProvider.PERPLEXITY) {
+               const pKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key;
+               const res = await fetch('https://api.perplexity.ai/chat/completions', {
+                   method: 'POST',
+                   headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pKey}` },
+                   body: JSON.stringify({
+                       model: 'sonar-pro',
+                       messages: [{ role: 'user', content: prompt }]
+                   })
+               });
+               const json = await res.json();
+               report = json.choices?.[0]?.message?.content || "Analysis Failed";
+          }
+
+          setAuditReports(prev => ({ ...prev, [selectedTicker.symbol]: report }));
+          
+          // Auto Archive
+          if (accessToken) {
+             const date = new Date().toISOString().split('T')[0];
+             const fileName = `${date}_TECH_AUDIT_${selectedTicker.symbol}.md`;
+             archiveReport(accessToken, fileName, report);
+          }
+
+      } catch (e) {
+          addLog("Audit Failed. Check API Limits.", "err");
+      } finally {
+          setAuditLoading(false);
+      }
   };
 
   const executeIntegratedTechProtocol = async () => {
@@ -280,7 +377,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         };
 
         results.push(newItem);
-        if (i % 5 === 0) {
+        if (i % 5 === 0 || i === total - 1) {
             setProgress({ current: i + 1, total });
             // Update UI incrementally for top candidates
             if (i < DEEP_SCAN_LIMIT + 5) {
@@ -337,7 +434,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   };
 
   const formatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -356,32 +452,26 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
-              <div className="flex flex-col">
-                <h2 className="text-3xl md:text-4xl font-black text-white italic tracking-tighter uppercase leading-none mb-4">Momentum_Nexus v5.2.0</h2>
-                
-                {/* Progress Badge */}
-                <div className="flex flex-col items-start gap-2">
-                    <div className={`px-4 py-1.5 rounded-lg border flex items-center gap-3 transition-all ${loading ? 'border-orange-500 bg-orange-500/10' : 'border-slate-700 bg-slate-800/50'}`}>
-                        <span className={`text-[10px] font-black uppercase tracking-widest ${loading ? 'text-orange-400 animate-pulse' : 'text-slate-400'}`}>
-                            {loading ? 'PROCESSING:' : 'READY:'}
+              <div>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Nexus v5.2.0</h2>
+                <div className="flex flex-col mt-2 gap-1">
+                   <div className="flex items-center space-x-2">
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
+                            {loading ? `Processing: ${progress.current}/${progress.total}` : 'Real-Quant Tech Analysis Ready'}
                         </span>
-                        <span className="text-sm font-mono font-bold text-white">
-                            {progress.current} <span className="text-slate-500">/</span> {progress.total || 0}
-                        </span>
-                    </div>
-                    
-                    {/* Stats Line */}
-                    <div className="flex items-center gap-3 text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider pl-1">
-                        <span>ELAPSED: <span className={loading ? 'text-white' : ''}>{formatTime(timeStats.elapsed)}</span></span>
-                        <span className="text-slate-700">|</span>
-                        <span>ETA: <span className={loading ? 'text-orange-400' : ''}>{formatTime(timeStats.eta)}</span></span>
-                    </div>
-                </div>
-                
-                {/* Engine Status / Auto Pilot Tag */}
-                <div className="mt-4 flex items-center gap-2">
-                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
-                   <span className="text-[8px] font-black text-orange-500/50 uppercase tracking-widest">Active Brain: {activeBrain}</span>
+                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                   </div>
+                   {loading && (
+                     <div className="flex items-center space-x-2 mt-0.5">
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
+                       </span>
+                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
+                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
+                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
+                       </span>
+                     </div>
+                   )}
                 </div>
               </div>
             </div>
@@ -441,7 +531,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                         {/* Gauges Grid */}
                         <div className="grid grid-cols-2 gap-4 mt-6">
                             {/* RSI Gauge */}
-                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                            <div 
+                                onClick={() => setActiveMetric('RSI')}
+                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'RSI' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                            >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">RSI (14)</span>
                                     <span className={`text-[10px] font-black ${selectedTicker.techMetrics.rsRating! > 70 ? 'text-rose-400' : selectedTicker.techMetrics.rsRating! < 30 ? 'text-emerald-400' : 'text-white'}`}>
@@ -454,7 +547,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             </div>
 
                             {/* Volatility Squeeze */}
-                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                            <div 
+                                onClick={() => setActiveMetric('SQUEEZE')}
+                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'SQUEEZE' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                            >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">TTM Squeeze</span>
                                     <span className={`text-[9px] font-black ${selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'text-rose-500 animate-pulse' : 'text-emerald-500'}`}>
@@ -469,7 +565,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             </div>
 
                             {/* Relative Volume */}
-                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                            <div 
+                                onClick={() => setActiveMetric('RVOL')}
+                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'RVOL' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                            >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">Rel Volume (RVOL)</span>
                                     <span className="text-[10px] font-black text-white">{(selectedTicker.techMetrics.volumePattern / 50).toFixed(2)}x</span>
@@ -480,7 +579,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             </div>
 
                             {/* Trend Strength */}
-                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                            <div 
+                                onClick={() => setActiveMetric('TREND')}
+                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'TREND' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                            >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">Trend (EMA)</span>
                                     <span className="text-[10px] font-black text-white">{selectedTicker.techMetrics.trend > 60 ? 'BULLISH' : selectedTicker.techMetrics.trend < 40 ? 'BEARISH' : 'NEUTRAL'}</span>
@@ -491,9 +593,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             </div>
                         </div>
 
-                        <div className="mt-auto pt-4 border-t border-white/5">
-                            <p className="text-[9px] text-slate-500 font-mono">Engine: {selectedTicker.scoringEngine}</p>
-                        </div>
+                        {/* Insight Overlay */}
+                        {activeMetric && TECH_METRIC_INSIGHTS[activeMetric] && (
+                            <div className="absolute bottom-4 left-6 right-6 bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-orange-500/30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 z-20">
+                                <h5 className="text-[9px] font-black text-orange-400 uppercase tracking-widest mb-1">{TECH_METRIC_INSIGHTS[activeMetric].title}</h5>
+                                <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{TECH_METRIC_INSIGHTS[activeMetric].desc}</p>
+                            </div>
+                        )}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
@@ -502,6 +608,54 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                      </div>
                  )}
               </div>
+          </div>
+
+          {/* AI AUDITOR MATRIX (NEW SECTION) */}
+          <div className="bg-black/40 rounded-[40px] border border-white/5 p-6 md:p-8 relative mt-6 transition-all">
+             <div className="flex justify-between items-center mb-6">
+                 <div>
+                    <h3 className="text-xl font-black text-white italic tracking-tighter uppercase leading-none">AI Alpha Auditor Matrix</h3>
+                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Deep Neural Analysis Layer</p>
+                 </div>
+                 {selectedTicker && (
+                     <div className="flex items-center gap-3">
+                        <div className="flex bg-slate-900 p-1 rounded-xl border border-white/10">
+                            <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Gemini</button>
+                            <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Sonar</button>
+                        </div>
+                        <button onClick={runAudit} disabled={auditLoading} className="px-6 py-2.5 bg-slate-800 text-white rounded-xl text-[9px] font-black uppercase tracking-widest border border-white/10 hover:bg-slate-700 transition-all shadow-lg">
+                           {auditLoading ? 'Auditing...' : 'Execute Audit'}
+                        </button>
+                     </div>
+                 )}
+             </div>
+
+             <div className="min-h-[200px] bg-slate-950/50 rounded-3xl border border-white/5 p-6 md:p-8">
+                 {selectedTicker ? (
+                     auditReports[selectedTicker.symbol] ? (
+                         <div className="prose-report text-xs text-slate-300 leading-relaxed animate-in fade-in">
+                              <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
+                                  <span className="text-[9px] font-black uppercase tracking-widest text-orange-500">
+                                      Audit Report: {selectedTicker.symbol} ({auditBrain})
+                                  </span>
+                                  <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
+                              </div>
+                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{auditReports[selectedTicker.symbol]}</ReactMarkdown>
+                         </div>
+                     ) : (
+                         <div className="h-full flex flex-col items-center justify-center opacity-30 py-12">
+                             <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                                <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                             </div>
+                             <p className="text-[9px] font-black uppercase tracking-widest">Ready to Generate Technical Audit</p>
+                         </div>
+                     )
+                 ) : (
+                     <div className="h-full flex items-center justify-center opacity-20 py-12">
+                         <p className="text-[9px] font-black uppercase tracking-widest">Select a Stock to Enable Auditor</p>
+                     </div>
+                 )}
+             </div>
           </div>
         </div>
       </div>
