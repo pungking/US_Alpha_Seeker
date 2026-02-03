@@ -1,5 +1,5 @@
 
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -76,26 +76,31 @@ const SECTOR_STATS: Record<string, { gm: number; fcf: number; roic: number; pe: 
     'Consumer Defensive': { gm: 32.0, fcf: 6.0, roic: 16.0, pe: 24.0 },
 };
 
-const METRIC_INSIGHTS: Record<string, { title: string; desc: string }> = {
+const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'INTRINSIC': {
         title: "Intrinsic Value (보수적 내재가치)",
-        desc: "벤자민 그레이엄 공식에 **30% 안전마진(Margin of Safety)**을 적용한 보수적 적정 주가입니다. 시장의 거품을 제거하고 기업의 본질적 체력만을 평가합니다."
+        desc: "벤자민 그레이엄 공식에 **30% 안전마진(Margin of Safety)**을 적용한 보수적 적정 주가입니다. 시장의 거품을 제거하고 기업의 본질적 체력만을 평가합니다.",
+        strategy: "현재 주가가 내재가치보다 낮을 때(Undervalued) 진입하여 안전마진을 확보하십시오. 이는 하락장에서 자산을 지키는 가장 확실한 방패입니다."
     },
     'ROIC': {
         title: "ROIC (투하자본이익률)",
-        desc: "기업이 영업활동에 투입한 자본으로 얼마나 효율적으로 현금을 벌어들이는지 측정합니다. 15% 이상이면 강력한 경제적 해자(Moat)를 보유한 것으로 간주합니다."
+        desc: "기업이 영업활동에 투입한 자본으로 얼마나 효율적으로 현금을 벌어들이는지 측정합니다. 15% 이상이면 강력한 경제적 해자(Moat)를 보유한 것으로 간주합니다.",
+        strategy: "15% 이상의 높은 ROIC를 장기간 유지하는 기업은 복리 효과의 마법을 누릴 수 있습니다. 워렌 버핏이 가장 중요하게 보는 지표입니다."
     },
     'RULE40': {
         title: "Rule of 40 (성장 효율성)",
-        desc: "매출성장률과 이익률의 합계입니다. 40점 이상이면 초고속 성장과 수익성을 동시에 달성하고 있는 '유니콘 급' 퍼포먼스를 의미합니다."
+        desc: "매출성장률과 이익률의 합계입니다. 40점 이상이면 초고속 성장과 수익성을 동시에 달성하고 있는 '유니콘 급' 퍼포먼스를 의미합니다.",
+        strategy: "성장주 투자 시 필수 체크! 40점을 넘는 기업은 프리미엄을 주고서라도 매수할 가치가 있으며, 50점 이상은 업계 지배자입니다."
     },
     'GROSS': {
         title: "Gross Margin (매출총이익률)",
-        desc: "제품/서비스의 원가 경쟁력을 나타냅니다. 40% 이상이면 브랜드 파워나 기술적 우위로 인해 가격 결정권(Pricing Power)을 가진 기업일 확률이 높습니다."
+        desc: "제품/서비스의 원가 경쟁력을 나타냅니다. 40% 이상이면 브랜드 파워나 기술적 우위로 인해 가격 결정권(Pricing Power)을 가진 기업일 확률이 높습니다.",
+        strategy: "인플레이션 시기에는 마진율이 높은 기업만이 원가 상승분을 가격에 전가하며 이익을 방어할 수 있습니다."
     },
     'FCF': {
         title: "FCF Yield (잉여현금수익률)",
-        desc: "시가총액 대비 기업이 실제 벌어들이는 현금(Free Cash Flow)의 비율입니다. 배당, 자사주 매입 등 주주 환원 여력을 보여주는 가장 실질적인 지표입니다."
+        desc: "시가총액 대비 기업이 실제 벌어들이는 현금(Free Cash Flow)의 비율입니다. 배당, 자사주 매입 등 주주 환원 여력을 보여주는 가장 실질적인 지표입니다.",
+        strategy: "FCF Yield가 국채 금리보다 높다면 강력한 매수 기회입니다. 풍부한 현금은 자사주 매입과 배당 성장의 원천이 됩니다."
     }
 };
 
@@ -648,11 +653,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                              ))}
                         </div>
                         
-                        {/* Quant Insight Box */}
+                        {/* Quant Insight Box - Updated to include Strategy */}
                         {activeMetric && METRIC_INSIGHTS[activeMetric] && (
                             <div className="insight-overlay absolute bottom-16 left-6 right-6 bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-cyan-500/30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 z-20">
                                 <h5 className="text-[9px] font-black text-cyan-400 uppercase tracking-widest mb-1">{METRIC_INSIGHTS[activeMetric].title}</h5>
-                                <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
+                                <p className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">{METRIC_INSIGHTS[activeMetric].desc}</p>
+                                <div className="bg-white/5 p-2 rounded border border-white/5">
+                                    <p className="text-[8px] text-emerald-400 font-bold mb-0.5">💡 Strategy:</p>
+                                    <p className="text-[8px] text-slate-400">{METRIC_INSIGHTS[activeMetric].strategy}</p>
+                                </div>
                             </div>
                         )}
                      </div>
