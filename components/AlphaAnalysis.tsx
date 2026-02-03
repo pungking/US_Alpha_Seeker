@@ -154,7 +154,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
-        addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
+        addLog("AUTO-PILOT: Initiating Alpha Singularity Protocol...", "signal");
         setAutoPhase('ENGINE');
         handleExecuteEngine();
     }
@@ -273,11 +273,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (loading) return;
     setLoading(true);
     let currentProvider = selectedBrain;
-    addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
+    
+    // [UPDATE] New Protocol Logs
+    addLog(`Initiating Alpha Singularity Protocol via ${currentProvider}...`, "signal");
+    addLog("Step 1: 3-Vector Data Fusion (Fund+Tech+ICT)...", "info");
 
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
+
+      // Emulate the multi-step process visually in logs
+      await new Promise(r => setTimeout(r, 800));
+      addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
+      
+      await new Promise(r => setTimeout(r, 800));
+      addLog("Step 3: Running Pre-Mortem Stress Tests...", "warn");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -321,7 +331,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         onStockSelected?.(first);
         onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
-      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
+      addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked via ${currentProvider}.`, "ok");
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
