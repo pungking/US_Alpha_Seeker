@@ -41,35 +41,35 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// [KNOWLEDGE BASE] Definitions for UI Tooltips/Overlays
+// [KNOWLEDGE BASE] Interactive Definitions for UI
 const ICT_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
     'DISPLACEMENT': {
-        title: "Displacement (변위/세력개입)",
-        desc: "기관(Smart Money)이 시장에 진입했음을 알리는 강력한 신호입니다.",
-        interpretation: "평소 대비 2배 이상의 거래량과 긴 몸통의 캔들이 발생했는가? 점수가 높을수록 세력이 의도적으로 가격을 밀어올리고 있음을 의미합니다."
+        title: "Displacement (세력 개입 강도)",
+        desc: "기관(Smart Money)이 시장에 진입했음을 알리는 강력한 신호입니다. 평소 대비 압도적인 거래량과 가격 변동폭(Candle Body)을 동반합니다.",
+        interpretation: "점수가 높을수록 세력이 의도적으로 가격을 강하게 밀어올리고 있음을 의미합니다."
     },
     'MSS': {
-        title: "Market Structure Shift (시장구조전환)",
-        desc: "하락 추세에서 상승 추세로의 구조적 변화가 발생한 지점입니다.",
-        interpretation: "이전 고점(Lower High)을 강하게 돌파했는가? MSS가 발생했다면 단기 반등이 아닌 '추세 반전'의 시작일 확률이 매우 높습니다."
+        title: "Market Structure Shift (시장 구조 전환)",
+        desc: "하락 추세(Lower Highs)에서 상승 추세(Higher Highs)로의 구조적 변화가 발생한 지점입니다.",
+        interpretation: "MSS가 'BREAK' 상태라면 단순 반등이 아닌 '대세 상승장'의 초입일 확률이 매우 높습니다."
     },
     'SWEEP': {
-        title: "Liquidity Sweep (유동성 스윕)",
-        desc: "개인 투자자들의 손절 물량(Stop Loss)을 체결시키고 가격을 말아올리는 패턴입니다.",
-        interpretation: "전저점을 살짝 깼다가 급반등했는가? 이는 세력이 물량을 확보(Stop Hunt)했다는 강력한 매집 증거입니다."
+        title: "Liquidity Sweep (개미 털기)",
+        desc: "주요 지지선을 살짝 붕괴시켜 개인 투자자들의 손절 물량(Stop Loss)을 체결시키고, 그 물량을 받아 가격을 급등시키는 패턴입니다.",
+        interpretation: "'YES'는 세력이 저점에서 물량을 성공적으로 매집(Stop Hunt)했다는 강력한 증거입니다."
     },
     'WHALES': {
-        title: "Whale Activity (고래/기관 수급)",
-        desc: "거대 자금의 실질적인 유입 강도를 추정한 복합 지표입니다.",
-        interpretation: "거래량, 변동성, 오더블록 지지력을 종합하여 '진짜 돈'이 들어왔는지 판단합니다. 80점 이상이면 기관이 주포(Driver)입니다."
+        title: "Whale Activity (고래 수급)",
+        desc: "거대 자금의 실질적인 유입 강도를 추정한 복합 지표입니다. 단순 거래량이 아닌 '매집의 질'을 평가합니다.",
+        interpretation: "수치가 50% 이상이면 기관이 주도하는 장세이며, 80% 이상은 강력한 매수 신호입니다."
     }
 };
 
 const MARKET_STATE_INFO: Record<string, string> = {
-    'ACCUMULATION': "매집 단계: 세력이 가격을 일정 범위에 가두고 물량을 모으는 구간. 저점 매수의 기회.",
-    'MARKUP': "상승 단계: 매집이 끝나고 가격을 본격적으로 들어 올리는 슈팅 구간. 추격 매수 유효.",
-    'DISTRIBUTION': "분산 단계: 세력이 개인에게 물량을 넘기는 고점 구간. 하락 전환 주의.",
-    'MANIPULATION': "속임수 단계: 방향성을 주기 전 개미를 털어내는 혼조세 구간. 진입 유의."
+    'ACCUMULATION': "매집 단계: 세력이 가격을 일정 범위에 가두고 조용히 물량을 모으는 구간. 최고의 저점 매수 기회.",
+    'MARKUP': "상승 단계: 매집이 끝나고 가격을 본격적으로 들어 올리는 슈팅 구간. 추세 추종 매매 유효.",
+    'DISTRIBUTION': "분산 단계: 세력이 개인에게 물량을 넘기며 이익을 실현하는 고점 구간. 하락 전환 주의.",
+    'MANIPULATION': "속임수 단계: 방향성을 주기 전 위아래로 흔들며 개미를 털어내는 혼조세 구간. 진입 유의."
 };
 
 // [QUANT ENGINE] Smart Money Scoring Logic
@@ -406,7 +406,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                     </span>
                                     {/* Market State Badge with Insight Overlay */}
                                     <span 
-                                        className={`insight-badge text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border cursor-help hover:opacity-80 transition-opacity ${
+                                        className={`insight-badge group flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border cursor-help hover:opacity-80 transition-opacity ${
                                             selectedTicker.marketState === 'MARKUP' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
                                             selectedTicker.marketState === 'ACCUMULATION' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' :
                                             selectedTicker.marketState === 'MANIPULATION' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
@@ -415,6 +415,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                         onClick={() => setActiveInsight(selectedTicker.marketState)}
                                     >
                                         {selectedTicker.marketState}
+                                        <svg className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     </span>
                                 </div>
                             </div>
@@ -447,9 +448,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                  <div 
                                     key={m.id}
                                     onClick={() => setActiveInsight(m.id)}
-                                    className={`insight-card p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 ${activeInsight === m.id ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' : 'bg-slate-900/50 border-white/5 hover:bg-slate-800'}`}
+                                    className={`insight-card p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 group ${activeInsight === m.id ? 'bg-indigo-600 border-indigo-400 text-white shadow-lg' : 'bg-slate-900/50 border-white/5 hover:bg-slate-800'}`}
                                  >
-                                     <p className={`text-[7px] uppercase font-bold ${activeInsight === m.id ? 'text-white' : 'text-slate-500'}`}>{m.label}</p>
+                                     <div className="flex items-center justify-center gap-1 mb-0.5">
+                                        <p className={`text-[7px] uppercase font-bold ${activeInsight === m.id ? 'text-white' : 'text-slate-500'}`}>{m.label}</p>
+                                        <svg className={`w-2 h-2 ${activeInsight === m.id ? 'text-white' : 'text-slate-600 group-hover:text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                     </div>
                                      <p className={`text-[10px] font-black ${m.good ? 'text-emerald-400' : 'text-slate-300'}`}>
                                          {m.val}
                                      </p>
@@ -466,16 +470,22 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                     </button>
                                     {ICT_DEFINITIONS[activeInsight] ? (
                                         <>
-                                            <h5 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{ICT_DEFINITIONS[activeInsight].title}</h5>
+                                            <h5 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                                                {ICT_DEFINITIONS[activeInsight].title}
+                                            </h5>
                                             <p className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">{ICT_DEFINITIONS[activeInsight].desc}</p>
                                             <div className="bg-white/5 p-2 rounded border border-white/5">
-                                                <p className="text-[8px] text-emerald-400 font-bold">💡 Checkpoint:</p>
+                                                <p className="text-[8px] text-emerald-400 font-bold mb-0.5">💡 Insight:</p>
                                                 <p className="text-[8px] text-slate-400">{ICT_DEFINITIONS[activeInsight].interpretation}</p>
                                             </div>
                                         </>
                                     ) : MARKET_STATE_INFO[activeInsight] ? (
                                         <>
-                                            <h5 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1">{activeInsight} PHASE</h5>
+                                            <h5 className="text-[10px] font-black text-indigo-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></span>
+                                                {activeInsight} PHASE
+                                            </h5>
                                             <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{MARKET_STATE_INFO[activeInsight]}</p>
                                         </>
                                     ) : null}
