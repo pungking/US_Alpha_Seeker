@@ -39,11 +39,36 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
+// [KNOWLEDGE BASE] Technical Definitions
+const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
+    'RSI': {
+        title: "RSI (Relative Strength Index)",
+        desc: "최근 14일간의 주가 상승폭과 하락폭을 비교하여 과매수/과매도 구간을 판단하는 모멘텀 지표입니다.",
+        interpretation: "70 이상은 과매수(잠재적 조정), 30 이하는 과매도(반등 가능성)로 간주합니다. 50 이상에서의 반등은 강세장 지속을 의미합니다."
+    },
+    'SQUEEZE': {
+        title: "TTM Squeeze (Bollinger + Keltner)",
+        desc: "변동성이 극도로 축소된 상태(Squeeze)를 탐지합니다. 볼린저 밴드가 켈트너 채널 안으로 들어오면 에너지가 응축된 것입니다.",
+        interpretation: "'SQUEEZE_ON' 상태는 조만간 강한 추세 폭발이 임박했음을 암시합니다. 횡보 구간에서의 매집 신호로 활용됩니다."
+    },
+    'RVOL': {
+        title: "Relative Volume (RVOL)",
+        desc: "평소(20일 평균) 대비 현재 거래량의 비율입니다. 주가 움직임의 신뢰도를 결정하는 핵심 척도입니다.",
+        interpretation: "1.5x 이상은 기관의 개입(Institutional Interest)을 의미하며, 3.0x 이상의 폭발적 거래량은 추세 전환의 강력한 신호입니다."
+    },
+    'TREND': {
+        title: "Trend Strength (EMA)",
+        desc: "단기(20일) 및 중기(50일) 이동평균선의 배열 상태와 이격도를 종합하여 추세의 강도를 점수화한 지표입니다.",
+        interpretation: "점수가 높을수록 정배열(Uptrend)이 강하며, 낮은 점수는 역배열 또는 혼조세를 의미합니다."
+    }
+};
+
 const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<TechnicalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<TechnicalTicker | null>(null);
+  const [activeMetric, setActiveMetric] = useState<string | null>(null); // Interactive Explanation State
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -56,6 +81,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Click Outside Handler for Insights
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.tech-insight-card') && !target.closest('.tech-insight-overlay')) {
+            setActiveMetric(null);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     let interval: any;
@@ -95,6 +132,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const handleTickerSelect = (ticker: TechnicalTicker) => {
       setSelectedTicker(ticker);
+      setActiveMetric(null);
       if (onStockSelected) {
           onStockSelected(ticker);
       }
@@ -406,19 +444,46 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              )}
                         </div>
 
+                        {/* Interactive Metrics Grid */}
                         <div className="grid grid-cols-4 gap-2 mt-2">
                              {[
-                                { label: 'RSI (14)', val: selectedTicker.techMetrics.rsi, good: selectedTicker.techMetrics.rsi < 30 || selectedTicker.techMetrics.rsi > 70 },
-                                { label: 'Trend', val: selectedTicker.techMetrics.trend, good: selectedTicker.techMetrics.trend > 70 },
-                                { label: 'RVOL', val: `${selectedTicker.techMetrics.rvol}x`, good: selectedTicker.techMetrics.rvol > 1.5 },
-                                { label: 'Score', val: selectedTicker.technicalScore, good: selectedTicker.technicalScore > 80 }
-                             ].map((m, idx) => (
-                                 <div key={idx} className={`p-2 rounded-lg text-center border ${m.good ? 'bg-orange-900/20 border-orange-500/30' : 'bg-slate-800 border-white/5'}`}>
-                                     <p className="text-[7px] text-slate-500 uppercase font-bold">{m.label}</p>
-                                     <p className={`text-[10px] font-black ${m.good ? 'text-orange-400' : 'text-slate-300'}`}>{m.val}</p>
+                                { id: 'RSI', label: 'RSI (14)', val: selectedTicker.techMetrics.rsi, good: selectedTicker.techMetrics.rsi < 30 || selectedTicker.techMetrics.rsi > 70 },
+                                { id: 'SQUEEZE', label: 'TTM Squeeze', val: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'ON' : 'OFF', good: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' },
+                                { id: 'RVOL', label: 'RVOL', val: `${selectedTicker.techMetrics.rvol}x`, good: selectedTicker.techMetrics.rvol > 1.5 },
+                                { id: 'TREND', label: 'Trend (EMA)', val: selectedTicker.techMetrics.trend, good: selectedTicker.techMetrics.trend > 70 }
+                             ].map((m) => (
+                                 <div 
+                                    key={m.id} 
+                                    onClick={() => setActiveMetric(m.id)}
+                                    className={`tech-insight-card p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 group ${activeMetric === m.id ? 'bg-orange-600 border-orange-400 text-white shadow-lg' : m.good ? 'bg-orange-900/20 border-orange-500/30' : 'bg-slate-800 border-white/5 hover:bg-slate-700'}`}
+                                 >
+                                     <div className="flex items-center justify-center gap-1 mb-0.5">
+                                        <p className={`text-[7px] uppercase font-bold ${activeMetric === m.id ? 'text-white' : 'text-slate-500 group-hover:text-slate-400'}`}>{m.label}</p>
+                                     </div>
+                                     <p className={`text-[10px] font-black ${activeMetric === m.id ? 'text-white' : m.good ? 'text-orange-400' : 'text-slate-300'}`}>{m.val}</p>
                                  </div>
                              ))}
                         </div>
+
+                        {/* Tech Insight Overlay */}
+                        {activeMetric && TECH_DEFINITIONS[activeMetric] && (
+                            <div className="tech-insight-overlay absolute bottom-20 left-6 right-6 z-20 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-orange-500/30 shadow-2xl relative">
+                                    <button onClick={() => setActiveMetric(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white">
+                                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    </button>
+                                    <h5 className="text-[10px] font-black text-orange-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                        <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
+                                        {TECH_DEFINITIONS[activeMetric].title}
+                                    </h5>
+                                    <p className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">{TECH_DEFINITIONS[activeMetric].desc}</p>
+                                    <div className="bg-white/5 p-2 rounded border border-white/5">
+                                        <p className="text-[8px] text-emerald-400 font-bold mb-0.5">💡 Strategy:</p>
+                                        <p className="text-[8px] text-slate-400">{TECH_DEFINITIONS[activeMetric].interpretation}</p>
+                                    </div>
+                                </div>
+                            </div>
+                        )}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
