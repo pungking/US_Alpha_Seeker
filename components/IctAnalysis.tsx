@@ -18,11 +18,11 @@ interface IctScoredTicker {
       liquiditySweep: number; // 스탑 헌팅 여부 (Stop Hunt)
       marketStructure: number;// 구조적 추세 전환 (MSS)
       orderBlock: number;     // 매집 구간 지지력 (OB Quality)
-      smartMoneyFlow: number; // 기관 자금 유입 추정치
+      smartMoneyFlow: number; // 기관 자금 유입 추정치 (Effort vs Result)
   };
   
   // Qualitative Tags
-  marketState: 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION';
+  marketState: 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' | 'RE-ACCUMULATION';
   verdict: string;
   
   // Radar Data
@@ -41,74 +41,113 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// [KNOWLEDGE BASE] Interactive Definitions for UI
+// [KNOWLEDGE BASE] Institutional Grade Definitions
 const ICT_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
     'DISPLACEMENT': {
-        title: "Displacement (세력 개입 강도)",
-        desc: "기관(Smart Money)이 시장에 진입했음을 알리는 강력한 신호입니다. 평소 대비 압도적인 거래량과 가격 변동폭(Candle Body)을 동반합니다.",
-        interpretation: "점수가 높을수록 세력이 의도적으로 가격을 강하게 밀어올리고 있음을 의미합니다."
+        title: "Displacement (세력 개입)",
+        desc: "기관(Smart Money)의 의도적인 가격 이동입니다. 높은 RVOL과 장대 양봉(Expansion)은 세력이 시장가로 물량을 쓸어담았다는(Aggressive Buy) 증거입니다.",
+        interpretation: "Score > 70: 단순 변동성이 아닌, 세력의 자금이 투입된 '진짜 상승'입니다."
     },
     'MSS': {
-        title: "Market Structure Shift (시장 구조 전환)",
-        desc: "하락 추세(Lower Highs)에서 상승 추세(Higher Highs)로의 구조적 변화가 발생한 지점입니다.",
-        interpretation: "MSS가 'BREAK' 상태라면 단순 반등이 아닌 '대세 상승장'의 초입일 확률이 매우 높습니다."
+        title: "Market Structure (시장 구조)",
+        desc: "하락 파동(Lower Highs)을 깨고 상승 파동(Higher Highs)으로 전환되는 지점입니다. 추세 반전의 가장 신뢰도 높은 기술적 신호입니다.",
+        interpretation: "BREAK 확인 시: 눌림목(Retracement)은 매도 기회가 아니라 '강력한 매수 기회'가 됩니다."
     },
     'SWEEP': {
-        title: "Liquidity Sweep (개미 털기)",
-        desc: "주요 지지선을 살짝 붕괴시켜 개인 투자자들의 손절 물량(Stop Loss)을 체결시키고, 그 물량을 받아 가격을 급등시키는 패턴입니다.",
-        interpretation: "'YES'는 세력이 저점에서 물량을 성공적으로 매집(Stop Hunt)했다는 강력한 증거입니다."
+        title: "Liquidity Sweep (유동성 확보)",
+        desc: "주요 지지/저항 라인을 살짝 붕괴시켜 개인의 손절 물량(Stop Loss)을 유도하고, 그 유동성을 이용해 포지션을 진입하는 기관의 테크닉입니다.",
+        interpretation: "YES: 세력이 개미를 털어내고(Stop Hunt) 연료를 확보했습니다. 곧 급반전이 예상됩니다."
     },
     'WHALES': {
-        title: "Whale Activity (고래 수급)",
-        desc: "거대 자금의 실질적인 유입 강도를 추정한 복합 지표입니다. 단순 거래량이 아닌 '매집의 질'을 평가합니다.",
-        interpretation: "수치가 50% 이상이면 기관이 주도하는 장세이며, 80% 이상은 강력한 매수 신호입니다."
+        title: "Smart Money Flow (노력 vs 결과)",
+        desc: "와이코프(Wyckoff) 이론에 기반하여 거래량(노력) 대비 가격 변동(결과)의 효율성을 분석합니다. 거래량은 터지는데 가격이 지켜진다면 매집입니다.",
+        interpretation: "80% 이상: 완벽한 매집. 기관이 유통 물량을 잠그고(Lock-up) 슈팅을 준비 중입니다."
     }
 };
 
 const MARKET_STATE_INFO: Record<string, string> = {
-    'ACCUMULATION': "매집 단계: 세력이 가격을 일정 범위에 가두고 조용히 물량을 모으는 구간. 최고의 저점 매수 기회.",
-    'MARKUP': "상승 단계: 매집이 끝나고 가격을 본격적으로 들어 올리는 슈팅 구간. 추세 추종 매매 유효.",
-    'DISTRIBUTION': "분산 단계: 세력이 개인에게 물량을 넘기며 이익을 실현하는 고점 구간. 하락 전환 주의.",
-    'MANIPULATION': "속임수 단계: 방향성을 주기 전 위아래로 흔들며 개미를 털어내는 혼조세 구간. 진입 유의."
+    'ACCUMULATION': "매집 (Accumulation): 세력이 바닥권에서 물량을 조용히 모으는 단계. 하락은 멈췄으나 상승 전 에너지를 응축 중.",
+    'MARKUP': "상승 (Markup): 매집 완료 후 가격을 들어 올리는 단계. 추세가 형성되었으므로 적극적인 추격 매수(Momentum) 유효.",
+    'DISTRIBUTION': "분산 (Distribution): 고점에서 거래량은 터지지만 가격이 못 가는 단계. 세력이 개인에게 물량을 떠넘기는 중. 매도 관점.",
+    'MANIPULATION': "속임수 (Manipulation): 방향성을 주기 전 위아래로 흔들어 손절을 유도하는 구간. 휩소(Whipsaw) 주의.",
+    'RE-ACCUMULATION': "재매집 (Re-Accumulation): 상승 도중 숨고르기. 차익 실현 물량을 세력이 다시 받아내며 2차 상승을 준비하는 건전한 조정."
 };
 
-// [QUANT ENGINE] Smart Money Scoring Logic
+// [QUANT ENGINE v6.2] Advanced Wyckoff & ICT Logic
 const calculateIctScore = (item: any) => {
+    // 1. Displacement (Force of Move)
     const rvol = item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
-    const displacement = Math.min(100, (rvol * 20) + (momentum > 60 ? 30 : 0));
+    const trendScore = item.techMetrics?.trend || 50;
+    
+    // Displacement is confirmed if High Relative Volume meets Momentum
+    let displacement = Math.min(100, (rvol * 25) + (momentum > 60 ? 30 : 0));
+    if (trendScore > 80) displacement += 10; // Trend confirmation boost
 
-    const trend = item.techMetrics?.trend || 50;
-    const mss = trend;
+    // 2. Market Structure (MSS)
+    // Using Trend Score as a proxy for Structure Score + Moving Average Alignment
+    const mss = trendScore;
 
+    // 3. Liquidity Sweep (Stop Hunt Detection)
+    // Squeeze + Low RSI usually means price is suppressed (Stop Hunt area)
     const isSqueeze = item.techMetrics?.squeezeState === 'SQUEEZE_ON';
-    const sweepScore = isSqueeze ? 90 : 50; 
-
     const rsi = item.techMetrics?.rsRating || 50;
-    let obScore = 50;
-    if (rsi >= 40 && rsi <= 60) obScore = 85; 
-    else if (rsi > 70) obScore = 95; 
-    else obScore = 40;
+    
+    let sweepScore = 50;
+    if (isSqueeze) sweepScore += 30; // Volatility Contraction often precedes expansion
+    if (rsi < 40 && rvol > 1.2) sweepScore += 20; // Selling climax absorption (Spring)
 
-    const smFlow = (displacement * 0.4) + (mss * 0.3) + (obScore * 0.3);
-    const finalScore = (displacement * 0.3) + (mss * 0.2) + (sweepScore * 0.2) + (obScore * 0.3);
+    // 4. Order Block / Smart Money Flow (Wyckoff Logic)
+    // Effort (Volume) vs Result (Price Move)
+    // Ideally: High Volume + High Move = Valid. High Volume + Small Move = Absorption/Distribution.
+    
+    let obScore = 50; // Support Quality
+    // Sweet spot for OB is often RSI 40-60 (Retracement) in an Uptrend
+    if (trendScore > 60 && rsi >= 40 && rsi <= 65) obScore = 90; 
+    else if (trendScore > 60 && rsi > 70) obScore = 70; // A bit extended
+    else if (trendScore < 40) obScore = 30; // Broken structure
+
+    // Smart Money Flow Calculation (The "Secret Sauce")
+    // If Trend is UP and RVOL is High -> Good Flow
+    // If Trend is Flat/Down but RVOL is HUGE -> Accumulation Flow
+    let smFlow = 50;
+    if (trendScore > 70) {
+        smFlow = 70 + (rvol > 1.5 ? 20 : 0); // Markup Phase
+    } else {
+        // Checking for Accumulation: Price stable/down but volume spiking
+        if (rvol > 2.0 && rsi < 45) smFlow = 85; // Absorption detected
+        else smFlow = 40;
+    }
+
+    // Final Composite Score weighting
+    const finalScore = (displacement * 0.25) + (mss * 0.2) + (sweepScore * 0.15) + (obScore * 0.2) + (smFlow * 0.2);
 
     return {
-        score: Number(finalScore.toFixed(2)),
+        score: Number(Math.min(100, finalScore).toFixed(2)),
         metrics: {
-            displacement: Number(displacement.toFixed(2)),
-            liquiditySweep: Number(sweepScore.toFixed(2)),
-            marketStructure: Number(mss.toFixed(2)),
-            orderBlock: Number(obScore.toFixed(2)),
-            smartMoneyFlow: Number(smFlow.toFixed(2))
+            displacement: Number(Math.min(100, displacement).toFixed(2)),
+            liquiditySweep: Number(Math.min(100, sweepScore).toFixed(2)),
+            marketStructure: Number(Math.min(100, mss).toFixed(2)),
+            orderBlock: Number(Math.min(100, obScore).toFixed(2)),
+            smartMoneyFlow: Number(Math.min(100, smFlow).toFixed(2))
         }
     };
 };
 
-const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' => {
-    if (metrics.liquiditySweep > 80 && metrics.displacement < 50) return 'MANIPULATION';
-    if (metrics.marketStructure > 70 && metrics.displacement > 70) return 'MARKUP';
-    if (metrics.orderBlock > 80 && metrics.displacement < 60) return 'ACCUMULATION';
+const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' | 'RE-ACCUMULATION' => {
+    // 1. Markup: Strong Structure + Strong Displacement
+    if (metrics.marketStructure > 75 && metrics.displacement > 70) return 'MARKUP';
+    
+    // 2. Re-Accumulation: Good Structure + High Order Block quality (Holding support)
+    if (metrics.marketStructure > 60 && metrics.orderBlock > 80) return 'RE-ACCUMULATION';
+    
+    // 3. Accumulation: High Smart Money Flow (Absorption) but low Displacement (Price not moving yet)
+    if (metrics.smartMoneyFlow > 80 && metrics.displacement < 60) return 'ACCUMULATION';
+    
+    // 4. Manipulation: High Sweep score (Stop hunt) 
+    if (metrics.liquiditySweep > 80) return 'MANIPULATION';
+    
+    // 5. Default
     return 'DISTRIBUTION';
 };
 
@@ -121,7 +160,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.1.0: Advanced Smart Money MTF Core.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.2.0: Hedge Fund Grade Logic Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -184,7 +223,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
           { subject: 'Momentum', A: ticker.ictMetrics.displacement, fullMark: 100 },
           { subject: 'Structure', A: ticker.ictMetrics.marketStructure, fullMark: 100 },
           { subject: 'Liquidity', A: ticker.ictMetrics.liquiditySweep, fullMark: 100 },
-          { subject: 'OrderFlow', A: ticker.ictMetrics.smartMoneyFlow, fullMark: 100 },
+          { subject: 'Flow', A: ticker.ictMetrics.smartMoneyFlow, fullMark: 100 },
           { subject: 'Support', A: ticker.ictMetrics.orderBlock, fullMark: 100 },
       ];
   };
@@ -232,6 +271,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
         const ictAnalysis = calculateIctScore(item);
         const marketState = determineMarketState(ictAnalysis.metrics);
         
+        // Composite Alpha: Fundamental (20%) + Tech (30%) + ICT/SmartMoney (50%)
+        // Hedge Fund Tweak: Increased ICT weight for timing precision
         const composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
 
         const ticker: IctScoredTicker = {
@@ -245,10 +286,10 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             compositeAlpha: Number(composite.toFixed(2)),
             ictMetrics: ictAnalysis.metrics,
             marketState: marketState,
-            verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
+            verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'RE-ACCUMULATION' ? 'BUY DIP' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
             radarData: [],
             sector: item.sector,
-            scoringEngine: "ICT_Quant_Engine_v6"
+            scoringEngine: "ICT_Wyckoff_Engine_v6.2"
         };
 
         results.push(ticker);
@@ -271,7 +312,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.1.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite" },
+        manifest: { version: "6.2.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff" },
         ict_universe: finalSurvivors
       };
 
@@ -328,7 +369,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.1.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.2.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
@@ -408,6 +449,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                     <span 
                                         className={`insight-badge group flex items-center gap-1 text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border cursor-help hover:opacity-80 transition-opacity ${
                                             selectedTicker.marketState === 'MARKUP' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30' :
+                                            selectedTicker.marketState === 'RE-ACCUMULATION' ? 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30' :
                                             selectedTicker.marketState === 'ACCUMULATION' ? 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30' :
                                             selectedTicker.marketState === 'MANIPULATION' ? 'bg-amber-500/20 text-amber-400 border-amber-500/30' :
                                             'bg-rose-500/20 text-rose-400 border-rose-500/30'
@@ -443,7 +485,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                 { id: 'DISPLACEMENT', label: 'Displacement', val: selectedTicker.ictMetrics.displacement.toFixed(0), good: selectedTicker.ictMetrics.displacement > 70 },
                                 { id: 'MSS', label: 'Structure (MSS)', val: selectedTicker.ictMetrics.marketStructure > 70 ? 'BREAK' : 'WEAK', good: selectedTicker.ictMetrics.marketStructure > 70 },
                                 { id: 'SWEEP', label: 'Sweep', val: selectedTicker.ictMetrics.liquiditySweep > 80 ? 'YES' : 'NO', good: selectedTicker.ictMetrics.liquiditySweep > 80 },
-                                { id: 'WHALES', label: 'Whales', val: `${selectedTicker.ictMetrics.smartMoneyFlow.toFixed(0)}%`, good: selectedTicker.ictMetrics.smartMoneyFlow > 80 }
+                                { id: 'WHALES', label: 'SmartFlow', val: `${selectedTicker.ictMetrics.smartMoneyFlow.toFixed(0)}%`, good: selectedTicker.ictMetrics.smartMoneyFlow > 80 }
                              ].map((m) => (
                                  <div 
                                     key={m.id}
