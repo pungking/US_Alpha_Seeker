@@ -1,11 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage, archiveReport } from '../services/intelligenceService';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // [QUANT ENGINE] Mathematical Indicator Logic
@@ -75,7 +71,17 @@ interface TechScoredTicker {
   fundamentalScore: number;
   technicalScore: number;
   totalAlpha: number;
-  techMetrics: { trend: number; momentum: number; volumePattern: number; adl: number; forceIndex: number; srLevels: number; rsRating?: number; squeezeState?: string; };
+  techMetrics: { 
+    trend: number; 
+    momentum: number; 
+    volumePattern: number; 
+    rvol: number; // Raw RVOL added explicitly
+    adl: number; 
+    forceIndex: number; 
+    srLevels: number; 
+    rsRating?: number; 
+    squeezeState?: string; 
+  };
   sector: string;
   scoringEngine?: string;
   [key: string]: any;
@@ -84,19 +90,15 @@ interface TechScoredTicker {
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
+  onStockSelected?: (stock: any) => void;
 }
 
-const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
+const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<TechScoredTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<TechScoredTicker | null>(null);
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  
-  // Auditor State
-  const [auditReports, setAuditReports] = useState<Record<string, string>>({});
-  const [auditLoading, setAuditLoading] = useState(false);
-  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
   const [activeMetric, setActiveMetric] = useState<string | null>(null);
 
   // Time Tracking
@@ -112,6 +114,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Click Outside to Close Insight Box
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.insight-trigger') && !target.closest('.insight-overlay')) {
+            setActiveMetric(null);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // Timer Effect
   useEffect(() => {
@@ -138,11 +152,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         executeIntegratedTechProtocol();
     }
   }, [autoStart]);
-
-  useEffect(() => {
-      // Clear metric selection when switching stocks
-      setActiveMetric(null);
-  }, [selectedTicker]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -211,77 +220,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
           rsi: rsi,
           squeeze: squeezeState
       };
-  };
-
-  const runAudit = async () => {
-      if (!selectedTicker || auditLoading) return;
-      setAuditLoading(true);
-      const targetBrain = auditBrain;
-      
-      const prompt = `
-      [SYSTEM: Expert Technical Analyst (CMT/CFA)]
-      Target: ${selectedTicker.symbol}
-      Price: $${selectedTicker.price}
-      
-      Technical Data (Real-time Calculated):
-      - RSI (14): ${selectedTicker.techMetrics.rsRating?.toFixed(1)}
-      - TTM Squeeze: ${selectedTicker.techMetrics.squeezeState}
-      - Relative Volume: ${(selectedTicker.techMetrics.volumePattern / 50).toFixed(2)}x
-      - Trend Score: ${selectedTicker.techMetrics.trend}/100
-      
-      Analyze this setup. Is it a Buy, Sell, or Wait? 
-      Provide 3 bullet points of logic and a final verdict.
-      **Output in KOREAN. Use Markdown.**
-      `;
-      
-      try {
-          let report = "";
-          
-          if (targetBrain === ApiProvider.GEMINI) {
-               try {
-                   const apiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
-                   const ai = new GoogleGenAI({ apiKey: apiKey || "" });
-                   const res = await ai.models.generateContent({
-                       model: 'gemini-3-flash-preview',
-                       contents: prompt
-                   });
-                   report = res.text;
-               } catch (e) {
-                   console.warn("Gemini Failed, switching to Sonar");
-                   setAuditBrain(ApiProvider.PERPLEXITY);
-                   // Retry with Sonar logic below implicitly or explicitly
-                   throw new Error("Switch to Sonar");
-               }
-          }
-          
-          if (!report || targetBrain === ApiProvider.PERPLEXITY) {
-               const pKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key;
-               const res = await fetch('https://api.perplexity.ai/chat/completions', {
-                   method: 'POST',
-                   headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pKey}` },
-                   body: JSON.stringify({
-                       model: 'sonar-pro',
-                       messages: [{ role: 'user', content: prompt }]
-                   })
-               });
-               const json = await res.json();
-               report = json.choices?.[0]?.message?.content || "Analysis Failed";
-          }
-
-          setAuditReports(prev => ({ ...prev, [selectedTicker.symbol]: report }));
-          
-          // Auto Archive
-          if (accessToken) {
-             const date = new Date().toISOString().split('T')[0];
-             const fileName = `${date}_TECH_AUDIT_${selectedTicker.symbol}.md`;
-             archiveReport(accessToken, fileName, report);
-          }
-
-      } catch (e) {
-          addLog("Audit Failed. Check API Limits.", "err");
-      } finally {
-          setAuditLoading(false);
-      }
   };
 
   const executeIntegratedTechProtocol = async () => {
@@ -367,7 +305,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             techMetrics: { 
               trend: metrics.trend || techScore, 
               momentum: metrics.rsi || 50, 
-              volumePattern: (metrics.rvol || 1) * 50, 
+              volumePattern: (metrics.rvol || 1) * 50, // Score for visual
+              rvol: metrics.rvol || 1, // Raw value
               adl: 50, forceIndex: 50, srLevels: 50,
               rsRating: metrics.rsi || 50, 
               squeezeState: metrics.squeeze || "NONE"
@@ -377,20 +316,22 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
         };
 
         results.push(newItem);
-        if (i % 5 === 0 || i === total - 1) {
+        if (i % 5 === 0) {
             setProgress({ current: i + 1, total });
-            // Update UI incrementally for top candidates
             if (i < DEEP_SCAN_LIMIT + 5) {
                 const tempSorted = [...results].sort((a,b) => b.technicalScore - a.technicalScore);
                 setProcessedData(tempSorted);
-                if (!selectedTicker) setSelectedTicker(tempSorted[0]);
+                if (!selectedTicker) handleTickerSelect(tempSorted[0]);
             }
         }
       }
 
+      // Ensure 100% progress visibility
+      setProgress({ current: total, total });
+      
       results.sort((a, b) => b.totalAlpha - a.totalAlpha);
       setProcessedData(results);
-      if (results.length > 0 && !selectedTicker) setSelectedTicker(results[0]);
+      if (results.length > 0 && !selectedTicker) handleTickerSelect(results[0]);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
@@ -441,6 +382,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const handleTickerSelect = (ticker: TechScoredTicker) => {
       setSelectedTicker(ticker);
+      if (onStockSelected) {
+          // Normalize for Auditor
+          onStockSelected({
+              ...ticker,
+              compositeAlpha: ticker.totalAlpha, // Bridge for Auditor which might look for compositeAlpha
+              aiVerdict: "TECHNICAL_HOLD" 
+          });
+      }
   };
 
   return (
@@ -520,7 +469,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                         <div className="flex justify-between items-start">
                             <div>
                                 <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
-                                <p className="text-[9px] text-orange-500 font-bold uppercase tracking-widest mt-1">Technical Quant Cockpit</p>
+                                <div className="flex items-center gap-2 mt-1">
+                                    <p className="text-[9px] text-orange-500 font-bold uppercase tracking-widest">Technical Quant Cockpit</p>
+                                    {selectedTicker.scoringEngine?.includes("Fallback") && (
+                                        <span className="text-[7px] text-amber-500 font-black border border-amber-500/30 bg-amber-500/10 px-1 rounded uppercase">Estimated</span>
+                                    )}
+                                </div>
                             </div>
                             <div className="text-right">
                                  <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Total Alpha Score</p>
@@ -529,11 +483,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                         </div>
 
                         {/* Gauges Grid */}
-                        <div className="grid grid-cols-2 gap-4 mt-6">
+                        <div className="grid grid-cols-2 gap-4 mt-6 relative z-10">
                             {/* RSI Gauge */}
                             <div 
                                 onClick={() => setActiveMetric('RSI')}
-                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'RSI' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                                className={`insight-trigger bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'RSI' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
                             >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">RSI (14)</span>
@@ -549,12 +503,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             {/* Volatility Squeeze */}
                             <div 
                                 onClick={() => setActiveMetric('SQUEEZE')}
-                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'SQUEEZE' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                                className={`insight-trigger bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'SQUEEZE' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
                             >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">TTM Squeeze</span>
                                     <span className={`text-[9px] font-black ${selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'text-rose-500 animate-pulse' : 'text-emerald-500'}`}>
-                                        {selectedTicker.techMetrics.squeezeState}
+                                        {selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'ACTIVE' : 'OFF'}
                                     </span>
                                 </div>
                                 <div className="flex gap-1 h-1.5">
@@ -567,11 +521,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             {/* Relative Volume */}
                             <div 
                                 onClick={() => setActiveMetric('RVOL')}
-                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'RVOL' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                                className={`insight-trigger bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'RVOL' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
                             >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">Rel Volume (RVOL)</span>
-                                    <span className="text-[10px] font-black text-white">{(selectedTicker.techMetrics.volumePattern / 50).toFixed(2)}x</span>
+                                    <span className="text-[10px] font-black text-white">{selectedTicker.techMetrics.rvol?.toFixed(2) || '1.00'}x</span>
                                 </div>
                                 <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
                                     <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, selectedTicker.techMetrics.volumePattern)}%` }}></div>
@@ -581,7 +535,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                             {/* Trend Strength */}
                             <div 
                                 onClick={() => setActiveMetric('TREND')}
-                                className={`bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'TREND' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
+                                className={`insight-trigger bg-slate-900/50 p-4 rounded-2xl border cursor-pointer transition-all ${activeMetric === 'TREND' ? 'border-orange-500 shadow-lg shadow-orange-900/20' : 'border-white/5 hover:bg-slate-800'}`}
                             >
                                 <div className="flex justify-between mb-2">
                                     <span className="text-[8px] font-black text-slate-400 uppercase">Trend (EMA)</span>
@@ -595,7 +549,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
                         {/* Insight Overlay */}
                         {activeMetric && TECH_METRIC_INSIGHTS[activeMetric] && (
-                            <div className="absolute bottom-4 left-6 right-6 bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-orange-500/30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 z-20">
+                            <div className="insight-overlay absolute bottom-4 left-6 right-6 bg-slate-900/95 backdrop-blur-md p-4 rounded-xl border border-orange-500/30 shadow-2xl animate-in fade-in slide-in-from-bottom-2 z-20">
                                 <h5 className="text-[9px] font-black text-orange-400 uppercase tracking-widest mb-1">{TECH_METRIC_INSIGHTS[activeMetric].title}</h5>
                                 <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{TECH_METRIC_INSIGHTS[activeMetric].desc}</p>
                             </div>
@@ -608,54 +562,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                      </div>
                  )}
               </div>
-          </div>
-
-          {/* AI AUDITOR MATRIX (NEW SECTION) */}
-          <div className="bg-black/40 rounded-[40px] border border-white/5 p-6 md:p-8 relative mt-6 transition-all">
-             <div className="flex justify-between items-center mb-6">
-                 <div>
-                    <h3 className="text-xl font-black text-white italic tracking-tighter uppercase leading-none">AI Alpha Auditor Matrix</h3>
-                    <p className="text-[10px] text-slate-500 mt-1 uppercase tracking-widest">Deep Neural Analysis Layer</p>
-                 </div>
-                 {selectedTicker && (
-                     <div className="flex items-center gap-3">
-                        <div className="flex bg-slate-900 p-1 rounded-xl border border-white/10">
-                            <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-orange-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Gemini</button>
-                            <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-4 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500 hover:text-white'}`}>Sonar</button>
-                        </div>
-                        <button onClick={runAudit} disabled={auditLoading} className="px-6 py-2.5 bg-slate-800 text-white rounded-xl text-[9px] font-black uppercase tracking-widest border border-white/10 hover:bg-slate-700 transition-all shadow-lg">
-                           {auditLoading ? 'Auditing...' : 'Execute Audit'}
-                        </button>
-                     </div>
-                 )}
-             </div>
-
-             <div className="min-h-[200px] bg-slate-950/50 rounded-3xl border border-white/5 p-6 md:p-8">
-                 {selectedTicker ? (
-                     auditReports[selectedTicker.symbol] ? (
-                         <div className="prose-report text-xs text-slate-300 leading-relaxed animate-in fade-in">
-                              <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-4">
-                                  <span className="text-[9px] font-black uppercase tracking-widest text-orange-500">
-                                      Audit Report: {selectedTicker.symbol} ({auditBrain})
-                                  </span>
-                                  <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
-                              </div>
-                              <ReactMarkdown remarkPlugins={[remarkGfm]}>{auditReports[selectedTicker.symbol]}</ReactMarkdown>
-                         </div>
-                     ) : (
-                         <div className="h-full flex flex-col items-center justify-center opacity-30 py-12">
-                             <div className="w-12 h-12 rounded-full bg-slate-800 flex items-center justify-center mb-4">
-                                <svg className="w-6 h-6 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                             </div>
-                             <p className="text-[9px] font-black uppercase tracking-widest">Ready to Generate Technical Audit</p>
-                         </div>
-                     )
-                 ) : (
-                     <div className="h-full flex items-center justify-center opacity-20 py-12">
-                         <p className="text-[9px] font-black uppercase tracking-widest">Select a Stock to Enable Auditor</p>
-                     </div>
-                 )}
-             </div>
           </div>
         </div>
       </div>
