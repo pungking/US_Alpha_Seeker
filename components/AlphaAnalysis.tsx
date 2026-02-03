@@ -77,6 +77,30 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   }
 };
 
+// [NEW] Alpha Strategy Insights
+const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
+    'RISK': {
+        title: "Risk (1R - Unit of Loss)",
+        desc: "트레이딩 셋업에서 감수해야 할 손실의 크기(1R)입니다. 모든 수익 목표는 이 리스크 단위(R)의 배수로 설정됩니다.",
+        strategy: "진입가와 손절가 사이의 폭을 1R로 정의하십시오. 자금 관리 원칙에 따라 1회 트레이딩 손실이 전체 자산의 1~2%를 넘지 않도록 포지션 규모를 조절해야 합니다."
+    },
+    'REWARD': {
+        title: "Reward (Profit Target)",
+        desc: "감수한 리스크 대비 기대할 수 있는 수익의 크기입니다. 3.0R 이상은 손익비가 매우 우수한 '비대칭적 기회'를 의미합니다.",
+        strategy: "최소 2R 이상의 셋업에만 진입하십시오. 목표가 도달 시 물량의 50%를 청산(Scale-out)하여 수익을 확정하고, 나머지는 추세를 따라가며 수익을 극대화하십시오."
+    },
+    'ENTRY': {
+        title: "Optimal Entry Zone (OEZ)",
+        desc: "기관의 수급이 유입된 'Order Block' 상단과 지지선이 겹치는 고확률 진입 구간입니다.",
+        strategy: "지정가 주문(Limit Order)을 걸어두고 가격이 올 때까지 기다리십시오. 추격 매수는 손익비를 훼손시킵니다. 가격이 오지 않고 날아가면 '내 것이 아니다'라고 생각하십시오."
+    },
+    'KELLY': {
+        title: "Kelly Criterion (Optimal Sizing)",
+        desc: "수학적으로 파산 확률을 0으로 수렴시키면서 자산 증식 속도를 최대화하는 베팅 비율 공식입니다. (Win% - Loss% / Profit Factor)",
+        strategy: "Full Kelly는 변동성이 너무 크므로, 헤지펀드에서는 일반적으로 'Half-Kelly'를 사용합니다. 제시된 비중은 단일 종목에 투입할 최대 권장 비중입니다. 포트폴리오 전체 리스크를 고려하여 분산하십시오."
+    }
+};
+
 const MarkdownComponents: any = {
     h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
     h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
@@ -126,6 +150,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string; overlayDesc: string } | null>(null);
   
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
+  const [activeAlphaInsight, setActiveAlphaInsight] = useState<string | null>(null); // New state for Tactical/Kelly insights
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
@@ -234,8 +259,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     setSelectedMetricInfo(null);
-    setActiveOverlay(null); 
+    setActiveOverlay(null);
+    setActiveAlphaInsight(null);
   }, [selectedStock]);
+
+  // Click Outside Handler for Alpha Insights
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.alpha-insight-trigger') && !target.closest('.alpha-insight-overlay')) {
+            setActiveAlphaInsight(null);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   const handleStockClick = (item: AlphaCandidate) => {
       setSelectedStock(item);
@@ -821,8 +859,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
 
-                         {/* Tactical Execution Map - Moved OUTSIDE the chart container for full visibility */}
-                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2">
+                         {/* Tactical Execution Map - Interactive */}
+                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 relative">
                             <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
                                 <span>Stop Loss: <span className="text-rose-400">${selectedStock.stopLoss?.toFixed(2)}</span></span>
                                 <span className="text-white">Current Price: ${selectedStock.price?.toFixed(2)}</span>
@@ -847,11 +885,46 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     style={{ left: `${tacticalPercent}%` }}
                                 ></div>
                             </div>
-                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider">
-                                <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0)</span>
-                                <span className="text-blue-300">Optimal Entry Zone</span>
-                                <span className="flex items-center gap-1">Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})<div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div></span>
+                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10">
+                                <span 
+                                    onClick={() => setActiveAlphaInsight('RISK')} 
+                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
+                                >
+                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0)
+                                </span>
+                                <span 
+                                    onClick={() => setActiveAlphaInsight('ENTRY')}
+                                    className="text-blue-300 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
+                                >
+                                    Optimal Entry Zone
+                                </span>
+                                <span 
+                                    onClick={() => setActiveAlphaInsight('REWARD')}
+                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
+                                >
+                                    Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})<div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
+                                </span>
                             </div>
+
+                            {/* Tactical Insight Overlay */}
+                            {activeAlphaInsight && ALPHA_INSIGHTS[activeAlphaInsight] && (
+                                <div className="alpha-insight-overlay absolute bottom-20 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
+                                    <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-blue-500/30 shadow-2xl relative">
+                                        <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                        <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
+                                            {ALPHA_INSIGHTS[activeAlphaInsight].title}
+                                        </h5>
+                                        <p className="text-[10px] text-slate-300 leading-relaxed font-medium mb-3">{ALPHA_INSIGHTS[activeAlphaInsight].desc}</p>
+                                        <div className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20">
+                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">💡 Strategy:</p>
+                                            <p className="text-[9px] text-slate-400 leading-relaxed">{ALPHA_INSIGHTS[activeAlphaInsight].strategy}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                         </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
@@ -875,13 +948,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
                             </ul>
                         </div>
-                        {/* Kelly Criterion Box */}
+                        {/* Kelly Criterion Box - Clickable for Insight */}
                         {kellyInfo && (
-                            <div className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                            <div 
+                                onClick={() => setActiveAlphaInsight('KELLY')}
+                                className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden cursor-help hover:bg-indigo-900/20 transition-colors group alpha-insight-trigger"
+                            >
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
                                     <svg className="w-24 h-24 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.81 2.13-1.88 0-1.1-.68-1.57-1.75-1.82l-2.01-.46c-1.22-.29-2.75-1.02-2.75-2.73 0-1.5 1.12-2.67 2.82-2.96V4.5h2.67v1.88c1.55.27 2.76 1.32 2.94 2.89h-2c-.17-.83-1.07-1.5-2.33-1.5-1.12 0-1.88.68-1.88 1.62 0 .97.82 1.42 1.91 1.69l1.64.4c1.72.43 3.09 1.23 3.09 3.09 0 1.63-1.18 2.8-2.93 3.16z"/></svg>
                                 </div>
-                                <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest">Kelly Criterion (Optimal Sizing)</h4>
+                                <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest flex items-center gap-2">
+                                    Kelly Criterion (Optimal Sizing)
+                                    <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                </h4>
                                 <div className="flex items-end gap-4">
                                     <span className="text-4xl font-black text-white italic tracking-tighter">{kellyInfo.percentage}%</span>
                                     <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded mb-2 ${kellyInfo.rating === 'AGGRESSIVE' ? 'bg-rose-500 text-white' : kellyInfo.rating === 'MODERATE' ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
