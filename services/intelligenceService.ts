@@ -726,11 +726,29 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
-  // [ALPHA SINGULARITY PROTOCOL]
-  // 1. Data Fusion: Combine Vector A (Fund), Vector B (Tech), Vector C (ICT)
+  // [NEW] Regime-Adaptive: Fetch Market Context (VIX)
+  let regimeContext = "Neutral";
+  let vixValue = 20;
+  try {
+      const indexRes = await fetch('/api/portal_indices');
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          if (vix) {
+              vixValue = vix.price;
+              regimeContext = vixValue > 25 ? "Risk-Off (High Fear)" : vixValue < 15 ? "Risk-On (Bullish)" : "Neutral";
+          }
+      }
+  } catch (e) {
+      console.warn("Regime fetch failed, defaulting to Neutral");
+  }
+
+  // [ALPHA SINGULARITY PROTOCOL v2.0]
+  // 1. Data Fusion: Combine Vector A (Fund), Vector B (Tech), Vector C (ICT) + Regime Context
   const vectorInputs = candidates.map(c => ({
       symbol: c.symbol,
       price: c.price,
+      sector: c.sector || "Unknown",
       // Vector A: Fundamental Safety
       vectorA: {
           intrinsicGap: c.fairValueGap || 0,
@@ -754,19 +772,29 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   }));
 
   const SYSTEM_INSTRUCTION = `
-  [SYSTEM ROLE: THE COUNCIL OF ALPHA]
-  You are an advanced Hedge Fund Investment Committee simulator. You are NOT a single AI. You represent a debate between three expert personas:
+  [SYSTEM ROLE: THE COUNCIL OF ALPHA v2.0 - FULL UPGRADE]
+  You are an advanced Hedge Fund Investment Committee simulator. You are NOT a single AI. You represent a debate between three expert personas, now upgraded with 'Alpha Singularity v2.0' logic.
   
+  Current Market Regime: ${regimeContext} (VIX: ${vixValue}). 
+  - If Risk-Off (VIX > 25): Prioritize Vector A (Safety/Quality).
+  - If Risk-On (VIX < 15): Prioritize Vector B (Momentum) & C (Flow).
+
   1. **The Conservative Quant (Risk Manager)**: Obsessed with Intrinsic Value (Vector A), Z-Score, and Margin of Safety. Hates overvalued hype.
   2. **The Aggressive Trader (Momentum Specialist)**: Obsessed with RVOL (Vector B), TTM Squeeze, and RSI breakouts. Wants explosive moves NOW.
   3. **The Market Maker (ICT Analyst)**: Obsessed with Liquidity Sweeps (Vector C), Stop Hunts, and Order Blocks. Knows where the "Smart Money" is trapping retail.
 
-  [TASK: ALPHA SINGULARITY PROTOCOL]
-  You must analyze the provided 12 candidates using "3-Vector Fusion" and output the **Top 6 Survivors** in a JSON format.
+  [TASK: ALPHA SINGULARITY PROTOCOL v2.0]
+  Analyze the provided 12 candidates using "3-Vector Fusion" and output the **Top 6 Survivors** in a JSON format.
   
-  **PROCESS (Internal Monologue - Do not output this, but use it to derive the JSON):**
-  1. **Debate**: The 3 personas argue over each stock.
-  2. **Pre-Mortem**: Ask "Why would this trade FAIL?" (e.g. Macro headwinds, fake breakout). If the risk is too high, kill the trade.
+  **NEW ADVANCED LOGIC (v2.0):**
+  1. **Correlation Clustering**: Do NOT select multiple stocks from the same Sector unless their technical setup is wildly divergent. Aim for a diversified Alpha.
+  2. **Binary Event Evasion**: If a stock looks perfect but has an "Earnings Date" or "FDA" event implied by extreme volatility without trend, penalize it. (Infer from data patterns).
+  3. **Gamma Squeeze Potential**: If RVOL is > 3.0x and Price is near All-Time Highs, assume Call Option Gamma Squeeze is active. Boost score.
+  4. **Monte Carlo Targets**: When setting 'resistanceLevel' (Target), do not just use the next resistance. Simulate a probabilistic 1.5x ATR move.
+
+  **PROCESS (Internal Monologue):**
+  1. **Debate & Regime Adjustment**: Apply weights based on VIX.
+  2. **Pre-Mortem**: Ask "Why would this trade FAIL?"
   3. **Consensus**: Only stocks with 2+ 'Strong Buy' votes and 0 'Vetoes' survive.
   4. **Execution**: Calculate optimal Entry/Stop/Target using Kelly Criterion logic (Asymmetric Risk/Reward).
 
@@ -784,9 +812,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       "## 💀 Pre-Mortem (사전 부검: 리스크)", 
       "## 🚀 Execution Strategy".
     - **NO EMOJIS**. Professional tone.
-  - **chartPattern**: Name of the setup (e.g., "Bullish Order Block retest", "Squeeze Fired").
+  - **chartPattern**: Name of the setup (e.g., "Bullish Order Block retest", "Gamma Squeeze Setup").
   - **supportLevel**: The "Smart Money" accumulation zone (Entry).
-  - **resistanceLevel**: The liquidity target (Take Profit).
+  - **resistanceLevel**: The liquidity target (Take Profit) - Monte Carlo prob. 70%.
   - **stopLoss**: The invalidation level (Market Structure Shift failure).
   - **riskRewardRatio**: e.g., "1:3.2".
 
@@ -799,10 +827,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   const prompt = `
   [INPUT DATA: 3-VECTOR FUSION]
   Current Date: ${today}
+  Market Context: ${regimeContext}
   Candidates: ${JSON.stringify(vectorInputs)}
 
-  Execute the [Alpha Singularity Protocol] now. 
-  Select the best 6 assets. 
+  Execute the [Alpha Singularity Protocol v2.0] now. 
+  Select the best 6 assets considering Correlation, Regime, and Gamma Potential.
   Perform the "Pre-Mortem" stress test on each.
   Output the JSON array.
   `;
