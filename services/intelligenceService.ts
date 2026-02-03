@@ -84,20 +84,20 @@ const ALPHA_SCHEMA = {
     type: Type.OBJECT,
     properties: {
       symbol: { type: Type.STRING, description: "The stock ticker symbol" },
-      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY' or 'ACCUMULATE'" },
+      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY', 'BUY', 'HOLD'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Professional perspective in Korean Markdown. Use ## Headers, **Bold**, and - Bullet points. NO EMOJIS." },
-      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "4-5 specific technical/fundamental reasons in Korean" },
-      convictionScore: { type: Type.NUMBER, description: "0.0 to 100.0" },
+      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must include 'Pre-Mortem' and 'Council Consensus'. Use ## Headers." },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers: Fundamental, Technical, Smart Money" },
+      convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+24.5% (6개월)')" },
       theme: { type: Type.STRING, description: "Market narrative" },
       aiSentiment: { type: Type.STRING, description: "Sentiment description in Korean" },
-      analysisLogic: { type: Type.STRING, description: "Neural logic engine state description in Korean" },
+      analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
       chartPattern: { type: Type.STRING, description: "Detected technical pattern name" },
-      supportLevel: { type: Type.NUMBER, description: "Key technical support level (Entry Zone)" },
-      resistanceLevel: { type: Type.NUMBER, description: "Major technical resistance level (Target)" },
-      stopLoss: { type: Type.NUMBER, description: "Calculated hard stop price" },
+      supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone (Order Block High)" },
+      resistanceLevel: { type: Type.NUMBER, description: "First Profit Target" },
+      stopLoss: { type: Type.NUMBER, description: "Invalidation Level (MSS Break)" },
       riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:3.5" }
     },
     required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
@@ -269,7 +269,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
 
       return {
           simulationPeriod: `${from} ~ ${to}`,
-          equityCurve: equityCurve, // [FIXED] Return all analyzed months (24 months)
+          equityCurve: equityCurve,
           metrics: {
               winRate: `${winRate.toFixed(1)}%`,
               profitFactor: profitFactor.toFixed(2),
@@ -372,7 +372,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
           const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
           
-          // Format values
           spxPrice = spx?.price ? spx.price.toFixed(0) : "N/A";
           ndxPrice = ndx?.price ? ndx.price.toFixed(2) : "N/A";
           vixPrice = vix?.price ? vix.price.toFixed(2) : "N/A";
@@ -400,8 +399,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       score: c.compositeAlpha || c.convictionScore || 0
   }));
 
-  // [UPDATED] Strict Format Enforcement Prompt
-  // Enforces specific logic labels and index formatting in macro line.
   const prompt = `
   [SYSTEM ROLE: GAME DATA FORMATTER]
   You are an engine for a Stock Market Simulation Game.
@@ -456,11 +453,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   - SELL -> 매도
   `;
 
-  // [CLEANING FUNCTION] Removes hallucinated citation numbers & accidental headers
   const cleanOutput = (text: string) => {
       let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
       clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
-      // Remove header if AI added it despite instructions
       clean = clean.replace(/🚀.*?Report.*?🚀/gi, '').trim(); 
       return clean;
   };
@@ -505,7 +500,6 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
             rawText = await executePerplexityFallback();
         }
     } else {
-        // Direct Perplexity Request
         rawText = await executePerplexityFallback();
     }
     
@@ -732,40 +726,86 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
-  const GEMINI_PERSONA = `
-    [ROLE: Traditional Wall Street Quant & Technical Analyst]
-    - Philosophy: Safety, Deep Value, Chart Patterns (ICT/Smart Money), Strong Fundamentals.
-    - Preference: Stocks with high conviction scores, solid support levels, and proven track records.
-    - Style: Conservative but accurate. "Don't lose money" is rule #1.
-    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+  // [ALPHA SINGULARITY PROTOCOL]
+  // 1. Data Fusion: Combine Vector A (Fund), Vector B (Tech), Vector C (ICT)
+  const vectorInputs = candidates.map(c => ({
+      symbol: c.symbol,
+      price: c.price,
+      // Vector A: Fundamental Safety
+      vectorA: {
+          intrinsicGap: c.fairValueGap || 0,
+          zScore: c.zScore || 0,
+          qualityScore: c.fundamentalScore || c.qualityScore || 0
+      },
+      // Vector B: Technical Momentum
+      vectorB: {
+          rvol: c.techMetrics?.rvol || 1.0,
+          squeeze: c.techMetrics?.squeezeState || 'OFF',
+          rsi: c.techMetrics?.rsi || 50,
+          trend: c.techMetrics?.trend || 50
+      },
+      // Vector C: Smart Money Reality
+      vectorC: {
+          displacement: c.ictMetrics?.displacement || 0,
+          structure: c.ictMetrics?.marketStructure || 0,
+          liquiditySweep: c.ictMetrics?.liquiditySweep || 0,
+          smartMoneyFlow: c.ictMetrics?.smartMoneyFlow || 0
+      }
+  }));
+
+  const SYSTEM_INSTRUCTION = `
+  [SYSTEM ROLE: THE COUNCIL OF ALPHA]
+  You are an advanced Hedge Fund Investment Committee simulator. You are NOT a single AI. You represent a debate between three expert personas:
+  
+  1. **The Conservative Quant (Risk Manager)**: Obsessed with Intrinsic Value (Vector A), Z-Score, and Margin of Safety. Hates overvalued hype.
+  2. **The Aggressive Trader (Momentum Specialist)**: Obsessed with RVOL (Vector B), TTM Squeeze, and RSI breakouts. Wants explosive moves NOW.
+  3. **The Market Maker (ICT Analyst)**: Obsessed with Liquidity Sweeps (Vector C), Stop Hunts, and Order Blocks. Knows where the "Smart Money" is trapping retail.
+
+  [TASK: ALPHA SINGULARITY PROTOCOL]
+  You must analyze the provided 12 candidates using "3-Vector Fusion" and output the **Top 6 Survivors** in a JSON format.
+  
+  **PROCESS (Internal Monologue - Do not output this, but use it to derive the JSON):**
+  1. **Debate**: The 3 personas argue over each stock.
+  2. **Pre-Mortem**: Ask "Why would this trade FAIL?" (e.g. Macro headwinds, fake breakout). If the risk is too high, kill the trade.
+  3. **Consensus**: Only stocks with 2+ 'Strong Buy' votes and 0 'Vetoes' survive.
+  4. **Execution**: Calculate optimal Entry/Stop/Target using Kelly Criterion logic (Asymmetric Risk/Reward).
+
+  **OUTPUT REQUIREMENTS (JSON ONLY):**
+  Return a JSON Array of the Top 6 Stocks. Each object must strictly match this schema:
+  - **symbol**: Ticker.
+  - **aiVerdict**: "STRONG_BUY" (2+ votes), "BUY" (Consensus), "ACCUMULATE" (Value play).
+  - **convictionScore**: 0-100 (Weighted average of the 3 vectors).
+  - **expectedReturn**: e.g., "+35% (3 months)" - Be realistic based on ATR/Volatility.
+  - **marketCapClass**, **sectorTheme**, **theme**: Standard meta data.
+  - **selectionReasons**: Array of 3 strings. MUST correspond to Vector A, Vector B, and Vector C strengths.
+  - **investmentOutlook**: This is the MOST IMPORTANT field. It must be a **Korean Markdown** summary of the Council's debate.
+    - Structure it using headers: 
+      "## 🧠 Council Debate (3인 합의)", 
+      "## 💀 Pre-Mortem (사전 부검: 리스크)", 
+      "## 🚀 Execution Strategy".
+    - **NO EMOJIS**. Professional tone.
+  - **chartPattern**: Name of the setup (e.g., "Bullish Order Block retest", "Squeeze Fired").
+  - **supportLevel**: The "Smart Money" accumulation zone (Entry).
+  - **resistanceLevel**: The liquidity target (Take Profit).
+  - **stopLoss**: The invalidation level (Market Structure Shift failure).
+  - **riskRewardRatio**: e.g., "1:3.2".
+
+  **CRITICAL RULES:**
+  - **NO EMOJIS** in the JSON output strings.
+  - Returns must be a pure JSON array. No markdown code blocks like \`\`\`json.
+  - Language: Korean (for text fields).
   `;
 
-  const PERPLEXITY_PERSONA = `
-    [ROLE: Aggressive Hedge Fund Manager & Trend Follower]
-    - Philosophy: Momentum, News Sentiment, Institutional Order Flow, Breakout setups.
-    - Preference: High growth potential, viral themes, sector rotation leaders.
-    - Style: High Risk / High Reward. "Trend is your friend".
-    - Formatting: **STRICTLY NO EMOJIS**. Use Markdown headers and bullets.
+  const prompt = `
+  [INPUT DATA: 3-VECTOR FUSION]
+  Current Date: ${today}
+  Candidates: ${JSON.stringify(vectorInputs)}
+
+  Execute the [Alpha Singularity Protocol] now. 
+  Select the best 6 assets. 
+  Perform the "Pre-Mortem" stress test on each.
+  Output the JSON array.
   `;
-
-  const currentPersona = (provider === ApiProvider.GEMINI) ? GEMINI_PERSONA : PERPLEXITY_PERSONA;
-
-  const prompt = `${currentPersona}
-현재 날짜: ${today}
-분석 대상 종목(TOP 12): ${JSON.stringify(candidates.map(c => ({symbol: c.symbol, price: c.price, score: c.compositeAlpha})))}.
-
-위 리스트에서 당신의 투자 철학(Persona)에 가장 부합하는 **완벽한 6개 종목**을 최종 선정하십시오.
-반드시 다음 정보를 포함한 JSON 배열로 응답하십시오:
-- symbol, aiVerdict, marketCapClass, sectorTheme, convictionScore
-- selectionReasons (배열), expectedReturn: 예상 수익률과 달성 예상 기간 (예: "+30.0% (3개월 내)")
-- investmentOutlook (상세 Markdown: ## 소제목, **강조**, - 리스트 사용 필수. **이모티콘 사용 금지**), aiSentiment, analysisLogic (자신의 Persona 관점 포함)
-- chartPattern, supportLevel, resistanceLevel, stopLoss, riskRewardRatio.
-
-투자 전략(investmentOutlook) 작성 시 가독성을 위해 반드시 Markdown 문법(헤더, 볼드체, 불렛 포인트)을 적극 활용하여 구조화된 리포트를 작성하십시오.
-**주의: 출력물에 이모티콘(🚀, 💎 등)을 절대 포함하지 마십시오.**
-
-주의: supportLevel, resistanceLevel, stopLoss는 반드시 현재가 근처의 유효한 숫자여야 합니다.
-한국어로 응답하고 오직 JSON 배열만 출력하세요. 인사말이나 부가설명은 절대 금지입니다.`;
 
   try {
     if (provider === ApiProvider.GEMINI) {
@@ -773,13 +813,19 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       const result = await fetchWithRetry(() => ai.models.generateContent({
         model: 'gemini-3-flash-preview',
         contents: prompt,
-        config: { responseMimeType: "application/json", responseSchema: ALPHA_SCHEMA }
+        config: { 
+            responseMimeType: "application/json", 
+            responseSchema: ALPHA_SCHEMA,
+            systemInstruction: SYSTEM_INSTRUCTION
+        }
       }));
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
       return { data: sanitizeAndParseJson(result.text) };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
+      // Perplexity Loop similar to existing logic...
+      // (Simplified for brevity, assuming similar structure as before but with new prompt)
       let lastError;
       for (const model of PERPLEXITY_MODELS) {
         try {
@@ -795,20 +841,18 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                     body: JSON.stringify({
                         model: model, 
                         messages: [
-                            { role: "system", content: "당신은 월가 퀀트입니다. 투자 분석 리포트(investmentOutlook) 작성 시 반드시 Markdown 문법(## 헤더, **강조**, - 리스트)을 사용하여 가독성을 높이십시오. **이모티콘 사용은 절대 금지입니다.** 분석 결과를 반드시 JSON 배열 하나만 출력하십시오. 코드 블록 없이 순수 JSON 배열만 반환하세요." },
+                            { role: "system", content: SYSTEM_INSTRUCTION },
                             { role: "user", content: prompt }
                         ],
                         temperature: 0.1
                     })
                 });
-                
                 if (!r.ok) {
                     const errText = await r.text();
-                    if (r.status === 401 || r.status === 402) throw new Error(`CRITICAL_AUTH_ERROR_${r.status}: ${errText}`);
                     throw new Error(`HTTP_${r.status}: ${errText}`);
                 }
                 return r;
-            }, 1, 1000);
+            });
 
             const data = await res.json();
             if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
@@ -820,11 +864,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         } catch (e: any) {
             console.warn(`Model ${model} failed: ${e.message}`);
             lastError = e;
-            trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
-            if (e.message.includes('CRITICAL_AUTH_ERROR')) break; 
+            if (e.message.includes('401') || e.message.includes('402')) break;
         }
       }
-      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message || "Unknown Error"}` };
+      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message}` };
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) {
