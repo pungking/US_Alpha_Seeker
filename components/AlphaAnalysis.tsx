@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, Scatter } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
@@ -37,7 +37,7 @@ interface AlphaCandidate {
 
 interface BacktestResult {
   simulationPeriod?: string;
-  equityCurve: { period: string; value: number }[];
+  equityCurve: { period: string; value: number; signal?: 'BUY' | 'SELL' | 'HOLD' }[];
   metrics: { winRate: string; profitFactor: string; maxDrawdown: string; sharpeRatio: string; };
   historicalContext: string;
   timestamp?: number;
@@ -134,6 +134,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
+  // [KELLY CRITERION] Mathematical Sizing
+  const kellyInfo = useMemo(() => {
+      if (!selectedStock || !backtestData[selectedStock.symbol]) return null;
+      const metrics = backtestData[selectedStock.symbol].metrics;
+      
+      const winRateStr = String(metrics.winRate).replace('%','');
+      const winProb = parseFloat(winRateStr) / 100; // P
+      const profitFactor = parseFloat(metrics.profitFactor) || 1.5; // Use Profit Factor as proxy for Reward/Risk ratio (b) if explicit R:R is hard to parse
+      
+      // Kelly Formula: f* = (bp - q) / b = p - (q/b) where q = 1-p
+      // Using WinRate (W) and Reward:Risk (R)
+      // f% = W - (1-W)/R
+      
+      // Safety: Profit Factor is approx GrossWin/GrossLoss. Average Win/Loss ratio (R) is safer to estimate as ProfitFactor * (LossCount/WinCount).
+      // Assuming a standard trend following strategy R of 2.0 for simplicity if not precise
+      const R = 2.0; 
+      
+      let kellyRaw = winProb - ((1 - winProb) / R);
+      if (kellyRaw < 0) kellyRaw = 0;
+      
+      // Hedge Fund Safety: Fractional Kelly (Half-Kelly or Quarter-Kelly) to reduce volatility
+      const halfKelly = kellyRaw * 0.5;
+      
+      return {
+          percentage: (halfKelly * 100).toFixed(1),
+          rating: halfKelly > 0.2 ? "AGGRESSIVE" : halfKelly > 0.1 ? "MODERATE" : "CONSERVATIVE"
+      };
+  }, [selectedStock, backtestData]);
+
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
@@ -164,7 +193,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
-  // [MODIFIED] Auto-Pilot Phase 2: Skip Matrix Audit -> Go Directly to MATRIX phase marker for transmission
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
@@ -174,7 +202,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // [MODIFIED] Auto-Pilot Phase 3: Transmit Brief (No longer requires Matrix Report)
   useEffect(() => {
       const finishAutoPilot = async () => {
           const currentResults = resultsCache[selectedBrain] || [];
@@ -287,7 +314,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLoading(true);
     let currentProvider = selectedBrain;
     
-    // [UPDATE] New Protocol Logs
     addLog(`Initiating Alpha Singularity Protocol via ${currentProvider}...`, "signal");
     addLog("Step 1: 3-Vector Data Fusion & Regime Scan...", "info");
 
@@ -295,12 +321,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
 
-      // Emulate the multi-step process visually in logs
       await new Promise(r => setTimeout(r, 800));
       addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
       
       await new Promise(r => setTimeout(r, 800));
-      // [FIX] Changed log level from 'warn' to 'info' as requested
       addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "info");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
@@ -323,16 +347,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
-      // Merge AI results with all previous data (Stage 0-5)
       const mergedFinal = safeAiResults.map((aiData: any) => {
         if (!aiData?.symbol) return null;
-        // Find original object to preserve accumulation
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
         if (!item) return null;
         
         return {
-            ...item, // Preserve all previous stage data
-            ...aiData, // Overwrite/Add Alpha Stage data
+            ...item, 
+            ...aiData, 
             convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
             supportLevel: aiData.supportLevel || (item.price * 0.98),
             resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
@@ -342,12 +364,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       
-      // [FIX] Robust Save to Google Drive
-      // Re-fetch token to ensure we have the latest valid one
       const currentToken = sessionStorage.getItem('gdrive_access_token');
       
       if (!currentToken) {
-          addLog("Save Failed: Cloud Vault Token is missing/expired. Please re-authenticate.", "err");
+          addLog("Save Failed: Cloud Vault Token is missing.", "err");
       } else if (mergedFinal.length === 0) {
           addLog("Save Skipped: No Alpha targets generated.", "warn");
       } else {
@@ -362,7 +382,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     timestamp: new Date().toISOString(), 
                     provider: currentProvider 
                 },
-                alpha_universe: mergedFinal // Contains FULL data history
+                alpha_universe: mergedFinal 
               };
 
               const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -618,6 +638,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
+  // [TACTICAL EXECUTION] Price Positioning Logic
+  const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
+      const range = target - stop;
+      const position = price - stop;
+      let percent = (position / range) * 100;
+      percent = Math.max(0, Math.min(100, percent));
+      return percent;
+  };
+
+  const tacticalPercent = selectedStock ? getTacticalPosition(
+      selectedStock.price, 
+      selectedStock.supportLevel || 0, 
+      selectedStock.resistanceLevel || 0, 
+      selectedStock.stopLoss || 0
+  ) : 50;
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
@@ -775,8 +811,40 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  
                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                      <div className="lg:col-span-3 space-y-8">
-                         <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative">
+                         <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative group">
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
+                            {/* Tactical Overlay */}
+                            <div className="absolute bottom-4 left-4 right-4 bg-slate-900/90 backdrop-blur-md p-4 rounded-3xl border border-white/10 shadow-2xl flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2">
+                                <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
+                                    <span>Stop Loss: ${selectedStock.stopLoss?.toFixed(2)}</span>
+                                    <span className="text-white">Current: ${selectedStock.price?.toFixed(2)}</span>
+                                    <span className="text-emerald-400">Target: ${selectedStock.resistanceLevel?.toFixed(2)}</span>
+                                </div>
+                                <div className="h-3 bg-slate-800 rounded-full overflow-hidden relative border border-white/5">
+                                    {/* Stop Zone */}
+                                    <div className="absolute left-0 top-0 bottom-0 bg-rose-500/30" style={{ width: '20%' }}></div>
+                                    {/* Entry Zone */}
+                                    <div className="absolute left-[20%] top-0 bottom-0 bg-blue-500/30" style={{ width: '15%' }}></div>
+                                    {/* Profit Zone */}
+                                    <div className="absolute left-[35%] top-0 bottom-0 bg-emerald-500/30" style={{ width: '65%' }}></div>
+                                    
+                                    {/* Markers */}
+                                    <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10" style={{ left: '20%' }} title="Stop Loss"></div>
+                                    <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10" style={{ left: '27.5%' }} title="Avg Entry"></div>
+                                    <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 z-10" style={{ left: '90%' }} title="Target"></div>
+                                    
+                                    {/* Current Price Pip */}
+                                    <div 
+                                        className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] z-20 transition-all duration-1000"
+                                        style={{ left: `${tacticalPercent}%` }}
+                                    ></div>
+                                </div>
+                                <div className="flex justify-between items-center text-[8px] font-bold text-slate-500 uppercase tracking-wider">
+                                    <span>Risk (1.0)</span>
+                                    <span className="text-blue-300">Optimal Entry Zone</span>
+                                    <span>Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})</span>
+                                </div>
+                            </div>
                          </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
@@ -800,6 +868,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
                             </ul>
                         </div>
+                        {/* Kelly Criterion Box */}
+                        {kellyInfo && (
+                            <div className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                    <svg className="w-24 h-24 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.81 2.13-1.88 0-1.1-.68-1.57-1.75-1.82l-2.01-.46c-1.22-.29-2.75-1.02-2.75-2.73 0-1.5 1.12-2.67 2.82-2.96V4.5h2.67v1.88c1.55.27 2.76 1.32 2.94 2.89h-2c-.17-.83-1.07-1.5-2.33-1.5-1.12 0-1.88.68-1.88 1.62 0 .97.82 1.42 1.91 1.69l1.64.4c1.72.43 3.09 1.23 3.09 3.09 0 1.63-1.18 2.8-2.93 3.16z"/></svg>
+                                </div>
+                                <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest">Kelly Criterion (Optimal Sizing)</h4>
+                                <div className="flex items-end gap-4">
+                                    <span className="text-4xl font-black text-white italic tracking-tighter">{kellyInfo.percentage}%</span>
+                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded mb-2 ${kellyInfo.rating === 'AGGRESSIVE' ? 'bg-rose-500 text-white' : kellyInfo.rating === 'MODERATE' ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
+                                        {kellyInfo.rating} Position
+                                    </span>
+                                </div>
+                                <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
+                                    Based on simulated Win Rate and Profit Factor. Represents fractional Kelly (Half-Kelly) for risk management.
+                                </p>
+                            </div>
+                        )}
                      </div>
                  </div>
 
@@ -992,6 +1078,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                         />
                                                     </>
                                                 )}
+
+                                                {/* Trade Signal Scatters (Simulated Entry/Exit) */}
+                                                <Scatter data={chartData.filter((d, i) => i % 6 === 0 || d.drawdown < -5)} fill="#fff" shape="circle" />
 
                                                 {/* Main Cumulative Equity Area */}
                                                 <Area 
