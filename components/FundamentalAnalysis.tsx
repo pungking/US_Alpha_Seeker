@@ -99,6 +99,21 @@ const METRIC_INSIGHTS: Record<string, { title: string; desc: string }> = {
     }
 };
 
+const getSectorStyle = (sector: string) => {
+    const s = (sector || '').toLowerCase();
+    if (s.includes('tech') || s.includes('software') || s.includes('semi')) return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
+    if (s.includes('health') || s.includes('bio') || s.includes('pharm')) return 'bg-teal-500/20 text-teal-400 border-teal-500/30';
+    if (s.includes('finance') || s.includes('bank') || s.includes('invest')) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
+    if (s.includes('energy') || s.includes('oil') || s.includes('gas')) return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
+    if (s.includes('consumer') || s.includes('retail')) return 'bg-rose-500/20 text-rose-400 border-rose-500/30';
+    if (s.includes('communication') || s.includes('media') || s.includes('telecom')) return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30';
+    if (s.includes('real estate') || s.includes('reit')) return 'bg-lime-500/20 text-lime-400 border-lime-500/30';
+    if (s.includes('util')) return 'bg-purple-500/20 text-purple-400 border-purple-500/30';
+    if (s.includes('material')) return 'bg-orange-500/20 text-orange-400 border-orange-500/30';
+    if (s.includes('indust')) return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30';
+    return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
+};
+
 const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
@@ -558,8 +573,16 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                      <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
                         <div className="flex justify-between items-start">
                             <div>
-                                <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
-                                <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest mt-1">Fundamental Radar Analysis</p>
+                                <div className="flex items-baseline gap-3">
+                                    <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
+                                    <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
+                                </div>
+                                <div className="flex items-center gap-2 mt-2">
+                                    <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${getSectorStyle(selectedTicker.sector)}`}>
+                                        {selectedTicker.sector}
+                                    </span>
+                                </div>
+                                <p className="text-[9px] text-cyan-500 font-bold uppercase tracking-widest mt-2">Fundamental Radar Analysis</p>
                             </div>
                             <div 
                                 className="text-right cursor-pointer group hover:opacity-80 transition-opacity"
