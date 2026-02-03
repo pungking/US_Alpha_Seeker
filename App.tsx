@@ -458,6 +458,7 @@ const App: React.FC = () => {
           <IctAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
             onComplete={() => handleStageComplete(5)}
+            onStockSelected={setSelectedStock}
           />
         </div>
         <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
