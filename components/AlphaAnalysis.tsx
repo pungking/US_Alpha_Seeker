@@ -300,7 +300,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
       
       await new Promise(r => setTimeout(r, 800));
-      addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "warn");
+      // [FIX] Changed log level from 'warn' to 'info'
+      addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "info");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -341,38 +342,52 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       
-      // [FIX] Save to Google Drive
-      if (mergedFinal.length > 0 && accessToken) {
-          addLog("Saving Final Alpha Matrix to Vault...", "info");
-          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-          const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
-          const payload = {
-            manifest: { 
-                version: "2.0.0", 
-                strategy: "Alpha_Singularity_Protocol_v2", 
-                timestamp: new Date().toISOString(), 
-                provider: currentProvider 
-            },
-            alpha_universe: mergedFinal // Contains FULL data history
-          };
-
-          const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-          const form = new FormData();
-          form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-          form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-            method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-          });
-          
-          addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked & saved via ${currentProvider}.`, "ok");
-          
-          const first = mergedFinal[0];
-          setSelectedStock(first);
-          onStockSelected?.(first);
-          onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+      // [FIX] Save to Google Drive - Enhanced Logic
+      const currentToken = sessionStorage.getItem('gdrive_access_token'); // Get fresh token
+      
+      if (!currentToken) {
+          addLog("Save Failed: Cloud Vault Token is missing.", "err");
+      } else if (mergedFinal.length === 0) {
+          addLog("Save Skipped: No Alpha targets generated.", "warn");
       } else {
-          addLog("Warning: No valid Alpha targets generated to save.", "err");
+          try {
+              addLog("Initiating Vault Save Protocol...", "info");
+              const folderId = await ensureFolder(currentToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+              const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
+              const payload = {
+                manifest: { 
+                    version: "2.0.0", 
+                    strategy: "Alpha_Singularity_Protocol_v2", 
+                    timestamp: new Date().toISOString(), 
+                    provider: currentProvider 
+                },
+                alpha_universe: mergedFinal // Contains FULL data history
+              };
+
+              const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+              const form = new FormData();
+              form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+              form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+
+              const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                method: 'POST', headers: { 'Authorization': `Bearer ${currentToken}` }, body: form
+              });
+              
+              if (uploadRes.ok) {
+                  addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked & saved via ${currentProvider}.`, "ok");
+              } else {
+                  const errorText = await uploadRes.text();
+                  addLog(`Vault Upload Failed: ${uploadRes.status} - ${errorText}`, "err");
+              }
+              
+              const first = mergedFinal[0];
+              setSelectedStock(first);
+              onStockSelected?.(first);
+              onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+
+          } catch (uploadErr: any) {
+              addLog(`Vault Save Error: ${uploadErr.message}`, "err");
+          }
       }
 
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
@@ -1023,7 +1038,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
@@ -1038,7 +1053,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : l.includes('[INFO]') ? 'border-cyan-500 text-cyan-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
