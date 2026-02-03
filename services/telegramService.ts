@@ -13,12 +13,15 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
   }
 
   // 1. Prepare Header
-  // [MODIFIED] Removed redundant date stamp as the AI report body contains the full date context.
+  // Ensures the header appears exactly once. The AI prompt has been modified to NOT include this header.
   const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
   
   // Clean up standard Markdown to Telegram Legacy Markdown if possible
   // Replace **bold** with *bold* for Telegram compatibility
-  const cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*');
+  let cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*');
+  
+  // Safety: If the AI accidentally included the header, remove it to prevent duplication
+  cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
   
   const fullMessage = header + cleanReport;
 
