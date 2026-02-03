@@ -77,27 +77,37 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   }
 };
 
-// [NEW] Alpha Strategy Insights
+// [NEW] Alpha Strategy Insights (Updated with Hedge Fund Metrics)
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'RISK': {
-        title: "Risk (1R - Unit of Loss)",
-        desc: "트레이딩 셋업에서 감수해야 할 손실의 크기(1R)입니다. 모든 수익 목표는 이 리스크 단위(R)의 배수로 설정됩니다.",
-        strategy: "진입가와 손절가 사이의 폭을 1R로 정의하십시오. 자금 관리 원칙에 따라 1회 트레이딩 손실이 전체 자산의 1~2%를 넘지 않도록 포지션 규모를 조절해야 합니다."
+        title: "Risk (1R) & VAPS",
+        desc: "트레이딩 셋업의 기본 손실 단위(1R)입니다. 헤지펀드의 '변동성 조정 포지션 사이징(VAPS)'은 자산의 1~2%만 잃도록 수량을 역산합니다.",
+        strategy: "공식: (총자산 * 0.01) / (진입가 - 손절가). 확신이 높아도 1회 손실금액은 일정해야 파산 위험을 막습니다."
     },
     'REWARD': {
         title: "Reward (Profit Target)",
-        desc: "감수한 리스크 대비 기대할 수 있는 수익의 크기입니다. 3.0R 이상은 손익비가 매우 우수한 '비대칭적 기회'를 의미합니다.",
-        strategy: "최소 2R 이상의 셋업에만 진입하십시오. 목표가 도달 시 물량의 50%를 청산(Scale-out)하여 수익을 확정하고, 나머지는 추세를 따라가며 수익을 극대화하십시오."
+        desc: "감수한 리스크 대비 기대 수익입니다. 3.0R 이상은 '비대칭적 기회(Asymmetric Opportunity)'를 의미합니다.",
+        strategy: "목표가 도달 시 물량의 50%를 청산(Scale-out)하여 수익을 확정하고, 나머지는 추세를 따라가며 수익을 극대화하십시오."
     },
     'ENTRY': {
         title: "Optimal Entry Zone (OEZ)",
-        desc: "기관의 수급이 유입된 'Order Block' 상단과 지지선이 겹치는 고확률 진입 구간입니다.",
-        strategy: "지정가 주문(Limit Order)을 걸어두고 가격이 올 때까지 기다리십시오. 추격 매수는 손익비를 훼손시킵니다. 가격이 오지 않고 날아가면 '내 것이 아니다'라고 생각하십시오."
+        desc: "기관 수급(Smart Money)이 유입된 Order Block 상단과 지지선이 겹치는 고확률 구간입니다.",
+        strategy: "지정가 주문(Limit Order)을 걸어두고 가격이 올 때까지 기다리십시오. 추격 매수는 손익비를 훼손시킵니다."
     },
     'KELLY': {
-        title: "Kelly Criterion (Optimal Sizing)",
-        desc: "수학적으로 파산 확률을 0으로 수렴시키면서 자산 증식 속도를 최대화하는 베팅 비율 공식입니다. (Win% - Loss% / Profit Factor)",
-        strategy: "Full Kelly는 변동성이 너무 크므로, 헤지펀드에서는 일반적으로 'Half-Kelly'를 사용합니다. 제시된 비중은 단일 종목에 투입할 최대 권장 비중입니다. 포트폴리오 전체 리스크를 고려하여 분산하십시오."
+        title: "Modified Half-Kelly (Hedge Fund Model)",
+        desc: "순수 켈리 기준은 변동성이 너무 큽니다. 헤지펀드는 'Half-Kelly'에 'F-Score(재무건전성)' 가중치를 적용하여 파산 위험을 제로로 수렴시킵니다.",
+        strategy: "제시된 비중은 '이론적 최대치'입니다. 보수적 투자자는 이 수치의 50%만 진입하는 것을 권장합니다. (Win% - Loss% / Profit Factor) * 0.5 * QualityAdj"
+    },
+    'IFS': {
+        title: "IFS (기관 수급 강도 지수)",
+        desc: "개미가 아닌 고래(Whale)의 등을 타십시오. 거래량(SmartMoneyFlow), 매집구간(OrderBlock), 스탑헌팅(LiquiditySweep)을 종합한 물리적 힘의 지표입니다.",
+        strategy: "IFS > 50: 기관 매집 진행 중 (분할 매수). IFS > 80: 시세 폭발 임박 (적극 진입)."
+    },
+    'IVG': {
+        title: "IVG (내재 가치 갭 비율)",
+        desc: "가격은 결국 가치에 수렴합니다. 현재 주가와 내재가치(Intrinsic Value)의 괴리를 통해 수학적 기대 수익을 측정합니다.",
+        strategy: "IVG가 높을수록 장기 승률은 100%에 수렴합니다. 단, 시간이라는 비용을 고려하여 모멘텀 지표와 결합해야 합니다."
     }
 };
 
@@ -159,32 +169,79 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  // [KELLY CRITERION] Mathematical Sizing - SAFEGUARDED
+  // [KELLY CRITERION] Mathematical Sizing - FIXED & ENHANCED
   const kellyInfo = useMemo(() => {
       try {
-          if (!selectedStock || !backtestData[selectedStock.symbol]) return null;
-          const metrics = backtestData[selectedStock.symbol].metrics;
-          if (!metrics) return null;
-          
-          const winRateStr = String(metrics.winRate || "0").replace('%','');
-          const winProb = parseFloat(winRateStr) / 100; // P
-          const profitFactor = parseFloat(metrics.profitFactor || "1.5");
-          
-          // Safety defaults
-          if (isNaN(winProb) || isNaN(profitFactor)) return null;
+          if (!selectedStock) return null;
 
-          const R = 2.0; // Standard Risk:Reward assumption
+          // Strategy: Use Backtest Data if available, otherwise use Alpha Conviction (Heuristic)
+          let P = 0; // Win Probability (0.0 - 1.0)
+          let B = 0; // Odds / Profit Factor
+          let source = "";
+          let qualityAdj = 1.0;
+
+          const simMetrics = backtestData[selectedStock.symbol]?.metrics;
+
+          if (simMetrics) {
+              // 1. Simulation Based (Empirical)
+              const winStr = String(simMetrics.winRate || "0").replace('%','');
+              P = parseFloat(winStr) / 100;
+              B = parseFloat(simMetrics.profitFactor || "1.5");
+              source = "Simulated Backtest Data";
+          } else {
+              // 2. Alpha Heuristic Based (Theoretical)
+              // Map Conviction Score (0-100) to Win Rate Probability (0.45 - 0.75)
+              // Hedge funds rarely assume win rates > 75%
+              const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
+              P = 0.45 + (conviction / 100) * 0.30; 
+
+              // Map Risk/Reward to Odds
+              if (selectedStock.riskRewardRatio) {
+                  const parts = selectedStock.riskRewardRatio.split(':');
+                  B = parts.length === 2 ? parseFloat(parts[1]) : 2.0;
+              } else {
+                  B = 2.5; // Default Target
+              }
+              
+              // Quality Adjustment (F-Score Proxy)
+              // If fundamental score exists, use it to scale confidence
+              const fScore = selectedStock.fundamentalScore || selectedStock.qualityScore || 50;
+              qualityAdj = 0.8 + (fScore / 100) * 0.4; // 0.8 ~ 1.2 multiplier
+
+              source = `Alpha Conviction (${conviction}%)`;
+          }
           
-          let kellyRaw = winProb - ((1 - winProb) / R);
-          if (kellyRaw < 0) kellyRaw = 0;
-          if (kellyRaw > 1) kellyRaw = 0.99; // Cap at 99%
+          // Safety Clamps
+          if (isNaN(P) || P < 0) P = 0.5;
+          if (isNaN(B) || B <= 0) B = 1.5;
+
+          // Kelly Formula: f* = P - (Q / B) where Q = 1 - P
+          const Q = 1 - P;
+          let rawKelly = P - (Q / B);
           
-          // Hedge Fund Safety: Fractional Kelly (Half-Kelly)
-          const halfKelly = kellyRaw * 0.5;
+          if (rawKelly < 0) rawKelly = 0; // Do not trade
+          if (rawKelly > 1) rawKelly = 0.99;
           
+          // Hedge Fund Safety: Modified Half-Kelly
+          // Typical HF leverage constraint is applied here (0.5 multiplier)
+          const halfKelly = rawKelly * 0.5 * qualityAdj;
+          
+          let percentage = (halfKelly * 100);
+          // Max cap for single stock usually 20-25% even for highest conviction
+          percentage = Math.min(percentage, 25); 
+
+          let rating = "NEUTRAL";
+          if (percentage > 15) rating = "AGGRESSIVE";
+          else if (percentage > 8) rating = "MODERATE";
+          else if (percentage > 0) rating = "CONSERVATIVE";
+          else rating = "NO TRADE";
+
           return {
-              percentage: (halfKelly * 100).toFixed(1),
-              rating: halfKelly > 0.2 ? "AGGRESSIVE" : halfKelly > 0.1 ? "MODERATE" : "CONSERVATIVE"
+              percentage: percentage.toFixed(1),
+              rating: rating,
+              winProb: (P * 100).toFixed(0),
+              odds: B.toFixed(1),
+              source: source
           };
       } catch (e) {
           console.error("Kelly Calc Error:", e);
@@ -940,7 +997,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     onClick={() => setActiveAlphaInsight('RISK')} 
                                     className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
                                 >
-                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0)
+                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0) & VAPS
                                 </span>
                                 <span 
                                     onClick={() => setActiveAlphaInsight('ENTRY')}
@@ -998,7 +1055,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
                             </ul>
                         </div>
-                        {/* Kelly Criterion Box - Clickable for Insight */}
+                        {/* Kelly Criterion Box - Clickable for Insight - UPDATED LOGIC */}
                         {kellyInfo && (
                             <div 
                                 onClick={() => setActiveAlphaInsight('KELLY')}
@@ -1018,7 +1075,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     </span>
                                 </div>
                                 <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
-                                    Based on simulated Win Rate and Profit Factor. Represents fractional Kelly (Half-Kelly) for risk management.
+                                    Based on {kellyInfo.source}: Win Rate {kellyInfo.winProb}% / Odds {kellyInfo.odds}. 
+                                    Using 'Modified Half-Kelly' logic adjusted for Quality.
                                 </p>
                             </div>
                         )}
