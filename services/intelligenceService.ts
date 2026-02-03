@@ -597,16 +597,30 @@ export async function analyzePipelineStatus(data: {
           `;
       }
 
+      let technicalContext = "";
+      if (stock.technicalScore || stock.techMetrics) {
+          technicalContext = `
+          [STAGE 4 TECHNICAL MOMENTUM DATA DETECTED]
+          - Technical Score: ${stock.technicalScore}/100
+          - RSI (14): ${stock.techMetrics?.rsRating || stock.techMetrics?.rsi || 'N/A'} (Over 70=Overbought, Under 30=Oversold)
+          - TTM Squeeze: ${stock.techMetrics?.squeezeState || 'N/A'} (Check for explosive breakout potential)
+          - Relative Volume (RVOL): ${stock.techMetrics?.rvol?.toFixed(2) || '1.0'}x (High RVOL = Institutional Interest)
+          - Trend Strength: ${stock.techMetrics?.trend > 60 ? 'BULLISH' : 'BEARISH/NEUTRAL'} (Score: ${stock.techMetrics?.trend})
+          `;
+      }
+
       userPrompt = `
       [SINGLE ASSET DEEP DIVE AUDIT]
       대상: ${stock.symbol}
       데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
       ${fundamentalContext}
+      ${technicalContext}
       분석 일자: ${today}
 
       당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
-      **[STAGE 3 FUNDAMENTAL DATA DETECTED]** 섹션이 존재할 경우, 해당 수치(ROIC, Rule of 40, Intrinsic Value 등)를 반드시 분석에 인용하여 펀더멘털의 건전성을 평가하십시오.
+      
+      **[STAGE 3 FUNDAMENTAL DATA DETECTED]** 및 **[STAGE 4 TECHNICAL MOMENTUM DATA DETECTED]** 섹션이 존재할 경우, 해당 수치(ROIC, Rule of 40, RSI, TTM Squeeze, RVOL 등)를 반드시 분석에 인용하여 펀더멘털과 모멘텀의 조화를 평가하십시오. 특히 **RSI**의 과열 여부와 **RVOL**을 통한 수급 분석에 집중하십시오.
       
       **작성 원칙**:
       1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
@@ -622,9 +636,10 @@ export async function analyzePipelineStatus(data: {
          - 이 트레이딩이 실패한다면 원인은 무엇인가? (구체적인 악재나 기술적 붕괴 지점)
          - "세력"이 개미를 털어내는 속임수(Fake-out) 패턴 예상 지점.
          
-      2. **기관 수급 추적 (Smart Money Flow)**:
-         - 현재 구간에서 기관/세력은 매집 중인가, 차익 실현 중인가?
-         - 거래량 분석을 통한 "진짜 돈"의 흐름 포착.
+      2. **기관 수급 및 모멘텀 진단 (Technical & Momentum)**:
+         - **RSI/과열권**: 현재 주가가 과매수(70+) 상태인지 과매도(30-) 상태인지 평가.
+         - **거래량(RVOL)**: 세력의 실질적인 유입 여부 확인.
+         - **TTM Squeeze**: 변동성 폭발 임박 신호 확인.
       
       3. **펀더멘털 건전성 진단 (Fundamental Audit)**:
          - ROIC 및 Rule of 40 기반의 기업 효율성 평가.
