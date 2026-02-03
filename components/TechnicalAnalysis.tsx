@@ -495,7 +495,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                         <span className="text-[7px] text-amber-500 font-black border border-amber-500/30 bg-amber-500/10 px-1 rounded uppercase">Estimated</span>
                                     )}
                                 </div>
-                                <p className="text-[9px] text-orange-500 font-bold uppercase tracking-widest mt-2">Technical Quant Cockpit</p>
                             </div>
                             <div className="text-right">
                                  <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Total Alpha Score</p>
