@@ -134,33 +134,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  // [KELLY CRITERION] Mathematical Sizing
+  // [KELLY CRITERION] Mathematical Sizing - SAFEGUARDED
   const kellyInfo = useMemo(() => {
-      if (!selectedStock || !backtestData[selectedStock.symbol]) return null;
-      const metrics = backtestData[selectedStock.symbol].metrics;
-      
-      const winRateStr = String(metrics.winRate).replace('%','');
-      const winProb = parseFloat(winRateStr) / 100; // P
-      const profitFactor = parseFloat(metrics.profitFactor) || 1.5; // Use Profit Factor as proxy for Reward/Risk ratio (b) if explicit R:R is hard to parse
-      
-      // Kelly Formula: f* = (bp - q) / b = p - (q/b) where q = 1-p
-      // Using WinRate (W) and Reward:Risk (R)
-      // f% = W - (1-W)/R
-      
-      // Safety: Profit Factor is approx GrossWin/GrossLoss. Average Win/Loss ratio (R) is safer to estimate as ProfitFactor * (LossCount/WinCount).
-      // Assuming a standard trend following strategy R of 2.0 for simplicity if not precise
-      const R = 2.0; 
-      
-      let kellyRaw = winProb - ((1 - winProb) / R);
-      if (kellyRaw < 0) kellyRaw = 0;
-      
-      // Hedge Fund Safety: Fractional Kelly (Half-Kelly or Quarter-Kelly) to reduce volatility
-      const halfKelly = kellyRaw * 0.5;
-      
-      return {
-          percentage: (halfKelly * 100).toFixed(1),
-          rating: halfKelly > 0.2 ? "AGGRESSIVE" : halfKelly > 0.1 ? "MODERATE" : "CONSERVATIVE"
-      };
+      try {
+          if (!selectedStock || !backtestData[selectedStock.symbol]) return null;
+          const metrics = backtestData[selectedStock.symbol].metrics;
+          if (!metrics) return null;
+          
+          const winRateStr = String(metrics.winRate || "0").replace('%','');
+          const winProb = parseFloat(winRateStr) / 100; // P
+          const profitFactor = parseFloat(metrics.profitFactor || "1.5");
+          
+          // Safety defaults
+          if (isNaN(winProb) || isNaN(profitFactor)) return null;
+
+          const R = 2.0; // Standard Risk:Reward assumption
+          
+          let kellyRaw = winProb - ((1 - winProb) / R);
+          if (kellyRaw < 0) kellyRaw = 0;
+          if (kellyRaw > 1) kellyRaw = 0.99; // Cap at 99%
+          
+          // Hedge Fund Safety: Fractional Kelly (Half-Kelly)
+          const halfKelly = kellyRaw * 0.5;
+          
+          return {
+              percentage: (halfKelly * 100).toFixed(1),
+              rating: halfKelly > 0.2 ? "AGGRESSIVE" : halfKelly > 0.1 ? "MODERATE" : "CONSERVATIVE"
+          };
+      } catch (e) {
+          console.error("Kelly Calc Error:", e);
+          return null;
+      }
   }, [selectedStock, backtestData]);
 
   useEffect(() => {
@@ -638,9 +642,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
-  // [TACTICAL EXECUTION] Price Positioning Logic
+  // [TACTICAL EXECUTION] Price Positioning Logic - SAFER
   const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
       const range = target - stop;
+      if (Math.abs(range) < 0.0001) return 50; // Prevention against div by zero
       const position = price - stop;
       let percent = (position / range) * 100;
       percent = Math.max(0, Math.min(100, percent));
@@ -811,41 +816,43 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                  
                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                      <div className="lg:col-span-3 space-y-8">
+                         {/* Chart Section */}
                          <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative group">
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
-                            {/* Tactical Overlay */}
-                            <div className="absolute bottom-4 left-4 right-4 bg-slate-900/90 backdrop-blur-md p-4 rounded-3xl border border-white/10 shadow-2xl flex flex-col gap-2 animate-in fade-in slide-in-from-bottom-2">
-                                <div className="flex justify-between items-center text-[9px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                                    <span>Stop Loss: ${selectedStock.stopLoss?.toFixed(2)}</span>
-                                    <span className="text-white">Current: ${selectedStock.price?.toFixed(2)}</span>
-                                    <span className="text-emerald-400">Target: ${selectedStock.resistanceLevel?.toFixed(2)}</span>
-                                </div>
-                                <div className="h-3 bg-slate-800 rounded-full overflow-hidden relative border border-white/5">
-                                    {/* Stop Zone */}
-                                    <div className="absolute left-0 top-0 bottom-0 bg-rose-500/30" style={{ width: '20%' }}></div>
-                                    {/* Entry Zone */}
-                                    <div className="absolute left-[20%] top-0 bottom-0 bg-blue-500/30" style={{ width: '15%' }}></div>
-                                    {/* Profit Zone */}
-                                    <div className="absolute left-[35%] top-0 bottom-0 bg-emerald-500/30" style={{ width: '65%' }}></div>
-                                    
-                                    {/* Markers */}
-                                    <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10" style={{ left: '20%' }} title="Stop Loss"></div>
-                                    <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10" style={{ left: '27.5%' }} title="Avg Entry"></div>
-                                    <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 z-10" style={{ left: '90%' }} title="Target"></div>
-                                    
-                                    {/* Current Price Pip */}
-                                    <div 
-                                        className="absolute top-1/2 -translate-y-1/2 w-2 h-2 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] z-20 transition-all duration-1000"
-                                        style={{ left: `${tacticalPercent}%` }}
-                                    ></div>
-                                </div>
-                                <div className="flex justify-between items-center text-[8px] font-bold text-slate-500 uppercase tracking-wider">
-                                    <span>Risk (1.0)</span>
-                                    <span className="text-blue-300">Optimal Entry Zone</span>
-                                    <span>Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})</span>
-                                </div>
-                            </div>
                          </div>
+
+                         {/* Tactical Execution Map - Moved OUTSIDE the chart container for full visibility */}
+                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2">
+                            <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
+                                <span>Stop Loss: <span className="text-rose-400">${selectedStock.stopLoss?.toFixed(2)}</span></span>
+                                <span className="text-white">Current Price: ${selectedStock.price?.toFixed(2)}</span>
+                                <span className="text-emerald-400">Target: ${selectedStock.resistanceLevel?.toFixed(2)}</span>
+                            </div>
+                            <div className="h-4 bg-slate-800 rounded-full overflow-hidden relative border border-white/5 w-full">
+                                {/* Stop Zone */}
+                                <div className="absolute left-0 top-0 bottom-0 bg-rose-500/20" style={{ width: '20%' }}></div>
+                                {/* Entry Zone */}
+                                <div className="absolute left-[20%] top-0 bottom-0 bg-blue-500/20" style={{ width: '15%' }}></div>
+                                {/* Profit Zone */}
+                                <div className="absolute left-[35%] top-0 bottom-0 bg-emerald-500/20" style={{ width: '65%' }}></div>
+                                
+                                {/* Markers */}
+                                <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10 opacity-70" style={{ left: '20%' }} title="Stop Loss Level"></div>
+                                <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10 opacity-70" style={{ left: '27.5%' }} title="Avg Entry Level"></div>
+                                <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 z-10 opacity-70" style={{ left: '90%' }} title="Take Profit Level"></div>
+                                
+                                {/* Current Price Pip */}
+                                <div 
+                                    className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] z-20 transition-all duration-1000 border border-slate-900"
+                                    style={{ left: `${tacticalPercent}%` }}
+                                ></div>
+                            </div>
+                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider">
+                                <span className="flex items-center gap-1"><div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0)</span>
+                                <span className="text-blue-300">Optimal Entry Zone</span>
+                                <span className="flex items-center gap-1">Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})<div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div></span>
+                            </div>
+                        </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
@@ -1078,9 +1085,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                         />
                                                     </>
                                                 )}
-
-                                                {/* Trade Signal Scatters (Simulated Entry/Exit) */}
-                                                <Scatter data={chartData.filter((d, i) => i % 6 === 0 || d.drawdown < -5)} fill="#fff" shape="circle" />
 
                                                 {/* Main Cumulative Equity Area */}
                                                 <Area 
