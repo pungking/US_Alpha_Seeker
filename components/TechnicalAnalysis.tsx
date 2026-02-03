@@ -1,9 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // [QUANT ENGINE] Mathematical Indicator Logic
@@ -75,13 +73,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [processedData, setProcessedData] = useState<TechScoredTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<TechScoredTicker | null>(null);
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
-  const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
-
+  
   // Time Tracking
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
 
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v5.3 (Real-Quant): Waiting for Signal...']);
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v5.2 (Real-Quant): Waiting for Signal...']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -198,9 +195,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     setTimeStats({ elapsed: 0, eta: 0 });
     addLog("Phase 4: Initializing Real-Data Tech Sieve...", "info");
     
-    let activeEngine = ApiProvider.GEMINI;
-    setCurrentEngine(activeEngine);
-
     try {
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -362,26 +356,32 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-500 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
-              <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Momentum_Nexus v5.2.0</h2>
-                <div className="flex flex-col mt-2 gap-1">
-                   <div className="flex items-center space-x-2">
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `ENGINE: ${activeBrain}` : 'Real-Quant Tech Analysis Ready'}
+              <div className="flex flex-col">
+                <h2 className="text-3xl md:text-4xl font-black text-white italic tracking-tighter uppercase leading-none mb-4">Momentum_Nexus v5.2.0</h2>
+                
+                {/* Progress Badge */}
+                <div className="flex flex-col items-start gap-2">
+                    <div className={`px-4 py-1.5 rounded-lg border flex items-center gap-3 transition-all ${loading ? 'border-orange-500 bg-orange-500/10' : 'border-slate-700 bg-slate-800/50'}`}>
+                        <span className={`text-[10px] font-black uppercase tracking-widest ${loading ? 'text-orange-400 animate-pulse' : 'text-slate-400'}`}>
+                            {loading ? 'PROCESSING:' : 'READY:'}
                         </span>
-                        {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
-                   </div>
-                   {loading && (
-                     <div className="flex items-center space-x-2 mt-0.5">
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span>
-                       </span>
-                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">
-                         ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span>
-                       </span>
-                     </div>
-                   )}
+                        <span className="text-sm font-mono font-bold text-white">
+                            {progress.current} <span className="text-slate-500">/</span> {progress.total || 0}
+                        </span>
+                    </div>
+                    
+                    {/* Stats Line */}
+                    <div className="flex items-center gap-3 text-[9px] font-mono font-bold text-slate-500 uppercase tracking-wider pl-1">
+                        <span>ELAPSED: <span className={loading ? 'text-white' : ''}>{formatTime(timeStats.elapsed)}</span></span>
+                        <span className="text-slate-700">|</span>
+                        <span>ETA: <span className={loading ? 'text-orange-400' : ''}>{formatTime(timeStats.eta)}</span></span>
+                    </div>
+                </div>
+                
+                {/* Engine Status / Auto Pilot Tag */}
+                <div className="mt-4 flex items-center gap-2">
+                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                   <span className="text-[8px] font-black text-orange-500/50 uppercase tracking-widest">Active Brain: {activeBrain}</span>
                 </div>
               </div>
             </div>
