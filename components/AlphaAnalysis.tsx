@@ -102,7 +102,7 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     'IFS': {
         title: "IFS (기관 수급 강도 지수)",
         desc: "개미가 아닌 고래(Whale)의 등을 타십시오. 거래량(SmartMoneyFlow), 매집구간(OrderBlock), 스탑헌팅(LiquiditySweep)을 종합한 물리적 힘의 지표입니다.",
-        strategy: "IFS > 50: 기관 매집 진행 중 (분할 매수). IFS > 80: 시세 폭발 임박 (적극 진입)."
+        strategy: "IFS > 50: 기관 매집 진행 중 (분할 매수). IFS > 80: 시세 폭발 임박 (적극 진입). 거래량이 동반되지 않는 상승은 가짜입니다."
     },
     'IVG': {
         title: "IVG (내재 가치 갭 비율)",
@@ -181,17 +181,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           let qualityAdj = 1.0;
 
           const simMetrics = backtestData[selectedStock.symbol]?.metrics;
-
+          
+          // [FIX] Valid Backtest Check: Only use backtest if Win Rate > 0
+          let useBacktest = false;
           if (simMetrics) {
+             const parsedWin = parseFloat(String(simMetrics.winRate || "0").replace('%',''));
+             if (parsedWin > 0) useBacktest = true;
+          }
+
+          if (useBacktest && simMetrics) {
               // 1. Simulation Based (Empirical)
               const winStr = String(simMetrics.winRate || "0").replace('%','');
               P = parseFloat(winStr) / 100;
               B = parseFloat(simMetrics.profitFactor || "1.5");
               source = "Simulated Backtest Data";
           } else {
-              // 2. Alpha Heuristic Based (Theoretical)
+              // 2. Alpha Heuristic Based (Theoretical) - FALLBACK if backtest fails or yields 0
               // Map Conviction Score (0-100) to Win Rate Probability (0.45 - 0.75)
-              // Hedge funds rarely assume win rates > 75%
               const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
               P = 0.45 + (conviction / 100) * 0.30; 
 
@@ -204,7 +210,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               }
               
               // Quality Adjustment (F-Score Proxy)
-              // If fundamental score exists, use it to scale confidence
               const fScore = selectedStock.fundamentalScore || selectedStock.qualityScore || 50;
               qualityAdj = 0.8 + (fScore / 100) * 0.4; // 0.8 ~ 1.2 multiplier
 
@@ -248,6 +253,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return null;
       }
   }, [selectedStock, backtestData]);
+
+  // [NEW] Additional Indicators Calculation (IFS, IVG)
+  const additionalMetrics = useMemo(() => {
+      if (!selectedStock) return null;
+      
+      // IFS (Institutional Force Score) - Derived from ICT metrics if available, else Conviction
+      let ifsScore = 0;
+      if (selectedStock.ictMetrics) {
+          ifsScore = (selectedStock.ictMetrics.smartMoneyFlow || 0) * 0.6 + (selectedStock.ictMetrics.displacement || 0) * 0.4;
+      } else {
+          ifsScore = (selectedStock.convictionScore || 0); // Fallback
+      }
+      
+      // IVG (Intrinsic Value Gap) - Derived from Fair Value Gap if available
+      let ivgScore = 0;
+      if (selectedStock.fairValueGap) {
+          ivgScore = selectedStock.fairValueGap;
+      } else if (selectedStock.upsidePotential) {
+          ivgScore = selectedStock.upsidePotential;
+      } else {
+          // Infer from Target vs Current
+          const target = selectedStock.resistanceLevel || 0;
+          const price = selectedStock.price || 1;
+          if (price > 0 && target > 0) ivgScore = ((target - price) / price) * 100;
+      }
+
+      return {
+          ifs: Math.min(100, Math.max(0, ifsScore)).toFixed(0),
+          ivg: ivgScore.toFixed(1)
+      };
+  }, [selectedStock]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -744,6 +780,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
+  // [TACTICAL EXECUTION] Price Positioning Logic - SAFER
+  const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
+      const range = target - stop;
+      if (Math.abs(range) < 0.0001) return 50; // Prevention against div by zero
+      const position = price - stop;
+      let percent = (position / range) * 100;
+      percent = Math.max(0, Math.min(100, percent));
+      return percent;
+  };
+
+  const tacticalPercent = selectedStock ? getTacticalPosition(
+      selectedStock.price, 
+      selectedStock.supportLevel || 0, 
+      selectedStock.resistanceLevel || 0, 
+      selectedStock.stopLoss || 0
+  ) : 50;
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
@@ -1057,28 +1110,64 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                         {/* Kelly Criterion Box - Clickable for Insight - UPDATED LOGIC */}
                         {kellyInfo && (
-                            <div 
-                                onClick={() => setActiveAlphaInsight('KELLY')}
-                                className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden cursor-help hover:bg-indigo-900/20 transition-colors group alpha-insight-trigger"
-                            >
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                                    <svg className="w-24 h-24 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.81 2.13-1.88 0-1.1-.68-1.57-1.75-1.82l-2.01-.46c-1.22-.29-2.75-1.02-2.75-2.73 0-1.5 1.12-2.67 2.82-2.96V4.5h2.67v1.88c1.55.27 2.76 1.32 2.94 2.89h-2c-.17-.83-1.07-1.5-2.33-1.5-1.12 0-1.88.68-1.88 1.62 0 .97.82 1.42 1.91 1.69l1.64.4c1.72.43 3.09 1.23 3.09 3.09 0 1.63-1.18 2.8-2.93 3.16z"/></svg>
+                            <>
+                                <div 
+                                    onClick={() => setActiveAlphaInsight('KELLY')}
+                                    className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden cursor-help hover:bg-indigo-900/20 transition-colors group alpha-insight-trigger"
+                                >
+                                    <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                        <svg className="w-24 h-24 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.81 2.13-1.88 0-1.1-.68-1.57-1.75-1.82l-2.01-.46c-1.22-.29-2.75-1.02-2.75-2.73 0-1.5 1.12-2.67 2.82-2.96V4.5h2.67v1.88c1.55.27 2.76 1.32 2.94 2.89h-2c-.17-.83-1.07-1.5-2.33-1.5-1.12 0-1.88.68-1.88 1.62 0 .97.82 1.42 1.91 1.69l1.64.4c1.72.43 3.09 1.23 3.09 3.09 0 1.63-1.18 2.8-2.93 3.16z"/></svg>
+                                    </div>
+                                    <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest flex items-center gap-2">
+                                        Kelly Criterion (Optimal Sizing)
+                                        <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                    </h4>
+                                    <div className="flex items-end gap-4">
+                                        <span className="text-4xl font-black text-white italic tracking-tighter">{kellyInfo.percentage}%</span>
+                                        <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded mb-2 ${kellyInfo.rating === 'AGGRESSIVE' ? 'bg-rose-500 text-white' : kellyInfo.rating === 'MODERATE' ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
+                                            {kellyInfo.rating} Position
+                                        </span>
+                                    </div>
+                                    <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
+                                        Based on {kellyInfo.source}: Win Rate {kellyInfo.winProb}% / Odds {kellyInfo.odds}. 
+                                        Using 'Modified Half-Kelly' logic adjusted for Quality.
+                                    </p>
                                 </div>
-                                <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest flex items-center gap-2">
-                                    Kelly Criterion (Optimal Sizing)
-                                    <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                </h4>
-                                <div className="flex items-end gap-4">
-                                    <span className="text-4xl font-black text-white italic tracking-tighter">{kellyInfo.percentage}%</span>
-                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded mb-2 ${kellyInfo.rating === 'AGGRESSIVE' ? 'bg-rose-500 text-white' : kellyInfo.rating === 'MODERATE' ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
-                                        {kellyInfo.rating} Position
-                                    </span>
+
+                                {/* [NEW] Additional Institutional Metrics (IFS, IVG) */}
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div 
+                                        onClick={() => setActiveAlphaInsight('IFS')}
+                                        className="p-4 bg-violet-900/10 rounded-[30px] border border-violet-500/20 shadow-inner cursor-help hover:bg-violet-900/20 transition-colors alpha-insight-trigger relative group"
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h4 className="text-[8px] font-black text-violet-400 uppercase tracking-widest flex items-center gap-2">
+                                                IFS (Inst. Force)
+                                                <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10" /></svg>
+                                            </h4>
+                                        </div>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-white italic tracking-tighter">{additionalMetrics?.ifs || '0'}</span>
+                                            <span className="text-[9px] font-bold text-slate-500">/ 100</span>
+                                        </div>
+                                    </div>
+
+                                    <div 
+                                        onClick={() => setActiveAlphaInsight('IVG')}
+                                        className="p-4 bg-teal-900/10 rounded-[30px] border border-teal-500/20 shadow-inner cursor-help hover:bg-teal-900/20 transition-colors alpha-insight-trigger relative group"
+                                    >
+                                        <div className="flex justify-between items-start mb-2">
+                                            <h4 className="text-[8px] font-black text-teal-400 uppercase tracking-widest flex items-center gap-2">
+                                                IVG (Value Gap)
+                                                <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                            </h4>
+                                        </div>
+                                        <div className="flex items-baseline gap-2">
+                                            <span className="text-2xl font-black text-white italic tracking-tighter">+{additionalMetrics?.ivg || '0.0'}%</span>
+                                        </div>
+                                    </div>
                                 </div>
-                                <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
-                                    Based on {kellyInfo.source}: Win Rate {kellyInfo.winProb}% / Odds {kellyInfo.odds}. 
-                                    Using 'Modified Half-Kelly' logic adjusted for Quality.
-                                </p>
-                            </div>
+                            </>
                         )}
                      </div>
                  </div>
