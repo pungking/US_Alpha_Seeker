@@ -72,7 +72,6 @@ const App: React.FC = () => {
               setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
           } else {
               // ALL STAGES COMPLETED (Stage 6 finished)
-              setIsAutoPilotRunning(false);
               
               if (reportPayload) {
                   setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
@@ -82,7 +81,10 @@ const App: React.FC = () => {
                   setAutoStatusMessage("ALL PIPELINES EXECUTED.");
               }
               
-              // [UX CHANGE] Removed Alert for seamless automation
+              // [UX UPDATE] Auto Disengage & Toggle Off
+              setIsAutoPilotRunning(false);
+              setViewMode('MANUAL');
+              
               console.log("✅ Auto Pilot Complete: Alpha Report Processed.");
           }
       }, 3000); 
