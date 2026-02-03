@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -74,7 +75,7 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
 
 const MarkdownComponents: any = {
     h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
+    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
     h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
     p: (props: any) => <p className="text-sm md:text-[15px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
     ul: (props: any) => <ul className="space-y-2 mb-6 mt-2" {...props} />,
@@ -159,33 +160,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
+  // [MODIFIED] Auto-Pilot Phase 2: Skip Matrix Audit -> Go Directly to MATRIX phase marker for transmission
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
+          addLog("AUTO-PILOT: Bypassing Matrix Audit -> Initiating Transmission...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          setTimeout(() => {
-              handleRunMatrixAudit(selectedBrain);
-          }, 1000);
+          // Removed handleRunMatrixAudit call to skip analysis
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
+  // [MODIFIED] Auto-Pilot Phase 3: Transmit Brief (No longer requires Matrix Report)
   useEffect(() => {
       const finishAutoPilot = async () => {
-          const hasReport = matrixReports[selectedBrain];
           const currentResults = resultsCache[selectedBrain] || [];
           
-          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && hasReport) {
+          // Condition relaxed: We don't check for 'hasReport' anymore since we skipped it.
+          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && currentResults.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
-              let telegramPayload = hasReport; 
+              let telegramPayload = ""; 
               try {
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
               } catch (e) {
-                  addLog("Brief Gen Failed. Sending full report.", "err");
+                  addLog("Brief Gen Failed.", "err");
+                  telegramPayload = "Brief Generation Failed.";
               }
 
               setAutoPhase('DONE');
@@ -968,7 +970,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
