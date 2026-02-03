@@ -486,7 +486,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                     <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
                                 </div>
-                                <div className="flex items-center gap-2 mt-2">
+                                <div className="flex flex-wrap items-center gap-2 mt-2">
                                     <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${getSectorStyle(selectedTicker.sector)}`}>
                                         {selectedTicker.sector}
                                     </span>
@@ -504,6 +504,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                         {selectedTicker.marketState}
                                         <svg className="w-2.5 h-2.5 opacity-50 group-hover:opacity-100" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                                     </span>
+                                    
+                                    {/* Data Fidelity Indicator */}
+                                    {selectedTicker.priceHistory && selectedTicker.priceHistory.length > 5 ? (
+                                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border bg-slate-800 text-emerald-400 border-emerald-500/30 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span> Deep Scan
+                                        </span>
+                                    ) : (
+                                        <span className="text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border bg-slate-800 text-amber-400 border-amber-500/30 flex items-center gap-1">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-pulse"></span> Heuristic Mode
+                                        </span>
+                                    )}
                                 </div>
                             </div>
                             <div className="text-right">
