@@ -150,7 +150,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string; overlayDesc: string } | null>(null);
   
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
-  const [activeAlphaInsight, setActiveAlphaInsight] = useState<string | null>(null); // New state for Tactical/Kelly insights
+  const [activeAlphaInsight, setActiveAlphaInsight] = useState<string | null>(null); 
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
@@ -389,18 +389,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
+      // [FIX] Sanitization & Type Coercion to prevent Black Screen
       const mergedFinal = safeAiResults.map((aiData: any) => {
         if (!aiData?.symbol) return null;
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
         if (!item) return null;
         
+        const safePrice = Number(item.price);
+        const safeEntry = Number(aiData.supportLevel) || (safePrice * 0.98);
+        
         return {
             ...item, 
             ...aiData, 
-            convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
-            supportLevel: aiData.supportLevel || (item.price * 0.98),
-            resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
-            stopLoss: aiData.stopLoss || (item.price * 0.94),
+            price: safePrice,
+            convictionScore: Number(aiData.convictionScore || item.compositeAlpha || 0),
+            supportLevel: safeEntry,
+            resistanceLevel: Number(aiData.resistanceLevel) || (safePrice * 1.25),
+            stopLoss: Number(aiData.stopLoss) || (safePrice * 0.94),
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
@@ -636,45 +641,47 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const chartData = useMemo(() => {
-    if (!currentBacktest) return [];
-    let rawData: any[] = [];
-    if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
-        rawData = currentBacktest.equityCurve.map((item) => {
-            const valStr = String(item.value);
-            const cleanVal = valStr.replace(/[^0-9.-]/g, '');
-            const val = parseFloat(cleanVal);
+    try {
+        if (!currentBacktest) return [];
+        let rawData: any[] = [];
+        if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
+            rawData = currentBacktest.equityCurve.map((item) => {
+                const valStr = String(item.value);
+                const cleanVal = valStr.replace(/[^0-9.-]/g, '');
+                const val = parseFloat(cleanVal);
+                return {
+                    period: item.period,
+                    value: isNaN(val) ? 0 : val
+                };
+            });
+        } else {
+            rawData = generateSyntheticData(currentBacktest?.metrics);
+        }
+
+        // Hedge-fund Advanced Logic: Full 24-month calculation
+        let runningPeak = -Infinity;
+        return rawData.map((d, i) => {
+            if (d.value > runningPeak) runningPeak = d.value;
+            const drawdown = d.value - runningPeak;
+            const prevValue = i > 0 ? rawData[i-1].value : 0;
+            const delta = d.value - prevValue; 
+            const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
+            
+            // Sharpe Ideal Regression Path
+            const totalPeriods = rawData.length - 1;
+            const finalVal = rawData[rawData.length - 1].value;
+            const idealValue = i * (finalVal / (totalPeriods || 1));
+
             return {
-                period: item.period,
-                value: isNaN(val) ? 0 : val
+                ...d,
+                drawdown: Number(drawdown.toFixed(2)),
+                peak: Number(runningPeak.toFixed(2)),
+                delta: Number(delta.toFixed(2)),
+                idealValue: Number(idealValue.toFixed(2)),
+                isWin: isWin
             };
         });
-    } else {
-        rawData = generateSyntheticData(currentBacktest?.metrics);
-    }
-
-    // Hedge-fund Advanced Logic: Full 24-month calculation
-    let runningPeak = -Infinity;
-    return rawData.map((d, i) => {
-        if (d.value > runningPeak) runningPeak = d.value;
-        const drawdown = d.value - runningPeak;
-        const prevValue = i > 0 ? rawData[i-1].value : 0;
-        const delta = d.value - prevValue; 
-        const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
-        
-        // Sharpe Ideal Regression Path
-        const totalPeriods = rawData.length - 1;
-        const finalVal = rawData[rawData.length - 1].value;
-        const idealValue = i * (finalVal / (totalPeriods || 1));
-
-        return {
-            ...d,
-            drawdown: Number(drawdown.toFixed(2)),
-            peak: Number(runningPeak.toFixed(2)),
-            delta: Number(delta.toFixed(2)),
-            idealValue: Number(idealValue.toFixed(2)),
-            isWin: isWin
-        };
-    });
+    } catch(e) { console.error("Chart Calc Error", e); return []; }
   }, [currentBacktest]);
 
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
@@ -757,7 +764,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                       </div>
-                      <span className="text-xs font-mono font-black text-slate-400 mt-1">${item.price?.toFixed(2)}</span>
+                      <span className="text-xs font-mono font-black text-slate-400 mt-1">${Number(item.price)?.toFixed(2)}</span>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
                     <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
@@ -879,11 +886,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10 opacity-70" style={{ left: '27.5%' }} title="Avg Entry Level"></div>
                                 <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 z-10 opacity-70" style={{ left: '90%' }} title="Take Profit Level"></div>
                                 
-                                {/* Current Price Pip */}
+                                {/* Current Price Pip with Label */}
                                 <div 
-                                    className="absolute top-1/2 -translate-y-1/2 w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] z-20 transition-all duration-1000 border border-slate-900"
+                                    className="absolute top-1/2 -translate-y-1/2 z-20 transition-all duration-1000 flex flex-col items-center gap-1"
                                     style={{ left: `${tacticalPercent}%` }}
-                                ></div>
+                                >
+                                    <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] border border-slate-900 animate-pulse"></div>
+                                    <div className="absolute top-4 text-[7px] font-black uppercase bg-white text-slate-900 px-1 py-0.5 rounded shadow-lg whitespace-nowrap">Current</div>
+                                </div>
                             </div>
                             <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10">
                                 <span 
