@@ -300,7 +300,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
       
       await new Promise(r => setTimeout(r, 800));
-      // [FIX] Changed log level from 'warn' to 'info'
+      // [FIX] Changed log level from 'warn' to 'info' as requested
       addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "info");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
@@ -342,11 +342,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       
-      // [FIX] Save to Google Drive - Enhanced Logic
-      const currentToken = sessionStorage.getItem('gdrive_access_token'); // Get fresh token
+      // [FIX] Robust Save to Google Drive
+      // Re-fetch token to ensure we have the latest valid one
+      const currentToken = sessionStorage.getItem('gdrive_access_token');
       
       if (!currentToken) {
-          addLog("Save Failed: Cloud Vault Token is missing.", "err");
+          addLog("Save Failed: Cloud Vault Token is missing/expired. Please re-authenticate.", "err");
       } else if (mergedFinal.length === 0) {
           addLog("Save Skipped: No Alpha targets generated.", "warn");
       } else {
@@ -375,15 +376,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               
               if (uploadRes.ok) {
                   addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked & saved via ${currentProvider}.`, "ok");
+                  
+                  const first = mergedFinal[0];
+                  setSelectedStock(first);
+                  onStockSelected?.(first);
+                  onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
               } else {
                   const errorText = await uploadRes.text();
                   addLog(`Vault Upload Failed: ${uploadRes.status} - ${errorText}`, "err");
               }
-              
-              const first = mergedFinal[0];
-              setSelectedStock(first);
-              onStockSelected?.(first);
-              onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
 
           } catch (uploadErr: any) {
               addLog(`Vault Save Error: ${uploadErr.message}`, "err");
