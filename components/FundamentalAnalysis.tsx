@@ -608,6 +608,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
                             </div>
                         )}
+                        
                         {/* Source Tag Removed as requested */}
                      </div>
                  ) : (
