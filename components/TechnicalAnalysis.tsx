@@ -4,6 +4,7 @@ import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
+import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
 
 // [QUANT ENGINE] Mathematical Indicator Logic
 // These functions calculate technical indicators locally to ensure 100% accuracy without AI hallucination.
@@ -12,11 +13,6 @@ const calcSMA = (data: number[], period: number) => {
   if (data.length < period) return 0;
   const slice = data.slice(0, period);
   return slice.reduce((a, b) => a + b, 0) / period;
-};
-
-const calcEMA = (current: number, prevEma: number, period: number) => {
-  const k = 2 / (period + 1);
-  return (current - prevEma) * k + prevEma;
 };
 
 const calcRSI = (closes: number[], period: number = 14) => {
@@ -33,10 +29,6 @@ const calcRSI = (closes: number[], period: number = 14) => {
   let avgGain = gains / period;
   let avgLoss = losses / period;
 
-  // Smoothing
-  // Simplified for performance on small datasets: using Simple Avg for initial approximation
-  // For standard RSI, we would iterate full history. Here we use a 14-period snapshot approximation.
-  
   if (avgLoss === 0) return 100;
   const rs = avgGain / avgLoss;
   return 100 - (100 / (1 + rs));
@@ -80,6 +72,8 @@ interface Props {
 const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [processedData, setProcessedData] = useState<TechScoredTicker[]>([]);
+  const [selectedTicker, setSelectedTicker] = useState<TechScoredTicker | null>(null);
   const [activeBrain, setActiveBrain] = useState<string>('Standby');
   const [currentEngine, setCurrentEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
 
@@ -87,7 +81,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
 
-  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v5.2 (Real-Quant): Waiting for Signal...']);
+  const [logs, setLogs] = useState<string[]>(['> Technical_Engine v5.3 (Real-Quant): Waiting for Signal...']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -104,14 +98,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       interval = setInterval(() => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
-        
         let etaSec = 0;
         if (progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
-        
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
@@ -137,19 +129,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fromDate = new Date(Date.now() - 150 * 24 * 60 * 60 * 1000).toISOString().split('T')[0]; // 150 days back
       
       try {
-          // Fetch Daily Aggregates
           const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${fromDate}/${toDate}?adjusted=true&sort=desc&limit=100&apiKey=${polygonKey}`;
           const res = await fetch(url);
           
-          if (res.status === 429) {
-              // Rate Limit Logic: Return empty to trigger fallback, log warning handled by caller
-              return [];
-          }
-          
+          if (res.status === 429) return []; // Rate Limit
           if (!res.ok) return [];
           
           const json = await res.json();
-          return json.results || []; // Array of {c, h, l, o, v, t}
+          return json.results || [];
       } catch (e) {
           return [];
       }
@@ -158,16 +145,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const calculateQuantMetrics = (history: any[]) => {
       if (!history || history.length < 30) return null;
 
-      const closes = history.map(d => d.c); // Descending order (newest first) from Polygon sort=desc? 
-      // WAIT: Polygon sort=desc means index 0 is newest.
-      // Standardize: Index 0 = Newest
-      
+      const closes = history.map(d => d.c); // Index 0 = Newest
       const currentPrice = closes[0];
       
-      // 1. Trend (EMA 20 vs 50)
-      const ema20 = calcSMA(closes, 20); // Using SMA as proxy for EMA init for simplicity in this snippet
-      const ema50 = calcSMA(closes, 50);
-      const trendScore = (currentPrice > ema20 && ema20 > ema50) ? 100 : (currentPrice < ema20) ? 30 : 60;
+      // 1. Trend (SMA 20 vs 50) - Simplified EMA
+      const sma20 = calcSMA(closes, 20);
+      const sma50 = calcSMA(closes, 50);
+      const trendScore = (currentPrice > sma20 && sma20 > sma50) ? 100 : (currentPrice < sma20) ? 30 : 60;
 
       // 2. Momentum (RSI)
       const rsi = calcRSI(closes, 14);
@@ -179,7 +163,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       // 3. Volatility Squeeze (Bollinger Bandwidth)
       const bb = calcBollinger(closes, 20, 2.0);
-      const isSqueeze = bb.width < 0.10; // Less than 10% bandwidth = Squeeze Potential
+      const isSqueeze = bb.width < 0.10; 
       const squeezeState = isSqueeze ? "SQUEEZE_ON" : "EXPANSION";
 
       // 4. Relative Volume (RVOL)
@@ -189,11 +173,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       const rvol = currentVol / (avgVol20 || 1);
       
       let volumeScore = 50;
-      if (rvol > 1.5) volumeScore = 100; // Institutional Action
+      if (rvol > 1.5) volumeScore = 100;
       else if (rvol > 1.0) volumeScore = 75;
       else volumeScore = 40;
 
-      // Composite Technical Score
       const finalScore = (trendScore * 0.4) + (momentumScore * 0.3) + (volumeScore * 0.3);
 
       return {
@@ -210,6 +193,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
   const executeIntegratedTechProtocol = async () => {
     if (!accessToken || loading) return;
     setLoading(true);
+    setProcessedData([]);
     startTimeRef.current = Date.now();
     setTimeStats({ elapsed: 0, eta: 0 });
     addLog("Phase 4: Initializing Real-Data Tech Sieve...", "info");
@@ -233,15 +217,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       }).then(r => r.json());
 
       let targets = content.fundamental_universe || [];
-      
-      // [STRATEGY] Filter Top Candidates for Deep Scan due to API Limits
-      // Only process top 40 by Fundamental Score + any manual selection
       targets.sort((a: any, b: any) => (b.fundamentalScore || 0) - (a.fundamentalScore || 0));
       
-      // Keep ALL targets for the result file, but only 'Deep Scan' the top ones.
-      // The rest get a "Lite" score based on Price Change (available in Stage 3 data)
       const DEEP_SCAN_LIMIT = 40; 
-      
       const total = targets.length;
       setProgress({ current: 0, total });
 
@@ -250,18 +228,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         let techScore = 0;
-        let metrics: any = { rsi: 50, squeeze: 'NO_DATA', trend: 50 };
+        let metrics: any = { rsi: 50, squeeze: 'NO_DATA', trend: 50, rvol: 1.0 };
         let engineLabel = "Basic-Price-Action";
         
-        // [DEEP SCAN] For Elite Candidates
         if (i < DEEP_SCAN_LIMIT) {
              setActiveBrain("Polygon (Quant)");
              
-             // 1. Fetch History
              const history = await fetchPolygonHistory(item.symbol);
              
              if (history && history.length > 20) {
-                 // 2. Run Math Engine
                  const quantResult = calculateQuantMetrics(history);
                  if (quantResult) {
                      techScore = quantResult.score;
@@ -274,37 +249,26 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
                      engineLabel = "Polygon-Quant-Engine";
                  }
              } else {
-                 // API Limit or No Data -> Fallback to Snapshot Data
                  engineLabel = "Snapshot-Fallback";
-                 // Fallback Logic: Use daily change as proxy for momentum
                  const change = item.change || 0;
-                 techScore = 50 + (change * 2); // Simple momentum proxy
-                 if (change > 5) metrics.rvol = 2.0; // Assume high vol on big move
+                 techScore = 50 + (change * 2); 
+                 if (change > 5) metrics.rvol = 2.0;
              }
-             
-             // Rate Limit Throttle (Free Tier: 5 calls/min = 1 call / 12 sec)
-             // We need to be faster, assuming user might have a starter plan or we burst.
-             // If we hit 429, fetchPolygonHistory returns empty array, we handle gracefully.
-             await new Promise(r => setTimeout(r, 1500)); // 1.5s delay to be safe-ish
+             await new Promise(r => setTimeout(r, 1500)); 
         } else {
-             // [LITE SCAN] For lower tier
              setActiveBrain("Lite-Heuristic");
-             // Heuristic: If Fundamental is good, assume neutral-bullish tech unless price dropped hard
              const change = item.change || 0;
-             techScore = 50 + change; // Momentum proxy
+             techScore = 50 + change; 
              engineLabel = "Heuristic-Lite";
-             await new Promise(r => setTimeout(r, 10)); // Fast forward
+             await new Promise(r => setTimeout(r, 10)); 
         }
 
-        // Clamp Score
         techScore = Math.min(99, Math.max(10, techScore));
-
-        // [FIX] Correctly map 'fundamentalScore' from Stage 3 output
         const fundamentalScore = item.fundamentalScore || 0;
         const totalAlpha = (fundamentalScore * 0.40) + (techScore * 0.60);
 
-        results.push({
-            ...item, // Preserve all props
+        const newItem: TechScoredTicker = {
+            ...item, 
             symbol: item.symbol, name: item.name, price: item.price,
             fundamentalScore: fundamentalScore, 
             technicalScore: Number(techScore.toFixed(2)), 
@@ -313,20 +277,29 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
               trend: metrics.trend || techScore, 
               momentum: metrics.rsi || 50, 
               volumePattern: (metrics.rvol || 1) * 50, 
-              adl: 50, // Not calc
-              forceIndex: 50, 
-              srLevels: 50,
+              adl: 50, forceIndex: 50, srLevels: 50,
               rsRating: metrics.rsi || 50, 
               squeezeState: metrics.squeeze || "NONE"
             },
             sector: item.sector,
             scoringEngine: engineLabel
-        });
+        };
 
-        if (i % 5 === 0) setProgress({ current: i + 1, total });
+        results.push(newItem);
+        if (i % 5 === 0) {
+            setProgress({ current: i + 1, total });
+            // Update UI incrementally for top candidates
+            if (i < DEEP_SCAN_LIMIT + 5) {
+                const tempSorted = [...results].sort((a,b) => b.technicalScore - a.technicalScore);
+                setProcessedData(tempSorted);
+                if (!selectedTicker) setSelectedTicker(tempSorted[0]);
+            }
+        }
       }
 
       results.sort((a, b) => b.totalAlpha - a.totalAlpha);
+      setProcessedData(results);
+      if (results.length > 0 && !selectedTicker) setSelectedTicker(results[0]);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
@@ -376,6 +349,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const handleTickerSelect = (ticker: TechScoredTicker) => {
+      setSelectedTicker(ticker);
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -413,13 +390,117 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete }) => {
             </button>
           </div>
 
-          <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-              <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest">Global Momentum Coverage</p>
-                <p className="text-xl font-mono font-black text-white italic">{progress.current} / {progress.total}</p>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
+              {/* LIST VIEW */}
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[360px]">
+                 <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                    <p className="text-[9px] font-black text-orange-400 uppercase tracking-widest">Tech Momentum Rank</p>
+                    <span className="text-[8px] font-mono text-slate-500">Sorted by Tech Score</span>
+                 </div>
+                 <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
+                     {processedData.length > 0 ? processedData.map((t, i) => (
+                         <div key={i} onClick={() => handleTickerSelect(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-orange-900/30 border-orange-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
+                             <div className="flex items-center gap-3">
+                                 <span className={`text-[10px] font-black w-4 ${i < 3 ? 'text-orange-400' : 'text-slate-500'}`}>{i + 1}</span>
+                                 <div>
+                                     <p className="text-xs font-black text-white">{t.symbol}</p>
+                                     <p className="text-[8px] text-slate-400 truncate w-20">{t.scoringEngine}</p>
+                                 </div>
+                             </div>
+                             <div className="text-right flex items-center gap-3">
+                                 <div className="flex flex-col items-end">
+                                     <p className="text-[10px] font-mono font-bold text-white">{t.technicalScore.toFixed(1)}</p>
+                                     <p className="text-[7px] text-slate-500 uppercase">Tech</p>
+                                 </div>
+                                 <div className={`w-1.5 h-8 rounded-full ${t.technicalScore > 80 ? 'bg-orange-500' : t.technicalScore > 50 ? 'bg-amber-500' : 'bg-slate-700'}`}></div>
+                             </div>
+                         </div>
+                     )) : (
+                         <div className="h-full flex items-center justify-center opacity-30 text-[9px] uppercase tracking-widest text-slate-400 italic">
+                             Waiting for Polygon Data...
+                         </div>
+                     )}
+                 </div>
               </div>
-              <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-orange-500 transition-all duration-300 shadow-[0_0_10px_rgba(249,115,22,0.5)]" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+
+              {/* DETAIL VIEW - COCKPIT */}
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[360px]">
+                 {selectedTicker ? (
+                     <div className="h-full flex flex-col justify-between"> 
+                        <div className="flex justify-between items-start">
+                            <div>
+                                <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
+                                <p className="text-[9px] text-orange-500 font-bold uppercase tracking-widest mt-1">Technical Quant Cockpit</p>
+                            </div>
+                            <div className="text-right">
+                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Total Alpha Score</p>
+                                 <p className="text-2xl font-black text-white tracking-tighter">{selectedTicker.totalAlpha.toFixed(1)}</p>
+                            </div>
+                        </div>
+
+                        {/* Gauges Grid */}
+                        <div className="grid grid-cols-2 gap-4 mt-6">
+                            {/* RSI Gauge */}
+                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                                <div className="flex justify-between mb-2">
+                                    <span className="text-[8px] font-black text-slate-400 uppercase">RSI (14)</span>
+                                    <span className={`text-[10px] font-black ${selectedTicker.techMetrics.rsRating! > 70 ? 'text-rose-400' : selectedTicker.techMetrics.rsRating! < 30 ? 'text-emerald-400' : 'text-white'}`}>
+                                        {selectedTicker.techMetrics.rsRating?.toFixed(1) || 'N/A'}
+                                    </span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                    <div className={`h-full ${selectedTicker.techMetrics.rsRating! > 70 ? 'bg-rose-500' : selectedTicker.techMetrics.rsRating! < 30 ? 'bg-emerald-500' : 'bg-blue-500'}`} style={{ width: `${selectedTicker.techMetrics.rsRating}%` }}></div>
+                                </div>
+                            </div>
+
+                            {/* Volatility Squeeze */}
+                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                                <div className="flex justify-between mb-2">
+                                    <span className="text-[8px] font-black text-slate-400 uppercase">TTM Squeeze</span>
+                                    <span className={`text-[9px] font-black ${selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'text-rose-500 animate-pulse' : 'text-emerald-500'}`}>
+                                        {selectedTicker.techMetrics.squeezeState}
+                                    </span>
+                                </div>
+                                <div className="flex gap-1 h-1.5">
+                                    {[1,2,3,4,5].map(i => (
+                                        <div key={i} className={`flex-1 rounded-full ${selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'bg-rose-500' : 'bg-slate-800'}`}></div>
+                                    ))}
+                                </div>
+                            </div>
+
+                            {/* Relative Volume */}
+                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                                <div className="flex justify-between mb-2">
+                                    <span className="text-[8px] font-black text-slate-400 uppercase">Rel Volume (RVOL)</span>
+                                    <span className="text-[10px] font-black text-white">{(selectedTicker.techMetrics.volumePattern / 50).toFixed(2)}x</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                    <div className="h-full bg-amber-500" style={{ width: `${Math.min(100, selectedTicker.techMetrics.volumePattern)}%` }}></div>
+                                </div>
+                            </div>
+
+                            {/* Trend Strength */}
+                            <div className="bg-slate-900/50 p-4 rounded-2xl border border-white/5">
+                                <div className="flex justify-between mb-2">
+                                    <span className="text-[8px] font-black text-slate-400 uppercase">Trend (EMA)</span>
+                                    <span className="text-[10px] font-black text-white">{selectedTicker.techMetrics.trend > 60 ? 'BULLISH' : selectedTicker.techMetrics.trend < 40 ? 'BEARISH' : 'NEUTRAL'}</span>
+                                </div>
+                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                                    <div className={`h-full ${selectedTicker.techMetrics.trend > 60 ? 'bg-emerald-500' : selectedTicker.techMetrics.trend < 40 ? 'bg-rose-500' : 'bg-slate-500'}`} style={{ width: `${selectedTicker.techMetrics.trend}%` }}></div>
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="mt-auto pt-4 border-t border-white/5">
+                            <p className="text-[9px] text-slate-500 font-mono">Engine: {selectedTicker.scoringEngine}</p>
+                        </div>
+                     </div>
+                 ) : (
+                     <div className="h-full flex flex-col items-center justify-center opacity-20">
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                         <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
+                     </div>
+                 )}
               </div>
           </div>
         </div>
