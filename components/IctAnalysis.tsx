@@ -73,27 +73,30 @@ const MARKET_STATE_INFO: Record<string, string> = {
     'RE-ACCUMULATION': "재매집 (Re-Accumulation): 상승 도중 숨고르기. 차익 실현 물량을 세력이 다시 받아내며 2차 상승을 준비하는 건전한 조정."
 };
 
-// [QUANT ENGINE v6.5] Advanced Wyckoff & Candle Geometry Logic
+// [QUANT ENGINE v6.8] Blind VSA Fallback & Squeeze Synergy
 const calculateIctScore = (item: any) => {
     const rvol = item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
     const trendScore = item.techMetrics?.trend || 50;
     const priceHistory = item.priceHistory || [];
+    const dailyChange = Math.abs(item.change || 0);
 
     // --- 1. Candle Geometry Analysis (Micro-Structure) ---
     let wickScore = 0;
     let bodyStrength = 0;
     let recentGap = 0;
+    let hasFullData = false;
 
     if (priceHistory.length >= 5) {
+        hasFullData = true;
         const lastCandle = priceHistory[priceHistory.length - 1];
         const prevCandle = priceHistory[priceHistory.length - 2];
         
         // Calculate Candle Parts
-        const open = lastCandle.open || prevCandle.close; // Fallback if open missing in agg
+        const open = lastCandle.open || prevCandle.close; 
         const close = lastCandle.close;
-        const high = lastCandle.high || Math.max(open, close); // Fallback
-        const low = lastCandle.low || Math.min(open, close);   // Fallback
+        const high = lastCandle.high || Math.max(open, close); 
+        const low = lastCandle.low || Math.min(open, close);   
         
         const bodySize = Math.abs(close - open);
         const totalRange = high - low;
@@ -111,17 +114,24 @@ const calculateIctScore = (item: any) => {
         
         // C. Body Strength
         if (totalRange > 0) bodyStrength = (bodySize / totalRange) * 100;
+    } else {
+        // [FALLBACK] Blind VSA Logic for missing history
+        // Estimate based on Daily Change % vs RVOL
+        if (dailyChange > 2.0) bodyStrength = 80; // Big move likely implies strong body
+        else if (dailyChange < 0.5) bodyStrength = 20; // Small move implies Doji/Spinning top
     }
 
     // --- 2. Displacement (Force of Move) ---
-    // High RVOL + Strong Body + Momentum = True Displacement
     let displacement = Math.min(100, (rvol * 20) + (momentum * 0.4));
-    if (bodyStrength > 60) displacement += 15; // Solid candle confirms move
-    if (recentGap > 0) displacement += 15; // FVG confirms imbalance
+    if (bodyStrength > 60) displacement += 15; 
+    if (recentGap > 0) displacement += 15; 
     if (trendScore > 80) displacement += 10;
+    
+    // Fallback normalization
+    if (!hasFullData && rvol > 1.5 && dailyChange > 1.5) displacement = Math.max(displacement, 75);
 
     // --- 3. Market Structure (MSS) ---
-    const mss = trendScore; // Using MA alignment as structural proxy
+    const mss = trendScore; 
 
     // --- 4. Liquidity Sweep (Stop Hunt Detection) ---
     const isSqueeze = item.techMetrics?.squeezeState === 'SQUEEZE_ON';
@@ -129,13 +139,10 @@ const calculateIctScore = (item: any) => {
     
     let sweepScore = 50;
     if (isSqueeze) sweepScore += 30; 
-    if (wickScore > 0) sweepScore = (sweepScore + wickScore) / 2; // Combine Squeeze & Wick logic
-    if (rsi < 40 && rvol > 1.2) sweepScore += 10; // Selling climax
+    if (wickScore > 0) sweepScore = (sweepScore + wickScore) / 2; 
+    if (rsi < 40 && rvol > 1.2) sweepScore += 10; 
 
     // --- 5. Smart Money Flow (VSA - Effort vs Result) ---
-    // Ideally: High Volume + High Move = Valid. 
-    // BUT: High Volume + Small Move (Doji) = Absorption (Bullish Accumulation)
-    
     let obScore = 50; 
     if (trendScore > 60 && rsi >= 40 && rsi <= 65) obScore = 90; 
     else if (trendScore > 60 && rsi > 70) obScore = 70; 
@@ -143,15 +150,23 @@ const calculateIctScore = (item: any) => {
 
     let smFlow = 50;
     if (trendScore > 60) {
-        // In Uptrend: High Volume should match High Body
+        // In Uptrend
         if (rvol > 1.5 && bodyStrength > 50) smFlow = 90; // Healthy Markup
-        else if (rvol > 2.0 && bodyStrength < 30) smFlow = 40; // Churning at top (Risk)
+        else if (rvol > 2.0 && bodyStrength < 30) smFlow = 40; // Churning
         else smFlow = 70;
     } else {
-        // In Downtrend/Base: High Volume + Small Body = ABSORPTION (Golden Signal)
-        if (rvol > 2.0 && bodyStrength < 40) smFlow = 95; // Institutional Absorption
-        else if (wickScore > 60 && rvol > 1.5) smFlow = 85; // Spring action
+        // In Downtrend/Base
+        // High Volume + Small Body (or Small Change) = ABSORPTION
+        if (rvol > 2.0 && bodyStrength < 40) smFlow = 95; 
+        else if (wickScore > 60 && rvol > 1.5) smFlow = 85; 
+        else if (!hasFullData && rvol > 1.5 && dailyChange < 0.5) smFlow = 85; // Blind Absorption
         else smFlow = 40;
+    }
+
+    // [SYNERGY BONUS] Squeeze + High Flow = Explosive Potential
+    if (isSqueeze && smFlow > 70) {
+        displacement += 10;
+        smFlow += 10;
     }
 
     // Final Composite Score weighting
@@ -172,7 +187,7 @@ const calculateIctScore = (item: any) => {
 const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' | 'RE-ACCUMULATION' => {
     if (metrics.marketStructure > 75 && metrics.displacement > 70) return 'MARKUP';
     if (metrics.marketStructure > 60 && metrics.orderBlock > 80) return 'RE-ACCUMULATION';
-    if (metrics.smartMoneyFlow > 80 && metrics.displacement < 60) return 'ACCUMULATION'; // Absorption detected
+    if (metrics.smartMoneyFlow > 80 && metrics.displacement < 60) return 'ACCUMULATION'; 
     if (metrics.liquiditySweep > 80) return 'MANIPULATION';
     return 'DISTRIBUTION';
 };
@@ -186,7 +201,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.5: VSA & Geometry Engine Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.8: VSA Blind-Proxy Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -311,7 +326,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'RE-ACCUMULATION' ? 'BUY DIP' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
             radarData: [],
             sector: item.sector,
-            scoringEngine: "ICT_Wyckoff_Engine_v6.5"
+            scoringEngine: "ICT_Wyckoff_Engine_v6.8"
         };
 
         results.push(ticker);
@@ -334,7 +349,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.5.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff" },
+        manifest: { version: "6.8.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_V2" },
         ict_universe: finalSurvivors
       };
 
@@ -391,7 +406,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.5.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.8.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-indigo-400 text-indigo-400 animate-pulse' : 'border-indigo-500/20 bg-indigo-500/10 text-indigo-400'}`}>
@@ -440,9 +455,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                                      </div>
                                  </div>
                              </div>
-                             <div className="text-right">
-                                 <p className="text-[10px] font-mono font-bold text-white">{t.compositeAlpha.toFixed(1)}</p>
-                                 <p className="text-[7px] text-slate-500 uppercase">Alpha Score</p>
+                             <div className="text-right flex flex-col items-end">
+                                 <span className={`text-[7px] font-black uppercase px-1.5 py-0.5 rounded mb-0.5 ${
+                                     t.marketState === 'MARKUP' ? 'bg-emerald-500/20 text-emerald-400' : 
+                                     t.marketState === 'ACCUMULATION' ? 'bg-indigo-500/20 text-indigo-400' : 
+                                     t.marketState === 'MANIPULATION' ? 'bg-amber-500/20 text-amber-400' : 
+                                     t.marketState === 'RE-ACCUMULATION' ? 'bg-cyan-500/20 text-cyan-400' : 
+                                     'bg-slate-800 text-slate-500'
+                                 }`}>
+                                     {t.marketState === 'RE-ACCUMULATION' ? 'RE-ACCUM' : t.marketState}
+                                 </span>
+                                 <p className="text-[10px] font-mono font-bold text-white">{t.ictScore.toFixed(0)} <span className="text-[7px] text-slate-600">ICT</span></p>
                              </div>
                          </div>
                      )) : (
