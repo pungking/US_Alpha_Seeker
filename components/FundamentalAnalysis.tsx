@@ -409,6 +409,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
       setProcessedData(results);
       
+      // [LOG UPDATE] Warn if too many sector models are used
+      const modelCount = results.filter(r => r.source === 'Sector_Model').length;
+      if (modelCount > results.length * 0.8) {
+          addLog(`Notice: High reliance on Sector Models (${modelCount}/${results.length}). APIs may be rate-limited.`, "warn");
+      }
+      
       if (results.length > 0) handleTickerSelect(results[0]);
 
       // Save to Drive
@@ -602,12 +608,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
                             </div>
                         )}
-                        {/* Source Tag */}
-                        <div className="absolute bottom-2 left-6">
-                            <span className={`text-[8px] font-mono uppercase tracking-widest ${selectedTicker.source?.includes("Real") ? 'text-emerald-500' : 'text-amber-500'}`}>
-                                DATA_SOURCE: {selectedTicker.source || "UNKNOWN"}
-                            </span>
-                        </div>
+                        {/* Source Tag Removed as requested */}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
