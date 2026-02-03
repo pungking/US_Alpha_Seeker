@@ -4,6 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
+import { GOOGLE_DRIVE_TARGET } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
@@ -29,6 +30,9 @@ interface AlphaCandidate {
   supportLevel?: number;
   resistanceLevel?: number;
   riskRewardRatio?: string;
+  
+  // Accumulated Data from previous stages
+  [key: string]: any;
 }
 
 interface BacktestResult {
@@ -154,7 +158,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
-        addLog("AUTO-PILOT: Initiating Alpha Singularity Protocol...", "signal");
+        addLog("AUTO-PILOT: Initiating Alpha Singularity Protocol v2.0...", "signal");
         setAutoPhase('ENGINE');
         handleExecuteEngine();
     }
@@ -167,7 +171,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog("AUTO-PILOT: Bypassing Matrix Audit -> Initiating Transmission...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          // Removed handleRunMatrixAudit call to skip analysis
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
@@ -176,7 +179,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const finishAutoPilot = async () => {
           const currentResults = resultsCache[selectedBrain] || [];
           
-          // Condition relaxed: We don't check for 'hasReport' anymore since we skipped it.
           if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && currentResults.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
@@ -248,6 +250,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .trim();
   };
 
+  const ensureFolder = async (token: string, name: string) => {
+    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+    if (res.files?.length > 0) return res.files[0].id;
+    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+    }).then(r => r.json());
+    return create.id;
+  };
+
   const loadStage5Data = async () => {
     if (!accessToken) return;
     try {
@@ -276,7 +289,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     // [UPDATE] New Protocol Logs
     addLog(`Initiating Alpha Singularity Protocol via ${currentProvider}...`, "signal");
-    addLog("Step 1: 3-Vector Data Fusion (Fund+Tech+ICT)...", "info");
+    addLog("Step 1: 3-Vector Data Fusion & Regime Scan...", "info");
 
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
@@ -287,7 +300,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
       
       await new Promise(r => setTimeout(r, 800));
-      addLog("Step 3: Running Pre-Mortem Stress Tests...", "warn");
+      addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "warn");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -309,14 +322,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
+      // Merge AI results with all previous data (Stage 0-5)
       const mergedFinal = safeAiResults.map((aiData: any) => {
         if (!aiData?.symbol) return null;
+        // Find original object to preserve accumulation
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
         if (!item) return null;
         
         return {
-            ...item,
-            ...aiData,
+            ...item, // Preserve all previous stage data
+            ...aiData, // Overwrite/Add Alpha Stage data
             convictionScore: aiData.convictionScore || item.compositeAlpha || 0,
             supportLevel: aiData.supportLevel || (item.price * 0.98),
             resistanceLevel: aiData.resistanceLevel || (item.price * 1.25),
@@ -325,13 +340,41 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }).filter(x => x !== null) as AlphaCandidate[];
 
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
-      if (mergedFinal.length > 0) {
-        const first = mergedFinal[0];
-        setSelectedStock(first);
-        onStockSelected?.(first);
-        onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+      
+      // [FIX] Save to Google Drive
+      if (mergedFinal.length > 0 && accessToken) {
+          addLog("Saving Final Alpha Matrix to Vault...", "info");
+          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+          const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
+          const payload = {
+            manifest: { 
+                version: "2.0.0", 
+                strategy: "Alpha_Singularity_Protocol_v2", 
+                timestamp: new Date().toISOString(), 
+                provider: currentProvider 
+            },
+            alpha_universe: mergedFinal // Contains FULL data history
+          };
+
+          const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+          const form = new FormData();
+          form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+          form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+
+          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+          });
+          
+          addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked & saved via ${currentProvider}.`, "ok");
+          
+          const first = mergedFinal[0];
+          setSelectedStock(first);
+          onStockSelected?.(first);
+          onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+      } else {
+          addLog("Warning: No valid Alpha targets generated to save.", "err");
       }
-      addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked via ${currentProvider}.`, "ok");
+
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
   };
