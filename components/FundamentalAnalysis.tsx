@@ -283,6 +283,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   // [STEP 3] Data Logic & Calculation
                   let dataSource = "Estimate";
                   
+                  // [MARKET CAP]
+                  const marketCap = safeNum(realData?.summaryDetail?.marketCap?.raw || item.marketCap || item.marketValue);
+
                   // --- GROSS MARGIN ---
                   let grossMargin = 0;
                   if (realData?.financialData?.grossMargins?.raw) {
@@ -293,19 +296,22 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       dataSource = "FMP_Real";
                   } else {
                       const stats = getSectorStats(baseSector, baseIndustry);
-                      grossMargin = stats.gm;
-                      // Adjust based on ROE
-                      if (baseRoe > 20) grossMargin *= 1.2;
-                      if (baseRoe < 5) grossMargin *= 0.8;
+                      // [INVESTMENT LOGIC] Size Factor Adjustment (Instead of Randomness)
+                      // Mega Cap (>100B) tends to have better margins/stability than industry avg
+                      let sizeModifier = 1.0;
+                      if (marketCap > 100000000000) sizeModifier = 1.15; // Mega Cap Premium
+                      else if (marketCap > 10000000000) sizeModifier = 1.05; // Large Cap Premium
+                      else if (marketCap < 2000000000) sizeModifier = 0.85; // Small Cap Discount
+
+                      grossMargin = stats.gm * sizeModifier;
                       dataSource = "Sector_Model";
                   }
                   
-                  // Sanity check for Margin (Banks usually have high margins, but 108% is bug)
+                  // Sanity check for Margin
                   if (grossMargin > 100) grossMargin = 99.9;
 
                   // --- FCF YIELD CALCULATION (OCF - CapEx) ---
                   let fcfYield = 0;
-                  const marketCap = safeNum(realData?.summaryDetail?.marketCap?.raw || item.marketCap || item.marketValue);
                   
                   if (realData?.cashflowStatementHistory?.cashflowStatements?.[0]) {
                       const statement = realData.cashflowStatementHistory.cashflowStatements[0];
@@ -321,9 +327,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   
                   if (fcfYield === 0) {
                       const stats = getSectorStats(baseSector, baseIndustry);
-                      fcfYield = stats.fcf;
-                      // Adjust based on PE (Low PE often means higher yield)
-                      if (basePe > 0 && basePe < 15) fcfYield *= 1.1; 
+                      // Size Adjustment for FCF
+                      let sizeModifier = 1.0;
+                      if (marketCap > 50000000000) sizeModifier = 1.1; 
+                      fcfYield = stats.fcf * sizeModifier;
                   }
                   
                   // --- GROWTH & PEG ---
@@ -344,7 +351,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   if (roic === 0) {
                       // Estimate ROIC from ROE (Usually 60-80% of ROE)
                       roic = roe * 0.75;
-                      if (roic === 0) roic = getSectorStats(baseSector, baseIndustry).roic;
+                      if (roic === 0) {
+                          const stats = getSectorStats(baseSector, baseIndustry);
+                          // Size Adjustment
+                          let sizeModifier = 1.0;
+                          if (marketCap > 100000000000) sizeModifier = 1.2;
+                          roic = stats.roic * sizeModifier;
+                      }
                   }
 
                   // --- INTRINSIC VALUE ---
@@ -608,8 +621,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 <p className="text-[9px] text-slate-300 leading-relaxed font-medium">{METRIC_INSIGHTS[activeMetric].desc}</p>
                             </div>
                         )}
-                        
-                        {/* Source Tag Removed as requested */}
+                        {/* Source Tag Removed */}
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
