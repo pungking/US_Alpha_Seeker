@@ -687,23 +687,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
-  // [TACTICAL EXECUTION] Price Positioning Logic - SAFER
-  const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
-      const range = target - stop;
-      if (Math.abs(range) < 0.0001) return 50; // Prevention against div by zero
-      const position = price - stop;
-      let percent = (position / range) * 100;
-      percent = Math.max(0, Math.min(100, percent));
-      return percent;
-  };
-
-  const tacticalPercent = selectedStock ? getTacticalPosition(
-      selectedStock.price, 
-      selectedStock.supportLevel || 0, 
-      selectedStock.resistanceLevel || 0, 
-      selectedStock.stopLoss || 0
-  ) : 50;
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
@@ -866,36 +849,93 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
 
-                         {/* Tactical Execution Map - Interactive */}
-                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-3 animate-in fade-in slide-in-from-bottom-2 relative">
-                            <div className="flex justify-between items-center text-[10px] font-black uppercase tracking-widest text-slate-400 mb-1">
-                                <span>Stop Loss: <span className="text-rose-400">${selectedStock.stopLoss?.toFixed(2)}</span></span>
-                                <span className="text-white">Current Price: ${selectedStock.price?.toFixed(2)}</span>
-                                <span className="text-emerald-400">Target: ${selectedStock.resistanceLevel?.toFixed(2)}</span>
-                            </div>
-                            <div className="h-4 bg-slate-800 rounded-full overflow-hidden relative border border-white/5 w-full">
-                                {/* Stop Zone */}
-                                <div className="absolute left-0 top-0 bottom-0 bg-rose-500/20" style={{ width: '20%' }}></div>
-                                {/* Entry Zone */}
-                                <div className="absolute left-[20%] top-0 bottom-0 bg-blue-500/20" style={{ width: '15%' }}></div>
-                                {/* Profit Zone */}
-                                <div className="absolute left-[35%] top-0 bottom-0 bg-emerald-500/20" style={{ width: '65%' }}></div>
-                                
-                                {/* Markers */}
-                                <div className="absolute top-0 bottom-0 w-0.5 bg-rose-500 z-10 opacity-70" style={{ left: '20%' }} title="Stop Loss Level"></div>
-                                <div className="absolute top-0 bottom-0 w-0.5 bg-blue-400 z-10 opacity-70" style={{ left: '27.5%' }} title="Avg Entry Level"></div>
-                                <div className="absolute top-0 bottom-0 w-0.5 bg-emerald-400 z-10 opacity-70" style={{ left: '90%' }} title="Take Profit Level"></div>
-                                
-                                {/* Current Price Pip with Label */}
-                                <div 
-                                    className="absolute top-1/2 -translate-y-1/2 z-20 transition-all duration-1000 flex flex-col items-center gap-1"
-                                    style={{ left: `${tacticalPercent}%` }}
-                                >
-                                    <div className="w-2.5 h-2.5 bg-white rounded-full shadow-[0_0_10px_rgba(255,255,255,0.8)] border border-slate-900 animate-pulse"></div>
-                                    <div className="absolute top-4 text-[7px] font-black uppercase bg-white text-slate-900 px-1 py-0.5 rounded shadow-lg whitespace-nowrap">Current</div>
+                         {/* Tactical Execution Map - Redesigned for Clarity */}
+                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 relative mt-4">
+                            
+                            {/* Header with Explanations */}
+                            <div className="flex justify-between items-end mb-2">
+                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tactical Range Map</h4>
+                                <div className="flex gap-3 text-[8px] font-bold uppercase tracking-wider">
+                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-rose-500/50 rounded-sm"></div>Stop Zone</div>
+                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-slate-600/50 rounded-sm"></div>Buffer</div>
+                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500/50 rounded-sm"></div>Profit Zone</div>
                                 </div>
                             </div>
-                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10">
+
+                            {/* The Bar Visualization */}
+                            <div className="relative h-12 w-full mt-2">
+                                {/* Track Line */}
+                                <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
+                                     {/* Gradient Background representing the transition from Stop to Target */}
+                                     <div className="w-full h-full bg-gradient-to-r from-rose-900 via-slate-800 to-emerald-900 opacity-50"></div>
+                                </div>
+
+                                {/* Markers Container */}
+                                {(() => {
+                                    const stop = selectedStock.stopLoss || 0;
+                                    const entry = selectedStock.supportLevel || 0;
+                                    const target = selectedStock.resistanceLevel || 0;
+                                    const current = selectedStock.price || 0;
+                                    
+                                    // Define Range: Min = Stop - 2%, Max = Target + 2%
+                                    const minPrice = stop * 0.98;
+                                    const maxPrice = target * 1.02;
+                                    const totalRange = maxPrice - minPrice;
+                                    
+                                    const getPos = (p: number) => {
+                                        if (totalRange <= 0) return 50;
+                                        const pct = ((p - minPrice) / totalRange) * 100;
+                                        return Math.max(0, Math.min(100, pct));
+                                    };
+
+                                    const stopPos = getPos(stop);
+                                    const entryPos = getPos(entry);
+                                    const targetPos = getPos(target);
+                                    const currentPos = getPos(current);
+
+                                    return (
+                                        <>
+                                            {/* Zones (Visualizing ranges) */}
+                                            <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${stopPos}%` }}></div>
+                                            <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${entryPos}%`, right: '0%' }}></div>
+
+                                            {/* STOP LOSS MARKER */}
+                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
+                                                <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
+                                                <div className="absolute -top-4 text-[8px] font-black text-rose-500 whitespace-nowrap">STOP ${stop.toFixed(2)}</div>
+                                            </div>
+
+                                            {/* ENTRY MARKER */}
+                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
+                                                <div className="h-4 w-0.5 bg-blue-400"></div>
+                                                <div className="absolute top-8 text-[8px] font-black text-blue-400 whitespace-nowrap">ENTRY ${entry.toFixed(2)}</div>
+                                            </div>
+
+                                            {/* TARGET MARKER */}
+                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
+                                                <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+                                                <div className="absolute -top-4 text-[8px] font-black text-emerald-500 whitespace-nowrap">TARGET ${target.toFixed(2)}</div>
+                                            </div>
+
+                                            {/* CURRENT PRICE PUCK */}
+                                            <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${currentPos}%`, transition: 'left 1s ease-out' }}>
+                                                <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
+                                                    <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
+                                                    <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
+                                                </div>
+                                                <div className="absolute -bottom-8 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center">
+                                                    <span>CURRENT</span>
+                                                    <span className="text-[10px]">${current.toFixed(2)}</span>
+                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
+                                                </div>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+                            </div>
+
+                            {/* Interactive Toggles */}
+                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10 mt-6 border-t border-white/5 pt-3">
                                 <span 
                                     onClick={() => setActiveAlphaInsight('RISK')} 
                                     className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
