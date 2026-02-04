@@ -4,7 +4,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
@@ -203,7 +203,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
+  // [NEW] Real-time Price State
+  const [realtimePrices, setRealtimePrices] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
+  const wsRef = useRef<WebSocket | null>(null);
+
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
@@ -321,6 +326,56 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return null;
       }
   }, [selectedStock, backtestData]);
+
+  // --- WEBSOCKET CONNECTION FOR REAL-TIME UPDATES ---
+  useEffect(() => {
+      const currentSymbols = resultsCache[selectedBrain]?.map(s => s.symbol) || [];
+      if (activeTab === 'INDIVIDUAL' && currentSymbols.length > 0 && polygonKey) {
+          if (wsRef.current) wsRef.current.close();
+          
+          const ws = new WebSocket('wss://socket.polygon.io/stocks');
+          wsRef.current = ws;
+          
+          ws.onopen = () => {
+              ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
+              const subs = currentSymbols.map(s => `T.${s}`).join(',');
+              ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
+          };
+          
+          ws.onmessage = (e) => {
+              try {
+                  const data = JSON.parse(e.data);
+                  data.forEach((msg: any) => {
+                      if (msg.ev === 'T' && msg.p) {
+                          setRealtimePrices(prev => {
+                              const oldPrice = prev[msg.sym]?.price || 0;
+                              // Direction Logic: Price Up = 'up', Price Down = 'down'
+                              const direction = msg.p > oldPrice ? 'up' : msg.p < oldPrice ? 'down' : prev[msg.sym]?.direction || null;
+                              return { 
+                                  ...prev, 
+                                  [msg.sym]: { price: msg.p, direction } 
+                              };
+                          });
+                          
+                          // Auto-reset direction after animation (800ms)
+                          setTimeout(() => {
+                              setRealtimePrices(prev => {
+                                  if (prev[msg.sym]) {
+                                      return { ...prev, [msg.sym]: { ...prev[msg.sym], direction: null } };
+                                  }
+                                  return prev;
+                              });
+                          }, 800);
+                      }
+                  });
+              } catch (err) {}
+          };
+          
+          return () => {
+              if (wsRef.current) wsRef.current.close();
+          };
+      }
+  }, [activeTab, resultsCache, selectedBrain, polygonKey]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -876,8 +931,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               {currentResults.length > 0 ? currentResults.map((item) => {
                 const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
+                const rtData = realtimePrices[item.symbol];
+                const displayPrice = rtData?.price || item.price;
+                const flashClass = rtData?.direction === 'up' ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]' 
+                                 : rtData?.direction === 'down' ? 'bg-rose-500/20 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.3)]' 
+                                 : '';
+
                 return (
-                  <div key={item.symbol} onClick={() => handleStockClick(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
+                  <div 
+                    key={item.symbol} 
+                    onClick={() => handleStockClick(item)} 
+                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
+                  >
                     {((loading && isSelected) || isAuditRunning) && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
@@ -894,7 +959,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                       </div>
-                      <span className="text-xs font-mono font-black text-slate-400 mt-1">${Number(item.price)?.toFixed(2)}</span>
+                      <div className="text-right">
+                          <span className={`text-xs font-mono font-black mt-1 block ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
+                              ${Number(displayPrice)?.toFixed(2)}
+                          </span>
+                          {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE FEED</span>}
+                      </div>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
                     <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
@@ -1022,7 +1092,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     const stop = selectedStock.stopLoss || 0;
                                     const entry = selectedStock.supportLevel || 0;
                                     const target = selectedStock.resistanceLevel || 0;
-                                    const current = selectedStock.price || 0;
+                                    // Use realtime price if available, otherwise fallback to static price
+                                    const current = realtimePrices[selectedStock.symbol]?.price || selectedStock.price || 0;
                                     
                                     // Define Range: Min = Stop - 2%, Max = Target + 2%
                                     const minPrice = stop * 0.98;
