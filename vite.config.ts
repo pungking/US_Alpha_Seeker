@@ -17,8 +17,20 @@ export default defineConfig(({ mode }) => {
       },
       plugins: [react()],
       define: {
-        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY),
-        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY)
+        'process.env.GEMINI_API_KEY': JSON.stringify(env.GEMINI_API_KEY),
+        'process.env.PERPLEXITY_API_KEY': JSON.stringify(env.PERPLEXITY_API_KEY),
+        'process.env.RAPID_API_KEY': JSON.stringify(env.RAPID_API_KEY),
+        'process.env.POLYGON_API_KEY': JSON.stringify(env.POLYGON_API_KEY),
+        'process.env.ALPACA_KEY': JSON.stringify(env.ALPACA_KEY),
+        'process.env.FINNHUB_KEY': JSON.stringify(env.FINNHUB_KEY),
+        'process.env.FMP_KEY': JSON.stringify(env.FMP_KEY),
+        'process.env.TWELVE_DATA_KEY': JSON.stringify(env.TWELVE_DATA_KEY),
+        'process.env.ALPHA_VANTAGE_KEY': JSON.stringify(env.ALPHA_VANTAGE_KEY),
+        'process.env.TELEGRAM_TOKEN': JSON.stringify(env.TELEGRAM_TOKEN),
+        'process.env.TELEGRAM_CHAT_ID': JSON.stringify(env.TELEGRAM_CHAT_ID),
+        'process.env.GDRIVE_CLIENT_ID': JSON.stringify(env.GDRIVE_CLIENT_ID),
+        // Fallback for direct API Key usage if needed, though Client ID is preferred for OAuth
+        'process.env.API_KEY': JSON.stringify(env.GEMINI_API_KEY) 
       },
       resolve: {
         alias: {
