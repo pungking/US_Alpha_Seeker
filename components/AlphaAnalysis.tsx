@@ -80,34 +80,54 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
 // [MASTER FRAMEWORK INSIGHTS]
 const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'HALF_KELLY': {
-        title: "🛡️ Half-Kelly Criterion",
+        title: "Half-Kelly Criterion",
         desc: "수학적 최적 비중인 켈리 값을 0.5배로 줄여 변동성 파산(Ruin)을 방지합니다. 승률과 손익비를 기반으로 한 '이론적 최대 권장 비중'입니다.",
         strategy: "계산된 수치는 '한도'입니다. 보수적 운용을 위해 이 수치의 50~80% 수준에서 집행하는 것이 일반적입니다."
     },
     'VAPS': {
-        title: "🛡️ VAPS (Volatility-Adjusted)",
+        title: "VAPS (Volatility-Adjusted)",
         desc: "총 자산 대비 1% 리스크(1R)를 고정한 상태에서, 진입가와 손절가의 폭(Volatility)에 따라 매수 수량을 역산하는 헤지펀드 표준 기법입니다.",
         strategy: "확신이 높아도 1회 손실금은 일정해야 합니다. 손절폭이 좁으면 수량이 늘고, 넓으면 수량이 줄어듭니다."
     },
     'ERCI': {
-        title: "⚔️ ERCI (Efficiency Index)",
+        title: "ERCI (Efficiency Index)",
         desc: "Expected Return Confidence Index. '확신 한 단위당 기대할 수 있는 수익'을 측정합니다. 자본 효율성이 높은 종목을 선별하는 핵심 지표입니다.",
         strategy: "ERCI가 높을수록 '가성비'가 좋은 베팅입니다. 포트폴리오 편입 우선순위를 정할 때 사용하십시오."
     },
     'QM_COMP': {
-        title: "⚔️ Q-M Composite",
+        title: "Q-M Composite",
         desc: "Quality(ROE) + Momentum(ICT). 우량한 기업(High Quality)이 세력에 의해 움직이기 시작하는(High Momentum) 최적의 지점을 포착합니다.",
         strategy: "가치투자와 추세추종의 결합입니다. ROE가 받쳐주는 종목의 모멘텀은 쉽게 꺾이지 않습니다."
     },
     'CONVEXITY': {
-        title: "⏱️ Alpha Convexity",
+        title: "Alpha Convexity",
         desc: "에너지가 응축된 'Squeeze' 상태와 세력의 강한 개입 'Displacement'가 결합된 상태입니다. 비선형적인 가격 폭발 가능성을 의미합니다.",
         strategy: "옵션 매수나 돌파 매매(Breakout)에 적합한 구간입니다. 단기 변동성 확대에 대비하십시오."
     },
     'EXPECTANCY': {
-        title: "⚙️ Expectancy (기대값)",
+        title: "Expectancy (기대값)",
         desc: "이 매매를 100번 반복했을 때 1회당 평균적으로 얻을 수 있는 수익(R)입니다. 0.5R 이상이면 훌륭한 시스템입니다.",
         strategy: "승률이 낮아도 손익비가 커서 기대값이 플러스라면 진입해야 합니다. 감정을 배제하고 수학적 우위를 점하십시오."
+    },
+    'IVG': {
+        title: "IVG (Intrinsic Value Gap)",
+        desc: "현재 주가와 내재가치(Intrinsic Value) 사이의 괴리율입니다. 안전마진(Margin of Safety)을 확보했는지 판단하는 가치투자의 척도입니다.",
+        strategy: "IVG가 +20% 이상인 종목은 하락장에서도 방어력이 뛰어납니다. 안전마진이 확보된 구간에서만 진입하십시오."
+    },
+    'IFS': {
+        title: "IFS (Institutional Flow Score)",
+        desc: "기관(Smart Money)의 자금 유입 강도를 0-100으로 수치화한 지표입니다. 거래량 분석(VSA)과 오더블럭(Order Block) 지지를 기반으로 합니다.",
+        strategy: "IFS > 70 인 종목은 '세력'이 매집 중입니다. 개인 투자자는 이들의 '등에 올라타는' 전략을 취해야 합니다."
+    },
+    'MRF': {
+        title: "MRF (Market Regime Filter)",
+        desc: "시장 전체의 국면(상승/하락/횡보)을 판단하여 개별 종목의 베타(Beta) 리스크를 제어합니다. 시장이 하락세(Distribution)라면 개별 종목 매수를 보류합니다.",
+        strategy: "MRF가 'Accumulation' 또는 'Markup' 상태일 때만 비중을 확대하십시오. 'Distribution'에서는 현금 비중을 늘려야 합니다."
+    },
+    'AIC': {
+        title: "AIC (AI Consensus)",
+        desc: "서로 다른 알고리즘(Gemini, Perplexity 등) 간의 분석 일치도입니다. 여러 모델이 동시에 매수를 외칠 때 신뢰도가 기하급수적으로 상승합니다.",
+        strategy: "Consensus > 80% 인 경우, 모델 간의 '환각(Hallucination)' 가능성이 극히 낮습니다. 강력한 확신을 가지고 진입할 수 있습니다."
     }
 };
 
@@ -1025,19 +1045,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             {/* STOP LOSS MARKER */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
                                                 <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                                                <div className="absolute -top-4 text-[8px] font-black text-rose-500 whitespace-nowrap">STOP ${stop.toFixed(2)}</div>
+                                                <div className="absolute bottom-full mb-3 text-[8px] font-black text-rose-500 whitespace-nowrap">STOP ${stop.toFixed(2)}</div>
                                             </div>
 
                                             {/* ENTRY MARKER */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
                                                 <div className="h-4 w-0.5 bg-blue-400"></div>
-                                                <div className="absolute top-8 text-[8px] font-black text-blue-400 whitespace-nowrap">ENTRY ${entry.toFixed(2)}</div>
+                                                <div className="absolute bottom-full mb-3 text-[8px] font-black text-blue-400 whitespace-nowrap">ENTRY ${entry.toFixed(2)}</div>
                                             </div>
 
                                             {/* TARGET MARKER */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
                                                 <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-                                                <div className="absolute -top-4 text-[8px] font-black text-emerald-500 whitespace-nowrap">TARGET ${target.toFixed(2)}</div>
+                                                <div className="absolute bottom-full mb-3 text-[8px] font-black text-emerald-500 whitespace-nowrap">TARGET ${target.toFixed(2)}</div>
                                             </div>
 
                                             {/* CURRENT PRICE PUCK */}
@@ -1046,10 +1066,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                     <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
                                                     <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
                                                 </div>
-                                                <div className="absolute -bottom-8 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center">
+                                                <div className="absolute top-full mt-3 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center">
+                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
                                                     <span>CURRENT</span>
                                                     <span className="text-[10px]">${current.toFixed(2)}</span>
-                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
                                                 </div>
                                             </div>
                                         </>
@@ -1134,7 +1154,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
                                     >
                                         <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            🛡️ Sizing: Half-Kelly
+                                            Sizing: Half-Kelly
                                         </p>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white italic">{quantMetrics.sizing.kelly}%</span>
@@ -1146,7 +1166,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
                                     >
                                         <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            🛡️ Sizing: VAPS (1R)
+                                            Sizing: VAPS (1R)
                                         </p>
                                         <div className="flex flex-col">
                                             <span className="text-xl font-black text-white italic">{quantMetrics.sizing.vapsQty} Shares</span>
@@ -1161,7 +1181,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         { id: 'ERCI', val: quantMetrics.selection.erci, label: 'ERCI' },
                                         { id: 'QM_COMP', val: quantMetrics.selection.qm, label: 'Q-M' },
                                         { id: 'IVG', val: `${quantMetrics.selection.ivg}%`, label: 'IVG' },
-                                        // Soros logic hidden if invalid/too small
                                     ].map((m) => (
                                         <div 
                                             key={m.id}
@@ -1180,16 +1199,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         onClick={() => setActiveAlphaInsight('CONVEXITY')}
                                         className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
                                     >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">⏱️ Convexity</p>
+                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Convexity</p>
                                         <p className="text-[9px] font-black text-white">{quantMetrics.timing.convexity}</p>
                                     </div>
                                     <div 
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center"
+                                        onClick={() => setActiveAlphaInsight('IFS')}
+                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
                                     >
                                         <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">IFS Score</p>
                                         <p className="text-xl font-black text-white italic">{quantMetrics.timing.ifs}</p>
                                     </div>
-                                    <div className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center">
+                                    <div 
+                                        onClick={() => setActiveAlphaInsight('MRF')}
+                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
+                                    >
                                         <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Market MRF</p>
                                         <p className="text-[8px] font-black text-white truncate">{quantMetrics.timing.mrf}</p>
                                     </div>
@@ -1197,21 +1220,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                                 {/* PHASE 4: INTEGRITY (SYSTEM) */}
                                 <div className="p-4 bg-emerald-900/10 rounded-[24px] border border-emerald-500/20 flex justify-between items-center hover:bg-emerald-900/20 transition-all cursor-help alpha-insight-trigger" onClick={() => setActiveAlphaInsight('EXPECTANCY')}>
-                                    <div>
-                                        <p className="text-[7px] text-emerald-400 font-bold uppercase tracking-wider mb-1">⚙️ System Integrity</p>
-                                        <div className="flex gap-4">
-                                            <div>
-                                                <span className="text-[8px] text-slate-500 block">Expectancy</span>
+                                    <div className="w-full">
+                                        <p className="text-[7px] text-emerald-400 font-bold uppercase tracking-wider mb-2 border-b border-emerald-500/20 pb-1">System Integrity</p>
+                                        <div className="flex justify-between w-full">
+                                            <div className="flex flex-col">
+                                                <span className="text-[8px] text-slate-500 block mb-0.5">Expectancy</span>
                                                 <span className="text-sm font-black text-white">{quantMetrics.system.expectancy}R</span>
                                             </div>
-                                            <div>
-                                                <span className="text-[8px] text-slate-500 block">AI Consensus</span>
+                                            <div className="flex flex-col items-end" onClick={(e) => { e.stopPropagation(); setActiveAlphaInsight('AIC'); }}>
+                                                <span className="text-[8px] text-slate-500 block mb-0.5">AI Consensus</span>
                                                 <span className="text-sm font-black text-white">{quantMetrics.system.aic}%</span>
                                             </div>
                                         </div>
-                                    </div>
-                                    <div className="h-8 w-8 rounded-full border-2 border-emerald-500 flex items-center justify-center">
-                                        <svg className="w-4 h-4 text-emerald-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                                     </div>
                                 </div>
                             </div>
@@ -1220,7 +1240,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {/* Detail Overlay for New Metrics */}
                         {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
                             <div className="alpha-insight-overlay absolute bottom-4 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
-                                <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-indigo-500/50 shadow-2xl relative">
+                                <div className="bg-slate-950/95 backdrop-blur-xl p-6 rounded-[24px] border border-indigo-500/50 shadow-2xl relative">
                                     <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white">
                                         <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                     </button>
