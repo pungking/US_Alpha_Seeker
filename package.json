@@ -8,7 +8,7 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "automate": "node scripts/automate.js"
+    "automate": "node automate.js"
   },
   "dependencies": {
     "react": "^19.2.3",
