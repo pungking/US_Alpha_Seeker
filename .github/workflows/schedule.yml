@@ -3,64 +3,73 @@ name: US Alpha Seeker Auto-Scheduler
 
 on:
   schedule:
-    # Runs at 09:00 UTC (05:00 AM EDT / 04:00 AM EST) every weekday
+    # 매일 UTC 09:00 (한국 시간 18:00, 미국 동부 표준시 04:00/05:00) 실행
     - cron: '0 9 * * 1-5'
-  workflow_dispatch: # Allow manual trigger
-    inputs:
-      target_branch:
-        description: 'Branch to run automation on'
-        required: true
-        default: 'dev' # [CHANGE THIS] Set to your working branch name (e.g., dev, feature/alpha)
+  workflow_dispatch: # 수동 실행 버튼 (테스트용)
 
 jobs:
   alpha-mining:
+    name: Alpha Seeking Pipeline
     runs-on: ubuntu-latest
+    timeout-minutes: 30 # 비용 절감을 위한 타임아웃 설정
     
     env:
+      # AI Keys
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      
+      # Data Provider Keys
+      RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
+      POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+      ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+      FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+      FMP_KEY: ${{ secrets.FMP_KEY }}
+      TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
+      ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+      
+      # Telegram
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      
+      # Google Drive OAuth
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
       GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
       GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
       GDRIVE_ACCESS_TOKEN: ${{ secrets.GDRIVE_ACCESS_TOKEN }}
 
     steps:
-      - name: Checkout Source Code
+      - name: 1. 소스 코드 가져오기 (Checkout)
         uses: actions/checkout@v4
-        with:
-          # Logic: Use manual input if available, otherwise default to 'dev' (for schedule)
-          # [IMPORTANT] Ensure 'dev' matches your actual working branch name
-          ref: ${{ github.event.inputs.target_branch || 'dev' }}
 
-      - name: Setup Node.js Environment
+      - name: 2. Node.js 환경 설정
         uses: actions/setup-node@v4
         with:
           node-version: '20'
           cache: 'npm'
 
-      - name: Install Dependencies
+      - name: 3. 의존성 패키지 설치
         run: npm ci
 
-      - name: Build Application
+      - name: 4. 프로덕션 빌드 생성
         run: npm run build
 
-      - name: Start Local Server
-        # Starts the preview server in the background on port 3000
+      - name: 5. 가상 서버 실행 (Preview Mode)
+        # 백그라운드(&)에서 3000번 포트로 서버를 띄웁니다.
         run: npm run preview -- --port 3000 &
       
-      - name: Wait for Server
+      - name: 6. 서버 준비 대기
         run: |
           echo "Waiting for localhost:3000..."
           timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 2; done'
-          echo "Server is up!"
+          echo "Server is ready! Starting automation..."
 
-      - name: Execute Alpha Automation
+      - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 
-      - name: Upload Artifacts (Screenshots/Logs)
-        if: always()
+      - name: 8. 결과 증거물 저장 (Screenshots)
+        if: always() # 성공/실패 여부와 관계없이 실행
         uses: actions/upload-artifact@v4
         with:
-          name: execution-evidence
+          name: automation-evidence
           path: "*.png"
-          retention-days: 5
+          retention-days: 3
