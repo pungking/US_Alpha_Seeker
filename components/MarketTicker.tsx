@@ -24,18 +24,16 @@ const MarketTicker: React.FC = () => {
   // Real-time State
   const [realtimeData, setRealtimeData] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
   const [socketStatus, setSocketStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'AUTH_ERROR'>('DISCONNECTED');
-  const [isDelayed, setIsDelayed] = useState(false);
-  const [isPollingOnly, setIsPollingOnly] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const usingDelayedRef = useRef(false); // Ref to persist fallback state across re-renders
-  const pollingOnlyRef = useRef(false); // Ref to prevent retries if plan doesn't support WS
 
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   
+  const isPollingOnly = !finnhubKey;
+  const isDelayed = false;
+
   // Configuration: Added ETF mapping for real-time proxy
   const indexConfig = [
     { id: 'NASDAQ', portalId: 'NASDAQ', yahoo: '^IXIC', fmp: '^IXIC', poly: 'I:NDX', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
@@ -230,14 +228,13 @@ const MarketTicker: React.FC = () => {
     }
   };
 
-  // --- WEBSOCKET IMPLEMENTATION ---
+  // --- FINNHUB WEBSOCKET IMPLEMENTATION ---
   useEffect(() => {
-    if (!polygonKey || pollingOnlyRef.current) return;
+    if (!finnhubKey) return;
 
-    // 1. Map symbols
-    const equitySyms = stockConfig.map(s => s.symbol);
-    const etfSyms = indexConfig.map(i => i.etf);
-    
+    // Map Finnhub trade symbols back to our internal IDs
+    // Stocks: AAPL -> AAPL
+    // ETFs: QQQ -> NASDAQ, SPY -> SP500
     const symbolMap = new Map<string, string>();
     indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id));
     stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
@@ -246,97 +243,56 @@ const MarketTicker: React.FC = () => {
         if (wsRef.current) {
             wsRef.current.close();
         }
-        
-        if (pollingOnlyRef.current) return;
 
-        // Use delayed endpoint if fallback was triggered
-        const endpoint = usingDelayedRef.current
-            ? 'wss://delayed.polygon.io/stocks'
-            : 'wss://socket.polygon.io/stocks';
-
-        console.log(`[Polygon WS] Connecting to ${endpoint}...`);
+        console.log(`[Finnhub WS] Connecting...`);
         setSocketStatus('CONNECTING');
-        setIsDelayed(usingDelayedRef.current);
 
-        const ws = new WebSocket(endpoint);
+        const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("[Polygon WS] Connection opened. Authenticating...");
-            ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
+            console.log("[Finnhub WS] Connected. Subscribing...");
+            setSocketStatus('CONNECTED');
+            
+            // Subscribe to Stocks
+            stockConfig.forEach(cfg => {
+                ws.send(JSON.stringify({ type: 'subscribe', symbol: cfg.symbol }));
+            });
+            // Subscribe to ETFs (as proxies for Indices)
+            indexConfig.forEach(cfg => {
+                ws.send(JSON.stringify({ type: 'subscribe', symbol: cfg.etf }));
+            });
         };
 
         ws.onmessage = (event) => {
             try {
-                const msgs = JSON.parse(event.data);
-                msgs.forEach((msg: any) => {
-                    // Auth Success
-                    if (msg.status === 'auth_success') {
-                        setSocketStatus('CONNECTED');
-                        console.log("[Polygon WS] Auth Success. Subscribing...");
-                        // Subscribe to Aggregates (A.*) and Trades (T.*)
-                        // Note: Free tier might fail on T.*, but A.* usually works on delayed.
-                        const channels = [...equitySyms, ...etfSyms].map(s => `A.${s},T.${s}`).join(',');
-                        ws.send(JSON.stringify({ action: 'subscribe', params: channels }));
-                    }
-
-                    // Auth Failed
-                    if (msg.status === 'auth_failed') {
-                        console.error("[Polygon WS] Auth Failed:", msg.message);
-                        setSocketStatus('AUTH_ERROR');
+                const msg = JSON.parse(event.data);
+                if (msg.type === 'trade' && msg.data) {
+                    msg.data.forEach((trade: any) => {
+                        const sym = trade.s; // Symbol
+                        const price = trade.p; // Price
+                        const internalId = symbolMap.get(sym);
                         
-                        // Check for plan limits (Free Tier or Basic Tier restriction)
-                        if (msg.message && (msg.message.toLowerCase().includes('plan') || msg.message.toLowerCase().includes('websocket'))) {
-                            console.warn("[Polygon WS] Plan limit detected. Disabling WebSocket.");
-                            pollingOnlyRef.current = true;
-                            setIsPollingOnly(true);
-                            ws.close();
-                            return;
-                        }
+                        if (internalId && price > 0) {
+                             setRealtimeData(prev => {
+                                const current = prev[internalId];
+                                const oldPrice = current ? current.price : 0;
+                                let direction: 'up' | 'down' | null = null;
+                                
+                                if (oldPrice > 0) {
+                                    if (price > oldPrice) direction = 'up';
+                                    else if (price < oldPrice) direction = 'down';
+                                }
+                                
+                                if (price === oldPrice && current) return prev; // No change
 
-                        ws.close(); // Trigger reconnection/fallback
-                        return;
-                    }
-                    
-                    // Access Denied / Error
-                    if (msg.status === 'error' || msg.ev === 'status' && msg.status === 'error') {
-                        console.error("[Polygon WS] API Error:", msg.message);
-                        
-                        // If we hit an error on the real-time feed, switch to delayed
-                        if (!usingDelayedRef.current) {
-                            console.warn("Switching to DELAYED feed due to error.");
-                            usingDelayedRef.current = true;
-                            ws.close();
-                        }
-                    }
+                                return {
+                                    ...prev,
+                                    [internalId]: { price, direction: direction || (current?.direction ?? null) }
+                                };
+                            });
 
-                    // Data Handling
-                    if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
-                        const price = msg.p || msg.c; // p=Trade Price, c=Aggregate Close
-                        if (!price) return;
-
-                        const internalId = symbolMap.get(msg.sym) || msg.sym;
-
-                        setRealtimeData(prev => {
-                            const current = prev[internalId];
-                            const oldPrice = current ? current.price : 0;
-                            
-                            let direction: 'up' | 'down' | null = null;
-                            if (oldPrice > 0) {
-                                if (price > oldPrice) direction = 'up';
-                                else if (price < oldPrice) direction = 'down';
-                            }
-                            
-                            if (price === oldPrice && current) return prev;
-
-                            return {
-                                ...prev,
-                                [internalId]: { price, direction: direction || (current?.direction ?? null) }
-                            };
-                        });
-
-                        // Clear flash
-                        if (price !== (realtimeData[internalId]?.price || 0)) {
+                             // Reset direction after flash
                              setTimeout(() => {
                                 setRealtimeData(prev => {
                                     if (!prev[internalId]) return prev;
@@ -344,36 +300,24 @@ const MarketTicker: React.FC = () => {
                                 });
                             }, 800);
                         }
-                    }
-                });
+                    });
+                }
             } catch (e) {
                 console.error("WS Parse Error", e);
             }
         };
 
         ws.onclose = (e) => {
-            console.log("[Polygon WS] Closed", e.code, e.reason);
-            if (pollingOnlyRef.current) {
-                setSocketStatus('DISCONNECTED');
-                return;
-            }
-            
+            console.log("[Finnhub WS] Closed", e.code, e.reason);
             setSocketStatus('DISCONNECTED');
-            
-            // If it closed cleanly or due to error, try to reconnect
-            // If we weren't on delayed yet and it failed, switch to delayed
-            if (!usingDelayedRef.current && e.code !== 1000) {
-                usingDelayedRef.current = true;
-            }
-
             // Retry after delay
             retryTimeoutRef.current = setTimeout(() => {
-                if (!pollingOnlyRef.current) connect();
+                connect();
             }, 5000);
         };
 
         ws.onerror = (e) => {
-            console.error("[Polygon WS] Network Error", e);
+            console.error("[Finnhub WS] Error", e);
             ws.close();
         };
     };
@@ -384,7 +328,7 @@ const MarketTicker: React.FC = () => {
         if (wsRef.current) wsRef.current.close();
         if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     };
-  }, [polygonKey]);
+  }, [finnhubKey]);
 
 
   // Initial Poll + Interval (Fallback)
@@ -447,7 +391,7 @@ const MarketTicker: React.FC = () => {
             </span>
         </div>
         <div className="flex items-center space-x-1.5">
-           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {socketStatus === 'CONNECTED' ? (isDelayed ? 'POLYGON_DELAY' : 'POLYGON_LIVE') : activeSource}</span>
+           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {socketStatus === 'CONNECTED' ? 'FINNHUB_LIVE' : activeSource}</span>
            <span className="text-slate-900 text-[6px]">•</span>
            <span className="text-[6px] font-mono text-slate-700 uppercase tracking-tighter">Upd: {lastSync || '---'}</span>
         </div>
