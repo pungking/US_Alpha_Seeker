@@ -14,15 +14,6 @@ interface MarketItem {
   isProxy?: boolean;
 }
 
-// Polygon WebSocket Message Interface
-interface PolyWSMessage {
-  ev: string;
-  sym: string;
-  p?: number; // Trade Price
-  c?: number; // Aggregate Close
-  tod?: number; // Time of day
-}
-
 const MarketTicker: React.FC = () => {
   const [data, setData] = useState<MarketItem[]>([]);
   const [isPaused, setIsPaused] = useState(false);
@@ -33,6 +24,7 @@ const MarketTicker: React.FC = () => {
   // Real-time State
   const [realtimeData, setRealtimeData] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
   const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const [usingDelayed, setUsingDelayed] = useState(false); // New state to track fallback
   const wsRef = useRef<WebSocket | null>(null);
 
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -63,7 +55,7 @@ const MarketTicker: React.FC = () => {
       if (!Array.isArray(json) || json.length === 0) throw new Error("Portal Data Empty");
 
       const finalItems: MarketItem[] = [];
-      const dataMap = new Map(json.map((item: any) => [item.symbol, item]));
+      const dataMap = new Map<string, any>(json.map((item: any) => [item.symbol, item]));
 
       let indexCount = 0;
       let providerName = 'PORTAL_HYBRID';
@@ -116,7 +108,7 @@ const MarketTicker: React.FC = () => {
         const json = await res.json();
         
         const finalItems: MarketItem[] = [];
-        const dataMap = new Map(json.map((item: any) => [item.symbol, item]));
+        const dataMap = new Map<string, any>(json.map((item: any) => [item.symbol, item]));
 
         indexConfig.forEach(cfg => {
             const item = dataMap.get(cfg.yahoo);
@@ -159,7 +151,7 @@ const MarketTicker: React.FC = () => {
       const stkData = await stkRes.json();
       
       const finalItems: MarketItem[] = [];
-      const dataMap = new Map([...idxData, ...(stkData || [])].map((item: any) => [item.symbol, item]));
+      const dataMap = new Map<string, any>([...idxData, ...(stkData || [])].map((item: any) => [item.symbol, item]));
       
       indexConfig.forEach(cfg => {
           const item = dataMap.get(cfg.fmp);
@@ -247,13 +239,22 @@ const MarketTicker: React.FC = () => {
     indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id));
     stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
 
+    let retryTimeout: NodeJS.Timeout;
+
     const connectWebSocket = () => {
-        const ws = new WebSocket('wss://socket.polygon.io/stocks');
+        // Fallback Strategy: If usingDelayed is true, force the delayed endpoint. 
+        // This is crucial for free tier keys or keys without real-time stock entitlements.
+        const endpoint = usingDelayed 
+            ? 'wss://delayed.polygon.io/stocks' 
+            : 'wss://socket.polygon.io/stocks';
+
+        console.log(`[Polygon WS] Connecting to ${endpoint}...`);
+        
+        const ws = new WebSocket(endpoint);
         wsRef.current = ws;
 
         ws.onopen = () => {
-            setIsSocketConnected(true);
-            // Auth
+            console.log("[Polygon WS] Connection Opened. Authenticating...");
             ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
         };
 
@@ -261,16 +262,29 @@ const MarketTicker: React.FC = () => {
             try {
                 const msgs = JSON.parse(event.data);
                 msgs.forEach((msg: any) => {
+                    // Critical: Handle Access/Permission Errors
+                    if (msg.ev === 'status' && msg.status === 'error') {
+                        console.error("[Polygon WS] Error:", msg.message);
+                        if (msg.message && (msg.message.includes('access') || msg.message.includes('entitled'))) {
+                            if (!usingDelayed) {
+                                console.warn("[Polygon WS] Access denied on Real-Time. Switching to Delayed...");
+                                setUsingDelayed(true); // This will trigger re-effect
+                                ws.close();
+                            }
+                        }
+                    }
+
                     if (msg.status === 'auth_success') {
-                        // Subscribe to Trades (T.*) or Aggregates (A.*)
-                        // Using Aggregates (A.*) to reduce noise but keep updates fast
-                        const channels = [...equitySyms, ...etfSyms].map(s => `A.${s}`).join(',');
+                        setIsSocketConnected(true);
+                        console.log("[Polygon WS] Auth Success. Subscribing...");
+                        // Subscribe to Aggregates (A.*) and Trades (T.*) for best coverage
+                        const channels = [...equitySyms, ...etfSyms].map(s => `A.${s},T.${s}`).join(',');
                         ws.send(JSON.stringify({ action: 'subscribe', params: channels }));
                     }
 
-                    // Handle Trade/Agg Data
+                    // Handle Trade (T) or Aggregate (A) Data
                     if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
-                        const price = msg.c || msg.p; // Close or Price
+                        const price = msg.p || msg.c; // p=price (Trade), c=close (Agg)
                         if (!price) return;
 
                         // Map external symbol (QQQ) to internal ID (NASDAQ)
@@ -287,22 +301,24 @@ const MarketTicker: React.FC = () => {
                                 else if (price < oldPrice) direction = 'down';
                             }
                             
-                            // If price didn't change, don't update state to save renders
+                            // If price didn't change, preserve direction if it was recently set, or just return prev
                             if (price === oldPrice && current) return prev;
 
                             return {
                                 ...prev,
-                                [internalId]: { price, direction }
+                                [internalId]: { price, direction: direction || (current?.direction ?? null) }
                             };
                         });
 
                         // Clear flash effect after 800ms
-                        setTimeout(() => {
-                            setRealtimeData(prev => {
-                                if (!prev[internalId]) return prev;
-                                return { ...prev, [internalId]: { ...prev[internalId], direction: null } };
-                            });
-                        }, 800);
+                        if (price !== (realtimeData[internalId]?.price || 0)) {
+                             setTimeout(() => {
+                                setRealtimeData(prev => {
+                                    if (!prev[internalId]) return prev;
+                                    return { ...prev, [internalId]: { ...prev[internalId], direction: null } };
+                                });
+                            }, 800);
+                        }
                     }
                 });
             } catch (e) {
@@ -310,14 +326,22 @@ const MarketTicker: React.FC = () => {
             }
         };
 
-        ws.onclose = () => {
+        ws.onclose = (evt) => {
+            console.log("[Polygon WS] Closed.", evt.code, evt.reason);
             setIsSocketConnected(false);
-            // Reconnect logic could go here, but for now we fallback to polling
+            // Retry logic
+            retryTimeout = setTimeout(() => {
+                if (!isSocketConnected) {
+                     // If we disconnected unexpectedly, maybe try delayed if we weren't already
+                     if (!usingDelayed && evt.code !== 1000) setUsingDelayed(true);
+                     else connectWebSocket();
+                }
+            }, 5000);
         };
 
         ws.onerror = (e) => {
-            console.error("WS Error", e);
-            setIsSocketConnected(false);
+            console.error("[Polygon WS] Network Error", e);
+            ws.close();
         };
     };
 
@@ -325,8 +349,9 @@ const MarketTicker: React.FC = () => {
 
     return () => {
         if (wsRef.current) wsRef.current.close();
+        clearTimeout(retryTimeout);
     };
-  }, [polygonKey]);
+  }, [polygonKey, usingDelayed]); // Re-run if we toggle to delayed mode
 
 
   // Initial Poll + Interval
@@ -369,7 +394,7 @@ const MarketTicker: React.FC = () => {
                 {displayPrice > 1000 ? displayPrice.toLocaleString(undefined, { maximumFractionDigits: 0 }) : displayPrice.toFixed(2)}
                 </p>
                 <div className="flex items-center justify-end gap-1">
-                    {isSocketConnected && rt && <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span>}
+                    {isSocketConnected && rt && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
                     <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
                     </p>
@@ -386,7 +411,7 @@ const MarketTicker: React.FC = () => {
       <div className="flex flex-col items-end space-y-0.5 ml-4">
         <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic whitespace-nowrap">
             <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : isSocketConnected ? 'bg-emerald-500 animate-ping' : 'bg-slate-500'}`}></span>
-            <span>{isPaused ? 'Sync_Paused' : isSocketConnected ? 'WebSocket_Live' : 'Polling_Mode'}</span>
+            <span>{isPaused ? 'Sync_Paused' : isSocketConnected ? `WS_Live${usingDelayed ? ' (Delayed)' : ''}` : 'Polling_Mode'}</span>
         </div>
         <div className="flex items-center space-x-1.5">
            <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {isSocketConnected ? 'POLYGON_WS' : activeSource}</span>
