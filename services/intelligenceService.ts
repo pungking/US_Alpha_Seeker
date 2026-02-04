@@ -78,6 +78,13 @@ export async function archiveReport(token: string, fileName: string, content: st
   }
 }
 
+// [HELPER] Remove Citations like [1], [2], [1, 2], [1][2]
+export function removeCitations(text: string): string {
+  if (!text) return "";
+  // Removes: [1], [1,2], [1][2] patterns globally
+  return text.replace(/\[\d+(?:,\s*\d+)*\]/g, '').trim();
+}
+
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
   items: {
@@ -327,7 +334,11 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      return { data: sanitizeAndParseJson(result.text), isRealData: false };
+      const parsed = sanitizeAndParseJson(result.text);
+      if (parsed && parsed.historicalContext) {
+          parsed.historicalContext = removeCitations(parsed.historicalContext);
+      }
+      return { data: parsed, isRealData: false };
     }
     
     const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -344,7 +355,11 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     
     if (!pRes.ok) throw new Error(data.error?.message || "Perplexity Error");
 
-    return { data: sanitizeAndParseJson(data.choices?.[0]?.message?.content), isRealData: false };
+    const parsed = sanitizeAndParseJson(data.choices?.[0]?.message?.content);
+    if (parsed && parsed.historicalContext) {
+        parsed.historicalContext = removeCitations(parsed.historicalContext);
+    }
+    return { data: parsed, isRealData: false };
     
   } catch (e: any) {
     trackUsage(provider, 0, true, e.message);
@@ -457,7 +472,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
       clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
       clean = clean.replace(/🚀.*?Report.*?🚀/gi, '').trim(); 
-      return clean;
+      return removeCitations(clean); // Clean citations here too
   };
 
   const executePerplexityFallback = async () => {
@@ -686,7 +701,7 @@ export async function analyzePipelineStatus(data: {
             config: { systemInstruction: systemPrompt }
         }));
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        return result.text;
+        return removeCitations(result.text);
     }
 
     const res = await fetch('https://api.perplexity.ai/chat/completions', {
@@ -711,7 +726,8 @@ export async function analyzePipelineStatus(data: {
     if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
     if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
-    return json.choices?.[0]?.message?.content || "No analysis returned.";
+    const text = json.choices?.[0]?.message?.content || "No analysis returned.";
+    return removeCitations(text);
 
   } catch (error: any) {
     trackUsage(provider, 0, true, error.message);
@@ -849,7 +865,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         }
       }));
       trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      return { data: sanitizeAndParseJson(result.text) };
+      const parsed = sanitizeAndParseJson(result.text);
+      if (parsed && Array.isArray(parsed)) {
+          parsed.forEach(item => {
+              if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+          });
+      }
+      return { data: parsed };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
@@ -887,7 +909,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             
             const content = data.choices?.[0]?.message?.content;
             const parsed = sanitizeAndParseJson(content);
-            if (parsed) return { data: parsed };
+            if (parsed) {
+                if (Array.isArray(parsed)) {
+                    parsed.forEach(item => {
+                        if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                    });
+                }
+                return { data: parsed };
+            }
             
         } catch (e: any) {
             console.warn(`Model ${model} failed: ${e.message}`);
