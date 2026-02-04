@@ -94,10 +94,32 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const getInitialTargetDate = (daysBack = 1) => {
-    const d = new Date();
-    d.setDate(d.getDate() - daysBack); 
+    // [TIMEZONE FIX] Calculate date based on US/Eastern Time (Wall Street)
+    // ensuring we don't accidentally fetch "today" before market close.
+    const now = new Date();
+    
+    // Create a date string in EST/EDT
+    const options: Intl.DateTimeFormatOptions = { 
+        timeZone: "America/New_York", 
+        year: 'numeric', 
+        month: '2-digit', 
+        day: '2-digit' 
+    };
+    
+    // Format usually returns "MM/DD/YYYY"
+    const nyDateStr = new Intl.DateTimeFormat('en-US', options).format(now);
+    const [month, day, year] = nyDateStr.split('/');
+    
+    const d = new Date(parseInt(year), parseInt(month) - 1, parseInt(day));
+    
+    // Subtract target days
+    d.setDate(d.getDate() - daysBack);
+    
+    // Handle Weekends (Simple logic: if Sunday go to Friday, if Saturday go to Friday)
+    // Note: getDay() 0 is Sunday, 6 is Saturday
     if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
     else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
+    
     return d.toISOString().split('T')[0];
   };
 
@@ -193,7 +215,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     
     let polyResults: any[] = [];
     let success = false;
+    let foundDate = '';
     
+    // Try last 5 trading days relative to New York time
     for (let i = 1; i <= 5; i++) {
         const targetDate = getInitialTargetDate(i);
         try {
@@ -207,7 +231,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 const data = await polyRes.json();
                 if (data.results && data.results.length > 5000) { 
                     polyResults = data.results; 
-                    addLog(`Polygon: Success! Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    foundDate = targetDate;
+                    addLog(`Polygon: Success! Found ${polyResults.length} tickers on ${targetDate} (Wall St. Date).`, "ok");
                     success = true;
                     break; 
                 }
@@ -220,7 +245,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     return polyResults.map((p: any) => ({
         symbol: p.T, name: p.T, type: 'Common Stock', price: p.c, volume: p.v,
         change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
-        updated: new Date().toISOString().split('T')[0], source: 'Polygon_Aggs'
+        updated: foundDate, source: 'Polygon_Aggs'
     }));
   };
 
