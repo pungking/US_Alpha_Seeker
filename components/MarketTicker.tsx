@@ -1,4 +1,5 @@
-import React, { useState, useEffect } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 
@@ -13,11 +14,13 @@ interface MarketItem {
   isProxy?: boolean;
 }
 
-interface PolygonAgg {
-  T: string;
-  c: number;
-  o: number;
-  v: number;
+// Polygon WebSocket Message Interface
+interface PolyWSMessage {
+  ev: string;
+  sym: string;
+  p?: number; // Trade Price
+  c?: number; // Aggregate Close
+  tod?: number; // Time of day
 }
 
 const MarketTicker: React.FC = () => {
@@ -27,18 +30,21 @@ const MarketTicker: React.FC = () => {
   const [lastSync, setLastSync] = useState<string>('');
   const [activeSource, setActiveSource] = useState<string>('INIT');
 
+  // Real-time State
+  const [realtimeData, setRealtimeData] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
+  const [isSocketConnected, setIsSocketConnected] = useState(false);
+  const wsRef = useRef<WebSocket | null>(null);
+
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
   
-  // Configuration for Market Indices
-  // portalId is used to map responses from api/portal_indices
+  // Configuration: Added ETF mapping for real-time proxy
   const indexConfig = [
-    { id: 'NASDAQ', portalId: 'NASDAQ', yahoo: '^IXIC', fmp: '^IXIC', fh: '^IXIC', poly: 'I:NDX', td: 'IXIC', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
-    { id: 'SP500', portalId: 'SP500', yahoo: '^GSPC', fmp: '^GSPC', fh: '^GSPC', poly: 'I:SPX', td: 'GSPC', etf: 'SPY', label: 'S&P 500', theme: 'text-blue-400' },
-    { id: 'DOW', portalId: 'DOW', yahoo: '^DJI', fmp: '^DJI', fh: '^DJI', poly: 'I:DJI', td: 'DJI', etf: 'DIA', label: 'DOW JONES', theme: 'text-slate-400' },
-    { id: 'VIX', portalId: 'VIX', yahoo: '^VIX', fmp: '^VIX', fh: '^VIX', poly: 'I:VIX', td: 'VIX', etf: 'VXX', label: 'VIX (Fear)', theme: 'text-purple-400' },
+    { id: 'NASDAQ', portalId: 'NASDAQ', yahoo: '^IXIC', fmp: '^IXIC', poly: 'I:NDX', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
+    { id: 'SP500', portalId: 'SP500', yahoo: '^GSPC', fmp: '^GSPC', poly: 'I:SPX', etf: 'SPY', label: 'S&P 500', theme: 'text-blue-400' },
+    { id: 'DOW', portalId: 'DOW', yahoo: '^DJI', fmp: '^DJI', poly: 'I:DJI', etf: 'DIA', label: 'DOW JONES', theme: 'text-slate-400' },
+    { id: 'VIX', portalId: 'VIX', yahoo: '^VIX', fmp: '^VIX', poly: 'I:VIX', etf: 'VXX', label: 'VIX (Fear)', theme: 'text-purple-400' },
   ];
 
   const stockConfig = [
@@ -48,18 +54,8 @@ const MarketTicker: React.FC = () => {
     { symbol: 'MSFT', label: 'MICROSOFT' },
   ];
 
-  const getTradingDate = (offsetDays = 0) => {
-    const d = new Date();
-    d.setDate(d.getDate() - 1 - offsetDays);
-    if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
-    else if (d.getDay() === 6) d.setDate(d.getDate() - 1);
-    return d.toISOString().split('T')[0];
-  };
-
-  // --- STRATEGY 0-A: HYBRID PORTAL PROXY (CNBC / TradingView / Investing) ---
+  // --- REST API FETCHING (BASE LAYER) ---
   const fetchPortalProxy = async () => {
-      // This endpoint tries CNBC first, then TradingView, then Investing
-      // It now returns both Indices AND Stocks (AAPL, NVDA...)
       const res = await fetch('/api/portal_indices');
       if (!res.ok) throw new Error("Portal Proxy Failed");
       
@@ -72,11 +68,10 @@ const MarketTicker: React.FC = () => {
       let indexCount = 0;
       let providerName = 'PORTAL_HYBRID';
 
-      // 1. Map Indices
       indexConfig.forEach(cfg => {
           const item = dataMap.get(cfg.portalId);
           if (item) {
-              if (item.source) providerName = item.source; // Update source label
+              if (item.source) providerName = item.source;
               finalItems.push({
                   symbol: cfg.id,
                   label: cfg.label,
@@ -90,7 +85,6 @@ const MarketTicker: React.FC = () => {
           }
       });
       
-      // 2. Map Stocks (Now sourced from the same Portal Proxy)
       stockConfig.forEach(cfg => {
           const item = dataMap.get(cfg.symbol);
           if (item) {
@@ -106,25 +100,20 @@ const MarketTicker: React.FC = () => {
       });
       
       if (indexCount < 2) throw new Error("Portal Insufficient Indices");
-
       return { items: finalItems, source: providerName };
   };
 
-  // --- STRATEGY 0-B: YAHOO PROXY (Original Backup) ---
   const fetchYahooProxy = async () => {
     const indices = indexConfig.map(i => i.yahoo).join(',');
     const stocks = stockConfig.map(s => s.symbol).join(',');
-    
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 5000);
 
     try {
         const res = await fetch(`/api/yahoo?symbols=${indices},${stocks}`, { signal: controller.signal });
         clearTimeout(timeoutId);
-
         if (!res.ok) throw new Error("Yahoo Proxy Failed");
         const json = await res.json();
-        if (!Array.isArray(json) || json.length === 0) throw new Error("Yahoo Proxy Empty");
         
         const finalItems: MarketItem[] = [];
         const dataMap = new Map(json.map((item: any) => [item.symbol, item]));
@@ -146,16 +135,7 @@ const MarketTicker: React.FC = () => {
 
         stockConfig.forEach(cfg => {
             const item = dataMap.get(cfg.symbol);
-            if (item) {
-                finalItems.push({
-                    symbol: cfg.symbol,
-                    label: cfg.label,
-                    price: item.price,
-                    change: item.change,
-                    isIndex: false,
-                    typeLabel: "Equity"
-                });
-            }
+            if (item) finalItems.push({ symbol: cfg.symbol, label: cfg.label, price: item.price, change: item.change, isIndex: false, typeLabel: "Equity" });
         });
 
         if (finalItems.length < 2) throw new Error("Yahoo Insufficient Data");
@@ -165,8 +145,6 @@ const MarketTicker: React.FC = () => {
         throw e;
     }
   };
-
-  // ... (Other Strategies: FMP, TwelveData, etc. remain as deep backups) ...
 
   const fetchFMP = async () => {
       if (!fmpKey) throw new Error("No FMP Key");
@@ -179,7 +157,6 @@ const MarketTicker: React.FC = () => {
       if (!idxRes.ok) throw new Error("FMP Index Error");
       const idxData = await idxRes.json();
       const stkData = await stkRes.json();
-      if (!Array.isArray(idxData) || idxData.length === 0) throw new Error("FMP Empty");
       
       const finalItems: MarketItem[] = [];
       const dataMap = new Map([...idxData, ...(stkData || [])].map((item: any) => [item.symbol, item]));
@@ -192,18 +169,16 @@ const MarketTicker: React.FC = () => {
           const item = dataMap.get(cfg.symbol);
           if (item) finalItems.push({ symbol: cfg.symbol, label: cfg.label, price: item.price, change: item.changesPercentage, isIndex: false, typeLabel: "Equity" });
       });
-      if (finalItems.length < 2) throw new Error("FMP Insufficient");
       return finalItems;
   };
   
   const fetchEtfProxies = async () => {
     if (!finnhubKey) throw new Error("No Finnhub Key");
-    const providerKey = finnhubKey;
     const providerName = 'FHUB_ETF_PROXY';
     const etfMap = indexConfig.map(cfg => ({ ...cfg, target: cfg.etf }));
     const promises = [
-        ...etfMap.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.target}&token=${providerKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.id, label: `${cfg.label} (ETF)`, isIndex: true, theme: cfg.theme, typeLabel: cfg.id === 'VIX' ? "FEAR_ETF" : "Composite_ETF", isProxy: true }))),
-        ...stockConfig.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.symbol}&token=${providerKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.symbol, label: cfg.label, isIndex: false, typeLabel: "Equity" })))
+        ...etfMap.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.target}&token=${finnhubKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.id, label: `${cfg.label} (ETF)`, isIndex: true, theme: cfg.theme, typeLabel: cfg.id === 'VIX' ? "FEAR_ETF" : "Composite_ETF", isProxy: true }))),
+        ...stockConfig.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.symbol}&token=${finnhubKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.symbol, label: cfg.label, isIndex: false, typeLabel: "Equity" })))
     ];
     const results = await Promise.all(promises);
     const valid = results.filter((r: any) => r.c > 0);
@@ -216,17 +191,15 @@ const MarketTicker: React.FC = () => {
     setIsPaused(false);
 
     try {
-        // 1. New Hybrid Portal Proxy (CNBC / TradingView / Investing)
         try {
             const result = await fetchPortalProxy();
             setData(result.items);
-            setActiveSource(result.source); // e.g. CNBC_Direct
+            setActiveSource(result.source);
             setErrorCount(0);
             setLastSync(new Date().toLocaleTimeString());
             return;
-        } catch (e) { /* continue */ }
+        } catch (e) { /* Fallback */ }
 
-        // 2. Yahoo Proxy
         try {
             const items = await fetchYahooProxy();
             setData(items);
@@ -234,9 +207,8 @@ const MarketTicker: React.FC = () => {
             setErrorCount(0);
             setLastSync(new Date().toLocaleTimeString());
             return;
-        } catch (e) { /* continue */ }
+        } catch (e) { /* Fallback */ }
 
-        // 3. FMP
         try {
             const items = await fetchFMP();
             setData(items);
@@ -244,9 +216,8 @@ const MarketTicker: React.FC = () => {
             setErrorCount(0);
             setLastSync(new Date().toLocaleTimeString());
             return;
-        } catch (e) { /* continue */ }
+        } catch (e) { /* Fallback */ }
         
-        // 4. ETF Fallback
         try {
             const result = await fetchEtfProxies();
             setData(result.items);
@@ -262,36 +233,151 @@ const MarketTicker: React.FC = () => {
     }
   };
 
+  // --- WEBSOCKET IMPLEMENTATION ---
+  useEffect(() => {
+    if (!polygonKey) return;
+
+    // 1. Map symbols to Polygon identifiers
+    // For Indices, we subscribe to their ETF tickers (QQQ, SPY, DIA, VXX) on the Stocks Cluster to ensure access
+    const equitySyms = stockConfig.map(s => s.symbol); // AAPL, NVDA...
+    const etfSyms = indexConfig.map(i => i.etf); // QQQ, SPY...
+    
+    // Reverse map for updates: ETF Ticker -> Internal ID (e.g. QQQ -> NASDAQ)
+    const symbolMap = new Map<string, string>();
+    indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id));
+    stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
+
+    const connectWebSocket = () => {
+        const ws = new WebSocket('wss://socket.polygon.io/stocks');
+        wsRef.current = ws;
+
+        ws.onopen = () => {
+            setIsSocketConnected(true);
+            // Auth
+            ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
+        };
+
+        ws.onmessage = (event) => {
+            try {
+                const msgs = JSON.parse(event.data);
+                msgs.forEach((msg: any) => {
+                    if (msg.status === 'auth_success') {
+                        // Subscribe to Trades (T.*) or Aggregates (A.*)
+                        // Using Aggregates (A.*) to reduce noise but keep updates fast
+                        const channels = [...equitySyms, ...etfSyms].map(s => `A.${s}`).join(',');
+                        ws.send(JSON.stringify({ action: 'subscribe', params: channels }));
+                    }
+
+                    // Handle Trade/Agg Data
+                    if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
+                        const price = msg.c || msg.p; // Close or Price
+                        if (!price) return;
+
+                        // Map external symbol (QQQ) to internal ID (NASDAQ)
+                        const internalId = symbolMap.get(msg.sym) || msg.sym;
+
+                        setRealtimeData(prev => {
+                            const current = prev[internalId];
+                            const oldPrice = current ? current.price : 0;
+                            
+                            // Determine direction for flash effect
+                            let direction: 'up' | 'down' | null = null;
+                            if (oldPrice > 0) {
+                                if (price > oldPrice) direction = 'up';
+                                else if (price < oldPrice) direction = 'down';
+                            }
+                            
+                            // If price didn't change, don't update state to save renders
+                            if (price === oldPrice && current) return prev;
+
+                            return {
+                                ...prev,
+                                [internalId]: { price, direction }
+                            };
+                        });
+
+                        // Clear flash effect after 800ms
+                        setTimeout(() => {
+                            setRealtimeData(prev => {
+                                if (!prev[internalId]) return prev;
+                                return { ...prev, [internalId]: { ...prev[internalId], direction: null } };
+                            });
+                        }, 800);
+                    }
+                });
+            } catch (e) {
+                console.error("WS Parse Error", e);
+            }
+        };
+
+        ws.onclose = () => {
+            setIsSocketConnected(false);
+            // Reconnect logic could go here, but for now we fallback to polling
+        };
+
+        ws.onerror = (e) => {
+            console.error("WS Error", e);
+            setIsSocketConnected(false);
+        };
+    };
+
+    connectWebSocket();
+
+    return () => {
+        if (wsRef.current) wsRef.current.close();
+    };
+  }, [polygonKey]);
+
+
+  // Initial Poll + Interval
   useEffect(() => {
     fetchMarketData();
-    const interval = setInterval(fetchMarketData, 60000); // 1 min sync
+    const interval = setInterval(fetchMarketData, 60000); 
     return () => clearInterval(interval);
   }, []);
 
   return (
     <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1 px-1">
-      {data.length > 0 ? data.map((item) => (
-        <div 
-          key={item.symbol} 
-          className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-all hover:bg-white/5 ${item.typeLabel.includes('FEAR') ? 'bg-purple-900/10 border-l-purple-500' : ''}`}
-          style={{ borderLeftColor: item.typeLabel.includes('FEAR') ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}
-        >
-          <div className="flex flex-col">
-            <span className={`text-[7px] font-black uppercase tracking-widest ${item.colorTheme || 'text-slate-500'}`}>
-              {item.typeLabel}
-            </span>
-            <span className="text-[10px] font-black text-white italic tracking-tighter uppercase whitespace-nowrap">{item.label}</span>
-          </div>
-          <div className="text-right">
-            <p className="text-[10px] font-mono font-bold text-white tracking-tighter">
-              {item.price > 1000 ? item.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : item.price.toFixed(2)}
-            </p>
-            <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-              {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
-            </p>
-          </div>
-        </div>
-      )) : (
+      {data.length > 0 ? data.map((item) => {
+        const rt = realtimeData[item.symbol];
+        const displayPrice = rt ? rt.price : item.price;
+        
+        // Calculate display change. 
+        // Note: Realtime socket usually sends current price, not daily change %. 
+        // We use the initial polling data for the open price reference to calc approx change.
+        // Or we just stick to the polling change % if we don't have open price.
+        // For visual simplicity, we just use the polled change % but update the price.
+        
+        const flashClass = rt?.direction === 'up' ? 'bg-emerald-500/10 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
+                         : rt?.direction === 'down' ? 'bg-rose-500/10 border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]' 
+                         : 'hover:bg-white/5';
+
+        return (
+            <div 
+            key={item.symbol} 
+            className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-all duration-300 ${item.typeLabel.includes('FEAR') ? 'bg-purple-900/10 border-l-purple-500' : ''} ${flashClass}`}
+            style={{ borderLeftColor: item.typeLabel.includes('FEAR') ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}
+            >
+            <div className="flex flex-col">
+                <span className={`text-[7px] font-black uppercase tracking-widest ${item.colorTheme || 'text-slate-500'}`}>
+                {item.typeLabel}
+                </span>
+                <span className="text-[10px] font-black text-white italic tracking-tighter uppercase whitespace-nowrap">{item.label}</span>
+            </div>
+            <div className="text-right">
+                <p className={`text-[10px] font-mono font-bold tracking-tighter ${rt?.direction === 'up' ? 'text-emerald-400' : rt?.direction === 'down' ? 'text-rose-400' : 'text-white'}`}>
+                {displayPrice > 1000 ? displayPrice.toLocaleString(undefined, { maximumFractionDigits: 0 }) : displayPrice.toFixed(2)}
+                </p>
+                <div className="flex items-center justify-end gap-1">
+                    {isSocketConnected && rt && <span className="w-1 h-1 rounded-full bg-emerald-500 animate-pulse"></span>}
+                    <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+                    {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+                    </p>
+                </div>
+            </div>
+            </div>
+        );
+      }) : (
         <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">
           {errorCount > 2 ? 'CONNECTIVITY_ERROR: RETRYING...' : 'ESTABLISHING SECURE FEED...'}
         </div>
@@ -299,11 +385,11 @@ const MarketTicker: React.FC = () => {
       <div className="flex-1 h-[1px] bg-white/5 ml-4"></div>
       <div className="flex flex-col items-end space-y-0.5 ml-4">
         <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic whitespace-nowrap">
-            <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : errorCount > 0 ? 'bg-red-500' : 'bg-emerald-500 animate-pulse'}`}></span>
-            <span>{isPaused ? 'Sync_Paused' : 'Live_Feed_Active'}</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : isSocketConnected ? 'bg-emerald-500 animate-ping' : 'bg-slate-500'}`}></span>
+            <span>{isPaused ? 'Sync_Paused' : isSocketConnected ? 'WebSocket_Live' : 'Polling_Mode'}</span>
         </div>
         <div className="flex items-center space-x-1.5">
-           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {activeSource}</span>
+           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {isSocketConnected ? 'POLYGON_WS' : activeSource}</span>
            <span className="text-slate-900 text-[6px]">•</span>
            <span className="text-[6px] font-mono text-slate-700 uppercase tracking-tighter">Upd: {lastSync || '---'}</span>
         </div>
