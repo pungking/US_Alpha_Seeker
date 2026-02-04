@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
@@ -329,53 +329,100 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   // --- WEBSOCKET CONNECTION FOR REAL-TIME UPDATES ---
   useEffect(() => {
-      const currentSymbols = resultsCache[selectedBrain]?.map(s => s.symbol) || [];
-      if (activeTab === 'INDIVIDUAL' && currentSymbols.length > 0 && polygonKey) {
-          if (wsRef.current) wsRef.current.close();
+      // 1. Identify symbols to track from current results
+      const currentCandidates = resultsCache[selectedBrain] || [];
+      const symbolsToTrack = currentCandidates.map(s => s.symbol);
+
+      // Only run if we have symbols and are in INDIVIDUAL tab
+      if (activeTab === 'INDIVIDUAL' && symbolsToTrack.length > 0 && polygonKey) {
           
+          // Cleanup previous connection
+          if (wsRef.current) {
+              wsRef.current.close();
+              wsRef.current = null;
+          }
+
+          console.log(`[Polygon WS] Initiating connection for: ${symbolsToTrack.join(', ')}`);
+          
+          // Connect to Polygon WebSocket
           const ws = new WebSocket('wss://socket.polygon.io/stocks');
           wsRef.current = ws;
           
           ws.onopen = () => {
+              console.log("[Polygon WS] Connected. Sending Auth...");
               ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
-              const subs = currentSymbols.map(s => `T.${s}`).join(',');
-              ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
           };
-          
+
           ws.onmessage = (e) => {
               try {
                   const data = JSON.parse(e.data);
+                  
                   data.forEach((msg: any) => {
-                      if (msg.ev === 'T' && msg.p) {
+                      // Handle Authentication Success -> Then Subscribe
+                      if (msg.ev === 'status' && msg.status === 'auth_success') {
+                          console.log("[Polygon WS] Auth Success. Subscribing...");
+                          const subs = symbolsToTrack.map(s => `T.${s}`).join(',');
+                          ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
+                      }
+
+                      // Handle Error
+                      if (msg.ev === 'status' && msg.status === 'error') {
+                          console.error("[Polygon WS] Error:", msg.message);
+                      }
+
+                      // Handle Trade Data (T = Trade, A = Aggregate)
+                      // We prefer T for instant flashes, but A is fine too.
+                      if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
+                          const price = msg.p || msg.c; // p for Trade, c for Agg
+                          if (!price) return;
+
                           setRealtimePrices(prev => {
-                              const oldPrice = prev[msg.sym]?.price || 0;
-                              // Direction Logic: Price Up = 'up', Price Down = 'down'
-                              const direction = msg.p > oldPrice ? 'up' : msg.p < oldPrice ? 'down' : prev[msg.sym]?.direction || null;
+                              const currentData = prev[msg.sym];
+                              const oldPrice = currentData?.price || 0;
+                              
+                              // Determine direction
+                              let direction: 'up' | 'down' | null = null;
+                              if (price > oldPrice) direction = 'up';
+                              else if (price < oldPrice) direction = 'down';
+                              
+                              // If price is same, ignore updates to prevent unnecessary renders, 
+                              // unless it's a first update
+                              if (price === oldPrice && currentData) return prev;
+
                               return { 
                                   ...prev, 
-                                  [msg.sym]: { price: msg.p, direction } 
+                                  [msg.sym]: { price: price, direction } 
                               };
                           });
                           
-                          // Auto-reset direction after animation (800ms)
-                          setTimeout(() => {
-                              setRealtimePrices(prev => {
-                                  if (prev[msg.sym]) {
-                                      return { ...prev, [msg.sym]: { ...prev[msg.sym], direction: null } };
-                                  }
-                                  return prev;
-                              });
-                          }, 800);
+                          // Set timeout to clear flash direction
+                          if (price !== (realtimePrices[msg.sym]?.price || 0)) {
+                              setTimeout(() => {
+                                  setRealtimePrices(prev => {
+                                      if (!prev[msg.sym]) return prev;
+                                      return { 
+                                          ...prev, 
+                                          [msg.sym]: { ...prev[msg.sym], direction: null } 
+                                      };
+                                  });
+                              }, 1000); // 1s flash duration
+                          }
                       }
                   });
-              } catch (err) {}
+              } catch (err) {
+                  console.error("[Polygon WS] Message Parse Error", err);
+              }
+          };
+
+          ws.onerror = (err) => {
+              console.error("[Polygon WS] Connection Error", err);
           };
           
           return () => {
               if (wsRef.current) wsRef.current.close();
           };
       }
-  }, [activeTab, resultsCache, selectedBrain, polygonKey]);
+  }, [activeTab, resultsCache, selectedBrain, polygonKey]); 
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
