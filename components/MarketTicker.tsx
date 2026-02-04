@@ -25,10 +25,12 @@ const MarketTicker: React.FC = () => {
   const [realtimeData, setRealtimeData] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
   const [socketStatus, setSocketStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'AUTH_ERROR'>('DISCONNECTED');
   const [isDelayed, setIsDelayed] = useState(false);
+  const [isPollingOnly, setIsPollingOnly] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
   const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usingDelayedRef = useRef(false); // Ref to persist fallback state across re-renders
+  const pollingOnlyRef = useRef(false); // Ref to prevent retries if plan doesn't support WS
 
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -230,7 +232,7 @@ const MarketTicker: React.FC = () => {
 
   // --- WEBSOCKET IMPLEMENTATION ---
   useEffect(() => {
-    if (!polygonKey) return;
+    if (!polygonKey || pollingOnlyRef.current) return;
 
     // 1. Map symbols
     const equitySyms = stockConfig.map(s => s.symbol);
@@ -244,6 +246,8 @@ const MarketTicker: React.FC = () => {
         if (wsRef.current) {
             wsRef.current.close();
         }
+        
+        if (pollingOnlyRef.current) return;
 
         // Use delayed endpoint if fallback was triggered
         const endpoint = usingDelayedRef.current
@@ -280,6 +284,16 @@ const MarketTicker: React.FC = () => {
                     if (msg.status === 'auth_failed') {
                         console.error("[Polygon WS] Auth Failed:", msg.message);
                         setSocketStatus('AUTH_ERROR');
+                        
+                        // Check for plan limits (Free Tier or Basic Tier restriction)
+                        if (msg.message && (msg.message.toLowerCase().includes('plan') || msg.message.toLowerCase().includes('websocket'))) {
+                            console.warn("[Polygon WS] Plan limit detected. Disabling WebSocket.");
+                            pollingOnlyRef.current = true;
+                            setIsPollingOnly(true);
+                            ws.close();
+                            return;
+                        }
+
                         ws.close(); // Trigger reconnection/fallback
                         return;
                     }
@@ -287,6 +301,7 @@ const MarketTicker: React.FC = () => {
                     // Access Denied / Error
                     if (msg.status === 'error' || msg.ev === 'status' && msg.status === 'error') {
                         console.error("[Polygon WS] API Error:", msg.message);
+                        
                         // If we hit an error on the real-time feed, switch to delayed
                         if (!usingDelayedRef.current) {
                             console.warn("Switching to DELAYED feed due to error.");
@@ -338,6 +353,11 @@ const MarketTicker: React.FC = () => {
 
         ws.onclose = (e) => {
             console.log("[Polygon WS] Closed", e.code, e.reason);
+            if (pollingOnlyRef.current) {
+                setSocketStatus('DISCONNECTED');
+                return;
+            }
+            
             setSocketStatus('DISCONNECTED');
             
             // If it closed cleanly or due to error, try to reconnect
@@ -348,7 +368,7 @@ const MarketTicker: React.FC = () => {
 
             // Retry after delay
             retryTimeoutRef.current = setTimeout(() => {
-                connect();
+                if (!pollingOnlyRef.current) connect();
             }, 5000);
         };
 
@@ -421,6 +441,7 @@ const MarketTicker: React.FC = () => {
             <span>
                 {isPaused ? 'Sync_Paused' : 
                  socketStatus === 'CONNECTED' ? (isDelayed ? 'WS_Live (Delayed)' : 'WS_Realtime') : 
+                 isPollingOnly ? 'Polling_Mode (Plan Limit)' :
                  socketStatus === 'CONNECTING' ? 'WS_Connecting...' : 
                  'Polling_Mode'}
             </span>
