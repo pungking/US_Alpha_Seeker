@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { SpeedInsights } from '@vercel/speed-insights/react';
 import { ApiProvider, ApiStatus } from './types';
 import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
 import ApiStatusCard from './components/ApiStatusCard';
@@ -556,6 +557,7 @@ const App: React.FC = () => {
           )}
         </div>
       </section>
+      <SpeedInsights />
     </div>
   );
 };
