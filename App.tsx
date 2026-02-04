@@ -336,7 +336,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.5.1 (Recovery)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.5.2 (Compliance)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
@@ -347,13 +347,24 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* NEW LEGAL BUTTON */}
-        <button 
-            onClick={() => { setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
-            className="ml-auto mr-6 opacity-50 hover:opacity-100 transition-opacity shrink-0 text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
-        >
-            Privacy_&_Terms
-        </button>
+        {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
+        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
+            <a 
+                href="?doc=privacy"
+                onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
+                className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+            >
+                Privacy Policy
+            </a>
+             <span className="opacity-20 text-slate-500">/</span>
+            <a 
+                href="?doc=terms"
+                onClick={(e) => { e.preventDefault(); setInitialLegalTab('terms'); setShowLegalDocs(true); }} 
+                className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+            >
+                Terms
+            </a>
+        </div>
 
         <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
