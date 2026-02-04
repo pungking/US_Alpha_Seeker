@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, Scatter } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
@@ -31,7 +31,7 @@ interface AlphaCandidate {
   resistanceLevel?: number;
   riskRewardRatio?: string;
   
-  // Accumulated Data
+  // Accumulated Data from previous stages
   [key: string]: any;
 }
 
@@ -77,76 +77,27 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   }
 };
 
-// [MASTER FRAMEWORK INSIGHTS]
-const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
-    'HALF_KELLY': {
-        title: "Half-Kelly Criterion (최적 비중)",
-        desc: "승률과 손익비를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.",
-        strategy: "이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
-    },
-    'VAPS': {
-        title: "VAPS (변동성 조정 수량)",
-        desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).",
-        strategy: "수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
-    },
-    'ERCI': {
-        title: "ERCI (효율성 지수)",
-        desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).",
-        strategy: "수치 해석 (높을수록 좋음):\n- 10.0 이상: 양호 (Good)\n- 30.0 이상: 초고효율 (Elite) - 우선 순위로 편입하십시오."
-    },
-    'QM_COMP': {
-        title: "Q-M Composite (품질+모멘텀)",
-        desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.",
-        strategy: "수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
-    },
-    'CONVEXITY': {
-        title: "Alpha Convexity (폭발력)",
-        desc: "에너지 응축(Squeeze)과 발산(Displacement)의 결합 상태입니다.",
-        strategy: "상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
-    },
-    'EXPECTANCY': {
-        title: "Expectancy (기대값)",
-        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.",
-        strategy: "수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
-    },
-    'IVG': {
-        title: "IVG (내재가치 괴리율)",
-        desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.",
-        strategy: "수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
-    },
-    'IFS': {
-        title: "IFS (기관 수급 점수)",
-        desc: "기관(Smart Money)의 자금 유입 강도를 0~100으로 수치화했습니다.",
-        strategy: "수치 해석 (높을수록 좋음):\n- 70점 초과: 세력이 적극 매집 중 (등에 올라타십시오)\n- 50점 미만: 세력 이탈 또는 관망세"
-    },
-    'MRF': {
-        title: "MRF (시장 국면)",
-        desc: "해당 종목이 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
-        strategy: "상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
-    },
-    'AIC': {
-        title: "AIC (AI 합의)",
-        desc: "여러 AI 모델(Gemini, Perplexity)간의 분석 일치도입니다.",
-        strategy: "수치 해석:\n- 80% 이상: AI들의 의견이 강력하게 일치 (신뢰도 높음)\n- 50% 주변: 의견 엇갈림 (독자적 판단 필요)"
-    }
-};
-
-// [ALPHA MAP INSIGHTS]
+// [NEW] Alpha Strategy Insights
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'RISK': {
-        title: "Risk Management (1.0R)",
-        desc: "Stop Loss is the invalidation point of the thesis. The distance from Entry to Stop defines 1R of risk. Position sizing must ensure 1R <= 1% of total equity.",
-        strategy: "Never move your Stop Loss down. If price hits this level, the trade idea is wrong. Accept the small loss to protect capital."
-    },
-    'ENTRY': {
-        title: "Sniper Entry Zone",
-        desc: "This zone represents the highest probability area for entry, usually aligned with an Institutional Order Block or support retest.",
-        strategy: "Patience is key. Wait for price to revisit this zone. Entering here maximizes the Risk:Reward ratio."
+        title: "Risk (1R - Unit of Loss)",
+        desc: "트레이딩 셋업에서 감수해야 할 손실의 크기(1R)입니다. 모든 수익 목표는 이 리스크 단위(R)의 배수로 설정됩니다.",
+        strategy: "진입가와 손절가 사이의 폭을 1R로 정의하십시오. 자금 관리 원칙에 따라 1회 트레이딩 손실이 전체 자산의 1~2%를 넘지 않도록 포지션 규모를 조절해야 합니다."
     },
     'REWARD': {
-        title: "Profit Target (Liquidity)",
-        desc: "The target level is where 'Smart Money' is likely to exit or where opposing liquidity (Buy Stops/Sell Stops) resides.",
-        strategy: "Take partial profits (50-75%) at this level to lock in gains. Move Stop Loss to Breakeven on the remainder."
+        title: "Reward (Profit Target)",
+        desc: "감수한 리스크 대비 기대할 수 있는 수익의 크기입니다. 3.0R 이상은 손익비가 매우 우수한 '비대칭적 기회'를 의미합니다.",
+        strategy: "최소 2R 이상의 셋업에만 진입하십시오. 목표가 도달 시 물량의 50%를 청산(Scale-out)하여 수익을 확정하고, 나머지는 추세를 따라가며 수익을 극대화하십시오."
+    },
+    'ENTRY': {
+        title: "Optimal Entry Zone (OEZ)",
+        desc: "기관의 수급이 유입된 'Order Block' 상단과 지지선이 겹치는 고확률 진입 구간입니다.",
+        strategy: "지정가 주문(Limit Order)을 걸어두고 가격이 올 때까지 기다리십시오. 추격 매수는 손익비를 훼손시킵니다. 가격이 오지 않고 날아가면 '내 것이 아니다'라고 생각하십시오."
+    },
+    'KELLY': {
+        title: "Kelly Criterion (Optimal Sizing)",
+        desc: "수학적으로 파산 확률을 0으로 수렴시키면서 자산 증식 속도를 최대화하는 베팅 비율 공식입니다. (Win% - Loss% / Profit Factor)",
+        strategy: "Full Kelly는 변동성이 너무 크므로, 헤지펀드에서는 일반적으로 'Half-Kelly'를 사용합니다. 제시된 비중은 단일 종목에 투입할 최대 권장 비중입니다. 포트폴리오 전체 리스크를 고려하여 분산하십시오."
     }
 };
 
@@ -208,116 +159,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  // [QUANT CALCULATION ENGINE]
-  const quantMetrics = useMemo(() => {
+  // [KELLY CRITERION] Mathematical Sizing - SAFEGUARDED
+  const kellyInfo = useMemo(() => {
       try {
-          if (!selectedStock) return null;
+          if (!selectedStock || !backtestData[selectedStock.symbol]) return null;
+          const metrics = backtestData[selectedStock.symbol].metrics;
+          if (!metrics) return null;
+          
+          const winRateStr = String(metrics.winRate || "0").replace('%','');
+          const winProb = parseFloat(winRateStr) / 100; // P
+          const profitFactor = parseFloat(metrics.profitFactor || "1.5");
+          
+          // Safety defaults
+          if (isNaN(winProb) || isNaN(profitFactor)) return null;
 
-          // 1. INPUTS
-          const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
-          const entry = selectedStock.supportLevel || selectedStock.price * 0.98;
-          const stop = selectedStock.stopLoss || selectedStock.price * 0.95;
-          const target = selectedStock.resistanceLevel || selectedStock.price * 1.10;
+          const R = 2.0; // Standard Risk:Reward assumption
           
-          const roe = selectedStock.roe || 15; // default fallback
-          const ictScore = selectedStock.ictScore || conviction; 
-          const intrinsic = selectedStock.intrinsicValue || selectedStock.price;
-          
-          // 2. ODDS & PROB (Backtest or Heuristic)
-          const simMetrics = backtestData[selectedStock.symbol]?.metrics;
-          let P = 0; 
-          let B = 0; 
-          
-          if (simMetrics && parseFloat(String(simMetrics.winRate).replace('%','')) > 0) {
-              P = parseFloat(String(simMetrics.winRate).replace('%','')) / 100;
-              B = parseFloat(simMetrics.profitFactor || "1.5");
-          } else {
-              // [UPDATED] Heuristic: Conservative Win Rate Estimation to avoid Kelly capping
-              // Conviction 50 -> 45% WR, Conviction 90 -> 57% WR
-              // This makes the Half-Kelly result more dynamic and realistic (usually < 20%)
-              P = 0.30 + (conviction / 100) * 0.30; 
-              
-              // B based on Risk Reward
-              if (selectedStock.riskRewardRatio) {
-                  const parts = selectedStock.riskRewardRatio.split(':');
-                  B = parts.length === 2 ? parseFloat(parts[1]) : 2.0;
-              } else {
-                  B = (target - entry) / (entry - stop);
-              }
-          }
-          if (isNaN(B) || B <= 0) B = 1.5;
-          
-          // 3. PHASE 1: SIZING (Shield)
-          // Half-Kelly
-          const Q = 1 - P;
-          let kellyRaw = P - (Q / B);
+          let kellyRaw = winProb - ((1 - winProb) / R);
           if (kellyRaw < 0) kellyRaw = 0;
+          if (kellyRaw > 1) kellyRaw = 0.99; // Cap at 99%
           
-          // Institutional Adjustment: Cap at 20% max per position
-          // Multiply by 100 to get percentage
-          const halfKelly = Math.min((kellyRaw * 0.5 * 100), 20.0);
+          // Hedge Fund Safety: Fractional Kelly (Half-Kelly)
+          const halfKelly = kellyRaw * 0.5;
           
-          // VAPS (Volatility Adjusted) - Assume $100k Equity, 1% Risk ($1000)
-          const riskPerShare = Math.max(0.01, entry - stop);
-          const vapsQty = Math.floor(1000 / riskPerShare);
-          const vapsAllocation = (vapsQty * entry) / 1000; // % of 100k
-
-          // 4. PHASE 2: SELECTION (Sword)
-          // ERCI = Upside% * log(Conviction) * (ICT/100)
-          const upside = ((target - entry) / entry) * 100;
-          const erci = upside * Math.log10(conviction || 10) * (ictScore / 100);
-          
-          // Q-M Composite
-          const qmScore = (roe * 0.4) + (ictScore * 0.6);
-          
-          // Soros Ratio = (Target-Entry)/(Entry-Stop) * (ictScore/100)
-          const sorosRatio = B * (ictScore / 50);
-
-          // IVG
-          const ivg = selectedStock.fairValueGap || ((intrinsic - selectedStock.price)/selectedStock.price * 100);
-
-          // 5. PHASE 3: TIMING (Clock)
-          // Convexity
-          const squeeze = selectedStock.techMetrics?.squeezeState === 'SQUEEZE_ON';
-          const displacement = selectedStock.ictMetrics?.displacement > 60;
-          const convexity = squeeze ? (displacement ? "Explosive" : "Building") : "Standard";
-          
-          // IFS
-          const ifs = selectedStock.ictMetrics?.smartMoneyFlow || 50;
-
-          // 6. PHASE 4: INTEGRITY (System)
-          // Expectancy (1R normalized) = (P * B) - (Q * 1)
-          const expectancy = (P * B) - (Q * 1);
-          
-          // AIC (Consensus)
-          const aic = selectedStock.aiVerdict === 'STRONG_BUY' ? 95 : selectedStock.aiVerdict === 'BUY' ? 80 : 50;
-
           return {
-              sizing: {
-                  kelly: halfKelly.toFixed(1),
-                  vapsQty: vapsQty,
-                  vapsPct: vapsAllocation.toFixed(1),
-                  riskPerShare: riskPerShare.toFixed(2)
-              },
-              selection: {
-                  erci: erci.toFixed(1),
-                  qm: qmScore.toFixed(0),
-                  ivg: ivg.toFixed(1),
-                  soros: sorosRatio.toFixed(1)
-              },
-              timing: {
-                  convexity,
-                  ifs: ifs.toFixed(0),
-                  mrf: selectedStock.marketState || 'Neutral'
-              },
-              system: {
-                  expectancy: expectancy.toFixed(2),
-                  aic: aic
-              }
+              percentage: (halfKelly * 100).toFixed(1),
+              rating: halfKelly > 0.2 ? "AGGRESSIVE" : halfKelly > 0.1 ? "MODERATE" : "CONSERVATIVE"
           };
-
       } catch (e) {
-          console.error("Quant Metrics Error", e);
+          console.error("Kelly Calc Error:", e);
           return null;
       }
   }, [selectedStock, backtestData]);
@@ -817,23 +687,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
-  // [TACTICAL EXECUTION] Price Positioning Logic - SAFER
-  const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
-      const range = target - stop;
-      if (Math.abs(range) < 0.0001) return 50; // Prevention against div by zero
-      const position = price - stop;
-      let percent = (position / range) * 100;
-      percent = Math.max(0, Math.min(100, percent));
-      return percent;
-  };
-
-  const tacticalPercent = selectedStock ? getTacticalPosition(
-      selectedStock.price, 
-      selectedStock.supportLevel || 0, 
-      selectedStock.resistanceLevel || 0, 
-      selectedStock.stopLoss || 0
-  ) : 50;
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
@@ -1009,8 +862,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                             </div>
 
-                            {/* The Bar Visualization - Added mt-8 to prevent overlap */}
-                            <div className="relative h-16 w-full mt-8">
+                            {/* The Bar Visualization */}
+                            <div className="relative h-12 w-full mt-2">
                                 {/* Track Line */}
                                 <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
                                      {/* Gradient Background representing the transition from Stop to Target */}
@@ -1046,34 +899,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${stopPos}%` }}></div>
                                             <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${entryPos}%`, right: '0%' }}></div>
 
-                                            {/* STOP LOSS MARKER (Top Label) */}
+                                            {/* STOP LOSS MARKER */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
                                                 <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                                                <div className="absolute -top-10 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
+                                                <div className="absolute -top-4 text-[8px] font-black text-rose-500 whitespace-nowrap">STOP ${stop.toFixed(2)}</div>
                                             </div>
 
-                                            {/* ENTRY MARKER (Top Label - Lowered) */}
+                                            {/* ENTRY MARKER */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
                                                 <div className="h-4 w-0.5 bg-blue-400"></div>
-                                                <div className="absolute -top-4 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
+                                                <div className="absolute top-8 text-[8px] font-black text-blue-400 whitespace-nowrap">ENTRY ${entry.toFixed(2)}</div>
                                             </div>
 
-                                            {/* TARGET MARKER (Top Label) */}
+                                            {/* TARGET MARKER */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
                                                 <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-                                                <div className="absolute -top-10 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
+                                                <div className="absolute -top-4 text-[8px] font-black text-emerald-500 whitespace-nowrap">TARGET ${target.toFixed(2)}</div>
                                             </div>
 
-                                            {/* CURRENT PRICE PUCK (Bottom Label) */}
+                                            {/* CURRENT PRICE PUCK */}
                                             <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${currentPos}%`, transition: 'left 1s ease-out' }}>
                                                 <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
                                                     <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
                                                     <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
                                                 </div>
-                                                <div className="absolute top-8 mt-1 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center z-30">
-                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
+                                                <div className="absolute -bottom-8 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center">
                                                     <span>CURRENT</span>
                                                     <span className="text-[10px]">${current.toFixed(2)}</span>
+                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
                                                 </div>
                                             </div>
                                         </>
@@ -1087,7 +940,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     onClick={() => setActiveAlphaInsight('RISK')} 
                                     className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
                                 >
-                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0) & VAPS
+                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0)
                                 </span>
                                 <span 
                                     onClick={() => setActiveAlphaInsight('ENTRY')}
@@ -1116,7 +969,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         </h5>
                                         <p className="text-[10px] text-slate-300 leading-relaxed font-medium mb-3">{ALPHA_INSIGHTS[activeAlphaInsight].desc}</p>
                                         <div className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20">
-                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">Strategy:</p>
+                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">💡 Strategy:</p>
                                             <p className="text-[9px] text-slate-400 leading-relaxed">{ALPHA_INSIGHTS[activeAlphaInsight].strategy}</p>
                                         </div>
                                     </div>
@@ -1133,7 +986,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                         </div>
                      </div>
-                     <div className="lg:col-span-2 space-y-6 relative">
+                     <div className="lg:col-span-2 space-y-6">
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
                             <ul className="space-y-4">
@@ -1145,139 +998,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
                             </ul>
                         </div>
-                        
-                        {/* [STRATEGIC MASTER FRAMEWORK] */}
-                        {quantMetrics && (
-                            <div className="space-y-4 relative p-4 rounded-[30px] border border-white/5 bg-black/20">
-                                <h4 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] px-2 italic">Quant Strategic Master Framework</h4>
-                                
-                                {/* PHASE 1: SIZING (SHIELD) */}
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('HALF_KELLY')}
-                                        className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            Sizing: Half-Kelly
-                                        </p>
-                                        <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-black text-white italic">{quantMetrics.sizing.kelly}%</span>
-                                            <span className="text-[8px] text-slate-500 font-bold">Max</span>
-                                        </div>
-                                    </div>
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('VAPS')}
-                                        className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            Sizing: VAPS (1R)
-                                        </p>
-                                        <div className="flex flex-col">
-                                            <span className="text-xl font-black text-white italic">{quantMetrics.sizing.vapsQty} Shares</span>
-                                            <span className="text-[8px] text-slate-500 font-bold">Risk: ${quantMetrics.sizing.riskPerShare}/sh</span>
-                                        </div>
-                                    </div>
+                        {/* Kelly Criterion Box - Clickable for Insight */}
+                        {kellyInfo && (
+                            <div 
+                                onClick={() => setActiveAlphaInsight('KELLY')}
+                                className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden cursor-help hover:bg-indigo-900/20 transition-colors group alpha-insight-trigger"
+                            >
+                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
+                                    <svg className="w-24 h-24 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.81 2.13-1.88 0-1.1-.68-1.57-1.75-1.82l-2.01-.46c-1.22-.29-2.75-1.02-2.75-2.73 0-1.5 1.12-2.67 2.82-2.96V4.5h2.67v1.88c1.55.27 2.76 1.32 2.94 2.89h-2c-.17-.83-1.07-1.5-2.33-1.5-1.12 0-1.88.68-1.88 1.62 0 .97.82 1.42 1.91 1.69l1.64.4c1.72.43 3.09 1.23 3.09 3.09 0 1.63-1.18 2.8-2.93 3.16z"/></svg>
                                 </div>
-
-                                {/* PHASE 2: SELECTION (SWORD) */}
-                                <div className="p-4 bg-violet-900/10 rounded-[24px] border border-violet-500/20 flex justify-between items-center gap-2 hover:bg-violet-900/20 transition-all">
-                                    {[
-                                        { id: 'ERCI', val: quantMetrics.selection.erci, label: 'ERCI' },
-                                        { id: 'QM_COMP', val: quantMetrics.selection.qm, label: 'Q-M' },
-                                        { id: 'IVG', val: `${quantMetrics.selection.ivg}%`, label: 'IVG' },
-                                    ].map((m) => (
-                                        <div 
-                                            key={m.id}
-                                            onClick={() => setActiveAlphaInsight(m.id)}
-                                            className="text-center cursor-help group alpha-insight-trigger flex-1"
-                                        >
-                                            <p className="text-[7px] text-violet-400 font-bold uppercase mb-0.5 group-hover:text-white transition-colors">{m.label}</p>
-                                            <p className="text-sm font-black text-white">{m.val}</p>
-                                        </div>
-                                    ))}
+                                <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest flex items-center gap-2">
+                                    Kelly Criterion (Optimal Sizing)
+                                    <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                </h4>
+                                <div className="flex items-end gap-4">
+                                    <span className="text-4xl font-black text-white italic tracking-tighter">{kellyInfo.percentage}%</span>
+                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded mb-2 ${kellyInfo.rating === 'AGGRESSIVE' ? 'bg-rose-500 text-white' : kellyInfo.rating === 'MODERATE' ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
+                                        {kellyInfo.rating} Position
+                                    </span>
                                 </div>
-
-                                {/* PHASE 3: TIMING (CLOCK) */}
-                                <div className="grid grid-cols-3 gap-3">
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('CONVEXITY')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Convexity</p>
-                                        <p className="text-[9px] font-black text-white">{quantMetrics.timing.convexity}</p>
-                                    </div>
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('IFS')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">IFS Score</p>
-                                        <p className="text-xl font-black text-white italic">{quantMetrics.timing.ifs}</p>
-                                    </div>
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('MRF')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Market MRF</p>
-                                        <p className="text-[8px] font-black text-white truncate">{quantMetrics.timing.mrf}</p>
-                                    </div>
-                                </div>
-
-                                {/* PHASE 4: INTEGRITY (SYSTEM) */}
-                                <div className="p-4 bg-emerald-900/10 rounded-[24px] border border-emerald-500/20 flex justify-between items-center hover:bg-emerald-900/20 transition-all cursor-help alpha-insight-trigger" onClick={() => setActiveAlphaInsight('EXPECTANCY')}>
-                                    <div className="w-full">
-                                        <p className="text-[7px] text-emerald-400 font-bold uppercase tracking-wider mb-2 border-b border-emerald-500/20 pb-1">System Integrity</p>
-                                        <div className="flex justify-between w-full">
-                                            <div className="flex flex-col">
-                                                <span className="text-[8px] text-slate-500 block mb-0.5">Expectancy</span>
-                                                <span className="text-sm font-black text-white">{quantMetrics.system.expectancy}R</span>
-                                            </div>
-                                            <div className="flex flex-col items-end" onClick={(e) => { e.stopPropagation(); setActiveAlphaInsight('AIC'); }}>
-                                                <span className="text-[8px] text-slate-500 block mb-0.5">AI Consensus</span>
-                                                <span className="text-sm font-black text-white">{quantMetrics.system.aic}%</span>
-                                            </div>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Detail Overlay - Positioned RELATIVE to this Grid with Improved Design */}
-                                {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
-                                    <div className="absolute right-0 w-[300%] md:w-[650px] bottom-0 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                        <div className="bg-[#0f172a] p-6 rounded-[24px] border border-slate-700 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.8)] relative">
-                                            <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white p-1 hover:bg-white/10 rounded-full transition-colors">
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                            </button>
-                                            
-                                            <div className="flex flex-col gap-4">
-                                                {/* Header */}
-                                                <div>
-                                                    <h5 className="text-sm font-bold text-white tracking-wide flex items-center gap-3 mb-2">
-                                                        <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
-                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
-                                                    </h5>
-                                                    <p className="text-[12px] text-slate-400 leading-relaxed pl-4 border-l border-white/5 whitespace-pre-wrap">
-                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}
-                                                    </p>
-                                                </div>
-
-                                                {/* Strategy/Insight Box */}
-                                                <div className="bg-[#1e293b] p-5 rounded-xl border border-white/5 relative overflow-hidden group">
-                                                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                                                    <div className="flex items-start gap-3 relative z-10">
-                                                        <div className="mt-0.5 p-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20 shrink-0">
-                                                            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2">Alpha Insight</p>
-                                                            <p className="text-[12px] text-slate-200 leading-relaxed font-semibold whitespace-pre-wrap">
-                                                                {FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
+                                <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
+                                    Based on simulated Win Rate and Profit Factor. Represents fractional Kelly (Half-Kelly) for risk management.
+                                </p>
                             </div>
                         )}
                      </div>
