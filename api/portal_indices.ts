@@ -1,6 +1,6 @@
+
 export default async function handler(req: any, res: any) {
   // Portal Proxy v4: "Ironclad" Strategy with RapidAPI Integration
-  // Priority: 1. CNBC Direct (Speed) -> 2. RapidAPI CNBC (Stability/Proxy) -> 3. TradingView (Backup) -> 4. Investing (Last Resort)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -44,11 +44,11 @@ export default async function handler(req: any, res: any) {
   // --- STRATEGY B: RAPID API CNBC (Reliable Proxy - NEW) ---
   const fetchRapidCNBC = async () => {
     try {
-        const RAPID_KEY = '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e';
+        // [RESTORED] Fallback to hardcoded key for local dev if ENV is missing
+        const RAPID_KEY = process.env.RAPID_API_KEY || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e';
         const RAPID_HOST = 'cnbc.p.rapidapi.com';
         const symbols = ".IXIC|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
         
-        // This endpoint mimics the official CNBC structure via RapidAPI proxy
         const url = `https://${RAPID_HOST}/market/get-quote?symbol=${encodeURIComponent(symbols)}&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json`;
 
         const response = await fetch(url, {
@@ -62,7 +62,6 @@ export default async function handler(req: any, res: any) {
         if (!response.ok) throw new Error(`RapidAPI Status ${response.status}`);
         
         const data = await response.json();
-        // RapidAPI usually wraps the same structure
         const quotes = data.QuickQuoteResult?.QuickQuote;
         
         if (!quotes || !Array.isArray(quotes)) throw new Error("RapidAPI Empty Data");
@@ -75,7 +74,7 @@ export default async function handler(req: any, res: any) {
     }
   };
 
-  // Helper to normalize CNBC-style responses (used by Strategy A & B)
+  // Helper to normalize CNBC-style responses
   const normalizeQuotes = (quotes: any[], sourceLabel: string) => {
     const map: Record<string, string> = {
         ".IXIC": "NASDAQ",
@@ -183,19 +182,9 @@ export default async function handler(req: any, res: any) {
   };
 
   try {
-    // 1. Try CNBC Direct First (Fastest)
     let data = await fetchCNBC();
-
-    // 2. Try RapidAPI CNBC (New High-Quality Backup)
-    if (!data) {
-        console.log("Switching to Strategy B: RapidAPI...");
-        data = await fetchRapidCNBC();
-    }
-
-    // 3. Try TradingView
+    if (!data) data = await fetchRapidCNBC();
     if (!data) data = await fetchTradingView();
-
-    // 4. Try Investing.com
     if (!data) data = await fetchInvestingCom();
 
     if (!data) return res.status(500).json({ error: "All Index Providers Failed" });
