@@ -31,6 +31,7 @@ const App: React.FC = () => {
   
   // Legal Docs State
   const [showLegalDocs, setShowLegalDocs] = useState(false);
+  const [initialLegalTab, setInitialLegalTab] = useState<'privacy' | 'terms'>('privacy');
 
   // AI Usage State
   const [aiUsage, setAiUsage] = useState<any>({ 
@@ -54,12 +55,21 @@ const App: React.FC = () => {
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
-  // [NEW] GITHUB ACTION HOOK: Check for ?auto=true in URL to start immediately
+  // [NEW] GITHUB ACTION HOOK & LEGAL DOC HOOK
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
+      
+      // 1. Check for Automation Trigger
       if (params.get('auto') === 'true' && isGdriveConnected && viewMode === 'MANUAL') {
           console.log("Headless Automation Triggered via URL");
           toggleViewMode();
+      }
+
+      // 2. Check for Legal Docs Link (Google Verification Support)
+      const docType = params.get('doc');
+      if (docType === 'privacy' || docType === 'terms') {
+          setInitialLegalTab(docType);
+          setShowLegalDocs(true);
       }
   }, [isGdriveConnected]);
 
@@ -291,6 +301,16 @@ const App: React.FC = () => {
     }
   };
 
+  const handleCloseLegalDocs = () => {
+      setShowLegalDocs(false);
+      // Clean URL params to avoid re-opening on refresh if user wants to use app
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('doc')) {
+          url.searchParams.delete('doc');
+          window.history.replaceState({}, '', url);
+      }
+  };
+
   const currentReportKey = selectedStock ? `${selectedStock.symbol}-${auditBrain}-STAGE${currentStage}` : '';
   const currentReport = stockAuditCache[currentReportKey];
   const copyReport = () => {
@@ -306,7 +326,7 @@ const App: React.FC = () => {
   return (
     <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
       {/* LEGAL DOCS MODAL */}
-      {showLegalDocs && <LegalDocs onClose={() => setShowLegalDocs(false)} />}
+      {showLegalDocs && <LegalDocs onClose={handleCloseLegalDocs} initialTab={initialLegalTab} />}
 
       {/* HEADER STATUS BAR */}
       <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
@@ -329,7 +349,7 @@ const App: React.FC = () => {
         
         {/* NEW LEGAL BUTTON */}
         <button 
-            onClick={() => setShowLegalDocs(true)} 
+            onClick={() => { setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
             className="ml-auto mr-6 opacity-50 hover:opacity-100 transition-opacity shrink-0 text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
         >
             Privacy_&_Terms
