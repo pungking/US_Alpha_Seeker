@@ -3,10 +3,11 @@ import React, { useState } from 'react';
 
 interface Props {
   onClose: () => void;
+  initialTab?: 'privacy' | 'terms';
 }
 
-const LegalDocs: React.FC<Props> = ({ onClose }) => {
-  const [tab, setTab] = useState<'privacy' | 'terms'>('privacy');
+const LegalDocs: React.FC<Props> = ({ onClose, initialTab = 'privacy' }) => {
+  const [tab, setTab] = useState<'privacy' | 'terms'>(initialTab);
 
   return (
     <div className="fixed inset-0 z-[9999] bg-black/90 backdrop-blur-xl flex items-center justify-center p-4 md:p-10 animate-in fade-in duration-300">
