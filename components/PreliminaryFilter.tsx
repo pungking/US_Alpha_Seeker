@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [DATA PRESERVATION] Extended Interface to match Stage 0's rich output
 interface MasterTicker {
@@ -225,6 +225,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }
 
       if (aiResult) {
+          if (aiResult.reasoning) {
+              aiResult.reasoning = removeCitations(aiResult.reasoning);
+          }
           setAiProposal(aiResult);
           setMinPrice(aiResult.suggestedPrice);
           setMinVolume(aiResult.suggestedVolume);
