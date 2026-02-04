@@ -2,51 +2,91 @@
 import puppeteer from 'puppeteer';
 
 /**
- * US_Alpha_Seeker Headless Automation Protocol
+ * US_Alpha_Seeker Headless Automation Protocol v2.0
  * 
- * 기능:
- * 1. 구글 드라이브 Access Token 자동 갱신 (Refresh Token 사용)
- * 2. 로컬 서버 접속 및 보안 토큰 주입
- * 3. Auto-Pilot 모드 가동 (?auto=true)
- * 4. 파이프라인 완료 대기 및 증거 스크린샷 캡처
+ * Features:
+ * 1. Robust Token Refresh with Fallback Client ID
+ * 2. Whitespace trimming for Env Vars
+ * 3. Graceful fallback to static Access Token
+ * 4. Puppeteer automation for App execution
  */
 
-async function getAccessToken() {
-    const clientId = process.env.GDRIVE_CLIENT_ID;
-    const clientSecret = process.env.GDRIVE_CLIENT_SECRET;
-    const refreshToken = process.env.GDRIVE_REFRESH_TOKEN;
+// Fallback ID from UniverseGathering.tsx to ensure continuity if Secrets fail
+const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
 
-    if (!clientId || !clientSecret || !refreshToken) {
-        console.warn("⚠️ Refresh Token credentials missing. Relying on static GDRIVE_ACCESS_TOKEN (Risk of Expiration).");
-        return process.env.GDRIVE_ACCESS_TOKEN;
-    }
+async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
+    if (!clientId || !refreshToken) return null;
+    
+    const params = {
+        client_id: clientId,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token'
+    };
+    if (clientSecret) params.client_secret = clientSecret;
 
-    console.log("🔄 [AUTH] Refreshing Google Drive Access Token...");
     try {
         const response = await fetch('https://oauth2.googleapis.com/token', {
             method: 'POST',
             headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-            body: new URLSearchParams({
-                client_id: clientId,
-                client_secret: clientSecret,
-                refresh_token: refreshToken,
-                grant_type: 'refresh_token'
-            })
+            body: new URLSearchParams(params)
         });
 
         if (!response.ok) {
-            const err = await response.text();
-            throw new Error(`Token Refresh Failed: ${err}`);
+            const txt = await response.text();
+            // Log error but mask credentials
+            console.log(`⚠️ Token Refresh Failed for Client ID ...${clientId.slice(-6)}: ${txt}`);
+            return null;
         }
-
         const data = await response.json();
-        console.log("✅ [AUTH] Access Token Refreshed Successfully.");
         return data.access_token;
-    } catch (error) {
-        console.error("❌ [AUTH] Token Refresh Error:", error);
-        // 최후의 수단으로 만료되었을지 모르는 기존 토큰이라도 반환
-        return process.env.GDRIVE_ACCESS_TOKEN; 
+    } catch (e) {
+        console.error("❌ Network Error during refresh:", e.message);
+        return null;
     }
+}
+
+async function getAccessToken() {
+    // 1. Sanitize Inputs
+    const envClientId = (process.env.GDRIVE_CLIENT_ID || '').trim();
+    const envClientSecret = (process.env.GDRIVE_CLIENT_SECRET || '').trim();
+    const envRefreshToken = (process.env.GDRIVE_REFRESH_TOKEN || '').trim();
+    const envAccessToken = (process.env.GDRIVE_ACCESS_TOKEN || '').trim();
+
+    console.log("🔄 [AUTH] Initiating Secure Token Exchange...");
+
+    // 2. Attempt with Environment Credentials
+    if (envClientId && envRefreshToken) {
+        const token = await refreshWithCredentials(envClientId, envClientSecret, envRefreshToken);
+        if (token) {
+            console.log("✅ [AUTH] Authenticated via Environment Secrets.");
+            return token;
+        }
+    }
+
+    // 3. Attempt with Fallback Client ID (Robustness for Mismatched Secrets)
+    if (FALLBACK_CLIENT_ID !== envClientId && envRefreshToken) {
+        console.log("🔄 [AUTH] Retrying with System Fallback ID...");
+        // Try with secret
+        let token = await refreshWithCredentials(FALLBACK_CLIENT_ID, envClientSecret, envRefreshToken);
+        if (token) {
+             console.log("✅ [AUTH] Authenticated via Fallback ID (w/ Secret).");
+             return token;
+        }
+        // Try without secret (Native App Flow support)
+        token = await refreshWithCredentials(FALLBACK_CLIENT_ID, '', envRefreshToken);
+        if (token) {
+             console.log("✅ [AUTH] Authenticated via Fallback ID (No Secret).");
+             return token;
+        }
+    }
+
+    // 4. Last Resort: Static Token
+    if (envAccessToken) {
+        console.warn("⚠️ [AUTH] Refresh failed. Using static Access Token (Risk of Expiration).");
+        return envAccessToken;
+    }
+
+    return null;
 }
 
 (async () => {
@@ -54,11 +94,10 @@ async function getAccessToken() {
 
   const token = await getAccessToken();
   if (!token) {
-    console.error("❌ [CRITICAL] No Access Token available. Aborting operation.");
+    console.error("❌ [CRITICAL] Authentication Failed. Check GitHub Secrets (GDRIVE_REFRESH_TOKEN, GDRIVE_CLIENT_ID).");
     process.exit(1);
   }
 
-  // GitHub Actions 환경에 최적화된 브라우저 실행 옵션
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox'] 
@@ -67,37 +106,30 @@ async function getAccessToken() {
   try {
     const page = await browser.newPage();
     
-    // 브라우저 내부 로그를 터미널로 출력 (디버깅용)
     page.on('console', msg => {
         const text = msg.text();
-        // 주요 진행 상황만 필터링해서 출력
-        if (text.includes('AUTO-PILOT') || text.includes('Phase') || text.includes('Complete') || text.includes('Error') || text.includes('EXECUTED')) {
+        if (text.includes('AUTO-PILOT') || text.includes('Phase') || text.includes('Complete') || text.includes('Error') || text.includes('EXECUTED') || text.includes('[AUTH]')) {
             console.log(`[BROWSER] ${text}`);
         }
     });
 
     const APP_URL = 'http://localhost:3000';
 
-    // 1. 초기 접속 (컨텍스트 로드)
-    console.log("🔌 Connecting to Local Node...");
-    await page.goto(APP_URL, { waitUntil: 'networkidle0' });
+    console.log("🔌 Connecting to Alpha Node...");
+    await page.goto(APP_URL, { waitUntil: 'networkidle0', timeout: 60000 });
     
-    // 2. 인증 토큰 주입 (로그인 과정 생략)
-    console.log("🔐 Injecting Security Credentials...");
+    console.log("🔐 Injecting Security Context...");
     await page.evaluate((accessToken, clientId) => {
         sessionStorage.setItem('gdrive_access_token', accessToken);
         if (clientId) localStorage.setItem('gdrive_client_id', clientId);
-    }, token, process.env.GDRIVE_CLIENT_ID || '');
+    }, token, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
 
-    // 3. Auto-Pilot 모드로 재접속
-    console.log("🤖 Engaging Headless Auto-Pilot Mode...");
-    await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded' });
+    console.log("🤖 Engaging Headless Auto-Pilot...");
+    await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded', timeout: 60000 });
 
-    // 4. 파이프라인 완료 대기
-    console.log("⏳ Pipeline Execution in Progress. Waiting for completion signal...");
+    console.log("⏳ Pipeline Execution in Progress...");
     
-    // 최대 20분 대기 (분석량이 많을 경우를 대비)
-    const TIMEOUT_MS = 20 * 60 * 1000; 
+    const TIMEOUT_MS = 25 * 60 * 1000; // 25 Minutes
     
     await page.waitForFunction(
         () => {
@@ -105,10 +137,9 @@ async function getAccessToken() {
             return bodyText.includes("ALL PIPELINES EXECUTED") || 
                    bodyText.includes("TELEGRAM SEND FAILED");
         },
-        { timeout: TIMEOUT_MS, polling: 5000 }
+        { timeout: TIMEOUT_MS, polling: 10000 }
     );
 
-    // 5. 결과 확인 및 종료
     const finalState = await page.evaluate(() => document.body.innerText);
     
     if (finalState.includes("ALL PIPELINES EXECUTED")) {
