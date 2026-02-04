@@ -81,33 +81,33 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
 const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'HALF_KELLY': {
         title: "Half-Kelly Criterion",
-        desc: "수학적 최적 비중인 켈리 값을 0.5배로 줄여 변동성 파산(Ruin)을 방지합니다. 승률과 손익비를 기반으로 한 '이론적 최대 권장 비중'입니다.",
-        strategy: "계산된 수치는 '한도'입니다. 보수적 운용을 위해 이 수치의 50~80% 수준에서 집행하는 것이 일반적입니다."
+        desc: "수학적 최적 비중(Kelly)을 0.5배로 보정하여 '파산 위험'을 제거한 자금 관리 공식입니다. 승률과 손익비를 기반으로 한 '이론적 최대 투자 권장 비중'을 의미합니다.",
+        strategy: "계산된 수치는 '절대 한도(Max Cap)'입니다. 보수적 운용을 위해 이 수치의 50~80% 수준에서 집행하는 것이 일반적입니다."
     },
     'VAPS': {
         title: "VAPS (Volatility-Adjusted)",
-        desc: "총 자산 대비 1% 리스크(1R)를 고정한 상태에서, 진입가와 손절가의 폭(Volatility)에 따라 매수 수량을 역산하는 헤지펀드 표준 기법입니다.",
-        strategy: "확신이 높아도 1회 손실금은 일정해야 합니다. 손절폭이 좁으면 수량이 늘고, 넓으면 수량이 줄어듭니다."
+        desc: "변동성 조정 포지션 사이징(Volatility Adjusted Position Sizing). 총 자산의 1% 리스크(1R)를 고정한 상태에서, 진입가와 손절가의 폭에 따라 매수 수량을 역산합니다.",
+        strategy: "확신이 높아도 1회 손실금은 일정해야 합니다. 손절폭이 좁으면 수량이 늘고, 넓으면 수량이 줄어들어 리스크를 일정하게 유지합니다."
     },
     'ERCI': {
         title: "ERCI (Efficiency Index)",
-        desc: "Expected Return Confidence Index. '확신 한 단위당 기대할 수 있는 수익'을 측정합니다. 자본 효율성이 높은 종목을 선별하는 핵심 지표입니다.",
-        strategy: "ERCI가 높을수록 '가성비'가 좋은 베팅입니다. 포트폴리오 편입 우선순위를 정할 때 사용하십시오."
+        desc: "Expected Return Confidence Index. '확신 한 단위당 기대할 수 있는 수익'을 측정합니다. (상승여력 × AI확신도 × 수급강도)의 결합 지표입니다.",
+        strategy: "ERCI가 높을수록 리스크 대비 '가성비'가 좋은 진입입니다. 포트폴리오 편입 우선순위를 정할 때 사용하십시오."
     },
     'QM_COMP': {
         title: "Q-M Composite",
-        desc: "Quality(ROE) + Momentum(ICT). 우량한 기업(High Quality)이 세력에 의해 움직이기 시작하는(High Momentum) 최적의 지점을 포착합니다.",
-        strategy: "가치투자와 추세추종의 결합입니다. ROE가 받쳐주는 종목의 모멘텀은 쉽게 꺾이지 않습니다."
+        desc: "Quality(ROE) + Momentum(ICT). 우량한 펀더멘털(High Quality)을 가진 기업이 세력에 의해 움직이기 시작하는(High Momentum) 최적의 지점을 포착합니다.",
+        strategy: "가치투자와 추세추종의 결합입니다. ROE가 받쳐주는 종목의 모멘텀은 쉽게 꺾이지 않으므로 눌림목 매수에 적합합니다."
     },
     'CONVEXITY': {
         title: "Alpha Convexity",
         desc: "에너지가 응축된 'Squeeze' 상태와 세력의 강한 개입 'Displacement'가 결합된 상태입니다. 비선형적인 가격 폭발 가능성을 의미합니다.",
-        strategy: "옵션 매수나 돌파 매매(Breakout)에 적합한 구간입니다. 단기 변동성 확대에 대비하십시오."
+        strategy: "옵션 매수나 돌파 매매(Breakout)에 적합한 구간입니다. 단기 변동성이 확대될 수 있으므로 손절 라인을 철저히 준수하십시오."
     },
     'EXPECTANCY': {
         title: "Expectancy (기대값)",
-        desc: "이 매매를 100번 반복했을 때 1회당 평균적으로 얻을 수 있는 수익(R)입니다. 0.5R 이상이면 훌륭한 시스템입니다.",
-        strategy: "승률이 낮아도 손익비가 커서 기대값이 플러스라면 진입해야 합니다. 감정을 배제하고 수학적 우위를 점하십시오."
+        desc: "이 매매를 100번 반복했을 때 1회당 평균적으로 얻을 수 있는 수익(R)입니다. (승률 × 이익폭) - (패율 × 손실폭)으로 계산됩니다.",
+        strategy: "승률이 낮아도 손익비가 커서 기대값이 0.5R 이상이라면 진입해야 합니다. 감정을 배제하고 수학적 우위를 점하십시오."
     },
     'IVG': {
         title: "IVG (Intrinsic Value Gap)",
@@ -232,8 +232,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               P = parseFloat(String(simMetrics.winRate).replace('%','')) / 100;
               B = parseFloat(simMetrics.profitFactor || "1.5");
           } else {
-              // Heuristic: Conviction 50=50%, 100=70% Winrate
-              P = 0.40 + (conviction / 100) * 0.30; 
+              // [UPDATED] Heuristic: Conservative Win Rate Estimation to avoid Kelly capping
+              // Conviction 50 -> 45% WR, Conviction 90 -> 57% WR
+              // This makes the Half-Kelly result more dynamic and realistic (usually < 20%)
+              P = 0.30 + (conviction / 100) * 0.30; 
+              
               // B based on Risk Reward
               if (selectedStock.riskRewardRatio) {
                   const parts = selectedStock.riskRewardRatio.split(':');
@@ -251,6 +254,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (kellyRaw < 0) kellyRaw = 0;
           
           // Institutional Adjustment: Cap at 20% max per position
+          // Multiply by 100 to get percentage
           const halfKelly = Math.min((kellyRaw * 0.5 * 100), 20.0);
           
           // VAPS (Volatility Adjusted) - Assume $100k Equity, 1% Risk ($1000)
@@ -1006,7 +1010,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
 
                             {/* The Bar Visualization */}
-                            <div className="relative h-12 w-full mt-2">
+                            <div className="relative h-16 w-full mt-2">
                                 {/* Track Line */}
                                 <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
                                      {/* Gradient Background representing the transition from Stop to Target */}
@@ -1042,31 +1046,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${stopPos}%` }}></div>
                                             <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${entryPos}%`, right: '0%' }}></div>
 
-                                            {/* STOP LOSS MARKER */}
+                                            {/* STOP LOSS MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
                                                 <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                                                <div className="absolute bottom-full mb-3 text-[8px] font-black text-rose-500 whitespace-nowrap">STOP ${stop.toFixed(2)}</div>
+                                                <div className="absolute -top-8 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
                                             </div>
 
-                                            {/* ENTRY MARKER */}
+                                            {/* ENTRY MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
                                                 <div className="h-4 w-0.5 bg-blue-400"></div>
-                                                <div className="absolute bottom-full mb-3 text-[8px] font-black text-blue-400 whitespace-nowrap">ENTRY ${entry.toFixed(2)}</div>
+                                                <div className="absolute -top-8 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
                                             </div>
 
-                                            {/* TARGET MARKER */}
+                                            {/* TARGET MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
                                                 <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-                                                <div className="absolute bottom-full mb-3 text-[8px] font-black text-emerald-500 whitespace-nowrap">TARGET ${target.toFixed(2)}</div>
+                                                <div className="absolute -top-8 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
                                             </div>
 
-                                            {/* CURRENT PRICE PUCK */}
+                                            {/* CURRENT PRICE PUCK (Bottom Label) */}
                                             <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${currentPos}%`, transition: 'left 1s ease-out' }}>
                                                 <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
                                                     <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
                                                     <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
                                                 </div>
-                                                <div className="absolute top-full mt-3 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center">
+                                                <div className="absolute top-8 mt-1 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center z-30">
                                                     <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
                                                     <span>CURRENT</span>
                                                     <span className="text-[10px]">${current.toFixed(2)}</span>
@@ -1112,7 +1116,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         </h5>
                                         <p className="text-[10px] text-slate-300 leading-relaxed font-medium mb-3">{ALPHA_INSIGHTS[activeAlphaInsight].desc}</p>
                                         <div className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20">
-                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">💡 Strategy:</p>
+                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">Strategy:</p>
                                             <p className="text-[9px] text-slate-400 leading-relaxed">{ALPHA_INSIGHTS[activeAlphaInsight].strategy}</p>
                                         </div>
                                     </div>
@@ -1249,7 +1253,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     </h5>
                                     <p className="text-xs text-slate-300 leading-relaxed font-medium mb-4">{FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}</p>
                                     <div className="bg-indigo-500/10 p-4 rounded-xl border border-indigo-500/20">
-                                        <p className="text-[10px] text-indigo-400 font-bold mb-1 uppercase tracking-wider">💡 Pro Strategy:</p>
+                                        <p className="text-[10px] text-indigo-400 font-bold mb-1 uppercase tracking-wider">Pro Strategy:</p>
                                         <p className="text-xs text-slate-200 leading-relaxed font-semibold">{FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}</p>
                                     </div>
                                 </div>
