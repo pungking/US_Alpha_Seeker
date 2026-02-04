@@ -6,7 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { Treemap, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [Advanced Institutional Data Structure]
 interface QualityTicker {
@@ -372,7 +372,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         });
         
         trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-        setAiAnalysis(response.text);
+        setAiAnalysis(removeCitations(response.text || ""));
         setAiStatus('SUCCESS');
         addLog("AI Risk Audit Complete.", "ok");
     } catch (e: any) {
