@@ -93,33 +93,47 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
-  // [DATE FIX] Generate strict list of last N business days (NY Time)
-  const getRecentBusinessDays = (count: number = 5): string[] => {
+  // [DATE STRATEGY] Smart Date Scanner
+  // Checks New York "Today" -> "Yesterday" -> "Day Before" (Skipping Weekends)
+  const getRecentBusinessDays = (count: number = 6): string[] => {
     const dates: string[] = [];
-    // Get current time in NY
     const now = new Date();
-    const nyString = now.toLocaleString("en-US", { timeZone: "America/New_York" });
-    const nyDate = new Date(nyString);
     
-    // Start from "Yesterday" to ensure market close data is available
-    // (Polygon Aggregates usually require the day to be complete)
-    nyDate.setDate(nyDate.getDate() - 1);
+    // 1. Get explicit New York time parts to prevent local timezone skew
+    const nyOptions: Intl.DateTimeFormatOptions = {
+        timeZone: "America/New_York",
+        year: 'numeric',
+        month: 'numeric', // 1-12
+        day: 'numeric'
+    };
+    const nyFormatter = new Intl.DateTimeFormat('en-US', nyOptions);
+    const parts = nyFormatter.formatToParts(now);
+    
+    const part = (type: string) => parts.find(p => p.type === type)?.value;
+    const year = parseInt(part('year')!);
+    const month = parseInt(part('month')!) - 1; // JS Date is 0-indexed month
+    const day = parseInt(part('day')!);
+
+    // Start checking from NY Today.
+    let cursorDate = new Date(year, month, day);
 
     let attempts = 0;
     while (dates.length < count && attempts < 15) {
-        const day = nyDate.getDay();
-        // 0 = Sunday, 6 = Saturday
-        if (day !== 0 && day !== 6) {
-            // Format YYYY-MM-DD manually to avoid timezone shifts
-            const y = nyDate.getFullYear();
-            const m = String(nyDate.getMonth() + 1).padStart(2, '0');
-            const d = String(nyDate.getDate()).padStart(2, '0');
+        const dayOfWeek = cursorDate.getDay(); // 0=Sun, 6=Sat
+        
+        // If it's a weekday (Mon=1 to Fri=5)
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            const y = cursorDate.getFullYear();
+            const m = String(cursorDate.getMonth() + 1).padStart(2, '0');
+            const d = String(cursorDate.getDate()).padStart(2, '0');
             dates.push(`${y}-${m}-${d}`);
         }
-        // Move back one day
-        nyDate.setDate(nyDate.getDate() - 1);
+        
+        // Move back 1 day
+        cursorDate.setDate(cursorDate.getDate() - 1);
         attempts++;
     }
+    
     return dates;
   };
 
@@ -217,12 +231,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let success = false;
     let foundDate = '';
     
-    // [FIXED LOGIC] Use exact business days instead of generic fallback
-    const targetDates = getRecentBusinessDays(5);
+    // [LOGIC] Scan dates: Today -> Yesterday -> ... (skipping weekends)
+    const targetDates = getRecentBusinessDays(6); 
     
     for (const targetDate of targetDates) {
+        // [LOG] Show user which date is being checked
+        addLog(`Scanning Market Date: ${targetDate}...`, "info");
+
         try {
-            // Using "Grouped Daily" endpoint
             const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
             
             if (polyRes.status === 429) { 
@@ -236,20 +252,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 if (data.results && data.results.length > 5000) { 
                     polyResults = data.results; 
                     foundDate = targetDate;
-                    addLog(`Polygon: Success! Found ${polyResults.length} tickers on ${targetDate}.`, "ok");
+                    addLog(`Polygon: Data Acquired! (${polyResults.length} tickers on ${targetDate}).`, "ok");
                     success = true;
                     break; 
                 } else {
-                    addLog(`Polygon: No data on ${targetDate} (Market Closed/Holiday?), Trying prev day...`, "info");
+                    // [LOG] Explicit feedback for missing data
+                    addLog(`Market Closed or Data Incomplete on ${targetDate}. Backtracking...`, "warn");
                 }
             }
         } catch (e) { }
         
         // Small delay to prevent burst limit
-        await new Promise(r => setTimeout(r, 500));
+        await new Promise(r => setTimeout(r, 300));
     }
     
-    if (!success) throw new Error("Polygon failed after checking last 5 business days.");
+    if (!success) throw new Error("Polygon failed after checking last 6 business days.");
 
     return polyResults.map((p: any) => ({
         symbol: p.T, name: p.T, type: 'Common Stock', price: p.c, volume: p.v,
