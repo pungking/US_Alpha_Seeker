@@ -23,9 +23,12 @@ const MarketTicker: React.FC = () => {
 
   // Real-time State
   const [realtimeData, setRealtimeData] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
-  const [isSocketConnected, setIsSocketConnected] = useState(false);
-  const [usingDelayed, setUsingDelayed] = useState(false); // New state to track fallback
+  const [socketStatus, setSocketStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'AUTH_ERROR'>('DISCONNECTED');
+  const [isDelayed, setIsDelayed] = useState(false);
+  
   const wsRef = useRef<WebSocket | null>(null);
+  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const usingDelayedRef = useRef(false); // Ref to persist fallback state across re-renders
 
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
@@ -229,32 +232,33 @@ const MarketTicker: React.FC = () => {
   useEffect(() => {
     if (!polygonKey) return;
 
-    // 1. Map symbols to Polygon identifiers
-    // For Indices, we subscribe to their ETF tickers (QQQ, SPY, DIA, VXX) on the Stocks Cluster to ensure access
-    const equitySyms = stockConfig.map(s => s.symbol); // AAPL, NVDA...
-    const etfSyms = indexConfig.map(i => i.etf); // QQQ, SPY...
+    // 1. Map symbols
+    const equitySyms = stockConfig.map(s => s.symbol);
+    const etfSyms = indexConfig.map(i => i.etf);
     
-    // Reverse map for updates: ETF Ticker -> Internal ID (e.g. QQQ -> NASDAQ)
     const symbolMap = new Map<string, string>();
     indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id));
     stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
 
-    let retryTimeout: NodeJS.Timeout;
+    const connect = () => {
+        if (wsRef.current) {
+            wsRef.current.close();
+        }
 
-    const connectWebSocket = () => {
-        // Fallback Strategy: If usingDelayed is true, force the delayed endpoint. 
-        // This is crucial for free tier keys or keys without real-time stock entitlements.
-        const endpoint = usingDelayed 
-            ? 'wss://delayed.polygon.io/stocks' 
+        // Use delayed endpoint if fallback was triggered
+        const endpoint = usingDelayedRef.current
+            ? 'wss://delayed.polygon.io/stocks'
             : 'wss://socket.polygon.io/stocks';
 
         console.log(`[Polygon WS] Connecting to ${endpoint}...`);
-        
+        setSocketStatus('CONNECTING');
+        setIsDelayed(usingDelayedRef.current);
+
         const ws = new WebSocket(endpoint);
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("[Polygon WS] Connection Opened. Authenticating...");
+            console.log("[Polygon WS] Connection opened. Authenticating...");
             ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
         };
 
@@ -262,46 +266,52 @@ const MarketTicker: React.FC = () => {
             try {
                 const msgs = JSON.parse(event.data);
                 msgs.forEach((msg: any) => {
-                    // Critical: Handle Access/Permission Errors
-                    if (msg.ev === 'status' && msg.status === 'error') {
-                        console.error("[Polygon WS] Error:", msg.message);
-                        if (msg.message && (msg.message.includes('access') || msg.message.includes('entitled'))) {
-                            if (!usingDelayed) {
-                                console.warn("[Polygon WS] Access denied on Real-Time. Switching to Delayed...");
-                                setUsingDelayed(true); // This will trigger re-effect
-                                ws.close();
-                            }
-                        }
-                    }
-
+                    // Auth Success
                     if (msg.status === 'auth_success') {
-                        setIsSocketConnected(true);
+                        setSocketStatus('CONNECTED');
                         console.log("[Polygon WS] Auth Success. Subscribing...");
-                        // Subscribe to Aggregates (A.*) and Trades (T.*) for best coverage
+                        // Subscribe to Aggregates (A.*) and Trades (T.*)
+                        // Note: Free tier might fail on T.*, but A.* usually works on delayed.
                         const channels = [...equitySyms, ...etfSyms].map(s => `A.${s},T.${s}`).join(',');
                         ws.send(JSON.stringify({ action: 'subscribe', params: channels }));
                     }
 
-                    // Handle Trade (T) or Aggregate (A) Data
+                    // Auth Failed
+                    if (msg.status === 'auth_failed') {
+                        console.error("[Polygon WS] Auth Failed:", msg.message);
+                        setSocketStatus('AUTH_ERROR');
+                        ws.close(); // Trigger reconnection/fallback
+                        return;
+                    }
+                    
+                    // Access Denied / Error
+                    if (msg.status === 'error' || msg.ev === 'status' && msg.status === 'error') {
+                        console.error("[Polygon WS] API Error:", msg.message);
+                        // If we hit an error on the real-time feed, switch to delayed
+                        if (!usingDelayedRef.current) {
+                            console.warn("Switching to DELAYED feed due to error.");
+                            usingDelayedRef.current = true;
+                            ws.close();
+                        }
+                    }
+
+                    // Data Handling
                     if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
-                        const price = msg.p || msg.c; // p=price (Trade), c=close (Agg)
+                        const price = msg.p || msg.c; // p=Trade Price, c=Aggregate Close
                         if (!price) return;
 
-                        // Map external symbol (QQQ) to internal ID (NASDAQ)
                         const internalId = symbolMap.get(msg.sym) || msg.sym;
 
                         setRealtimeData(prev => {
                             const current = prev[internalId];
                             const oldPrice = current ? current.price : 0;
                             
-                            // Determine direction for flash effect
                             let direction: 'up' | 'down' | null = null;
                             if (oldPrice > 0) {
                                 if (price > oldPrice) direction = 'up';
                                 else if (price < oldPrice) direction = 'down';
                             }
                             
-                            // If price didn't change, preserve direction if it was recently set, or just return prev
                             if (price === oldPrice && current) return prev;
 
                             return {
@@ -310,7 +320,7 @@ const MarketTicker: React.FC = () => {
                             };
                         });
 
-                        // Clear flash effect after 800ms
+                        // Clear flash
                         if (price !== (realtimeData[internalId]?.price || 0)) {
                              setTimeout(() => {
                                 setRealtimeData(prev => {
@@ -326,16 +336,19 @@ const MarketTicker: React.FC = () => {
             }
         };
 
-        ws.onclose = (evt) => {
-            console.log("[Polygon WS] Closed.", evt.code, evt.reason);
-            setIsSocketConnected(false);
-            // Retry logic
-            retryTimeout = setTimeout(() => {
-                if (!isSocketConnected) {
-                     // If we disconnected unexpectedly, maybe try delayed if we weren't already
-                     if (!usingDelayed && evt.code !== 1000) setUsingDelayed(true);
-                     else connectWebSocket();
-                }
+        ws.onclose = (e) => {
+            console.log("[Polygon WS] Closed", e.code, e.reason);
+            setSocketStatus('DISCONNECTED');
+            
+            // If it closed cleanly or due to error, try to reconnect
+            // If we weren't on delayed yet and it failed, switch to delayed
+            if (!usingDelayedRef.current && e.code !== 1000) {
+                usingDelayedRef.current = true;
+            }
+
+            // Retry after delay
+            retryTimeoutRef.current = setTimeout(() => {
+                connect();
             }, 5000);
         };
 
@@ -345,16 +358,16 @@ const MarketTicker: React.FC = () => {
         };
     };
 
-    connectWebSocket();
+    connect();
 
     return () => {
         if (wsRef.current) wsRef.current.close();
-        clearTimeout(retryTimeout);
+        if (retryTimeoutRef.current) clearTimeout(retryTimeoutRef.current);
     };
-  }, [polygonKey, usingDelayed]); // Re-run if we toggle to delayed mode
+  }, [polygonKey]);
 
 
-  // Initial Poll + Interval
+  // Initial Poll + Interval (Fallback)
   useEffect(() => {
     fetchMarketData();
     const interval = setInterval(fetchMarketData, 60000); 
@@ -366,12 +379,6 @@ const MarketTicker: React.FC = () => {
       {data.length > 0 ? data.map((item) => {
         const rt = realtimeData[item.symbol];
         const displayPrice = rt ? rt.price : item.price;
-        
-        // Calculate display change. 
-        // Note: Realtime socket usually sends current price, not daily change %. 
-        // We use the initial polling data for the open price reference to calc approx change.
-        // Or we just stick to the polling change % if we don't have open price.
-        // For visual simplicity, we just use the polled change % but update the price.
         
         const flashClass = rt?.direction === 'up' ? 'bg-emerald-500/10 border-emerald-500 shadow-[0_0_15px_rgba(16,185,129,0.3)]' 
                          : rt?.direction === 'down' ? 'bg-rose-500/10 border-rose-500 shadow-[0_0_15px_rgba(244,63,94,0.3)]' 
@@ -394,7 +401,7 @@ const MarketTicker: React.FC = () => {
                 {displayPrice > 1000 ? displayPrice.toLocaleString(undefined, { maximumFractionDigits: 0 }) : displayPrice.toFixed(2)}
                 </p>
                 <div className="flex items-center justify-end gap-1">
-                    {isSocketConnected && rt && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
+                    {socketStatus === 'CONNECTED' && rt && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>}
                     <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
                     {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
                     </p>
@@ -410,11 +417,16 @@ const MarketTicker: React.FC = () => {
       <div className="flex-1 h-[1px] bg-white/5 ml-4"></div>
       <div className="flex flex-col items-end space-y-0.5 ml-4">
         <div className="flex items-center space-x-2 text-[7px] font-black text-slate-600 uppercase tracking-widest italic whitespace-nowrap">
-            <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : isSocketConnected ? 'bg-emerald-500 animate-ping' : 'bg-slate-500'}`}></span>
-            <span>{isPaused ? 'Sync_Paused' : isSocketConnected ? `WS_Live${usingDelayed ? ' (Delayed)' : ''}` : 'Polling_Mode'}</span>
+            <span className={`w-1.5 h-1.5 rounded-full ${isPaused ? 'bg-amber-500' : socketStatus === 'CONNECTED' ? 'bg-emerald-500 animate-ping' : socketStatus === 'CONNECTING' ? 'bg-yellow-500 animate-pulse' : 'bg-red-500'}`}></span>
+            <span>
+                {isPaused ? 'Sync_Paused' : 
+                 socketStatus === 'CONNECTED' ? (isDelayed ? 'WS_Live (Delayed)' : 'WS_Realtime') : 
+                 socketStatus === 'CONNECTING' ? 'WS_Connecting...' : 
+                 'Polling_Mode'}
+            </span>
         </div>
         <div className="flex items-center space-x-1.5">
-           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {isSocketConnected ? 'POLYGON_WS' : activeSource}</span>
+           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {socketStatus === 'CONNECTED' ? (isDelayed ? 'POLYGON_DELAY' : 'POLYGON_LIVE') : activeSource}</span>
            <span className="text-slate-900 text-[6px]">•</span>
            <span className="text-[6px] font-mono text-slate-700 uppercase tracking-tighter">Upd: {lastSync || '---'}</span>
         </div>
