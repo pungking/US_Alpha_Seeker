@@ -27,7 +27,7 @@ const MarketTicker: React.FC = () => {
   const [isDelayed, setIsDelayed] = useState(false);
   
   const wsRef = useRef<WebSocket | null>(null);
-  const retryTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const usingDelayedRef = useRef(false); // Ref to persist fallback state across re-renders
 
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
