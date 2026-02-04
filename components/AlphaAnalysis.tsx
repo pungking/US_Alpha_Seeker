@@ -80,54 +80,54 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
 // [MASTER FRAMEWORK INSIGHTS]
 const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'HALF_KELLY': {
-        title: "Half-Kelly Criterion",
-        desc: "수학적 최적 비중(Kelly)을 0.5배로 보정하여 '파산 위험'을 제거한 자금 관리 공식입니다. 승률과 손익비를 기반으로 한 '이론적 최대 투자 권장 비중'을 의미합니다.",
-        strategy: "계산된 수치는 '절대 한도(Max Cap)'입니다. 보수적 운용을 위해 이 수치의 50~80% 수준에서 집행하는 것이 일반적입니다."
+        title: "Half-Kelly Criterion (최적 비중)",
+        desc: "승률과 손익비를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.",
+        strategy: "🟢 수치 해석: 이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
     },
     'VAPS': {
-        title: "VAPS (Volatility-Adjusted)",
-        desc: "변동성 조정 포지션 사이징(Volatility Adjusted Position Sizing). 총 자산의 1% 리스크(1R)를 고정한 상태에서, 진입가와 손절가의 폭에 따라 매수 수량을 역산합니다.",
-        strategy: "확신이 높아도 1회 손실금은 일정해야 합니다. 손절폭이 좁으면 수량이 늘고, 넓으면 수량이 줄어들어 리스크를 일정하게 유지합니다."
+        title: "VAPS (변동성 조정 수량)",
+        desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).",
+        strategy: "🟢 수치 해석: \n- 수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
     },
     'ERCI': {
-        title: "ERCI (Efficiency Index)",
-        desc: "Expected Return Confidence Index. '확신 한 단위당 기대할 수 있는 수익'을 측정합니다. (상승여력 × AI확신도 × 수급강도)의 결합 지표입니다.",
-        strategy: "ERCI가 높을수록 리스크 대비 '가성비'가 좋은 진입입니다. 포트폴리오 편입 우선순위를 정할 때 사용하십시오."
+        title: "ERCI (효율성 지수)",
+        desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).",
+        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 10.0 이상: 양호 (Good)\n- 30.0 이상: 초고효율 (Elite) - 우선 순위로 편입하십시오."
     },
     'QM_COMP': {
-        title: "Q-M Composite",
-        desc: "Quality(ROE) + Momentum(ICT). 우량한 펀더멘털(High Quality)을 가진 기업이 세력에 의해 움직이기 시작하는(High Momentum) 최적의 지점을 포착합니다.",
-        strategy: "가치투자와 추세추종의 결합입니다. ROE가 받쳐주는 종목의 모멘텀은 쉽게 꺾이지 않으므로 눌림목 매수에 적합합니다."
+        title: "Q-M Composite (품질+모멘텀)",
+        desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.",
+        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
     },
     'CONVEXITY': {
-        title: "Alpha Convexity",
-        desc: "에너지가 응축된 'Squeeze' 상태와 세력의 강한 개입 'Displacement'가 결합된 상태입니다. 비선형적인 가격 폭발 가능성을 의미합니다.",
-        strategy: "옵션 매수나 돌파 매매(Breakout)에 적합한 구간입니다. 단기 변동성이 확대될 수 있으므로 손절 라인을 철저히 준수하십시오."
+        title: "Alpha Convexity (폭발력)",
+        desc: "에너지 응축(Squeeze)과 발산(Displacement)의 결합 상태입니다.",
+        strategy: "🟢 상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
     },
     'EXPECTANCY': {
         title: "Expectancy (기대값)",
-        desc: "이 매매를 100번 반복했을 때 1회당 평균적으로 얻을 수 있는 수익(R)입니다. (승률 × 이익폭) - (패율 × 손실폭)으로 계산됩니다.",
-        strategy: "승률이 낮아도 손익비가 커서 기대값이 0.5R 이상이라면 진입해야 합니다. 감정을 배제하고 수학적 우위를 점하십시오."
+        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.",
+        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
     },
     'IVG': {
-        title: "IVG (Intrinsic Value Gap)",
-        desc: "현재 주가와 내재가치(Intrinsic Value) 사이의 괴리율입니다. 안전마진(Margin of Safety)을 확보했는지 판단하는 가치투자의 척도입니다.",
-        strategy: "IVG가 +20% 이상인 종목은 하락장에서도 방어력이 뛰어납니다. 안전마진이 확보된 구간에서만 진입하십시오."
+        title: "IVG (내재가치 괴리율)",
+        desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.",
+        strategy: "🟢 수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
     },
     'IFS': {
-        title: "IFS (Institutional Flow Score)",
-        desc: "기관(Smart Money)의 자금 유입 강도를 0-100으로 수치화한 지표입니다. 거래량 분석(VSA)과 오더블럭(Order Block) 지지를 기반으로 합니다.",
-        strategy: "IFS > 70 인 종목은 '세력'이 매집 중입니다. 개인 투자자는 이들의 '등에 올라타는' 전략을 취해야 합니다."
+        title: "IFS (기관 수급 점수)",
+        desc: "기관(Smart Money)의 자금 유입 강도를 0~100으로 수치화했습니다.",
+        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 70점 초과: 세력이 적극 매집 중 (등에 올라타십시오)\n- 50점 미만: 세력 이탈 또는 관망세"
     },
     'MRF': {
-        title: "MRF (Market Regime Filter)",
-        desc: "시장 전체의 국면(상승/하락/횡보)을 판단하여 개별 종목의 베타(Beta) 리스크를 제어합니다. 시장이 하락세(Distribution)라면 개별 종목 매수를 보류합니다.",
-        strategy: "MRF가 'Accumulation' 또는 'Markup' 상태일 때만 비중을 확대하십시오. 'Distribution'에서는 현금 비중을 늘려야 합니다."
+        title: "MRF (시장 국면)",
+        desc: "해당 종목이 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
+        strategy: "🟢 상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
     },
     'AIC': {
-        title: "AIC (AI Consensus)",
-        desc: "서로 다른 알고리즘(Gemini, Perplexity 등) 간의 분석 일치도입니다. 여러 모델이 동시에 매수를 외칠 때 신뢰도가 기하급수적으로 상승합니다.",
-        strategy: "Consensus > 80% 인 경우, 모델 간의 '환각(Hallucination)' 가능성이 극히 낮습니다. 강력한 확신을 가지고 진입할 수 있습니다."
+        title: "AIC (AI 합의)",
+        desc: "여러 AI 모델(Gemini, Perplexity)간의 분석 일치도입니다.",
+        strategy: "🟢 수치 해석:\n- 80% 이상: AI들의 의견이 강력하게 일치 (신뢰도 높음)\n- 50% 주변: 의견 엇갈림 (독자적 판단 필요)"
     }
 };
 
@@ -1049,19 +1049,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             {/* STOP LOSS MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
                                                 <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                                                <div className="absolute -top-12 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
+                                                <div className="absolute -top-10 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
                                             </div>
 
                                             {/* ENTRY MARKER (Top Label - Lowered) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
                                                 <div className="h-4 w-0.5 bg-blue-400"></div>
-                                                <div className="absolute -top-5 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
+                                                <div className="absolute -top-4 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
                                             </div>
 
                                             {/* TARGET MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
                                                 <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-                                                <div className="absolute -top-12 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
+                                                <div className="absolute -top-10 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
                                             </div>
 
                                             {/* CURRENT PRICE PUCK (Bottom Label) */}
@@ -1133,7 +1133,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                         </div>
                      </div>
-                     <div className="lg:col-span-2 space-y-6">
+                     <div className="lg:col-span-2 space-y-6 relative">
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
                             <ul className="space-y-4">
@@ -1148,7 +1148,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         
                         {/* [STRATEGIC MASTER FRAMEWORK] */}
                         {quantMetrics && (
-                            <div className="space-y-4">
+                            <div className="space-y-4 relative p-4 rounded-[30px] border border-white/5 bg-black/20">
                                 <h4 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] px-2 italic">Quant Strategic Master Framework</h4>
                                 
                                 {/* PHASE 1: SIZING (SHIELD) */}
@@ -1238,25 +1238,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         </div>
                                     </div>
                                 </div>
-                            </div>
-                        )}
 
-                        {/* Detail Overlay for New Metrics */}
-                        {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
-                            <div className="alpha-insight-overlay absolute bottom-4 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
-                                <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-indigo-500/50 shadow-2xl relative">
-                                    <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white">
-                                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                    </button>
-                                    <h5 className="text-sm font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
-                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
-                                    </h5>
-                                    <p className="text-xs text-slate-300 leading-relaxed font-medium mb-4">{FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}</p>
-                                    <div className="bg-indigo-500/10 p-4 rounded-xl border border-indigo-500/20">
-                                        <p className="text-[10px] text-indigo-400 font-bold mb-1 uppercase tracking-wider">Pro Strategy:</p>
-                                        <p className="text-xs text-slate-200 leading-relaxed font-semibold">{FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}</p>
+                                {/* Detail Overlay - Positioned RELATIVE to this Grid */}
+                                {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
+                                    <div className="absolute inset-x-0 bottom-0 z-30 animate-in fade-in slide-in-from-bottom-2">
+                                        <div className="bg-slate-950/95 backdrop-blur-xl p-6 rounded-[24px] border border-indigo-500/50 shadow-2xl relative">
+                                            <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white">
+                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                            </button>
+                                            <h5 className="text-sm font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
+                                                {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
+                                            </h5>
+                                            <p className="text-xs text-slate-300 leading-relaxed font-medium mb-4 whitespace-pre-wrap">{FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}</p>
+                                            <div className="bg-indigo-500/10 p-4 rounded-xl border border-indigo-500/20">
+                                                <p className="text-[10px] text-indigo-400 font-bold mb-1 uppercase tracking-wider">🟢 수치 해석:</p>
+                                                <p className="text-xs text-slate-200 leading-relaxed font-semibold whitespace-pre-wrap">{FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}</p>
+                                            </div>
+                                        </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
                         )}
                      </div>
