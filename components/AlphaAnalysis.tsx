@@ -2,9 +2,9 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell, Scatter } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
@@ -31,7 +31,6 @@ interface AlphaCandidate {
   resistanceLevel?: number;
   riskRewardRatio?: string;
   
-  // Accumulated Data from previous stages
   [key: string]: any;
 }
 
@@ -77,27 +76,74 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   }
 };
 
-// [NEW] Alpha Strategy Insights
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'RISK': {
-        title: "Risk (1R - Unit of Loss)",
-        desc: "트레이딩 셋업에서 감수해야 할 손실의 크기(1R)입니다. 모든 수익 목표는 이 리스크 단위(R)의 배수로 설정됩니다.",
-        strategy: "진입가와 손절가 사이의 폭을 1R로 정의하십시오. 자금 관리 원칙에 따라 1회 트레이딩 손실이 전체 자산의 1~2%를 넘지 않도록 포지션 규모를 조절해야 합니다."
-    },
-    'REWARD': {
-        title: "Reward (Profit Target)",
-        desc: "감수한 리스크 대비 기대할 수 있는 수익의 크기입니다. 3.0R 이상은 손익비가 매우 우수한 '비대칭적 기회'를 의미합니다.",
-        strategy: "최소 2R 이상의 셋업에만 진입하십시오. 목표가 도달 시 물량의 50%를 청산(Scale-out)하여 수익을 확정하고, 나머지는 추세를 따라가며 수익을 극대화하십시오."
+        title: "Risk Management (1.0R)",
+        desc: "Stop Loss is the invalidation point of the thesis. The distance from Entry to Stop defines 1R of risk. Position sizing must ensure 1R <= 1% of total equity.",
+        strategy: "Never move your Stop Loss down. If price hits this level, the trade idea is wrong. Accept the small loss to protect capital."
     },
     'ENTRY': {
-        title: "Optimal Entry Zone (OEZ)",
-        desc: "기관의 수급이 유입된 'Order Block' 상단과 지지선이 겹치는 고확률 진입 구간입니다.",
-        strategy: "지정가 주문(Limit Order)을 걸어두고 가격이 올 때까지 기다리십시오. 추격 매수는 손익비를 훼손시킵니다. 가격이 오지 않고 날아가면 '내 것이 아니다'라고 생각하십시오."
+        title: "Sniper Entry Zone",
+        desc: "This zone represents the highest probability area for entry, usually aligned with an Institutional Order Block or support retest.",
+        strategy: "Patience is key. Wait for price to revisit this zone. Entering here maximizes the Risk:Reward ratio."
     },
-    'KELLY': {
-        title: "Kelly Criterion (Optimal Sizing)",
-        desc: "수학적으로 파산 확률을 0으로 수렴시키면서 자산 증식 속도를 최대화하는 베팅 비율 공식입니다. (Win% - Loss% / Profit Factor)",
-        strategy: "Full Kelly는 변동성이 너무 크므로, 헤지펀드에서는 일반적으로 'Half-Kelly'를 사용합니다. 제시된 비중은 단일 종목에 투입할 최대 권장 비중입니다. 포트폴리오 전체 리스크를 고려하여 분산하십시오."
+    'REWARD': {
+        title: "Profit Target (Liquidity)",
+        desc: "The target level is where 'Smart Money' is likely to exit or where opposing liquidity (Buy Stops/Sell Stops) resides.",
+        strategy: "Take partial profits (50-75%) at this level to lock in gains. Move Stop Loss to Breakeven on the remainder."
+    }
+};
+
+const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
+    'HALF_KELLY': {
+        title: "Half-Kelly Criterion (최적 비중)",
+        desc: "승률과 손익비를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.",
+        strategy: "이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
+    },
+    'VAPS': {
+        title: "VAPS (변동성 조정 수량)",
+        desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).",
+        strategy: "수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
+    },
+    'ERCI': {
+        title: "ERCI (효율성 지수)",
+        desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).",
+        strategy: "수치 해석 (높을수록 좋음):\n- 10.0 이상: 양호 (Good)\n- 30.0 이상: 초고효율 (Elite) - 우선 순위로 편입하십시오."
+    },
+    'QM_COMP': {
+        title: "Q-M Composite (품질+모멘텀)",
+        desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.",
+        strategy: "수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
+    },
+    'CONVEXITY': {
+        title: "Alpha Convexity (폭발력)",
+        desc: "에너지 응축(Squeeze)과 발산(Displacement)의 결합 상태입니다.",
+        strategy: "상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
+    },
+    'EXPECTANCY': {
+        title: "Expectancy (기대값)",
+        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.",
+        strategy: "수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
+    },
+    'IVG': {
+        title: "IVG (내재가치 괴리율)",
+        desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.",
+        strategy: "수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
+    },
+    'IFS': {
+        title: "IFS (기관 수급 점수)",
+        desc: "기관(Smart Money)의 자금 유입 강도를 0~100으로 수치화했습니다.",
+        strategy: "수치 해석 (높을수록 좋음):\n- 70점 초과: 세력이 적극 매집 중 (등에 올라타십시오)\n- 50점 미만: 세력 이탈 또는 관망세"
+    },
+    'MRF': {
+        title: "MRF (시장 국면)",
+        desc: "해당 종목이 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
+        strategy: "상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
+    },
+    'AIC': {
+        title: "AIC (AI 합의)",
+        desc: "여러 AI 모델(Gemini, Perplexity)간의 분석 일치도입니다.",
+        strategy: "수치 해석:\n- 80% 이상: AI들의 의견이 강력하게 일치 (신뢰도 높음)\n- 50% 주변: 의견 엇갈림 (독자적 판단 필요)"
     }
 };
 
@@ -145,52 +191,137 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  
+  // WebSocket State
+  const [realtimePrices, setRealtimePrices] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
+  const wsRef = useRef<WebSocket | null>(null);
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
   const [selectedMetricInfo, setSelectedMetricInfo] = useState<{ title: string; desc: string; value: string; key: string; overlayDesc: string } | null>(null);
-  
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
   const [activeAlphaInsight, setActiveAlphaInsight] = useState<string | null>(null); 
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  // [KELLY CRITERION] Mathematical Sizing - SAFEGUARDED
-  const kellyInfo = useMemo(() => {
+  // [QUANT CALCULATION ENGINE]
+  const quantMetrics = useMemo(() => {
       try {
-          if (!selectedStock || !backtestData[selectedStock.symbol]) return null;
-          const metrics = backtestData[selectedStock.symbol].metrics;
-          if (!metrics) return null;
-          
-          const winRateStr = String(metrics.winRate || "0").replace('%','');
-          const winProb = parseFloat(winRateStr) / 100; // P
-          const profitFactor = parseFloat(metrics.profitFactor || "1.5");
-          
-          // Safety defaults
-          if (isNaN(winProb) || isNaN(profitFactor)) return null;
+          if (!selectedStock) return null;
 
-          const R = 2.0; // Standard Risk:Reward assumption
+          // 1. INPUTS
+          const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
+          const entry = selectedStock.supportLevel || selectedStock.price * 0.98;
+          const stop = selectedStock.stopLoss || selectedStock.price * 0.95;
+          const target = selectedStock.resistanceLevel || selectedStock.price * 1.10;
           
-          let kellyRaw = winProb - ((1 - winProb) / R);
+          const roe = selectedStock.roe || 15; 
+          const ictScore = selectedStock.ictScore || conviction; 
+          const intrinsic = selectedStock.intrinsicValue || selectedStock.price;
+          
+          // 2. ODDS & PROB
+          const simMetrics = backtestData[selectedStock.symbol]?.metrics;
+          let P = 0; 
+          let B = 0; 
+          
+          if (simMetrics && parseFloat(String(simMetrics.winRate).replace('%','')) > 0) {
+              P = parseFloat(String(simMetrics.winRate).replace('%','')) / 100;
+              B = parseFloat(simMetrics.profitFactor || "1.5");
+          } else {
+              P = 0.30 + (conviction / 100) * 0.30; 
+              
+              if (selectedStock.riskRewardRatio) {
+                  const parts = selectedStock.riskRewardRatio.split(':');
+                  B = parts.length === 2 ? parseFloat(parts[1]) : 2.0;
+              } else {
+                  B = (target - entry) / (entry - stop);
+              }
+          }
+          if (isNaN(B) || B <= 0) B = 1.5;
+          
+          // 3. SIZING (Kelly)
+          const Q = 1 - P;
+          let kellyRaw = P - (Q / B);
           if (kellyRaw < 0) kellyRaw = 0;
-          if (kellyRaw > 1) kellyRaw = 0.99; // Cap at 99%
+          const halfKelly = Math.min((kellyRaw * 0.5 * 100), 20.0);
           
-          // Hedge Fund Safety: Fractional Kelly (Half-Kelly)
-          const halfKelly = kellyRaw * 0.5;
-          
+          // VAPS
+          const riskPerShare = Math.max(0.01, entry - stop);
+          const vapsQty = Math.floor(1000 / riskPerShare);
+          const vapsAllocation = (vapsQty * entry) / 1000; 
+
+          // 4. SELECTION
+          const upside = ((target - entry) / entry) * 100;
+          const erci = upside * Math.log10(conviction || 10) * (ictScore / 100);
+          const qmScore = (roe * 0.4) + (ictScore * 0.6);
+          const sorosRatio = B * (ictScore / 50);
+          const ivg = selectedStock.fairValueGap || ((intrinsic - selectedStock.price)/selectedStock.price * 100);
+
+          // 5. TIMING
+          const squeeze = selectedStock.techMetrics?.squeezeState === 'SQUEEZE_ON';
+          const displacement = selectedStock.ictMetrics?.displacement > 60;
+          const convexity = squeeze ? (displacement ? "Explosive" : "Building") : "Standard";
+          const ifs = selectedStock.ictMetrics?.smartMoneyFlow || 50;
+
+          // 6. SYSTEM
+          const expectancy = (P * B) - (Q * 1);
+          const aic = selectedStock.aiVerdict === 'STRONG_BUY' ? 95 : selectedStock.aiVerdict === 'BUY' ? 80 : 50;
+
           return {
-              percentage: (halfKelly * 100).toFixed(1),
-              rating: halfKelly > 0.2 ? "AGGRESSIVE" : halfKelly > 0.1 ? "MODERATE" : "CONSERVATIVE"
+              sizing: { kelly: halfKelly.toFixed(1), vapsQty, vapsPct: vapsAllocation.toFixed(1), riskPerShare: riskPerShare.toFixed(2) },
+              selection: { erci: erci.toFixed(1), qm: qmScore.toFixed(0), ivg: ivg.toFixed(1), soros: sorosRatio.toFixed(1) },
+              timing: { convexity, ifs: ifs.toFixed(0), mrf: selectedStock.marketState || 'Neutral' },
+              system: { expectancy: expectancy.toFixed(2), aic }
           };
-      } catch (e) {
-          console.error("Kelly Calc Error:", e);
-          return null;
-      }
+      } catch (e) { return null; }
   }, [selectedStock, backtestData]);
+
+  // --- WEBSOCKET CONNECTION ---
+  useEffect(() => {
+      const currentSymbols = resultsCache[selectedBrain] || [];
+      if (activeTab === 'INDIVIDUAL' && currentSymbols.length > 0 && polygonKey) {
+          if (wsRef.current) wsRef.current.close();
+          
+          const ws = new WebSocket('wss://socket.polygon.io/stocks');
+          wsRef.current = ws;
+          
+          ws.onopen = () => {
+              ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
+              const subs = currentSymbols.map(s => `T.${s.symbol}`).join(',');
+              ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
+          };
+          
+          ws.onmessage = (e) => {
+              try {
+                  const data = JSON.parse(e.data);
+                  data.forEach((msg: any) => {
+                      if (msg.ev === 'T' && msg.p) {
+                          setRealtimePrices(prev => {
+                              const oldPrice = prev[msg.sym]?.price || 0;
+                              const direction = msg.p > oldPrice ? 'up' : msg.p < oldPrice ? 'down' : prev[msg.sym]?.direction || null;
+                              return { ...prev, [msg.sym]: { price: msg.p, direction } };
+                          });
+                          setTimeout(() => {
+                              setRealtimePrices(prev => ({
+                                  ...prev, 
+                                  [msg.sym]: { ...prev[msg.sym], direction: null }
+                              }));
+                          }, 500);
+                      }
+                  });
+              } catch (err) {}
+          };
+          
+          return () => {
+              if (wsRef.current) wsRef.current.close();
+          };
+      }
+  }, [activeTab, resultsCache, selectedBrain]);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -211,16 +342,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [selectedBrain, resultsCache]);
 
   useEffect(() => {
-    if (accessToken && elite50.length === 0) loadStage5Data();
-  }, [accessToken]);
-
-  useEffect(() => {
-    if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
-        addLog("AUTO-PILOT: Initiating Alpha Singularity Protocol v2.0...", "signal");
-        setAutoPhase('ENGINE');
-        handleExecuteEngine();
+    if (autoStart && !loading && !resultsCache[selectedBrain]) {
+       addLog("AUTO-PILOT: Engaging Alpha Singularity Protocol...", "signal");
+       setAutoPhase('ENGINE');
+       executeAlphaEngine();
     }
-  }, [autoStart, autoPhase, loading, elite50]);
+  }, [autoStart]);
 
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
@@ -234,10 +361,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
       const finishAutoPilot = async () => {
           const currentResults = resultsCache[selectedBrain] || [];
-          
           if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && currentResults.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
-              
               let telegramPayload = ""; 
               try {
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
@@ -247,23 +372,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   addLog("Brief Gen Failed.", "err");
                   telegramPayload = "Brief Generation Failed.";
               }
-
               setAutoPhase('DONE');
               if (onComplete) onComplete(telegramPayload);
           }
       };
-      
       finishAutoPilot();
   }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
 
-
-  useEffect(() => {
-    setSelectedMetricInfo(null);
-    setActiveOverlay(null);
-    setActiveAlphaInsight(null);
-  }, [selectedStock]);
-
-  // Click Outside Handler for Alpha Insights
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
@@ -275,48 +390,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return () => document.removeEventListener('mousedown', handleClickOutside);
   }, []);
 
-  const handleStockClick = (item: AlphaCandidate) => {
-      setSelectedStock(item);
-      onStockSelected?.(item);
-  };
-
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
   };
 
-  const removeCitations = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text).replace(/\[\d+\]/g, '').trim();
-  };
-
-  const cleanInsightText = (text: any) => {
-    if (!text) return "";
-    const str = String(text);
-    return str
-      .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
-      .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
-      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
-      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") 
-      .replace(/[\u{2600}-\u{26FF}]/gu, "")   
-      .replace(/[\u{2700}-\u{27BF}]/gu, "")   
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
-      .replace(/\[\d+\]/g, '') 
-      .trim();
-  };
-
-  const cleanMarkdown = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text)
-        .replace(/\[\d+\]/g, '')
-        .replace(/\*\*/g, '')
-        .replace(/__/g, '')
-        .replace(/\*\*/g, '') 
-        .replace(/\*/g, '')
-        .replace(/#/g, '')
-        .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
-        .trim();
+  const handleStockClick = (item: AlphaCandidate) => {
+      setSelectedStock(item);
+      onStockSelected?.(item);
+      setActiveOverlay(null);
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -330,217 +412,78 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return create.id;
   };
 
-  const loadStage5Data = async () => {
-    if (!accessToken) return;
+  const executeAlphaEngine = async () => {
+    if (!accessToken || loading) return;
+    setLoading(true);
+    addLog("Initiating Alpha Singularity Protocol (Stage 6)...", "info");
+
     try {
-      const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+      let sourceStage = "STAGE5_ICT_ELITE_50";
+      let q = encodeURIComponent(`name contains '${sourceStage}' and trashed = false`);
+      let listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
-      
-      if (listRes.files?.length) {
-        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).then(r => r.json());
-        
-        if (content && content.ict_universe) {
-            setElite50(content.ict_universe);
-            addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
-        }
-      }
-    } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
-  };
 
-  const handleExecuteEngine = async () => {
-    if (loading) return;
-    setLoading(true);
-    let currentProvider = selectedBrain;
-    
-    addLog(`Initiating Alpha Singularity Protocol via ${currentProvider}...`, "signal");
-    addLog("Step 1: 3-Vector Data Fusion & Regime Scan...", "info");
-
-    try {
-      const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
-
-      await new Promise(r => setTimeout(r, 800));
-      addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
-      
-      await new Promise(r => setTimeout(r, 800));
-      addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "info");
-
-      let response = await generateAlphaSynthesis(topCandidates, currentProvider);
-      
-      if (response.error && currentProvider === ApiProvider.GEMINI) {
-          addLog(`Gemini Engine Failed: ${response.error}`, "warn");
-          setSelectedBrain(ApiProvider.PERPLEXITY);
-          if (autoStart) {
-              addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
-              currentProvider = ApiProvider.PERPLEXITY; 
-              response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
-          } else {
-              addLog("Switched to Sonar. Please click Execute to try again.", "info");
-              setLoading(false);
-              return; 
-          }
+      if (!listRes.files?.length) {
+          addLog("Stage 5 (ICT) missing. Falling back to Stage 4 (Tech)...", "warn");
+          sourceStage = "STAGE4_TECHNICAL_FULL";
+          q = encodeURIComponent(`name contains '${sourceStage}' and trashed = false`);
+          listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }).then(r => r.json());
       }
 
+      if (!listRes.files?.length) throw new Error("No Input Data (Stage 4 or 5) found.");
+
+      const fileId = listRes.files[0].id;
+      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+        headers: { 'Authorization': `Bearer ${accessToken}` }
+      }).then(r => r.json());
+
+      const candidates = content.ict_universe || content.technical_universe || [];
+      if (candidates.length === 0) throw new Error("Input data is empty.");
+
+      const topCandidates = candidates.slice(0, 12);
+      addLog(`Analyzing Top ${topCandidates.length} Candidates with ${selectedBrain}...`, "info");
+
+      const response = await generateAlphaSynthesis(topCandidates, selectedBrain);
+      
       if (response.error) throw new Error(response.error);
+      const results = response.data || [];
 
-      const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
+      if (results.length === 0) throw new Error("AI returned no results.");
+
+      const finalResults = results.map((r: any) => {
+          const original = topCandidates.find((c: any) => c.symbol === r.symbol);
+          return { ...original, ...r };
+      });
+
+      setResultsCache(prev => ({ ...prev, [selectedBrain]: finalResults }));
+      if (finalResults.length > 0) setSelectedStock(finalResults[0]);
+      if (onFinalSymbolsDetected) onFinalSymbolsDetected(finalResults.map((r:any) => r.symbol), finalResults);
+
+      addLog(`Alpha Protocol Complete. ${finalResults.length} Assets Selected.`, "ok");
+
+      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+      const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
+      const payload = {
+          manifest: { version: "9.9.9", strategy: "Alpha_Singularity_v2", brain: selectedBrain, timestamp: new Date().toISOString() },
+          alpha_universe: finalResults
+      };
+
+      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+      });
       
-      // [FIX] Sanitization & Type Coercion to prevent Black Screen
-      const mergedFinal = safeAiResults.map((aiData: any) => {
-        if (!aiData?.symbol) return null;
-        const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
-        if (!item) return null;
-        
-        const safePrice = Number(item.price);
-        const safeEntry = Number(aiData.supportLevel) || (safePrice * 0.98);
-        
-        return {
-            ...item, 
-            ...aiData, 
-            price: safePrice,
-            convictionScore: Number(aiData.convictionScore || item.compositeAlpha || 0),
-            supportLevel: safeEntry,
-            resistanceLevel: Number(aiData.resistanceLevel) || (safePrice * 1.25),
-            stopLoss: Number(aiData.stopLoss) || (safePrice * 0.94),
-        };
-      }).filter(x => x !== null) as AlphaCandidate[];
-
-      setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
-      
-      const currentToken = sessionStorage.getItem('gdrive_access_token');
-      
-      if (!currentToken) {
-          addLog("Save Failed: Cloud Vault Token is missing.", "err");
-      } else if (mergedFinal.length === 0) {
-          addLog("Save Skipped: No Alpha targets generated.", "warn");
-      } else {
-          try {
-              addLog("Initiating Vault Save Protocol...", "info");
-              const folderId = await ensureFolder(currentToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-              const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
-              const payload = {
-                manifest: { 
-                    version: "2.0.0", 
-                    strategy: "Alpha_Singularity_Protocol_v2", 
-                    timestamp: new Date().toISOString(), 
-                    provider: currentProvider 
-                },
-                alpha_universe: mergedFinal 
-              };
-
-              const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-              const form = new FormData();
-              form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-              form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-              const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST', headers: { 'Authorization': `Bearer ${currentToken}` }, body: form
-              });
-              
-              if (uploadRes.ok) {
-                  addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked & saved via ${currentProvider}.`, "ok");
-                  
-                  const first = mergedFinal[0];
-                  setSelectedStock(first);
-                  onStockSelected?.(first);
-                  onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
-              } else {
-                  const errorText = await uploadRes.text();
-                  addLog(`Vault Upload Failed: ${uploadRes.status} - ${errorText}`, "err");
-              }
-
-          } catch (uploadErr: any) {
-              addLog(`Vault Save Error: ${uploadErr.message}`, "err");
-          }
-      }
-
-    } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
-    finally { setLoading(false); }
-  };
-
-  const handleRunMatrixAudit = async (brain: ApiProvider) => {
-    if (matrixLoading) return;
-    setMatrixBrain(brain);
-    const currentResults = resultsCache[selectedBrain] || []; 
-    if (currentResults.length === 0) {
-        addLog("Error: Execute Alpha Engine first to generate data.", "err");
-        return;
-    }
-    setMatrixLoading(true);
-    let targetBrain = brain;
-    addLog(`Synthesizing Portfolio Matrix via ${targetBrain}...`, "signal");
-    
-    try {
-        let report = await analyzePipelineStatus({
-            currentStage: 6,
-            apiStatuses: [],
-            recommendedData: currentResults,
-            mode: 'PORTFOLIO'
-        }, targetBrain);
-        
-        if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
-             setMatrixBrain(ApiProvider.PERPLEXITY);
-             addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
-             
-             if (autoStart) {
-                 targetBrain = ApiProvider.PERPLEXITY;
-                 addLog("AUTO-PILOT: Retrying Matrix with Sonar...", "signal");
-                 report = await analyzePipelineStatus({
-                    currentStage: 6,
-                    apiStatuses: [],
-                    recommendedData: currentResults,
-                    mode: 'PORTFOLIO'
-                 }, targetBrain);
-             }
-        }
-        
-        const safeReport = String(report || "No analysis returned from neural engine.");
-        setMatrixReports(prev => ({ ...prev, [targetBrain]: safeReport }));
-        
-        const token = sessionStorage.getItem('gdrive_access_token');
-        if (token) {
-           const date = new Date().toISOString().split('T')[0];
-           const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
-           
-           addLog(`Archiving Report: ${fileName}...`, "info");
-           const saved = await archiveReport(token, fileName, safeReport);
-           if (saved) addLog(`Report Archived Successfully.`, "ok");
-           else addLog(`Report Archive Failed.`, "err");
-        }
-
-        addLog("Portfolio Matrix Audit complete.", "ok");
-    } catch (e: any) { 
-        addLog(`Matrix Error: ${e.message}`, "err"); 
-    } finally { 
-        setMatrixLoading(false); 
-    }
-  };
-
-  const handleManualTelegramSend = async () => {
-    if (sendingTelegram) return;
-    const currentResults = resultsCache[selectedBrain] || [];
-    if (currentResults.length === 0) {
-        addLog("No data to transmit. Run Alpha Engine first.", "err");
-        return;
-    }
-
-    setSendingTelegram(true);
-    addLog("Manual Command: Generating Telegram Brief...", "signal");
-
-    try {
-        const brief = await generateTelegramBrief(currentResults, selectedBrain);
-        const success = await sendTelegramReport(brief);
-        if (success) addLog("Telegram Transmission Successful.", "ok");
-        else addLog("Telegram Transmission Failed.", "err");
     } catch (e: any) {
-        addLog(`Telegram Error: ${e.message}`, "err");
+        addLog(`Alpha Engine Failed: ${e.message}`, "err");
     } finally {
-        setSendingTelegram(false);
+        setLoading(false);
     }
   };
 
@@ -555,7 +498,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
       const { data, error, isRealData } = await runAiBacktest(stock, selectedBrain);
       if (error) throw new Error(error);
-      
       if (!data) throw new Error("AI returned empty data structure");
       
       const safeContext = data.historicalContext || "Analysis data unavailable.";
@@ -571,6 +513,58 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog(`Simulation complete for ${stock.symbol} ${isRealData ? '(Real Data)' : '(AI Sim)'}.`, "ok");
     } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
     finally { setBacktestLoading(false); }
+  };
+
+  const handleRunMatrixAudit = async (brain: ApiProvider) => {
+    if (matrixLoading) return;
+    setMatrixBrain(brain);
+    const currentResults = resultsCache[selectedBrain] || []; 
+    if (currentResults.length === 0) {
+        addLog("Error: Execute Alpha Engine first to generate data.", "err");
+        return;
+    }
+    setMatrixLoading(true);
+    addLog(`Synthesizing Portfolio Matrix via ${brain}...`, "signal");
+    
+    try {
+        let report = await analyzePipelineStatus({
+            currentStage: 6,
+            apiStatuses: [],
+            recommendedData: currentResults,
+            mode: 'PORTFOLIO'
+        }, brain);
+        
+        const safeReport = String(report || "No analysis returned.");
+        setMatrixReports(prev => ({ ...prev, [brain]: safeReport }));
+        
+        const token = sessionStorage.getItem('gdrive_access_token');
+        if (token) {
+           const date = new Date().toISOString().split('T')[0];
+           const brainLabel = brain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+           const fileName = `${date}_Portfolio_Matrix_${brainLabel}.md`;
+           await archiveReport(token, fileName, safeReport);
+        }
+        addLog("Portfolio Matrix Audit complete.", "ok");
+    } catch (e: any) { addLog(`Matrix Error: ${e.message}`, "err"); } 
+    finally { setMatrixLoading(false); }
+  };
+
+  const handleManualTelegramSend = async () => {
+    if (sendingTelegram) return;
+    const currentResults = resultsCache[selectedBrain] || [];
+    if (currentResults.length === 0) {
+        addLog("No data to transmit. Run Alpha Engine first.", "err");
+        return;
+    }
+    setSendingTelegram(true);
+    addLog("Manual Command: Generating Telegram Brief...", "signal");
+    try {
+        const brief = await generateTelegramBrief(currentResults, selectedBrain);
+        const success = await sendTelegramReport(brief);
+        if (success) addLog("Telegram Transmission Successful.", "ok");
+        else addLog("Telegram Transmission Failed.", "err");
+    } catch (e: any) { addLog(`Telegram Error: ${e.message}`, "err"); } 
+    finally { setSendingTelegram(false); }
   };
 
   const handleMetricClick = (key: string, value: string) => {
@@ -591,101 +585,60 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (text.includes('STRONGBUY') || text.includes('강력매수')) return '강력 매수';
     if (text === 'BUY' || text === '매수') return '매수';
     if (text.includes('ACCUMULATE') || text.includes('비중')) return '비중 확대';
-    if (text.includes('HOLD') || text.includes('NEUTRAL') || text.includes('관망') || text.includes('보유')) return '관망';
-    if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
-    if (text === 'SELL' || text === '매도') return '매도';
-    if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기')) return '고위험';
+    if (text.includes('HOLD') || text.includes('관망')) return '관망';
     return v || "대기";
   };
 
   const getVerdictStyle = (v?: string) => {
     const text = cleanVerdict(v);
-    if (text.includes('STRONG') || text.includes('강력') || text.includes('적극')) 
-        return 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-500 shadow-[0_0_20px_rgba(220,38,38,0.6)] font-black tracking-wider animate-pulse';
-    if (text.includes('BUY') || text.includes('매수')) 
-        return 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] font-black tracking-wide';
-    if (text.includes('RISK') || text.includes('고위험') || text.includes('SPECULATIVE') || text.includes('투기')) 
-        return 'bg-violet-600 text-white border-violet-500 shadow-lg font-bold';
-    if (text.includes('ACCUMULATE') || text.includes('HOLD') || text.includes('비중') || text.includes('보유') || text.includes('관망') || text.includes('물량') || text.includes('중립')) 
-        return 'bg-slate-600 text-slate-200 border-slate-500 font-bold';
-    if (text.includes('SELL') || text.includes('매도') || text.includes('청산')) 
-        return 'bg-blue-700 text-white border-blue-500 font-bold';
+    if (text.includes('STRONG')) return 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-500 animate-pulse';
+    if (text.includes('BUY')) return 'bg-emerald-600 text-white border-emerald-400';
     return 'bg-slate-700 text-slate-300 border-slate-600';
   };
 
   const currentResults = resultsCache[selectedBrain] || [];
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
-  const generateSyntheticData = (metrics: any) => {
-      const winRate = parseFloat(String(metrics?.winRate).replace(/[^0-9.]/g, '')) || 60;
-      const profitFactor = parseFloat(String(metrics?.profitFactor).replace(/[^0-9.]/g, '')) || 1.8;
-      let value = 0;
-      const data = [];
-      const now = new Date();
-      // ALWAYS 24 MONTHS for consistency
-      for (let i = 24; i >= 0; i--) {
-          const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-          const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
-          if (i === 24) {
-              data.push({ period, value: 0 });
-          } else {
-              const isWin = Math.random() * 100 < winRate;
-              const vol = 3 + Math.random() * 5; 
-              const move = isWin ? (vol * (Math.random() * 0.5 + 0.8)) : -(vol * (Math.random() * 0.5 + 0.8) / profitFactor);
-              const drift = profitFactor > 1.2 ? 0.5 : 0;
-              value += (move + drift);
-              data.push({ period, value: Number(value.toFixed(1)) });
-          }
-      }
-      return data;
-  };
-
   const chartData = useMemo(() => {
     try {
         if (!currentBacktest) return [];
         let rawData: any[] = [];
         if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
-            rawData = currentBacktest.equityCurve.map((item) => {
-                const valStr = String(item.value);
-                const cleanVal = valStr.replace(/[^0-9.-]/g, '');
-                const val = parseFloat(cleanVal);
-                return {
-                    period: item.period,
-                    value: isNaN(val) ? 0 : val
-                };
-            });
-        } else {
-            rawData = generateSyntheticData(currentBacktest?.metrics);
-        }
+            rawData = currentBacktest.equityCurve.map((item) => ({
+                period: item.period,
+                value: parseFloat(String(item.value).replace(/[^0-9.-]/g, '')) || 0
+            }));
+        } else { return []; }
 
-        // Hedge-fund Advanced Logic: Full 24-month calculation
         let runningPeak = -Infinity;
         return rawData.map((d, i) => {
             if (d.value > runningPeak) runningPeak = d.value;
             const drawdown = d.value - runningPeak;
             const prevValue = i > 0 ? rawData[i-1].value : 0;
             const delta = d.value - prevValue; 
-            const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
+            const isWin = d.value >= prevValue;
             
-            // Sharpe Ideal Regression Path
             const totalPeriods = rawData.length - 1;
             const finalVal = rawData[rawData.length - 1].value;
             const idealValue = i * (finalVal / (totalPeriods || 1));
 
-            return {
-                ...d,
-                drawdown: Number(drawdown.toFixed(2)),
-                peak: Number(runningPeak.toFixed(2)),
-                delta: Number(delta.toFixed(2)),
-                idealValue: Number(idealValue.toFixed(2)),
-                isWin: isWin
-            };
+            return { ...d, drawdown: Number(drawdown.toFixed(2)), delta: Number(delta.toFixed(2)), idealValue: Number(idealValue.toFixed(2)), isWin };
         });
-    } catch(e) { console.error("Chart Calc Error", e); return []; }
+    } catch(e) { return []; }
   }, [currentBacktest]);
 
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
+
+  const cleanInsightText = (text: any) => String(text || "").replace(/[\u{1F600}-\u{1F6FF}]/gu, "").trim();
+
+  // Price Positioning
+  const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
+      const range = target - stop;
+      if (Math.abs(range) < 0.0001) return 50; 
+      const position = price - stop;
+      return Math.max(0, Math.min(100, (position / range) * 100));
+  };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
@@ -717,7 +670,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
               )}
               {activeTab === 'INDIVIDUAL' && (
-                  <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse text-slate-500' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
+                  <button onClick={executeAlphaEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse text-slate-500' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
                     {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
                   </button>
               )}
@@ -728,9 +681,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
                 const isSelected = selectedStock?.symbol === item.symbol;
-                const isAuditRunning = analyzingSymbols.has(item.symbol);
+                const isAuditRunning = analyzingSymbols?.has(item.symbol);
+                const rtData = realtimePrices[item.symbol];
+                const displayPrice = rtData?.price || item.price;
+                const flashClass = rtData?.direction === 'up' ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]' 
+                                 : rtData?.direction === 'down' ? 'bg-rose-500/20 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.3)]' 
+                                 : '';
+
                 return (
-                  <div key={item.symbol} onClick={() => handleStockClick(item)} className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5'}`}>
+                  <div 
+                    key={item.symbol} 
+                    onClick={() => handleStockClick(item)} 
+                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
+                  >
                     {((loading && isSelected) || isAuditRunning) && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
@@ -747,19 +710,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                         <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                       </div>
-                      <span className="text-xs font-mono font-black text-slate-400 mt-1">${Number(item.price)?.toFixed(2)}</span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
-                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
-                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
-                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
-                    </div>
-                    <div className="flex justify-between items-center mt-3">
-                      <div className="flex flex-col">
-                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">예상 수익률 (Exp. Return)</span>
-                        <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
+                      <div className="text-right">
+                          <span className={`text-xs font-mono font-black mt-1 block ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
+                              ${Number(displayPrice)?.toFixed(2)}
+                          </span>
+                          {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE FEED</span>}
                       </div>
+                    </div>
+                    
+                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner mt-4">
+                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(2) || '---'}</p></div>
+                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(2) || '---'}</p></div>
+                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(2) || '---'}</p></div>
+                    </div>
+                    
+                    <div className="flex justify-between items-center mt-3">
                       <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
                     </div>
                   </div>
@@ -778,20 +743,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </button>
                     </div>
                     <div className="pr-2 flex items-center gap-4">
-                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest hidden md:inline-block">
-                            Active Matrix Node: {matrixBrain === ApiProvider.GEMINI ? 'Google Gemini' : 'Perplexity Sonar'}
-                        </span>
                          {currentResults.length > 0 && (
                             <button 
                                 onClick={handleManualTelegramSend} 
                                 disabled={sendingTelegram}
                                 className={`px-4 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all flex items-center gap-2 ${sendingTelegram ? 'bg-blue-900 border-blue-700 text-blue-400 animate-pulse' : 'bg-blue-600 text-white border-blue-400 hover:bg-blue-500 shadow-lg'}`}
                             >
-                                {sendingTelegram ? (
-                                    <><span>Transmit Brief to HQ</span><div className="flex items-center gap-2 ml-2"><span className="text-blue-300 animate-pulse">SENDING...</span><div className="w-2 h-2 bg-blue-400 rounded-full animate-ping"></div></div></>
-                                ) : (
-                                    <><span>Transmit Brief to HQ</span><svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8" /></svg></>
-                                )}
+                                {sendingTelegram ? 'Transmitting...' : 'Transmit Brief to HQ'}
                             </button>
                         )}
                     </div>
@@ -801,25 +759,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <button onClick={() => handleRunMatrixAudit(matrixBrain)} disabled={matrixLoading} className="absolute top-8 right-8 px-4 py-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-lg text-[8px] font-black uppercase tracking-widest border border-white/5 transition-all">
                         {matrixLoading ? 'Refreshing...' : 'Regenerate Analysis'}
                     </button>
-                   <div className="mb-4 flex items-center justify-between border-b border-white/10 pb-4">
-                        <span className="text-[9px] font-black uppercase tracking-widest text-slate-500">
-                            Comprehensive Matrix Audit by {matrixBrain === ApiProvider.GEMINI ? 'Gemini 3 Pro' : 'Perplexity Sonar'}
-                        </span>
-                        <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
-                   </div>
                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                         {cleanInsightText(matrixReports[matrixBrain])}
                    </ReactMarkdown>
                  </div>
                ) : (
                  <div className="min-h-[300px] flex flex-col items-center justify-center text-center space-y-6 border border-dashed border-white/10 rounded-[40px]">
-                    <div className="w-16 h-16 bg-slate-800/50 rounded-full flex items-center justify-center">
-                        <svg className="w-8 h-8 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
-                    </div>
-                    <div>
-                        <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.2em]">Ready to Synthesize Portfolio Matrix</p>
-                        <p className="text-[9px] text-slate-600 mt-2">Using {matrixBrain} Neural Engine</p>
-                    </div>
                     <button onClick={() => handleRunMatrixAudit(matrixBrain)} disabled={matrixLoading} className={`px-10 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${matrixLoading ? 'bg-slate-800 text-slate-500' : matrixBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white hover:scale-105' : 'bg-cyan-600 text-white hover:scale-105'}`}>
                         {matrixLoading ? 'Processing...' : 'Execute Strategic Analysis'}
                     </button>
@@ -831,439 +776,175 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         
         {activeTab === 'INDIVIDUAL' && selectedStock && (
              <div key={selectedStock.symbol} className="glass-panel p-8 rounded-[50px] bg-slate-950 border-t-2 border-t-rose-600 animate-in fade-in slide-in-from-bottom-8 duration-700 shadow-3xl">
-                 <div className="flex flex-col lg:flex-row items-end gap-6 mb-8">
-                    <div className="flex flex-col">
-                        <h3 className="text-6xl font-black text-white italic tracking-tighter leading-none uppercase">{selectedStock.symbol}</h3>
-                        <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">{selectedStock.name}</p>
-                    </div>
-                    <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
-                    </div>
+                 <div className="flex justify-between items-start mb-6">
+                     <div>
+                        <h3 className="text-2xl font-black text-white uppercase italic tracking-tighter flex items-center gap-2">
+                            {selectedStock.symbol} <span className="text-base text-slate-500 not-italic font-medium normal-case tracking-normal">| {selectedStock.name}</span>
+                        </h3>
+                        <p className="text-[10px] font-bold text-rose-500 mt-1 uppercase tracking-widest">{translateVerdict(selectedStock.aiVerdict)} • {selectedStock.theme}</p>
+                     </div>
+                     <div className="flex gap-2">
+                        {['RISK', 'ENTRY', 'REWARD'].map(k => (
+                            <button 
+                                key={k}
+                                onClick={() => setActiveAlphaInsight(k)}
+                                className={`px-3 py-1 rounded-full text-[8px] font-black uppercase border transition-all ${activeAlphaInsight === k ? 'bg-rose-600 text-white border-rose-500' : 'border-white/10 text-slate-500 hover:text-white'}`}
+                            >
+                                {k} Logic
+                            </button>
+                        ))}
+                     </div>
                  </div>
-                 
-                 <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
-                     <div className="lg:col-span-3 space-y-8">
-                         {/* Chart Section */}
-                         <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative group">
-                            <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
-                         </div>
 
-                         {/* Tactical Execution Map - Redesigned for Clarity */}
-                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 relative mt-4">
-                            
-                            {/* Header with Explanations */}
-                            <div className="flex justify-between items-end mb-2">
-                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tactical Range Map</h4>
-                                <div className="flex gap-3 text-[8px] font-bold uppercase tracking-wider">
-                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-rose-500/50 rounded-sm"></div>Stop Zone</div>
-                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-slate-600/50 rounded-sm"></div>Buffer</div>
-                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500/50 rounded-sm"></div>Profit Zone</div>
-                                </div>
-                            </div>
-
-                            {/* The Bar Visualization */}
-                            <div className="relative h-12 w-full mt-2">
-                                {/* Track Line */}
-                                <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
-                                     {/* Gradient Background representing the transition from Stop to Target */}
-                                     <div className="w-full h-full bg-gradient-to-r from-rose-900 via-slate-800 to-emerald-900 opacity-50"></div>
-                                </div>
-
-                                {/* Markers Container */}
-                                {(() => {
-                                    const stop = selectedStock.stopLoss || 0;
-                                    const entry = selectedStock.supportLevel || 0;
-                                    const target = selectedStock.resistanceLevel || 0;
-                                    const current = selectedStock.price || 0;
-                                    
-                                    // Define Range: Min = Stop - 2%, Max = Target + 2%
-                                    const minPrice = stop * 0.98;
-                                    const maxPrice = target * 1.02;
-                                    const totalRange = maxPrice - minPrice;
-                                    
-                                    const getPos = (p: number) => {
-                                        if (totalRange <= 0) return 50;
-                                        const pct = ((p - minPrice) / totalRange) * 100;
-                                        return Math.max(0, Math.min(100, pct));
-                                    };
-
-                                    const stopPos = getPos(stop);
-                                    const entryPos = getPos(entry);
-                                    const targetPos = getPos(target);
-                                    const currentPos = getPos(current);
-
-                                    return (
-                                        <>
-                                            {/* Zones (Visualizing ranges) */}
-                                            <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${stopPos}%` }}></div>
-                                            <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${entryPos}%`, right: '0%' }}></div>
-
-                                            {/* STOP LOSS MARKER */}
-                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
-                                                <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                                                <div className="absolute -top-4 text-[8px] font-black text-rose-500 whitespace-nowrap">STOP ${stop.toFixed(2)}</div>
-                                            </div>
-
-                                            {/* ENTRY MARKER */}
-                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
-                                                <div className="h-4 w-0.5 bg-blue-400"></div>
-                                                <div className="absolute top-8 text-[8px] font-black text-blue-400 whitespace-nowrap">ENTRY ${entry.toFixed(2)}</div>
-                                            </div>
-
-                                            {/* TARGET MARKER */}
-                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
-                                                <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-                                                <div className="absolute -top-4 text-[8px] font-black text-emerald-500 whitespace-nowrap">TARGET ${target.toFixed(2)}</div>
-                                            </div>
-
-                                            {/* CURRENT PRICE PUCK */}
-                                            <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${currentPos}%`, transition: 'left 1s ease-out' }}>
-                                                <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
-                                                    <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
-                                                    <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
-                                                </div>
-                                                <div className="absolute -bottom-8 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center">
-                                                    <span>CURRENT</span>
-                                                    <span className="text-[10px]">${current.toFixed(2)}</span>
-                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
-                                                </div>
-                                            </div>
-                                        </>
-                                    );
-                                })()}
-                            </div>
-
-                            {/* Interactive Toggles */}
-                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10 mt-6 border-t border-white/5 pt-3">
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('RISK')} 
-                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0)
-                                </span>
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('ENTRY')}
-                                    className="text-blue-300 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    Optimal Entry Zone
-                                </span>
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('REWARD')}
-                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})<div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                </span>
-                            </div>
-
-                            {/* Tactical Insight Overlay */}
-                            {activeAlphaInsight && ALPHA_INSIGHTS[activeAlphaInsight] && (
-                                <div className="alpha-insight-overlay absolute bottom-20 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
-                                    <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-blue-500/30 shadow-2xl relative">
-                                        <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                        <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                                            {ALPHA_INSIGHTS[activeAlphaInsight].title}
-                                        </h5>
-                                        <p className="text-[10px] text-slate-300 leading-relaxed font-medium mb-3">{ALPHA_INSIGHTS[activeAlphaInsight].desc}</p>
-                                        <div className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20">
-                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">💡 Strategy:</p>
-                                            <p className="text-[9px] text-slate-400 leading-relaxed">{ALPHA_INSIGHTS[activeAlphaInsight].strategy}</p>
+                 {/* Tactical Execution Map */}
+                 <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 relative mt-4 mb-8">
+                    <div className="flex justify-between items-end mb-2">
+                        <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tactical Range Map</h4>
+                        <div className="flex gap-3 text-[8px] font-bold uppercase tracking-wider">
+                            <div className="flex items-center gap-1"><div className="w-2 h-2 bg-rose-500/50 rounded-sm"></div>Stop Zone</div>
+                            <div className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500/50 rounded-sm"></div>Profit Zone</div>
+                        </div>
+                    </div>
+                    <div className="relative h-16 w-full mt-8">
+                        <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
+                             <div className="w-full h-full bg-gradient-to-r from-rose-900 via-slate-800 to-emerald-900 opacity-50"></div>
+                        </div>
+                        {(() => {
+                            const stop = selectedStock.stopLoss || 0;
+                            const entry = selectedStock.supportLevel || 0;
+                            const target = selectedStock.resistanceLevel || 0;
+                            const current = realtimePrices[selectedStock.symbol]?.price || selectedStock.price || 0;
+                            const minPrice = stop * 0.98;
+                            const maxPrice = target * 1.02;
+                            const totalRange = maxPrice - minPrice;
+                            const getPos = (p: number) => {
+                                if (totalRange <= 0) return 50;
+                                const pct = ((p - minPrice) / totalRange) * 100;
+                                return Math.max(0, Math.min(100, pct));
+                            };
+                            return (
+                                <>
+                                    <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${getPos(stop)}%` }}></div>
+                                    <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${getPos(entry)}%`, right: '0%' }}></div>
+                                    <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${getPos(stop)}%` }}>
+                                        <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
+                                        <div className="absolute -top-10 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
+                                    </div>
+                                    <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${getPos(entry)}%` }}>
+                                        <div className="h-4 w-0.5 bg-blue-400"></div>
+                                        <div className="absolute -top-4 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
+                                    </div>
+                                    <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${getPos(target)}%` }}>
+                                        <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
+                                        <div className="absolute -top-10 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
+                                    </div>
+                                    <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${getPos(current)}%`, transition: 'left 1s ease-out' }}>
+                                        <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
+                                            <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
+                                            <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
+                                        </div>
+                                        <div className="absolute top-8 mt-1 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center z-30">
+                                            <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
+                                            <span>CURRENT</span>
+                                            <span className="text-[10px]">${current.toFixed(2)}</span>
                                         </div>
                                     </div>
-                                </div>
-                            )}
-                        </div>
-                         
-                          <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
-                            <div className="prose-report min-h-[200px]">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
-                                </ReactMarkdown>
-                            </div>
-                        </div>
-                     </div>
-                     <div className="lg:col-span-2 space-y-6">
-                        <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
-                            <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
-                            <ul className="space-y-4">
-                                {selectedStock.selectionReasons?.length ? selectedStock.selectionReasons.map((r, i) => (
-                                <li key={i} className="flex items-start gap-4">
-                                    <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
-                                    <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
-                                </li>
-                                )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
-                            </ul>
-                        </div>
-                        {/* Kelly Criterion Box - Clickable for Insight */}
-                        {kellyInfo && (
-                            <div 
-                                onClick={() => setActiveAlphaInsight('KELLY')}
-                                className="p-6 bg-indigo-900/10 rounded-[40px] border border-indigo-500/20 shadow-inner relative overflow-hidden cursor-help hover:bg-indigo-900/20 transition-colors group alpha-insight-trigger"
-                            >
-                                <div className="absolute top-0 right-0 p-4 opacity-10 group-hover:opacity-20 transition-opacity">
-                                    <svg className="w-24 h-24 text-indigo-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm1.41 16.09V20h-2.67v-1.93c-1.71-.36-3.16-1.46-3.27-3.4h1.96c.1 1.05 1.18 1.91 2.53 1.91 1.29 0 2.13-.81 2.13-1.88 0-1.1-.68-1.57-1.75-1.82l-2.01-.46c-1.22-.29-2.75-1.02-2.75-2.73 0-1.5 1.12-2.67 2.82-2.96V4.5h2.67v1.88c1.55.27 2.76 1.32 2.94 2.89h-2c-.17-.83-1.07-1.5-2.33-1.5-1.12 0-1.88.68-1.88 1.62 0 .97.82 1.42 1.91 1.69l1.64.4c1.72.43 3.09 1.23 3.09 3.09 0 1.63-1.18 2.8-2.93 3.16z"/></svg>
-                                </div>
-                                <h4 className="text-[9px] font-black text-indigo-400 uppercase mb-2 italic tracking-widest flex items-center gap-2">
-                                    Kelly Criterion (Optimal Sizing)
-                                    <svg className="w-3 h-3 opacity-50" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                </h4>
-                                <div className="flex items-end gap-4">
-                                    <span className="text-4xl font-black text-white italic tracking-tighter">{kellyInfo.percentage}%</span>
-                                    <span className={`text-[10px] font-bold uppercase px-2 py-1 rounded mb-2 ${kellyInfo.rating === 'AGGRESSIVE' ? 'bg-rose-500 text-white' : kellyInfo.rating === 'MODERATE' ? 'bg-indigo-500 text-white' : 'bg-slate-600 text-slate-300'}`}>
-                                        {kellyInfo.rating} Position
-                                    </span>
-                                </div>
-                                <p className="text-[9px] text-slate-400 mt-2 leading-relaxed">
-                                    Based on simulated Win Rate and Profit Factor. Represents fractional Kelly (Half-Kelly) for risk management.
-                                </p>
-                            </div>
-                        )}
-                     </div>
+                                </>
+                            );
+                        })()}
+                    </div>
                  </div>
 
-                 <div className="mt-8 border-t border-white/5 pt-8">
-                    <div className="flex justify-between items-end mb-6">
-                        <div className="flex items-center gap-4">
-                            <div>
-                                <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Backtest_Protocol</h4>
-                                {currentBacktest && <p className="text-[9px] text-slate-500 font-mono font-bold">SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span></p>}
-                            </div>
-                            {currentBacktest && (
-                                <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
-                            )}
-                            {currentBacktest && (
-                                <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStock.symbol}</span>
-                            )}
+                 {/* Quant Metrics Grid */}
+                 {quantMetrics && (
+                    <div className="mb-8 grid grid-cols-2 lg:grid-cols-4 gap-4 p-4 rounded-[30px] border border-white/5 bg-black/20">
+                        <div onClick={() => setActiveAlphaInsight('HALF_KELLY')} className="p-3 bg-indigo-900/10 rounded-xl border border-indigo-500/20 cursor-help hover:bg-indigo-900/20 transition-all alpha-insight-trigger">
+                            <p className="text-[7px] text-indigo-300 font-bold uppercase mb-1">Kelly Size</p>
+                            <p className="text-lg font-black text-white">{quantMetrics.sizing.kelly}%</p>
                         </div>
+                        <div onClick={() => setActiveAlphaInsight('ERCI')} className="p-3 bg-violet-900/10 rounded-xl border border-violet-500/20 cursor-help hover:bg-violet-900/20 transition-all alpha-insight-trigger">
+                            <p className="text-[7px] text-violet-300 font-bold uppercase mb-1">ERCI</p>
+                            <p className="text-lg font-black text-white">{quantMetrics.selection.erci}</p>
+                        </div>
+                        <div onClick={() => setActiveAlphaInsight('IFS')} className="p-3 bg-amber-900/10 rounded-xl border border-amber-500/20 cursor-help hover:bg-amber-900/20 transition-all alpha-insight-trigger">
+                            <p className="text-[7px] text-amber-300 font-bold uppercase mb-1">IFS Flow</p>
+                            <p className="text-lg font-black text-white">{quantMetrics.timing.ifs}</p>
+                        </div>
+                        <div onClick={() => setActiveAlphaInsight('EXPECTANCY')} className="p-3 bg-emerald-900/10 rounded-xl border border-emerald-500/20 cursor-help hover:bg-emerald-900/20 transition-all alpha-insight-trigger">
+                            <p className="text-[7px] text-emerald-300 font-bold uppercase mb-1">Expectancy</p>
+                            <p className="text-lg font-black text-white">{quantMetrics.system.expectancy}R</p>
+                        </div>
+                    </div>
+                 )}
+
+                 {/* Insight Overlay for Frameworks */}
+                 {activeAlphaInsight && (FRAMEWORK_INSIGHTS[activeAlphaInsight] || ALPHA_INSIGHTS[activeAlphaInsight]) && (
+                     <div className="mb-6 bg-slate-900 border border-indigo-500/30 p-4 rounded-2xl animate-in fade-in slide-in-from-top-2 alpha-insight-overlay shadow-2xl">
+                         <div className="flex justify-between items-start mb-2">
+                             <h4 className="text-[9px] font-black text-indigo-400 uppercase tracking-widest">
+                                 {(FRAMEWORK_INSIGHTS[activeAlphaInsight] || ALPHA_INSIGHTS[activeAlphaInsight]).title}
+                             </h4>
+                             <button onClick={() => setActiveAlphaInsight(null)} className="text-slate-500 hover:text-white">✕</button>
+                         </div>
+                         <p className="text-[10px] text-slate-300 leading-relaxed mb-3">{(FRAMEWORK_INSIGHTS[activeAlphaInsight] || ALPHA_INSIGHTS[activeAlphaInsight]).desc}</p>
+                         <div className="bg-indigo-900/20 p-2 rounded border border-indigo-500/20">
+                             <p className="text-[9px] text-emerald-400 font-bold">💡 Strategy: <span className="text-slate-400 font-medium">{(FRAMEWORK_INSIGHTS[activeAlphaInsight] || ALPHA_INSIGHTS[activeAlphaInsight]).strategy}</span></p>
+                         </div>
+                     </div>
+                 )}
+
+                 <div className="prose-report text-sm text-slate-300 leading-7">
+                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{cleanInsightText(selectedStock.investmentOutlook)}</ReactMarkdown>
+                 </div>
+
+                 {/* Backtest Section */}
+                 <div className="mt-8 border-t border-white/5 pt-8">
+                    <div className="flex justify-between items-center mb-6">
+                        <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] italic">Quant_Backtest_Protocol</h4>
                         {!currentBacktest && (
                              <button 
                                 onClick={(e) => handleRunBacktest(selectedStock, e)} 
                                 disabled={backtestLoading}
-                                className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
+                                className="px-6 py-2 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
                             >
                                 {backtestLoading ? 'Running Simulation...' : 'Run Portfolio Simulation'}
                             </button>
                         )}
                     </div>
 
-                    {currentBacktest ? (
-                        <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
-                             <div className="flex flex-col gap-4">
-                                <div className="space-y-3">
-                                    <div 
-                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'WIN_RATE' ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
-                                        <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
-                                    </div>
-                                    <div 
-                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'PROFIT_FACTOR' ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
-                                        <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
-                                    </div>
-                                    <div 
-                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'MAX_DRAWDOWN' ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
-                                        <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
-                                    </div>
-                                    <div 
-                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'SHARPE_RATIO' ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
-                                        <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
-                                    </div>
-                                </div>
-
-                                <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
-                                    {selectedMetricInfo ? (
-                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
-                                            <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
-                                                <span className={`w-1.5 h-1.5 rounded-full ${activeOverlay === selectedMetricInfo.key ? 'animate-ping' : ''} bg-emerald-500`}></span>
-                                                {selectedMetricInfo.title}
-                                                {activeOverlay === selectedMetricInfo.key && <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto font-black uppercase tracking-tighter">OVERLAY ACTIVE</span>}
-                                            </h5>
-                                            <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
-                                                <ReactMarkdown 
-                                                    remarkPlugins={[remarkGfm]}
-                                                    components={{
-                                                        ...MarkdownComponents,
-                                                        h3: ({node, ...props}) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1 uppercase tracking-wide" {...props} />,
-                                                        p: ({node, ...props}) => <p className="mb-2" {...props} />,
-                                                        ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 mb-2" {...props} />,
-                                                        li: ({node, ...props}) => <li className="pl-1 marker:text-emerald-500" {...props} />,
-                                                        strong: ({node, ...props}) => <strong className="text-white font-bold" {...props} />
-                                                    }}
-                                                >
-                                                    {selectedMetricInfo.desc}
-                                                </ReactMarkdown>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
-                                             <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric to overlay</p>
-                                        </div>
-                                    )}
+                    {currentBacktest && (
+                        <div className="space-y-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                             <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 h-[320px] flex flex-col">
+                                <div className="flex-1 w-full min-h-0">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                                            <defs>
+                                                <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                                                    <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
+                                            <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
+                                            <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                                            <Tooltip 
+                                                contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
+                                                itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                                                labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
+                                            />
+                                            <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
+                                            <Area type="monotone" dataKey="value" stroke={chartColor} strokeWidth={2} fillOpacity={1} fill={`url(#${uniqueChartId})`} animationDuration={1500} />
+                                        </ComposedChart>
+                                    </ResponsiveContainer>
                                 </div>
                              </div>
-
-                             <div className="lg:col-span-3 flex flex-col gap-6">
-                                <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">24-Month Quant Analysis Portfolio Growth</p>
-                                             <div className="flex items-center gap-3 mt-1">
-                                                 <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                                                     {chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}
-                                                 </span>
-                                                 <div className="flex flex-col">
-                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Audit Return</span>
-                                                     <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
-                                                 </div>
-                                             </div>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-2">
-                                            <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
-                                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
-                                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
-                                            </div>
-                                            {selectedMetricInfo?.overlayDesc && (
-                                                <div className="text-[7px] font-black text-indigo-400 uppercase bg-indigo-950/30 px-2 py-1 rounded border border-indigo-500/20 animate-in fade-in zoom-in-95">
-                                                    {selectedMetricInfo.overlayDesc}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex-1 w-full min-h-0">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                                                <defs>
-                                                    <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
-                                                        <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                                <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
-                                                <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                                                <Tooltip 
-                                                    contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
-                                                    itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                                                    labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                                    formatter={(value: any, name: string) => {
-                                                        if (name === 'value') return [`${value}%`, 'Return'];
-                                                        if (name === 'drawdown') return [`${value}%`, 'Drawdown'];
-                                                        if (name === 'delta') return [`${value}%`, 'Period Change'];
-                                                        return [value, name];
-                                                    }}
-                                                />
-                                                <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                                
-                                                {/* PROFIT_FACTOR Overlay: Monthly Magnitude Bars */}
-                                                {activeOverlay === 'PROFIT_FACTOR' && (
-                                                    <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
-                                                        {chartData.map((entry, index) => (
-                                                            <Cell 
-                                                                key={`cell-${index}`} 
-                                                                fill={entry.delta >= 0 ? '#10b981' : '#ef4444'} 
-                                                            />
-                                                        ))}
-                                                    </Bar>
-                                                )}
-
-                                                {/* MAX_DRAWDOWN Overlay: Red Loss Area */}
-                                                {activeOverlay === 'MAX_DRAWDOWN' && (
-                                                    <Area 
-                                                        type="monotone" 
-                                                        dataKey="drawdown" 
-                                                        stroke="none" 
-                                                        fill="#ef4444" 
-                                                        fillOpacity={0.25} 
-                                                        animationDuration={500} 
-                                                    />
-                                                )}
-
-                                                {/* SHARPE_RATIO Overlay: Regression Path & Consistency Corridor */}
-                                                {activeOverlay === 'SHARPE_RATIO' && (
-                                                    <>
-                                                        <Area 
-                                                            type="monotone" 
-                                                            dataKey="idealValue" 
-                                                            stroke="#f59e0b" 
-                                                            strokeWidth={1}
-                                                            strokeDasharray="5 5"
-                                                            fill="#f59e0b"
-                                                            fillOpacity={0.08}
-                                                        />
-                                                        <ReferenceLine 
-                                                            stroke="#f59e0b" 
-                                                            strokeDasharray="3 3" 
-                                                            label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
-                                                            segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1].value }]}
-                                                        />
-                                                    </>
-                                                )}
-
-                                                {/* Main Cumulative Equity Area */}
-                                                <Area 
-                                                    type="monotone" 
-                                                    dataKey="value" 
-                                                    stroke={chartColor} 
-                                                    strokeWidth={2} 
-                                                    fillOpacity={1} 
-                                                    fill={`url(#${uniqueChartId})`} 
-                                                    animationDuration={1500}
-                                                    // Dot overlay for Win/Loss (Monthly Result)
-                                                    dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
-                                                        const { cx, cy, payload } = props;
-                                                        // Accurate logic: Is this month better than previous?
-                                                        const isWin = payload.isWin;
-                                                        return (
-                                                            <circle 
-                                                                key={`dot-${payload.period}`}
-                                                                cx={cx} cy={cy} r={3} 
-                                                                fill={isWin ? '#10b981' : '#ef4444'} 
-                                                                stroke="#020617" strokeWidth={1}
-                                                                className="animate-in fade-in duration-500"
-                                                            />
-                                                        );
-                                                    } : false}
-                                                />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-
-                                <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
-                                     <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                         Simulation Intelligence Insight
-                                     </h5>
-                                     <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {currentBacktest.historicalContext}
-                                         </ReactMarkdown>
-                                     </div>
+                             <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20">
+                                 <div className="prose-report text-xs text-slate-300 leading-relaxed">
+                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                        {cleanInsightText(currentBacktest.historicalContext)}
+                                     </ReactMarkdown>
                                  </div>
-                            </div>
-                        </div>
-                    ) : (
-                        <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
-                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
+                             </div>
                         </div>
                     )}
                  </div>
@@ -1276,7 +957,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : l.includes('[INFO]') ? 'border-cyan-500 text-cyan-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
