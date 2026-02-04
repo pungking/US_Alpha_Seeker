@@ -13,7 +13,7 @@ export interface ApiConfig {
 // [NEW] Telegram Config
 export const TELEGRAM_CONFIG = {
   TOKEN: '8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs',
-  CHAT_ID: '1281749368'
+  CHAT_ID: '-1003800785574'
 };
 
 export const API_CONFIGS: ApiConfig[] = [
