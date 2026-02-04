@@ -1,12 +1,14 @@
+
 {
-  "name": "us_alpha_seeker:-v1.2.0",
+  "name": "us_alpha_seeker",
   "private": true,
-  "version": "0.0.0",
+  "version": "1.2.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "automate": "node scripts/automate.js"
   },
   "dependencies": {
     "react": "^19.2.3",
@@ -14,7 +16,8 @@
     "@google/genai": "^1.38.0",
     "recharts": "^3.7.0",
     "react-markdown": "^9.0.0",
-    "remark-gfm": "^4.0.0"
+    "remark-gfm": "^4.0.0",
+    "puppeteer": "^22.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.14.0",
