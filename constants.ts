@@ -69,8 +69,9 @@ export const API_CONFIGS: ApiConfig[] = [
   // Infrastructure Node (Storage)
   { 
     provider: ApiProvider.GOOGLE_DRIVE, 
-    // Using the Client ID for OAuth as configured in UniverseGathering
-    key: process.env.GDRIVE_CLIENT_ID || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com', 
+    // [CRITICAL REVERT] Restored original API Key format for status checks.
+    // Do NOT replace with Client ID here; Client ID is handled in UniverseGathering.tsx
+    key: process.env.GDRIVE_API_KEY || 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY', 
     category: 'Infrastructure' 
   }
 ];
