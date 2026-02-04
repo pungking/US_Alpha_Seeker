@@ -59,7 +59,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     target: 24000,
     elapsed: 0,
     provider: 'Idle',
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
   const [logs, setLogs] = useState<string[]>(['> Engine v3.5.1: Triple Hybrid Fusion Mode.']);
@@ -93,14 +93,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
+  // [DATE STRATEGY] Smart Date Scanner
+  // Checks New York "Today" -> "Yesterday" -> "Day Before" (Skipping Weekends)
   const getRecentBusinessDays = (count: number = 6): string[] => {
     const dates: string[] = [];
     const now = new Date();
     
+    // 1. Get explicit New York time parts to prevent local timezone skew
     const nyOptions: Intl.DateTimeFormatOptions = {
         timeZone: "America/New_York",
         year: 'numeric',
-        month: 'numeric', 
+        month: 'numeric', // 1-12
         day: 'numeric'
     };
     const nyFormatter = new Intl.DateTimeFormat('en-US', nyOptions);
@@ -108,24 +111,29 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     
     const part = (type: string) => parts.find(p => p.type === type)?.value;
     const year = parseInt(part('year')!);
-    const month = parseInt(part('month')!) - 1; 
+    const month = parseInt(part('month')!) - 1; // JS Date is 0-indexed month
     const day = parseInt(part('day')!);
 
+    // Start checking from NY Today.
     let cursorDate = new Date(year, month, day);
 
     let attempts = 0;
     while (dates.length < count && attempts < 15) {
-        const dayOfWeek = cursorDate.getDay(); 
+        const dayOfWeek = cursorDate.getDay(); // 0=Sun, 6=Sat
         
+        // If it's a weekday (Mon=1 to Fri=5)
         if (dayOfWeek !== 0 && dayOfWeek !== 6) {
             const y = cursorDate.getFullYear();
             const m = String(cursorDate.getMonth() + 1).padStart(2, '0');
             const d = String(cursorDate.getDate()).padStart(2, '0');
             dates.push(`${y}-${m}-${d}`);
         }
+        
+        // Move back 1 day
         cursorDate.setDate(cursorDate.getDate() - 1);
         attempts++;
     }
+    
     return dates;
   };
 
@@ -167,6 +175,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runTripleFusionPipeline(accessToken);
   };
 
+  // [SOURCE 1] TradingView Scanner (Rich Data, ~16k)
   const executeTVScanner = async (): Promise<MasterTicker[]> => {
       addLog("Source A: TradingView Omni-Scanner (Rich Data)...", "info");
       const res = await fetch('/api/nasdaq'); 
@@ -182,6 +191,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }));
   };
 
+  // [SOURCE 2] FMP Screener (Metadata Backup, ~20k, Resets Daily)
   const executeFMPScreener = async (): Promise<MasterTicker[]> => {
     if (!fmpKey) {
         addLog("FMP Key missing. Skipping FMP Source.", "warn");
@@ -212,6 +222,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   };
 
+  // [SOURCE 3] Polygon Aggregates (Quantity Max, ~25k)
   const executePolygonAggs = async (): Promise<MasterTicker[]> => {
     if (!polygonKey) throw new Error("Polygon Key missing");
     addLog("Source C: Polygon Deep Discovery (Quantity Max)...", "info");
@@ -220,9 +231,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     let success = false;
     let foundDate = '';
     
+    // [LOGIC] Scan dates: Today -> Yesterday -> ... (skipping weekends)
     const targetDates = getRecentBusinessDays(6); 
     
     for (const targetDate of targetDates) {
+        // [LOG] Show user which date is being checked
         addLog(`Scanning Market Date: ${targetDate}...`, "info");
 
         try {
@@ -243,11 +256,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                     success = true;
                     break; 
                 } else {
+                    // [LOG] Explicit feedback for missing data
                     addLog(`Market Closed or Data Incomplete on ${targetDate}. Backtracking...`, "warn");
                 }
             }
         } catch (e) { }
         
+        // Small delay to prevent burst limit
         await new Promise(r => setTimeout(r, 300));
     }
     
@@ -260,49 +275,34 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }));
   };
 
-  // [AUXILIARY] Yahoo Cross-Validation
-  const validateWithYahoo = async (candidates: MasterTicker[]) => {
-      addLog("Auxiliary Source: Initiating Yahoo Finance Cross-Validation...", "info");
-      const sample = candidates.sort((a,b) => b.volume - a.volume).slice(0, 10).map(c => c.symbol).join(',');
-      
-      try {
-          const res = await fetch(`/api/yahoo?symbols=${sample}`);
-          if(res.ok) {
-              const data = await res.json();
-              if(data && data.length > 0) {
-                  addLog(`Validation Success: Verified ${data.length} key assets via Yahoo.`, "ok");
-              } else {
-                  addLog("Validation Warning: Yahoo returned empty data.", "warn");
-              }
-          } else {
-              addLog("Validation Skipped: Yahoo API unreachable.", "warn");
-          }
-      } catch (e) {
-          addLog("Validation Error: Yahoo Proxy failed.", "warn");
-      }
-  };
-
+  // [FUSION] The Ultimate Merge Logic
   const fuseDatasets = (tv: MasterTicker[], fmp: MasterTicker[], poly: MasterTicker[]): MasterTicker[] => {
       const map = new Map<string, MasterTicker>();
 
+      // Priority 1: TradingView (Richest Data)
       tv.forEach(item => map.set(item.symbol, item));
       
+      // Priority 2: FMP (Fill gaps & Add missing)
       let fmpAdded = 0;
       fmp.forEach(item => {
           if (map.has(item.symbol)) {
+              // If TV missed Sector/Industry but FMP has it, enrich it
               const existing = map.get(item.symbol)!;
               if (existing.sector === "Unclassified" && item.sector) {
                   map.set(item.symbol, { ...existing, sector: item.sector, industry: item.industry });
               }
           } else {
+              // Add FMP-only stock
               map.set(item.symbol, item);
               fmpAdded++;
           }
       });
 
+      // Priority 3: Polygon (Fill gaps & Add missing tail-end)
       let polyAdded = 0;
       poly.forEach(item => {
           if (!map.has(item.symbol)) {
+              // Add Polygon-only stock (likely OTC or very small cap)
               map.set(item.symbol, item);
               polyAdded++;
           }
@@ -321,6 +321,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }, 1000);
 
     try {
+        // Run all sources in parallel for speed, but fail gracefully
         const [tvData, fmpData, polyData] = await Promise.allSettled([
             executeTVScanner(),
             executeFMPScreener(),
@@ -344,18 +345,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         
         let masterList = fuseDatasets(tv, fmp, poly);
 
-        // VALIDATION STEP
-        setStats(prev => ({ ...prev, phase: 'Validation' }));
-        await validateWithYahoo(masterList);
-
         // Filter valid
         const minPrice = 0.01;
         let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
         viableCandidates.sort((a, b) => b.volume - a.volume);
         
+        // [FIX] POPULATE REGISTRY FOR SEARCH
         const newRegistry = new Map<string, MasterTicker>();
         viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
-        setRegistry(newRegistry); 
+        setRegistry(newRegistry); // Update state so Search works immediately
         addLog("System Registry Updated. Global Validator Active.", "ok");
 
         setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Triple_Hybrid" }));
@@ -368,7 +366,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             manifest: { 
                 version: "3.5.0", 
                 provider: "Triple_Fusion (TV+FMP+Poly)", 
-                auxiliary: "Yahoo_Cross_Validation",
                 date: new Date().toISOString(), 
                 count: viableCandidates.length,
                 note: "Fused Data: TV Richness + FMP Metadata + Polygon Coverage"
@@ -396,6 +393,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const ensureFolder = async (token: string) => {
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
+    
+    // Quick resolve or create logic (simplified for reliability)
     const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
