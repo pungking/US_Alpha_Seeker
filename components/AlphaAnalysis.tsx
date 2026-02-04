@@ -1241,8 +1241,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                                 {/* Detail Overlay - Positioned RELATIVE to this Grid with Improved Design */}
                                 {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
-                                    <div className="absolute inset-x-0 bottom-0 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                        <div className="bg-[#0f172a] p-5 rounded-[24px] border border-slate-700 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.8)] relative">
+                                    <div className="absolute right-0 w-[300%] md:w-[650px] bottom-0 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                        <div className="bg-[#0f172a] p-6 rounded-[24px] border border-slate-700 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.8)] relative">
                                             <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white p-1 hover:bg-white/10 rounded-full transition-colors">
                                                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                             </button>
@@ -1254,21 +1254,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                         <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
                                                         {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
                                                     </h5>
-                                                    <p className="text-[11px] text-slate-400 leading-relaxed pl-4 border-l border-white/5">
+                                                    <p className="text-[12px] text-slate-400 leading-relaxed pl-4 border-l border-white/5 whitespace-pre-wrap">
                                                         {FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}
                                                     </p>
                                                 </div>
 
                                                 {/* Strategy/Insight Box */}
-                                                <div className="bg-[#1e293b] p-4 rounded-xl border border-white/5 relative overflow-hidden group">
-                                                    <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                                                <div className="bg-[#1e293b] p-5 rounded-xl border border-white/5 relative overflow-hidden group">
+                                                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
                                                     <div className="flex items-start gap-3 relative z-10">
-                                                        <div className="mt-0.5 p-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
-                                                            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                                        <div className="mt-0.5 p-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20 shrink-0">
+                                                            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
                                                         </div>
                                                         <div>
-                                                            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1.5">Alpha Insight</p>
-                                                            <p className="text-[11px] text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                                                            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2">Alpha Insight</p>
+                                                            <p className="text-[12px] text-slate-200 leading-relaxed font-semibold whitespace-pre-wrap">
                                                                 {FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}
                                                             </p>
                                                         </div>
