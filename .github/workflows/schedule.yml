@@ -48,7 +48,8 @@ jobs:
           cache: 'npm'
 
       - name: 3. 의존성 패키지 설치
-        run: npm ci
+        # npm ci 대신 npm install을 사용하여 package-lock.json 불일치 문제 해결
+        run: npm install
 
       - name: 4. 프로덕션 빌드 생성
         run: npm run build
