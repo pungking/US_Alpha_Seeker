@@ -1,0 +1,66 @@
+
+name: US Alpha Seeker Auto-Scheduler
+
+on:
+  schedule:
+    # Runs at 09:00 UTC (05:00 AM EDT / 04:00 AM EST) every weekday
+    - cron: '0 9 * * 1-5'
+  workflow_dispatch: # Allow manual trigger
+    inputs:
+      target_branch:
+        description: 'Branch to run automation on'
+        required: true
+        default: 'dev' # [CHANGE THIS] Set to your working branch name (e.g., dev, feature/alpha)
+
+jobs:
+  alpha-mining:
+    runs-on: ubuntu-latest
+    
+    env:
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+      GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+      GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+      GDRIVE_ACCESS_TOKEN: ${{ secrets.GDRIVE_ACCESS_TOKEN }}
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+        with:
+          # Logic: Use manual input if available, otherwise default to 'dev' (for schedule)
+          # [IMPORTANT] Ensure 'dev' matches your actual working branch name
+          ref: ${{ github.event.inputs.target_branch || 'dev' }}
+
+      - name: Setup Node.js Environment
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+
+      - name: Install Dependencies
+        run: npm ci
+
+      - name: Build Application
+        run: npm run build
+
+      - name: Start Local Server
+        # Starts the preview server in the background on port 3000
+        run: npm run preview -- --port 3000 &
+      
+      - name: Wait for Server
+        run: |
+          echo "Waiting for localhost:3000..."
+          timeout 60 bash -c 'until curl -s http://localhost:3000 > /dev/null; do sleep 2; done'
+          echo "Server is up!"
+
+      - name: Execute Alpha Automation
+        run: npm run automate
+
+      - name: Upload Artifacts (Screenshots/Logs)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: execution-evidence
+          path: "*.png"
+          retention-days: 5
