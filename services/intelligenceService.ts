@@ -3,7 +3,7 @@ import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
 
-const PERPLEXITY_MODELS = ['sonar-pro', 'sonar', 'sonar-reasoning'];
+const PERPLEXITY_MODELS = ['sonar-pro', 'sonar']; // Removed deprecated 'sonar-reasoning'
 
 // [NEW] Usage Tracking System
 const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
@@ -853,9 +853,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      // Perplexity Loop similar to existing logic...
-      // (Simplified for brevity, assuming similar structure as before but with new prompt)
       let lastError;
+      // [FIX] Loop through valid models only
       for (const model of PERPLEXITY_MODELS) {
         try {
             const res = await fetchWithRetry(async () => {
