@@ -13,6 +13,7 @@ import TechnicalAnalysis from './components/TechnicalAnalysis';
 import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
+import LegalDocs from './components/LegalDocs';
 import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
 import { sendTelegramReport } from './services/telegramService';
 
@@ -28,6 +29,9 @@ const App: React.FC = () => {
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
   const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
   
+  // Legal Docs State
+  const [showLegalDocs, setShowLegalDocs] = useState(false);
+
   // AI Usage State
   const [aiUsage, setAiUsage] = useState<any>({ 
     gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
@@ -301,6 +305,9 @@ const App: React.FC = () => {
 
   return (
     <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
+      {/* LEGAL DOCS MODAL */}
+      {showLegalDocs && <LegalDocs onClose={() => setShowLegalDocs(false)} />}
+
       {/* HEADER STATUS BAR */}
       <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
@@ -319,7 +326,16 @@ const App: React.FC = () => {
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
-        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+        
+        {/* NEW LEGAL BUTTON */}
+        <button 
+            onClick={() => setShowLegalDocs(true)} 
+            className="ml-auto mr-6 opacity-50 hover:opacity-100 transition-opacity shrink-0 text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+        >
+            Privacy_&_Terms
+        </button>
+
+        <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
