@@ -82,52 +82,52 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
     'HALF_KELLY': {
         title: "Half-Kelly Criterion (최적 비중)",
         desc: "승률과 손익비를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.",
-        strategy: "🟢 수치 해석: 이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
+        strategy: "이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
     },
     'VAPS': {
         title: "VAPS (변동성 조정 수량)",
         desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).",
-        strategy: "🟢 수치 해석: \n- 수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
+        strategy: "수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
     },
     'ERCI': {
         title: "ERCI (효율성 지수)",
         desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).",
-        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 10.0 이상: 양호 (Good)\n- 30.0 이상: 초고효율 (Elite) - 우선 순위로 편입하십시오."
+        strategy: "수치 해석 (높을수록 좋음):\n- 10.0 이상: 양호 (Good)\n- 30.0 이상: 초고효율 (Elite) - 우선 순위로 편입하십시오."
     },
     'QM_COMP': {
         title: "Q-M Composite (품질+모멘텀)",
         desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.",
-        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
+        strategy: "수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
     },
     'CONVEXITY': {
         title: "Alpha Convexity (폭발력)",
         desc: "에너지 응축(Squeeze)과 발산(Displacement)의 결합 상태입니다.",
-        strategy: "🟢 상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
+        strategy: "상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
     },
     'EXPECTANCY': {
         title: "Expectancy (기대값)",
         desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.",
-        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
+        strategy: "수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
     },
     'IVG': {
         title: "IVG (내재가치 괴리율)",
         desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.",
-        strategy: "🟢 수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
+        strategy: "수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
     },
     'IFS': {
         title: "IFS (기관 수급 점수)",
         desc: "기관(Smart Money)의 자금 유입 강도를 0~100으로 수치화했습니다.",
-        strategy: "🟢 수치 해석 (높을수록 좋음):\n- 70점 초과: 세력이 적극 매집 중 (등에 올라타십시오)\n- 50점 미만: 세력 이탈 또는 관망세"
+        strategy: "수치 해석 (높을수록 좋음):\n- 70점 초과: 세력이 적극 매집 중 (등에 올라타십시오)\n- 50점 미만: 세력 이탈 또는 관망세"
     },
     'MRF': {
         title: "MRF (시장 국면)",
         desc: "해당 종목이 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
-        strategy: "🟢 상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
+        strategy: "상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
     },
     'AIC': {
         title: "AIC (AI 합의)",
         desc: "여러 AI 모델(Gemini, Perplexity)간의 분석 일치도입니다.",
-        strategy: "🟢 수치 해석:\n- 80% 이상: AI들의 의견이 강력하게 일치 (신뢰도 높음)\n- 50% 주변: 의견 엇갈림 (독자적 판단 필요)"
+        strategy: "수치 해석:\n- 80% 이상: AI들의 의견이 강력하게 일치 (신뢰도 높음)\n- 50% 주변: 의견 엇갈림 (독자적 판단 필요)"
     }
 };
 
@@ -1009,8 +1009,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                             </div>
 
-                            {/* The Bar Visualization */}
-                            <div className="relative h-16 w-full mt-2">
+                            {/* The Bar Visualization - Added mt-8 to prevent overlap */}
+                            <div className="relative h-16 w-full mt-8">
                                 {/* Track Line */}
                                 <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
                                      {/* Gradient Background representing the transition from Stop to Target */}
@@ -1239,20 +1239,41 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     </div>
                                 </div>
 
-                                {/* Detail Overlay - Positioned RELATIVE to this Grid */}
+                                {/* Detail Overlay - Positioned RELATIVE to this Grid with Improved Design */}
                                 {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
-                                    <div className="absolute inset-x-0 bottom-0 z-30 animate-in fade-in slide-in-from-bottom-2">
-                                        <div className="bg-slate-950/95 backdrop-blur-xl p-6 rounded-[24px] border border-indigo-500/50 shadow-2xl relative">
-                                            <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white">
-                                                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                    <div className="absolute inset-x-0 bottom-0 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
+                                        <div className="bg-[#0f172a] p-5 rounded-[24px] border border-slate-700 shadow-[0_-10px_40px_-15px_rgba(0,0,0,0.8)] relative">
+                                            <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white p-1 hover:bg-white/10 rounded-full transition-colors">
+                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                             </button>
-                                            <h5 className="text-sm font-black text-white uppercase tracking-widest mb-3 flex items-center gap-2">
-                                                {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
-                                            </h5>
-                                            <p className="text-xs text-slate-300 leading-relaxed font-medium mb-4 whitespace-pre-wrap">{FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}</p>
-                                            <div className="bg-indigo-500/10 p-4 rounded-xl border border-indigo-500/20">
-                                                <p className="text-[10px] text-indigo-400 font-bold mb-1 uppercase tracking-wider">🟢 수치 해석:</p>
-                                                <p className="text-xs text-slate-200 leading-relaxed font-semibold whitespace-pre-wrap">{FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}</p>
+                                            
+                                            <div className="flex flex-col gap-4">
+                                                {/* Header */}
+                                                <div>
+                                                    <h5 className="text-sm font-bold text-white tracking-wide flex items-center gap-3 mb-2">
+                                                        <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
+                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
+                                                    </h5>
+                                                    <p className="text-[11px] text-slate-400 leading-relaxed pl-4 border-l border-white/5">
+                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}
+                                                    </p>
+                                                </div>
+
+                                                {/* Strategy/Insight Box */}
+                                                <div className="bg-[#1e293b] p-4 rounded-xl border border-white/5 relative overflow-hidden group">
+                                                    <div className="absolute top-0 right-0 w-16 h-16 bg-white/5 rounded-full blur-2xl -translate-y-1/2 translate-x-1/2"></div>
+                                                    <div className="flex items-start gap-3 relative z-10">
+                                                        <div className="mt-0.5 p-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20">
+                                                            <svg className="w-3.5 h-3.5 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
+                                                        </div>
+                                                        <div>
+                                                            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-1.5">Alpha Insight</p>
+                                                            <p className="text-[11px] text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                                                                {FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>
