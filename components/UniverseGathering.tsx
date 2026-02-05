@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -39,6 +38,7 @@ interface MasterTicker {
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
+  const [isAuthLoading, setIsAuthLoading] = useState(false); // [NEW] Auth loading state
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [clientId, setClientId] = useState<string>(() => 
@@ -142,7 +142,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const startEngine = async () => {
-    if (isEngineRunning || cooldown > 0) return;
+    if (isEngineRunning || cooldown > 0 || isAuthLoading) return;
     
     if (!clientId) {
       addLog("Missing Client ID. Open ⚙ Config.", "err");
@@ -155,12 +155,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           addLog("Google Scripts loading... please wait.", "warn");
           return;
       }
-      document.body.setAttribute('data-engine-running', 'true'); 
+      document.body.setAttribute('data-engine-running', 'true');
+      setIsAuthLoading(true); // [NEW] Set Loading
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
           scope: 'https://www.googleapis.com/auth/drive',
           callback: (res: any) => {
+            setIsAuthLoading(false); // [NEW] Clear Loading
             if (res.access_token) {
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
@@ -172,6 +174,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         });
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
+        setIsAuthLoading(false); // [NEW] Clear Loading on Error
         addLog(`Auth Error: ${e.message}`, "err");
         setShowConfig(true);
         document.body.removeAttribute('data-engine-running');
@@ -556,10 +559,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             </div>
             <button 
               onClick={startEngine} 
-              disabled={isEngineRunning || cooldown > 0}
+              disabled={isEngineRunning || cooldown > 0 || isAuthLoading}
               className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                  isEngineRunning || cooldown > 0 
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                  isEngineRunning || cooldown > 0 || isAuthLoading
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none scale-95 border border-white/5 shadow-inner opacity-75' 
                     : !accessToken 
                         ? 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20' // Login State
                         : 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' // Execute State
@@ -569,9 +572,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 ? 'Fusing 3 Sources...' 
                 : cooldown > 0 
                     ? `Wait ${cooldown}s` 
-                    : !accessToken 
-                        ? 'Connect Cloud Vault' 
-                        : 'Execute Deep Fusion'}
+                    : isAuthLoading
+                        ? 'Connecting...'
+                        : !accessToken 
+                            ? 'Connect Cloud Vault' 
+                            : 'Execute Deep Fusion'}
             </button>
           </div>
           
