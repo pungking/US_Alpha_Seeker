@@ -293,7 +293,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
-      const fileName = `STAGE4_TECHNICAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
+      
+      // [KST TIMESTAMP LOGIC]
+      const now = new Date();
+      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+        
+      const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
+      
       const payload = {
         manifest: { version: "4.2.0", count: results.length, strategy: "Momentum_Squeeze_Scan" },
         technical_universe: results
