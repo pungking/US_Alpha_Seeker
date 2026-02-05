@@ -347,7 +347,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
       if (finalSurvivors.length > 0) handleTickerSelect(finalSurvivors[0]);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
-      const fileName = `STAGE5_ICT_ELITE_50_${new Date().toISOString().split('T')[0]}.json`;
+      
+      // [TIMESTAMP UPDATED] Replaced simple date with full KST timestamp to avoid versioning conflict
+      const now = new Date();
+      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+      const fileName = `STAGE5_ICT_ELITE_50_${timestamp}.json`;
+      
       const payload = {
         manifest: { version: "6.8.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_V2" },
         ict_universe: finalSurvivors
