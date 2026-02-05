@@ -420,8 +420,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         
         // [KST TIMESTAMP LOGIC]
         const now = new Date();
-        const kstOffset = 9 * 60 * 60 * 1000;
-        const kstDate = new Date(now.getTime() + kstOffset);
+        const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
         const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
         
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
