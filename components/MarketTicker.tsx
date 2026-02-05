@@ -216,7 +216,10 @@ const MarketTicker: React.FC = () => {
 
     const symbolMap = new Map<string, string>();
     // Map ETF symbols (e.g., QQQ) to Internal IDs (e.g., NDX) for WebSocket matching
-    indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id)); 
+    // [FIX] DISABLED: ETFs (like QQQ ~500) were overwriting Index prices (like NDX ~20000). 
+    // Indices will rely on the Polling loop (Portal API) which gets correct Index data.
+    // indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id)); 
+    
     stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
     const trackList = Array.from(symbolMap.keys());
 
