@@ -417,9 +417,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         // COMMIT
         setStats(prev => ({ ...prev, phase: 'Commit' }));
+        
+        // [KST TIMESTAMP LOGIC]
         const now = new Date();
-        const timestamp = now.toISOString().split('.')[0].replace('T', '_').replace(/:/g, '-');
-        // MODIFIED: Version removed, full timestamp added
+        const kstOffset = 9 * 60 * 60 * 1000;
+        const kstDate = new Date(now.getTime() + kstOffset);
+        const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+        
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
