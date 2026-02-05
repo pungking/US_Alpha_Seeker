@@ -42,7 +42,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [clientId, setClientId] = useState<string>(() => 
-    localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com'
+    localStorage.getItem('gdrive_client_id') || '274071737753-4993td0fv4un5l8lv2eiqp0utc7co6q9.apps.googleusercontent.com'
   );
   const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
   const [googleScriptLoaded, setGoogleScriptLoaded] = useState(false);
