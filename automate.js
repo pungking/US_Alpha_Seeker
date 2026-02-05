@@ -111,7 +111,8 @@ async function getAccessToken() {
     const APP_URL = 'http://localhost:3000';
 
     console.log("🔌 Connecting to Alpha Node...");
-    await page.goto(APP_URL, { waitUntil: 'networkidle0' });
+    // [CI FIX] Add ?auto=true to initial navigation to prevent WebSocket 429 errors on mount
+    await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'networkidle0' });
     
     console.log("🔐 Injecting Security Context...");
     await page.evaluate((accessToken, clientId) => {
@@ -125,6 +126,7 @@ async function getAccessToken() {
     }, token, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
 
     console.log("🤖 Engaging Headless Auto-Pilot...");
+    // Reload with auto=true (token is now in session storage)
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded' });
 
     console.log("⏳ Pipeline Execution in Progress...");
