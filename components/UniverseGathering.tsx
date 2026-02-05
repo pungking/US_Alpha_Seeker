@@ -208,11 +208,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=100&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=30000&apikey=${fmpKey}`;
         const res = await fetch(url);
         if (res.status === 429) throw new Error("FMP_LIMIT_HIT");
-        if (res.status === 403) throw new Error("FMP_FORBIDDEN"); // Handle Plan Limit/Invalid Key
         if (!res.ok) throw new Error(`FMP Status ${res.status}`);
         
         const data = await res.json();
-        addLog(`FMP Screener: Retrieved ${data.length} assets.`, "ok");
+        addLog(`FMP Screener: Retrieved ${data.length} assets (Daily Limit Consumed).`, "ok");
         
         return data.map((item: any) => ({
             symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
@@ -222,8 +221,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     } catch (e: any) {
         if (e.message === "FMP_LIMIT_HIT") {
             addLog("FMP Daily Limit Reached. Skipping FMP Source.", "warn");
-        } else if (e.message === "FMP_FORBIDDEN") {
-            addLog("FMP Access Forbidden (403). Check Plan/Key. Skipping.", "warn");
         } else {
             addLog(`FMP Error: ${e.message}`, "warn");
         }
@@ -299,6 +296,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           // Simple diff check
                           const diff = Math.abs((candidate.price - yItem.price) / yItem.price);
                           if (diff < 0.05) matchCount++;
+                          // Optionally correct the price if deviation is large? 
+                          // For now, we trust the Fusion result but log the confidence.
                       }
                   });
                   addLog(`Validation: ${matchCount}/${data.length} Sampled Assets match external feed.`, "ok");
@@ -306,7 +305,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   addLog("Validation Warning: Yahoo returned empty data.", "warn");
               }
           } else {
-              addLog("Validation Skipped: Yahoo API unreachable (Check Proxy).", "warn");
+              addLog("Validation Skipped: Yahoo API unreachable.", "warn");
           }
       } catch (e) {
           addLog("Validation Error: Yahoo Proxy failed.", "warn");
@@ -418,7 +417,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         // COMMIT
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.5.0.json`;
+        // MODIFIED: Timestamp moved to the end of the filename
+        const fileName = `STAGE0_MASTER_UNIVERSE_v3.5.0_${new Date().toISOString().split('T')[0]}.json`;
         const payload = { 
             manifest: { 
                 version: "3.5.0", 
