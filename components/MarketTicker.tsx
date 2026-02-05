@@ -31,7 +31,7 @@ const MarketTicker: React.FC = () => {
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
-  // Finnhub (Free) is Real-time for IEX, not delayed.
+  // Finnhub (Free) is Real-time for trades, not delayed.
   const isPollingOnly = !finnhubKey;
   const isDelayed = false;
 
