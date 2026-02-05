@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // Portal Proxy v4: "Ironclad" Strategy with RapidAPI Integration
+  // Portal Proxy v4.1: Enhanced Index Coverage (NDX + IXIC)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,7 +20,8 @@ export default async function handler(req: any, res: any) {
   // --- STRATEGY A: CNBC DIRECT (Fastest, No Quota) ---
   const fetchCNBC = async () => {
     try {
-        const symbols = ".IXIC|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
+        // Added .NDX for Nasdaq 100 specifically
+        const symbols = ".IXIC|.NDX|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
         const url = `https://quote.cnbc.com/quote-html-webservice/quote.htm?partnerId=2&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json&players=null&symbols=${symbols}`;
         
         const response = await fetch(url, {
@@ -44,10 +45,9 @@ export default async function handler(req: any, res: any) {
   // --- STRATEGY B: RAPID API CNBC (Reliable Proxy - NEW) ---
   const fetchRapidCNBC = async () => {
     try {
-        // [RESTORED] Fallback to hardcoded key for local dev if ENV is missing
-        const RAPID_KEY = process.env.RAPID_API_KEY || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e';
+        const RAPID_KEY = process.env.RAPID_API_KEY || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e'; // Fallback for local dev if env missing
         const RAPID_HOST = 'cnbc.p.rapidapi.com';
-        const symbols = ".IXIC|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
+        const symbols = ".IXIC|.NDX|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
         
         const url = `https://${RAPID_HOST}/market/get-quote?symbol=${encodeURIComponent(symbols)}&requestMethod=quick&exthrs=1&noform=1&fund=1&output=json`;
 
@@ -76,11 +76,13 @@ export default async function handler(req: any, res: any) {
 
   // Helper to normalize CNBC-style responses
   const normalizeQuotes = (quotes: any[], sourceLabel: string) => {
+    // Updated mapping for distinct indices
     const map: Record<string, string> = {
-        ".IXIC": "NASDAQ",
-        ".SPX": "SP500",
-        ".DJI": "DOW",
-        ".VIX": "VIX",
+        ".IXIC": "IXIC",  // Nasdaq Composite
+        ".NDX": "NDX",    // Nasdaq 100
+        ".SPX": "SPX",    // S&P 500
+        ".DJI": "DJI",    // Dow Jones
+        ".VIX": "VIX",    // Volatility
         "AAPL": "AAPL",
         "NVDA": "NVDA",
         "TSLA": "TSLA",
@@ -110,7 +112,7 @@ export default async function handler(req: any, res: any) {
         body: JSON.stringify({
           symbols: {
             tickers: [
-                "TVC:NDX", "TVC:SPX", "TVC:DJI", "TVC:VIX",
+                "TVC:NDX", "TVC:SPX", "TVC:DJI", "TVC:VIX", "TVC:IXIC",
                 "NASDAQ:AAPL", "NASDAQ:NVDA", "NASDAQ:TSLA", "NASDAQ:MSFT"
             ]
           },
@@ -124,9 +126,10 @@ export default async function handler(req: any, res: any) {
       if (!json.data || json.data.length === 0) throw new Error("TV Empty Data");
 
       const map: Record<string, string> = {
-        "TVC:NDX": "NASDAQ",
-        "TVC:SPX": "SP500",
-        "TVC:DJI": "DOW",
+        "TVC:NDX": "NDX",
+        "TVC:IXIC": "IXIC",
+        "TVC:SPX": "SPX",
+        "TVC:DJI": "DJI",
         "TVC:VIX": "VIX",
         "NASDAQ:AAPL": "AAPL",
         "NASDAQ:NVDA": "NVDA",
@@ -170,7 +173,7 @@ export default async function handler(req: any, res: any) {
       };
 
       const results = [
-        extract('20', 'NASDAQ'), extract('166', 'SP500'), extract('169', 'DOW'), extract('44336', 'VIX')
+        extract('20', 'NDX'), extract('14958', 'IXIC'), extract('166', 'SPX'), extract('169', 'DJI'), extract('44336', 'VIX')
       ].filter(r => r !== null);
 
       if (results.length < 2) throw new Error("Investing Parsing Failed");
