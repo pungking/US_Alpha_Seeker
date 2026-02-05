@@ -2,10 +2,11 @@
 import puppeteer from 'puppeteer';
 
 /**
- * US_Alpha_Seeker Headless Automation Protocol v2.2
+ * US_Alpha_Seeker Headless Automation Protocol v2.3
  * 
  * Updated: User-provided Client ID integration.
  * Features: Robust Token Refresh, Offline Mode, Extended Timeouts.
+ * CI Fix: Disables Web Security to allow direct Telegram API calls in Preview mode.
  */
 
 const FALLBACK_CLIENT_ID = '274071737753-4993td0fv4un5l8lv2eiqp0utc7co6q9.apps.googleusercontent.com';
@@ -80,12 +81,22 @@ async function getAccessToken() {
   
   const browser = await puppeteer.launch({
     headless: "new",
-    args: ['--no-sandbox', '--disable-setuid-sandbox'],
+    args: [
+        '--no-sandbox', 
+        '--disable-setuid-sandbox',
+        // [CI FIX] Disable Web Security to allow direct Telegram API calls (CORS bypass)
+        // since the local Vite Preview server cannot host the /api proxy.
+        '--disable-web-security',
+        '--disable-features=IsolateOrigins,site-per-process'
+    ],
     protocolTimeout: 3600000 // 1 hour timeout
   });
   
   try {
     const page = await browser.newPage();
+    
+    // [CI FIX] Bypass CORS for all requests
+    await page.setBypassCSP(true);
     
     page.setDefaultNavigationTimeout(60000); 
     page.setDefaultTimeout(3600000); 
