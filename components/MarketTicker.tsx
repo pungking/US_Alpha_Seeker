@@ -34,28 +34,41 @@ const TickerCard: React.FC<{ item: MarketItem }> = ({ item }) => {
     return () => clearTimeout(timer);
   }, [item.price]);
 
-  // Determine background classes based on flash state or item type
-  let bgClass = "bg-white/5"; // default glass
-  let borderClass = item.change >= 0 ? "border-l-[#10b981]" : "border-l-[#ef4444]";
+  // Visual Logic: "Band" (Border) Flashing
+  // Resting State: Based on daily change (Green/Red)
+  // Active State: Bright Neon Green/Red based on tick direction
   
-  if (item.typeLabel.includes('FEAR')) {
-     bgClass = "bg-purple-900/10";
-     borderClass = "border-l-[#a855f7]";
-  }
+  const getBorderColor = () => {
+      if (flash === 'up') return '#4ade80'; // Bright Green (Flash)
+      if (flash === 'down') return '#f87171'; // Bright Red (Flash)
+      
+      if (item.typeLabel.includes('FEAR')) return '#a855f7'; // VIX Purple (Base)
+      return item.change >= 0 ? '#10b981' : '#ef4444'; // Daily Change (Base)
+  };
 
-  // Flash override
-  if (flash === 'up') bgClass = "bg-emerald-500/20"; // Green flash
-  if (flash === 'down') bgClass = "bg-red-500/20";   // Red flash
+  const getBackgroundColor = () => {
+      if (flash === 'up') return 'rgba(74, 222, 128, 0.15)'; // Green Tint
+      if (flash === 'down') return 'rgba(248, 113, 113, 0.15)'; // Red Tint
+      if (item.typeLabel.includes('FEAR')) return 'rgba(168, 85, 247, 0.1)'; // Purple Tint
+      return 'rgba(255, 255, 255, 0.03)'; // Default Glass
+  };
 
   return (
-    <div className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-colors duration-300 ${bgClass}`}
-         style={{ borderLeftColor: item.typeLabel.includes('FEAR') ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}>
+    <div 
+        className="flex-shrink-0 glass-panel px-4 py-2 rounded-xl flex items-center space-x-3 transition-all duration-300"
+        style={{ 
+            borderLeftWidth: '4px', // Thicker band as requested
+            borderLeftColor: getBorderColor(),
+            backgroundColor: getBackgroundColor(),
+            transform: flash ? 'scale(1.02)' : 'scale(1)', // Subtle pop effect
+        }}
+    >
       <div className="flex flex-col">
         <span className={`text-[7px] font-black uppercase tracking-widest ${item.colorTheme || 'text-slate-500'}`}>{item.typeLabel}</span>
         <span className="text-[10px] font-black text-white italic tracking-tighter uppercase whitespace-nowrap">{item.label}</span>
       </div>
       <div className="text-right">
-        <p className={`text-[10px] font-mono font-bold tracking-tighter ${flash === 'up' ? 'text-emerald-300' : flash === 'down' ? 'text-rose-300' : 'text-white'}`}>
+        <p className={`text-[10px] font-mono font-bold tracking-tighter ${flash === 'up' ? 'text-green-300' : flash === 'down' ? 'text-red-300' : 'text-white'}`}>
           {item.price > 1000 ? item.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : item.price.toFixed(2)}
         </p>
         <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
@@ -184,7 +197,8 @@ const MarketTicker: React.FC = () => {
   // Initial Poll & Interval (Backup / Initialization)
   useEffect(() => {
       fetchMarketData();
-      const interval = setInterval(fetchMarketData, 10000); // 10s poll for fallback
+      // [SPEED UP] Polling increased to 2 seconds for near-real-time feel without hitting hard limits
+      const interval = setInterval(fetchMarketData, 2000); 
       return () => clearInterval(interval);
   }, []);
 
