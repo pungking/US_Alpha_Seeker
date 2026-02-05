@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -446,6 +445,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
+  // Phase 1: Engine Execution
   useEffect(() => {
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
@@ -454,24 +454,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
+  // Phase 2: Transition to Matrix View (Skip Audit, Go straight to Telegram)
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
+          addLog("AUTO-PILOT: Switching to Portfolio Matrix... (Skipping Audit Step)", "signal");
           setActiveTab('MATRIX');
-          setAutoPhase('MATRIX');
-          // Add a small delay to ensure render updates before heavy matrix op
-          setTimeout(() => {
-              handleRunMatrixAudit(selectedBrain);
-          }, 1000);
+          // Directly set to MATRIX phase to trigger next effect immediately
+          setAutoPhase('MATRIX'); 
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
+  // Phase 3: Generate Brief and Finish
   useEffect(() => {
       const finishAutoPilot = async () => {
           const currentResults = resultsCache[selectedBrain] || [];
           
-          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && currentResults.length > 0) {
+          if (autoStart && autoPhase === 'MATRIX' && currentResults.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
               let telegramPayload = ""; 
@@ -480,7 +479,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
                   
-                  // [NEW] Archive Telegram Brief to Drive (Auto)
                   if(accessToken) {
                       const timestamp = getKstTimestamp();
                       const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
@@ -498,7 +496,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       };
       
       finishAutoPilot();
-  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
+  }, [autoStart, autoPhase, selectedBrain, resultsCache]);
 
 
   useEffect(() => {
