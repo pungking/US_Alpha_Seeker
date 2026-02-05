@@ -464,7 +464,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
       // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
-      const fileName = `STAGE3_FUNDAMENTAL_FULL_${new Date().toISOString().split('T')[0]}.json`;
+      
+      // [KST TIMESTAMP LOGIC]
+      const now = new Date();
+      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+        
+      const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
+      
       const payload = {
         manifest: { version: "7.3.0", count: results.length, strategy: "Fundamental_Fortress_RealData_Priority" },
         fundamental_universe: results
