@@ -54,6 +54,9 @@ const App: React.FC = () => {
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
+  
+  // Clock State
+  const [time, setTime] = useState(new Date());
 
   // [NEW] GITHUB ACTION HOOK & LEGAL DOC HOOK
   useEffect(() => {
@@ -72,6 +75,12 @@ const App: React.FC = () => {
           setShowLegalDocs(true);
       }
   }, [isGdriveConnected]);
+
+  // Clock Ticker
+  useEffect(() => {
+    const timer = setInterval(() => setTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
 
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
@@ -244,6 +253,14 @@ const App: React.FC = () => {
     };
   }, [refreshApiStatuses]);
 
+  // Helper for KST Timestamp
+  const getKstTimestamp = () => {
+    const now = new Date();
+    const kstOffset = 9 * 60 * 60 * 1000;
+    const kstDate = new Date(now.getTime() + kstOffset);
+    return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+  };
+
   const runStockAudit = async () => {
     if (!selectedStock) return;
     setIsAiLoading(true);
@@ -274,12 +291,11 @@ const App: React.FC = () => {
          // [NEW] Automatic Report Archiving (Only on Success)
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
-             const now = new Date();
-             // Timestamp format: YYYY-MM-DD_HH-MM-SS (Detailed, no version)
-             const timestamp = now.toISOString().split('.')[0].replace('T', '_').replace(/:/g, '-');
+             // Timestamp format: YYYY-MM-DD_HH-MM-SS (KST adjusted)
+             const timestamp = getKstTimestamp();
              const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             // Filename format: {Type}_{Symbol}_{Brain}_{Timestamp}.md
+             // MODIFIED: Timestamp at the end with full time
              const fileName = `${type}_${selectedStock.symbol}_${brain}_${timestamp}.md`;
              
              // Fire and forget
@@ -354,8 +370,21 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
-        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
+        {/* LEGAL LINKS & CLOCKS (Restored) */}
+        <div className="ml-auto mr-6 flex items-center gap-4 shrink-0">
+             {/* KST Clock */}
+             <div className="flex items-center gap-1.5">
+                 <div className="w-1 h-1 rounded-full bg-rose-500 animate-pulse"></div>
+                 <span className="text-slate-400">KST {time.toLocaleTimeString('en-US', { timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+             </div>
+             {/* EST Clock */}
+             <div className="flex items-center gap-1.5">
+                 <div className="w-1 h-1 rounded-full bg-blue-500"></div>
+                 <span className="text-slate-400">NY {time.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
+             </div>
+             
+             <div className="h-3 w-[1px] bg-white/10 mx-2"></div>
+
             <a 
                 href="?doc=privacy"
                 onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
