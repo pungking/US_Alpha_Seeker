@@ -281,7 +281,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const filtered = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
-      const fileName = `STAGE1_PURIFIED_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
+      
+      // [KST TIMESTAMP LOGIC]
+      const now = new Date();
+      const kstOffset = 9 * 60 * 60 * 1000;
+      const kstDate = new Date(now.getTime() + kstOffset);
+      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+        
+      const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
         manifest: { version: "2.3.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
