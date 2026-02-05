@@ -1,90 +1,159 @@
+import puppeteer from 'puppeteer';
 
-export default async function handler(req: any, res: any) {
-  // "The Holy Grail" - TradingView Scanner Proxy
-  // Fetches entire US market + Fundamentals in ONE request.
-  
-  res.setHeader('Access-Control-Allow-Credentials', true);
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET,OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'X-CSRF-Token, X-Requested-With, Accept, Accept-Version, Content-Length, Content-MD5, Content-Type, Date, X-Api-Version, Authorization');
+/**
+ * US_Alpha_Seeker Headless Automation Protocol v2.0
+ * 
+ * Features:
+ * 1. Robust Token Refresh with Fallback Client ID
+ * 2. Whitespace trimming for Env Vars
+ * 3. Graceful fallback to static Access Token
+ * 4. Puppeteer automation for App execution
+ */
 
-  if (req.method === 'OPTIONS') {
-    res.status(200).end();
-    return;
-  }
+// Fallback ID from UniverseGathering.tsx to ensure continuity if Secrets fail
+const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
 
-  try {
-    const url = 'https://scanner.tradingview.com/america/scan';
+async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
+    if (!clientId || !refreshToken) return null;
     
-    // Requesting massive data columns: Close, Volume, MarketCap, Sector, Industry, PER, EPS, ROE
-    // range: [0, 20000] attempts to get everything sorted by volume
-    const payload = {
-        "filter": [
-            { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
-            { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit"] }
-        ],
-        "options": { "lang": "en" },
-        "symbols": { "query": { "types": [] }, "tickers": [] },
-        "columns": [
-            "name",                 // d[0]
-            "close",                // d[1]
-            "volume",               // d[2]
-            "market_cap_basic",     // d[3]
-            "sector",               // d[4]
-            "industry",             // d[5]
-            "price_earnings_ttm",   // d[6]
-            "earnings_per_share_basic_ttm", // d[7]
-            "return_on_equity_fq",  // d[8]
-            "change",               // d[9]
-            "description"           // d[10]
-        ],
-        "sort": { "sortBy": "volume", "sortOrder": "desc" },
-        "range": [0, 20000]
+    const params: Record<string, string> = {
+        client_id: clientId,
+        refresh_token: refreshToken,
+        grant_type: 'refresh_token'
     };
+    if (clientSecret) params.client_secret = clientSecret;
 
-    const response = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Content-Type': 'application/json',
-        'Origin': 'https://www.tradingview.com',
-        'Referer': 'https://www.tradingview.com/'
-      },
-      body: JSON.stringify(payload)
-    });
+    try {
+        const response = await fetch('https://oauth2.googleapis.com/token', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+            body: new URLSearchParams(params)
+        });
 
-    if (!response.ok) {
-        const txt = await response.text();
-        throw new Error(`TV Scanner Error: ${response.status} - ${txt.substring(0, 100)}`);
+        if (!response.ok) {
+            const txt = await response.text();
+            // Log error but mask credentials
+            console.log(`⚠️ Token Refresh Failed for Client ID ...${clientId.slice(-6)}: ${txt}`);
+            return null;
+        }
+        const data = await response.json();
+        return data.access_token;
+    } catch (e) {
+        console.error("❌ Network Error during refresh:", e.message);
+        return null;
+    }
+}
+
+async function getAccessToken() {
+    // 1. Sanitize Inputs
+    const envClientId = (process.env.GDRIVE_CLIENT_ID || '').trim();
+    const envClientSecret = (process.env.GDRIVE_CLIENT_SECRET || '').trim();
+    const envRefreshToken = (process.env.GDRIVE_REFRESH_TOKEN || '').trim();
+    const envAccessToken = (process.env.GDRIVE_ACCESS_TOKEN || '').trim();
+
+    console.log("🔄 [AUTH] Initiating Secure Token Exchange...");
+
+    // 2. Attempt with Environment Credentials
+    if (envClientId && envRefreshToken) {
+        const token = await refreshWithCredentials(envClientId, envClientSecret, envRefreshToken);
+        if (token) {
+            console.log("✅ [AUTH] Authenticated via Environment Secrets.");
+            return token;
+        }
     }
 
-    const json = await response.json();
-    const rows = json.data || [];
+    // 3. Attempt with Fallback Client ID (Robustness for Mismatched Secrets)
+    if (FALLBACK_CLIENT_ID !== envClientId && envRefreshToken) {
+        console.log("🔄 [AUTH] Retrying with System Fallback ID...");
+        // Try with secret
+        let token = await refreshWithCredentials(FALLBACK_CLIENT_ID, envClientSecret, envRefreshToken);
+        if (token) {
+             console.log("✅ [AUTH] Authenticated via Fallback ID (w/ Secret).");
+             return token;
+        }
+        // Try without secret (Native App Flow support)
+        token = await refreshWithCredentials(FALLBACK_CLIENT_ID, '', envRefreshToken);
+        if (token) {
+             console.log("✅ [AUTH] Authenticated via Fallback ID (No Secret).");
+             return token;
+        }
+    }
 
-    // Map raw array to our MasterTicker/QualityTicker schema
-    const normalized = rows.map((r: any) => {
-        const d = r.d; // data array
-        return {
-            symbol: r.s.split(':')[1] || r.s, // Remove "NASDAQ:" prefix
-            name: d[10] || "",
-            price: d[1] || 0,
-            volume: d[2] || 0,
-            marketCap: d[3] || 0,
-            sector: d[4] || "Unclassified",
-            industry: d[5] || "Unknown",
-            pe: d[6] || 0,
-            eps: d[7] || 0,
-            roe: d[8] || 0, // TV returns percentage directly usually
-            change: d[9] || 0,
-            source: 'TradingView_Scan'
-        };
+    // 4. Last Resort: Static Token
+    if (envAccessToken) {
+        console.warn("⚠️ [AUTH] Refresh failed. Using static Access Token (Risk of Expiration).");
+        return envAccessToken;
+    }
+
+    return null;
+}
+
+(async () => {
+  console.log("🚀 Starting US_Alpha_Seeker Automation Protocol...");
+
+  const token = await getAccessToken();
+  if (!token) {
+    console.error("❌ [CRITICAL] Authentication Failed. Check GitHub Secrets (GDRIVE_REFRESH_TOKEN, GDRIVE_CLIENT_ID).");
+    (process as any).exit(1);
+  }
+
+  const browser = await puppeteer.launch({
+    headless: true,
+    args: ['--no-sandbox', '--disable-setuid-sandbox'] 
+  });
+  
+  try {
+    const page = await browser.newPage();
+    
+    page.on('console', msg => {
+        const text = msg.text();
+        if (text.includes('AUTO-PILOT') || text.includes('Phase') || text.includes('Complete') || text.includes('Error') || text.includes('EXECUTED') || text.includes('[AUTH]')) {
+            console.log(`[BROWSER] ${text}`);
+        }
     });
 
-    res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
-    return res.status(200).json(normalized);
+    const APP_URL = 'http://localhost:3000';
 
-  } catch (error: any) {
-    console.error('TV Proxy Error:', error);
-    return res.status(200).json([]); // Return empty for graceful failover
+    console.log("🔌 Connecting to Alpha Node...");
+    await page.goto(APP_URL, { waitUntil: 'networkidle0', timeout: 60000 });
+    
+    console.log("🔐 Injecting Security Context...");
+    await page.evaluate((accessToken, clientId) => {
+        sessionStorage.setItem('gdrive_access_token', accessToken);
+        if (clientId) localStorage.setItem('gdrive_client_id', clientId);
+    }, token, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
+
+    console.log("🤖 Engaging Headless Auto-Pilot...");
+    await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded', timeout: 60000 });
+
+    console.log("⏳ Pipeline Execution in Progress...");
+    
+    const TIMEOUT_MS = 25 * 60 * 1000; // 25 Minutes
+    
+    await page.waitForFunction(
+        () => {
+            const bodyText = document.body.innerText;
+            return bodyText.includes("ALL PIPELINES EXECUTED") || 
+                   bodyText.includes("TELEGRAM SEND FAILED");
+        },
+        { timeout: TIMEOUT_MS, polling: 10000 }
+    );
+
+    const finalState = await page.evaluate(() => document.body.innerText);
+    
+    if (finalState.includes("ALL PIPELINES EXECUTED")) {
+        console.log("✅ SUCCESS: Alpha Report Generated & Transmitted.");
+        await page.screenshot({ path: 'alpha_report_success.png', fullPage: true });
+    } else {
+        console.warn("⚠️ WARNING: Pipeline finished with unexpected state.");
+        await page.screenshot({ path: 'alpha_report_warning.png', fullPage: true });
+    }
+
+  } catch (error) {
+    console.error("❌ Automation Failed:", error);
+    (process as any).exit(1);
+  } finally {
+    await browser.close();
+    console.log("👋 Session Terminated.");
   }
-}
+})();
