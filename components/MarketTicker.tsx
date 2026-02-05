@@ -28,10 +28,10 @@ const MarketTicker: React.FC = () => {
   const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
   const alpacaSecret = ''; // Secret logic not fully implemented in frontend config
 
-  // [UPDATED] Distinct IDs for NDX (100) and IXIC (Composite)
+  // [UPDATED] Reordered: IXIC (Composite) FIRST, then NDX (100)
   const indexConfig = [
-    { id: 'NDX', portalId: 'NDX', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
     { id: 'IXIC', portalId: 'IXIC', etf: 'ONEQ', label: 'NASDAQ Comp', theme: 'text-purple-400' },
+    { id: 'NDX', portalId: 'NDX', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
     { id: 'SPX', portalId: 'SPX', etf: 'SPY', label: 'S&P 500', theme: 'text-blue-400' },
     { id: 'DJI', portalId: 'DJI', etf: 'DIA', label: 'DOW JONES', theme: 'text-slate-400' },
     { id: 'VIX', portalId: 'VIX', etf: 'VXX', label: 'VIX (Fear)', theme: 'text-rose-400' },
@@ -53,7 +53,7 @@ const MarketTicker: React.FC = () => {
           }
           return next;
       });
-      // [UX FIX] 24-hour format to prevent line wrapping
+      // [UX FIX] 24-hour format
       setLastUpdate(new Date().toLocaleTimeString('en-GB', { hour12: false }));
   };
 
@@ -113,10 +113,10 @@ const MarketTicker: React.FC = () => {
       }
   };
 
-  // Initial Poll
+  // Initial Poll & Interval (Increased to 10s for Real-time feel)
   useEffect(() => {
       fetchMarketData();
-      const interval = setInterval(fetchMarketData, 60000); 
+      const interval = setInterval(fetchMarketData, 10000); 
       return () => clearInterval(interval);
   }, []);
 
