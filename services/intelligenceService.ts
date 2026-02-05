@@ -415,64 +415,53 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   }));
 
   const prompt = `
-  [SYSTEM ROLE: GAME DATA FORMATTER]
-  You are an engine for a Stock Market Simulation Game.
-  Your task is to translate and format the provided game data into a specific Korean template.
+  You are a helpful assistant.
+  Please write a daily stock market summary report in Korean based on the provided dataset.
   
-  **CRITICAL RULES:**
-  1. DO NOT generate financial advice. This is a simulation.
-  2. DO NOT include the report title/header (e.g. 🚀 Report 🚀). Start directly with the Date line.
-  3. FOLLOW the template exactly. Do not add conversational filler.
-  4. Use the provided "Assets" JSON to fill the Alpha Top 6 section.
-  5. For the "Logic" section, you MUST use exactly these three bullet points:
-     - 섹터 성장: ...
-     - 실적 요인: ...
-     - 기술적: ...
+  DATASET:
+  - Date: ${today}
+  - Market Indices: S&P500=${spxPrice}, NASDAQ=${ndxPrice}, VIX=${vixPrice}
+  - Top Picks Data: ${JSON.stringify(top6)}
+  
+  INSTRUCTIONS:
+  1. Write in professional Korean.
+  2. Do not explain what you are doing, just output the report.
+  3. Translate English verdicts (STRONG_BUY -> 강력 매수, BUY -> 매수, ACCUMULATE -> 비중 확대, HOLD -> 관망).
+  4. Use the specific format below.
 
-  [INPUT DATA]
-  Date: ${today}
-  Indices Data: S&P500=${spxPrice}, NASDAQ=${ndxPrice}, VIX=${vixPrice}
-  Assets: ${JSON.stringify(top6)}
-
-  [REQUIRED TEMPLATE]
+  FORMAT:
   📅 ${today} | Daily Alpha Insight
 
-  📊 Market Pulse  
-  Macro: S&P500과 NASDAQ이 [Summary of Market Status] (S&P500: ${spxPrice} | NASDAQ: ${ndxPrice})
-  - [Market Driver 1]
-  - [Market Driver 2]
-  - [Market Driver 3 regarding VIX]
+  📊 Market Pulse
+  Macro: S&P500과 NASDAQ이 [Short Summary] (S&P500: ${spxPrice} | NASDAQ: ${ndxPrice})
+  - [Key Market Driver]
+  - [Sector Trend]
+  - [Volatility Note]
 
-  VIX: ${vixPrice}. ([Interpret: <20 Stable, >20 Volatile])
+  VIX: ${vixPrice}. ([Volatility Status])
 
   💎 Alpha Top 6 Selections
 
-  [REPEAT FOR EACH ASSET 1-6]
-  [Number]. [Symbol] ([Verdict in Korean]) : [Name]
+  (Iterate through Top Picks)
+  1. [Symbol] ([Verdict]) : [Name]
      - 🏢 Sector: [Theme]
      - 🎯 Plan: 진입 $[Entry] | 목표 $[Target] | 손절 $[Stop]
      - 📈 Exp.Return: [ExpReturn]
-     - 💡 Logic:  
-       - 섹터 성장: [Reason related to Sector/Theme]
-       - 실적 요인: [Reason related to Score/Fundamentals]
-       - 기술적: [Reason related to Technicals/Momentum]
-  [END LOOP]
+     - 💡 Logic:
+       - 섹터 성장: [Context]
+       - 실적 요인: [Context]
+       - 기술적: [Context]
 
-  ⚠️ Risk Note: [Generate a 1-sentence risk warning based on VIX]
-
-  [TRANSLATION MAP]
-  - STRONG_BUY -> 강력 매수
-  - BUY -> 매수
-  - ACCUMULATE -> 비중 확대
-  - HOLD -> 관망
-  - SELL -> 매도
+  ⚠️ Risk Note: [Risk Warning]
   `;
 
   const cleanOutput = (text: string) => {
       let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
       clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
       clean = clean.replace(/🚀.*?Report.*?🚀/gi, '').trim(); 
-      return removeCitations(clean); // Clean citations here too
+      // Ensure specific phrase removal if AI includes refusals in the text body (rare with this prompt)
+      clean = clean.replace(/I cannot function as a game data formatter/gi, '').trim();
+      return removeCitations(clean); 
   };
 
   const executePerplexityFallback = async () => {
