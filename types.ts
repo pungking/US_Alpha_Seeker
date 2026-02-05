@@ -15,6 +15,7 @@ export enum ApiProvider {
 
 export interface ApiStatus {
   provider: ApiProvider;
+  category?: 'Acquisition' | 'Intelligence' | 'Infrastructure';
   isConnected: boolean;
   latency: number;
   lastChecked: string;
