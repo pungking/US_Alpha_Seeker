@@ -26,15 +26,15 @@ const MarketTicker: React.FC = () => {
   const [activeProvider, setActiveProvider] = useState<WsProvider>('FINNHUB');
   const [socketStatus, setSocketStatus] = useState<'DISCONNECTED' | 'CONNECTING' | 'CONNECTED' | 'AUTH_ERROR' | 'FAILOVER'>('DISCONNECTED');
   const [realtimeData, setRealtimeData] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
+  const [activeSource, setActiveSource] = useState<string>('INIT');
   
   const wsRef = useRef<WebSocket | null>(null);
-  const retryTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // API Keys
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
-  const alpacaSecret = process.env.ALPACA_SECRET || ''; // Needs to be set in env for full Alpaca support
+  const alpacaSecret = process.env.ALPACA_SECRET || ''; 
 
   // Configuration
   const indexConfig = [
@@ -51,61 +51,179 @@ const MarketTicker: React.FC = () => {
     { symbol: 'MSFT', label: 'MICROSOFT' },
   ];
 
-  // --- 1. BASE DATA FETCHING (REST) ---
+  // --- 1. ROBUST REST FETCHING (Restored) ---
+  const fetchPortalProxy = async () => {
+      const res = await fetch('/api/portal_indices');
+      if (!res.ok) throw new Error("Portal Proxy Failed");
+      
+      const json = await res.json();
+      if (!Array.isArray(json) || json.length === 0) throw new Error("Portal Data Empty");
+
+      const finalItems: MarketItem[] = [];
+      const dataMap = new Map<string, any>(json.map((item: any) => [item.symbol, item]));
+
+      let indexCount = 0;
+      let providerName = 'PORTAL_HYBRID';
+
+      indexConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.portalId);
+          if (item) {
+              if (item.source) providerName = item.source;
+              finalItems.push({
+                  symbol: cfg.id,
+                  label: cfg.label,
+                  price: item.price,
+                  change: item.change,
+                  isIndex: true,
+                  typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite",
+                  colorTheme: cfg.theme
+              });
+              indexCount++;
+          }
+      });
+      
+      stockConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.symbol);
+          if (item) {
+              finalItems.push({
+                  symbol: cfg.symbol,
+                  label: cfg.label,
+                  price: item.price,
+                  change: item.change,
+                  isIndex: false,
+                  typeLabel: "Equity"
+              });
+          }
+      });
+      
+      if (indexCount < 2) throw new Error("Portal Insufficient Indices");
+      return { items: finalItems, source: providerName };
+  };
+
+  const fetchYahooProxy = async () => {
+    const indices = indexConfig.map(i => i.yahoo).join(',');
+    const stocks = stockConfig.map(s => s.symbol).join(',');
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 8000);
+
+    try {
+        const res = await fetch(`/api/yahoo?symbols=${indices},${stocks}`, { signal: controller.signal });
+        clearTimeout(timeoutId);
+        if (!res.ok) throw new Error("Yahoo Proxy Failed");
+        const json = await res.json();
+        
+        const finalItems: MarketItem[] = [];
+        const dataMap = new Map<string, any>(json.map((item: any) => [item.symbol, item]));
+
+        indexConfig.forEach(cfg => {
+            const item = dataMap.get(cfg.yahoo);
+            if (item) {
+                finalItems.push({
+                    symbol: cfg.id,
+                    label: cfg.label,
+                    price: item.price,
+                    change: item.change,
+                    isIndex: true,
+                    typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite",
+                    colorTheme: cfg.theme
+                });
+            }
+        });
+
+        stockConfig.forEach(cfg => {
+            const item = dataMap.get(cfg.symbol);
+            if (item) finalItems.push({ symbol: cfg.symbol, label: cfg.label, price: item.price, change: item.change, isIndex: false, typeLabel: "Equity" });
+        });
+
+        if (finalItems.length < 2) throw new Error("Yahoo Insufficient Data");
+        return finalItems;
+    } catch (e) {
+        clearTimeout(timeoutId);
+        throw e;
+    }
+  };
+
+  const fetchFMP = async () => {
+      if (!fmpKey) throw new Error("No FMP Key");
+      const indices = indexConfig.map(i => i.fmp).join(',');
+      const stocks = stockConfig.map(s => s.symbol).join(',');
+      const [idxRes, stkRes] = await Promise.all([
+          fetch(`https://financialmodelingprep.com/api/v3/quote/${indices}?apikey=${fmpKey}`),
+          fetch(`https://financialmodelingprep.com/api/v3/quote/${stocks}?apikey=${fmpKey}`)
+      ]);
+      if (!idxRes.ok) throw new Error("FMP Index Error");
+      const idxData = await idxRes.json();
+      const stkData = await stkRes.json();
+      
+      const finalItems: MarketItem[] = [];
+      const dataMap = new Map<string, any>([...idxData, ...(stkData || [])].map((item: any) => [item.symbol, item]));
+      
+      indexConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.fmp);
+          if (item) finalItems.push({ symbol: cfg.id, label: cfg.label, price: item.price, change: item.changesPercentage, isIndex: true, typeLabel: cfg.id === 'VIX' ? "FEAR_INDEX" : "Composite", colorTheme: cfg.theme });
+      });
+      stockConfig.forEach(cfg => {
+          const item = dataMap.get(cfg.symbol);
+          if (item) finalItems.push({ symbol: cfg.symbol, label: cfg.label, price: item.price, change: item.changesPercentage, isIndex: false, typeLabel: "Equity" });
+      });
+      return finalItems;
+  };
+  
+  const fetchEtfProxies = async () => {
+    if (!finnhubKey) throw new Error("No Finnhub Key");
+    const providerName = 'FHUB_ETF_PROXY';
+    const etfMap = indexConfig.map(cfg => ({ ...cfg, target: cfg.etf }));
+    const promises = [
+        ...etfMap.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.target}&token=${finnhubKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.id, label: `${cfg.label} (ETF)`, isIndex: true, theme: cfg.theme, typeLabel: cfg.id === 'VIX' ? "FEAR_ETF" : "Composite_ETF", isProxy: true }))),
+        ...stockConfig.map(cfg => fetch(`https://finnhub.io/api/v1/quote?symbol=${cfg.symbol}&token=${finnhubKey}`).then(r => r.json()).then(d => ({ ...d, id: cfg.symbol, label: cfg.label, isIndex: false, typeLabel: "Equity" })))
+    ];
+    const results = await Promise.all(promises);
+    const valid = results.filter((r: any) => r.c > 0);
+    if (valid.length === 0) throw new Error("ETF Proxy Failed");
+    return { items: valid.map((item: any) => ({ symbol: item.id, label: item.label, price: item.c, change: item.dp, isIndex: item.isIndex, typeLabel: item.typeLabel, colorTheme: item.theme, isProxy: item.isProxy })), source: providerName };
+  };
+
   const fetchMarketData = async () => {
     if (document.body.getAttribute('data-engine-running') === 'true') { setIsPaused(true); return; }
     setIsPaused(false);
 
     try {
-        const stocks = stockConfig.map(s => s.symbol).join(',');
+        try {
+            const result = await fetchPortalProxy();
+            setData(result.items);
+            setActiveSource(result.source);
+            setErrorCount(0);
+            setLastSync(new Date().toLocaleTimeString());
+            return;
+        } catch (e) { /* Fallback */ }
+
+        try {
+            const items = await fetchYahooProxy();
+            setData(items);
+            setActiveSource('YAHOO_PORTAL');
+            setErrorCount(0);
+            setLastSync(new Date().toLocaleTimeString());
+            return;
+        } catch (e) { /* Fallback */ }
+
+        try {
+            const items = await fetchFMP();
+            setData(items);
+            setActiveSource('FMP_v3');
+            setErrorCount(0);
+            setLastSync(new Date().toLocaleTimeString());
+            return;
+        } catch (e) { /* Fallback */ }
         
-        // Attempt FMP first (Reliable Snapshot)
-        if (fmpKey) {
-            const res = await fetch(`https://financialmodelingprep.com/api/v3/quote/${stocks},^IXIC,^GSPC,^DJI,^VIX?apikey=${fmpKey}`);
-            if (res.ok) {
-                const json = await res.json();
-                const map = new Map<string, any>(json.map((i:any) => [i.symbol, i]));
-                const items: MarketItem[] = [];
-                
-                indexConfig.forEach(cfg => {
-                    const i = map.get(cfg.fmp);
-                    if(i) items.push({ symbol: cfg.id, label: cfg.label, price: i.price, change: i.changesPercentage, isIndex: true, typeLabel: "INDEX", colorTheme: cfg.theme });
-                });
-                stockConfig.forEach(cfg => {
-                    const i = map.get(cfg.symbol);
-                    if(i) items.push({ symbol: cfg.symbol, label: cfg.label, price: i.price, change: i.changesPercentage, isIndex: false, typeLabel: "EQUITY" });
-                });
-                setData(items);
-                setLastSync(new Date().toLocaleTimeString());
-                return;
-            }
-        }
-        
-        // Fallback: Yahoo Proxy (if FMP fails)
-        const res = await fetch(`/api/yahoo?symbols=${stocks},^IXIC,^GSPC,^DJI,^VIX`);
-        if (res.ok) {
-            const json = await res.json();
-            // ... (Simplified parsing for brevity, assuming standard Yahoo structure)
-            if(Array.isArray(json) && json.length > 0) {
-                 const map = new Map<string, any>(json.map((i:any) => [i.symbol, i]));
-                 const items: MarketItem[] = [];
-                 
-                 // Reuse similar mapping or simple creation for fallback
-                 // Just ensuring data is set for display
-                 setData(json.map((i: any) => ({
-                    symbol: i.symbol, 
-                    label: i.name || i.symbol, 
-                    price: i.price, 
-                    change: i.change, 
-                    isIndex: i.symbol.startsWith('^'), 
-                    typeLabel: i.symbol.startsWith('^') ? 'INDEX' : 'EQUITY' 
-                 })).slice(0, 8)); // Limit to fit
-                 setLastSync(new Date().toLocaleTimeString());
-                 return;
-            }
-        }
-        
-        throw new Error("REST Fetch Failed");
+        try {
+            const result = await fetchEtfProxies();
+            setData(result.items);
+            setActiveSource(result.source);
+            setErrorCount(0);
+            setLastSync(new Date().toLocaleTimeString());
+            return;
+        } catch (e) { throw new Error("All Failed"); }
+
     } catch (e) {
       setErrorCount(prev => prev + 1);
     }
@@ -143,20 +261,17 @@ const MarketTicker: React.FC = () => {
   useEffect(() => {
     // Determine Symbols to Track
     const symbolMap = new Map<string, string>();
-    indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id)); // Track ETFs for Indices
+    indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id)); 
     stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
     const trackList = Array.from(symbolMap.keys());
 
     const connectFinnhub = () => {
         if (!finnhubKey) return failover('FINNHUB');
-        
-        console.log("[Hybrid WS] Connecting Primary: FINNHUB...");
         setSocketStatus('CONNECTING');
         const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("[Hybrid WS] Finnhub Connected.");
             setSocketStatus('CONNECTED');
             trackList.forEach(sym => ws.send(JSON.stringify({ type: 'subscribe', symbol: sym })));
         };
@@ -173,25 +288,17 @@ const MarketTicker: React.FC = () => {
             } catch {}
         };
 
-        ws.onclose = () => {
-            console.warn("[Hybrid WS] Finnhub Disconnected.");
-            failover('FINNHUB');
-        };
-
+        ws.onclose = () => failover('FINNHUB');
         ws.onerror = () => ws.close();
     };
 
     const connectAlpaca = () => {
         if (!alpacaKey) return failover('ALPACA');
-        
-        console.log("[Hybrid WS] Connecting Secondary: ALPACA...");
         setSocketStatus('CONNECTING');
         const ws = new WebSocket('wss://stream.data.alpaca.markets/v2/iex');
         wsRef.current = ws;
 
         ws.onopen = () => {
-            console.log("[Hybrid WS] Alpaca Connected. Authenticating...");
-            // Alpaca Auth
             ws.send(JSON.stringify({ action: 'auth', key: alpacaKey, secret: alpacaSecret }));
         };
 
@@ -204,7 +311,7 @@ const MarketTicker: React.FC = () => {
                              setSocketStatus('CONNECTED');
                              ws.send(JSON.stringify({ action: 'subscribe', trades: trackList }));
                         }
-                        if (m.T === 't' && m.S && m.p) { // Trade message
+                        if (m.T === 't' && m.S && m.p) { 
                             const internalId = symbolMap.get(m.S);
                             if (internalId) updatePrice(internalId, m.p);
                         }
@@ -213,33 +320,26 @@ const MarketTicker: React.FC = () => {
             } catch {}
         };
 
-        ws.onclose = () => {
-            console.warn("[Hybrid WS] Alpaca Disconnected.");
-            failover('ALPACA');
-        };
-
+        ws.onclose = () => failover('ALPACA');
         ws.onerror = () => ws.close();
     };
 
     const failover = (failedProvider: WsProvider) => {
         if (failedProvider === 'FINNHUB') {
-            console.warn(">> FAILOVER TRIGGERED: Switching to Alpaca...");
             setActiveProvider('ALPACA');
             setSocketStatus('FAILOVER');
         } else if (failedProvider === 'ALPACA') {
-            console.warn(">> FAILOVER TRIGGERED: All Sockets Failed. Switching to Polling.");
             setActiveProvider('POLLING');
             setSocketStatus('DISCONNECTED');
         }
     };
 
-    // Connection Router
     if (wsRef.current) wsRef.current.close();
     
     if (activeProvider === 'FINNHUB') connectFinnhub();
     else if (activeProvider === 'ALPACA') connectAlpaca();
     else if (activeProvider === 'POLLING') {
-        fetchMarketData(); // Immediate fetch
+        fetchMarketData(); 
     }
 
     return () => {
@@ -247,11 +347,13 @@ const MarketTicker: React.FC = () => {
     };
   }, [activeProvider, finnhubKey, alpacaKey]);
 
-  // Polling Fallback (Runs always as background sync, more frequent if WS is down)
+  // Polling Fallback 
   useEffect(() => {
     const intervalTime = activeProvider === 'POLLING' ? 5000 : 60000;
     const interval = setInterval(fetchMarketData, intervalTime);
     if (activeProvider === 'POLLING') fetchMarketData();
+    // Also initial fetch
+    fetchMarketData();
     return () => clearInterval(interval);
   }, [activeProvider]);
 
@@ -308,7 +410,7 @@ const MarketTicker: React.FC = () => {
             </span>
         </div>
         <div className="flex items-center space-x-1.5">
-           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {activeProvider}</span>
+           <span className="text-[6px] font-mono text-slate-800 uppercase tracking-tighter">SRC: {activeSource || activeProvider}</span>
            <span className="text-slate-900 text-[6px]">•</span>
            <span className="text-[6px] font-mono text-slate-700 uppercase tracking-tighter">Sync: {lastSync || '---'}</span>
         </div>
