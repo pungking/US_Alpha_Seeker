@@ -55,6 +55,17 @@ const App: React.FC = () => {
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
+  // [NEW] Real-time Clock State
+  const [currentTime, setCurrentTime] = useState(new Date());
+  useEffect(() => {
+    const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const formatTime = (date: Date, zone: string) => {
+    return date.toLocaleTimeString('en-US', { timeZone: zone, hour12: false, hour: '2-digit', minute: '2-digit' });
+  };
+
   // [NEW] GITHUB ACTION HOOK & LEGAL DOC HOOK
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -351,26 +362,35 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
-        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
-            <a 
-                href="?doc=privacy"
-                onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
-                className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
-            >
-                Privacy Policy
-            </a>
-             <span className="opacity-20 text-slate-500">/</span>
-            <a 
-                href="?doc=terms"
-                onClick={(e) => { e.preventDefault(); setInitialLegalTab('terms'); setShowLegalDocs(true); }} 
-                className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
-            >
-                Terms
-            </a>
+        {/* RIGHT SECTION: CLOCK & LEGAL */}
+        <div className="ml-auto flex items-center shrink-0">
+            {/* [NEW] REAL-TIME CLOCK */}
+            <div className="hidden md:flex items-center space-x-3 mr-4 border-r border-white/10 pr-4">
+                <span className="text-slate-500 font-bold">NY <span className="text-white font-mono">{formatTime(currentTime, 'America/New_York')}</span></span>
+                <span className="text-slate-500 font-bold">KR <span className="text-white font-mono">{formatTime(currentTime, 'Asia/Seoul')}</span></span>
+            </div>
+
+            {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
+            <div className="flex items-center gap-2">
+                <a 
+                    href="?doc=privacy"
+                    onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
+                    className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+                >
+                    Privacy Policy
+                </a>
+                <span className="opacity-20 text-slate-500">/</span>
+                <a 
+                    href="?doc=terms"
+                    onClick={(e) => { e.preventDefault(); setInitialLegalTab('terms'); setShowLegalDocs(true); }} 
+                    className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+                >
+                    Terms
+                </a>
+            </div>
         </div>
 
-        <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+        <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0 ml-6">Nexus_Source</a>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
