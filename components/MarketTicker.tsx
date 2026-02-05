@@ -31,6 +31,7 @@ const MarketTicker: React.FC = () => {
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
+  // Finnhub (Free) is Real-time for IEX, not delayed.
   const isPollingOnly = !finnhubKey;
   const isDelayed = false;
 
@@ -310,6 +311,8 @@ const MarketTicker: React.FC = () => {
         ws.onclose = (e) => {
             console.log("[Finnhub WS] Closed", e.code, e.reason);
             setSocketStatus('DISCONNECTED');
+            setRealtimeData({}); // <--- IMPORTANT: Clear RT data to revert to fixed (REST) amounts
+            
             // Retry after delay
             retryTimeoutRef.current = setTimeout(() => {
                 connect();
@@ -341,6 +344,8 @@ const MarketTicker: React.FC = () => {
   return (
     <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1 px-1">
       {data.length > 0 ? data.map((item) => {
+        // Fallback Logic: Use Realtime if available AND Connected, otherwise use fixed Item Price
+        // Since we clear realtimeData on disconnect, this check implicitly handles it.
         const rt = realtimeData[item.symbol];
         const displayPrice = rt ? rt.price : item.price;
         
