@@ -9,10 +9,13 @@ import { TELEGRAM_CONFIG } from "../constants";
 export async function sendTelegramReport(reportContent: string): Promise<boolean> {
   const { TOKEN, CHAT_ID } = TELEGRAM_CONFIG;
   
-  console.log(`[Telegram] Initializing transmission to Chat ID: ${CHAT_ID}`);
+  // Mask token for log safety
+  const maskedToken = TOKEN ? `${TOKEN.substring(0, 5)}...` : 'MISSING';
+  console.log(`[Telegram] Initializing transmission to Chat ID: ${CHAT_ID}. Token Status: ${maskedToken}`);
 
   if (!TOKEN || !CHAT_ID) {
-    console.error("Telegram Credentials Missing");
+    console.error("Telegram Credentials Missing. Check .env or constants.ts.");
+    // Fallback attempt: check if we can get them from window/global context (rare, but sometimes used in tests)
     return false;
   }
 
@@ -20,7 +23,9 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
   const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
   
   // Clean up standard Markdown to Telegram Legacy Markdown if possible
-  let cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*');
+  // Telegram MarkdownV2 requires escaping specific characters if not in code blocks, but it's complex.
+  // Standard 'Markdown' mode is safer but limited. We'll try to keep it simple.
+  let cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*'); // Bold
   
   // Safety: If the AI accidentally included the header, remove it to prevent duplication
   cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
@@ -38,6 +43,7 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
 
     // ATTEMPT 1: Use Internal Proxy (Works in Production Vercel)
     try {
+      // In CI/Preview, this might 404 immediately.
       const proxyUrl = `/api/telegram`; 
       const res = await fetch(proxyUrl, {
         method: 'POST',
@@ -50,27 +56,29 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
       });
 
       // If Proxy returns 404 (common in Vite Preview/CI), trigger error to jump to catch
-      if (res.status === 404) throw new Error("Proxy Not Found");
+      if (res.status === 404) throw new Error("Proxy Not Found (404)");
 
       const json = await res.json();
       
       if (!res.ok) {
+         console.warn(`[Telegram Proxy] Failed: ${json.description || 'Unknown Error'}`);
          // Retry as Plain Text if Markdown Error
          if (useMarkdown && (json.description?.includes('parse') || json.description?.includes('can\'t parse'))) {
              console.warn("Telegram Markdown Parse Error. Retrying as Plain Text...");
              return sendMessageChunk(text, false);
          }
-         console.error("Telegram API Error (Proxy):", json);
          return false;
       }
       return true;
 
-    } catch (proxyError) {
+    } catch (proxyError: any) {
       // ATTEMPT 2: Direct API Call (Works in CI/Puppeteer with --disable-web-security)
-      console.warn("Telegram Proxy Failed, attempting Direct API call...", proxyError);
+      console.warn(`Telegram Proxy Failed (${proxyError.message}), attempting Direct API call...`);
       
       try {
           const directUrl = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
+          
+          // Note: In a strict browser env without proxy, this will be blocked by CORS unless --disable-web-security is on.
           const res = await fetch(directUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
@@ -80,17 +88,18 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
           const json = await res.json();
 
           if (!res.ok) {
+             console.error(`[Telegram Direct] Error ${res.status}:`, json);
              if (useMarkdown && (json.description?.includes('parse') || json.description?.includes('can\'t parse'))) {
                  console.warn("Telegram Markdown Parse Error (Direct). Retrying as Plain Text...");
                  return sendMessageChunk(text, false);
              }
-             console.error("Telegram API Error (Direct):", json);
              return false;
           }
           return true;
 
-      } catch (directError) {
+      } catch (directError: any) {
           console.error("Telegram Network Error (Direct):", directError);
+          // Only return false after both attempts fail
           return false;
       }
     }
