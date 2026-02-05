@@ -448,7 +448,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
-        addLog("AUTO-PILOT: Initiating Alpha Singularity Protocol v2.0...", "signal");
+        addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
         setAutoPhase('ENGINE');
         handleExecuteEngine();
     }
@@ -457,9 +457,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Bypassing Matrix Audit -> Initiating Transmission...", "signal");
+          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
+          // Add a small delay to ensure render updates before heavy matrix op
+          setTimeout(() => {
+              handleRunMatrixAudit(selectedBrain);
+          }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
@@ -476,7 +480,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
               } catch (e) {
-                  addLog("Brief Gen Failed.", "err");
+                  addLog("Brief Gen Failed. Sending full report.", "err");
                   telegramPayload = "Brief Generation Failed.";
               }
 
@@ -601,18 +605,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setLoading(true);
     let currentProvider = selectedBrain;
     
-    addLog(`Initiating Alpha Singularity Protocol via ${currentProvider}...`, "signal");
-    addLog("Step 1: 3-Vector Data Fusion & Regime Scan...", "info");
-
+    addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
+    
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
-
-      await new Promise(r => setTimeout(r, 800));
-      addLog("Step 2: Convening Council of Alpha (3-Persona Debate)...", "info");
-      
-      await new Promise(r => setTimeout(r, 800));
-      addLog("Step 3: Running Pre-Mortem & Gamma/Correlation Checks...", "info");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -656,52 +653,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       
-      const currentToken = sessionStorage.getItem('gdrive_access_token');
-      
-      if (!currentToken) {
-          addLog("Save Failed: Cloud Vault Token is missing.", "err");
-      } else if (mergedFinal.length === 0) {
-          addLog("Save Skipped: No Alpha targets generated.", "warn");
-      } else {
-          try {
-              addLog("Initiating Vault Save Protocol...", "info");
-              const folderId = await ensureFolder(currentToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-              const fileName = `STAGE6_ALPHA_FINAL_${new Date().toISOString().split('T')[0]}.json`;
-              const payload = {
-                manifest: { 
-                    version: "2.0.0", 
-                    strategy: "Alpha_Singularity_Protocol_v2", 
-                    timestamp: new Date().toISOString(), 
-                    provider: currentProvider 
-                },
-                alpha_universe: mergedFinal 
-              };
-
-              const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-              const form = new FormData();
-              form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-              form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-              const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                method: 'POST', headers: { 'Authorization': `Bearer ${currentToken}` }, body: form
-              });
-              
-              if (uploadRes.ok) {
-                  addLog(`Singularity Achieved: ${mergedFinal.length} Alpha targets locked & saved via ${currentProvider}.`, "ok");
-                  
-                  const first = mergedFinal[0];
-                  setSelectedStock(first);
-                  onStockSelected?.(first);
-                  onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
-              } else {
-                  const errorText = await uploadRes.text();
-                  addLog(`Vault Upload Failed: ${uploadRes.status} - ${errorText}`, "err");
-              }
-
-          } catch (uploadErr: any) {
-              addLog(`Vault Save Error: ${uploadErr.message}`, "err");
-          }
+      if (mergedFinal.length > 0) {
+          const first = mergedFinal[0];
+          setSelectedStock(first);
+          onStockSelected?.(first);
+          onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
       }
+
+      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
 
     } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
     finally { setLoading(false); }
@@ -724,7 +683,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             currentStage: 6,
             apiStatuses: [],
             recommendedData: currentResults,
-            mode: 'PORTFOLIO'
+            mode: 'PORTFOLIO',
+            targetStock: undefined // Added to satisfy type requirement if needed, though optional in updated definition
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
@@ -738,7 +698,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     currentStage: 6,
                     apiStatuses: [],
                     recommendedData: currentResults,
-                    mode: 'PORTFOLIO'
+                    mode: 'PORTFOLIO',
+                    targetStock: undefined
                  }, targetBrain);
              }
         }
