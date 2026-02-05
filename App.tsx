@@ -54,7 +54,7 @@ const App: React.FC = () => {
   const [selectedStock, setSelectedStock] = useState<any | null>(null);
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
-  
+
   // Clock State
   const [time, setTime] = useState(new Date());
 
@@ -256,8 +256,8 @@ const App: React.FC = () => {
   // Helper for KST Timestamp
   const getKstTimestamp = () => {
     const now = new Date();
-    const kstOffset = 9 * 60 * 60 * 1000;
-    const kstDate = new Date(now.getTime() + kstOffset);
+    // 9 hours offset for KST
+    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
     return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
   };
 
@@ -291,11 +291,10 @@ const App: React.FC = () => {
          // [NEW] Automatic Report Archiving (Only on Success)
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
-             // Timestamp format: YYYY-MM-DD_HH-MM-SS (KST adjusted)
              const timestamp = getKstTimestamp();
              const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             // MODIFIED: Timestamp at the end with full time
+             // Filename format: {Type}_{Symbol}_{Brain}_{Timestamp}.md
              const fileName = `${type}_${selectedStock.symbol}_${brain}_${timestamp}.md`;
              
              // Fire and forget
