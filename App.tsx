@@ -275,11 +275,11 @@ const App: React.FC = () => {
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
              const now = new Date();
-             // Timestamp format: YYYY-MM-DD_HH-MM-SS
+             // Timestamp format: YYYY-MM-DD_HH-MM-SS (Detailed, no version)
              const timestamp = now.toISOString().split('.')[0].replace('T', '_').replace(/:/g, '-');
              const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             // MODIFIED: Timestamp at the end with full time
+             // Filename format: {Type}_{Symbol}_{Brain}_{Timestamp}.md
              const fileName = `${type}_${selectedStock.symbol}_${brain}_${timestamp}.md`;
              
              // Fire and forget
