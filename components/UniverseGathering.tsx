@@ -417,7 +417,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         // COMMIT
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        // MODIFIED: Timestamp moved to the end of the filename
         const fileName = `STAGE0_MASTER_UNIVERSE_v3.5.0_${new Date().toISOString().split('T')[0]}.json`;
         const payload = { 
             manifest: { 
