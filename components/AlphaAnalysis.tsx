@@ -479,6 +479,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
+                  
+                  // [NEW] Archive Telegram Brief to Drive (Auto)
+                  if(accessToken) {
+                      const timestamp = getKstTimestamp();
+                      const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
+                      await archiveReport(accessToken, fileName, brief);
+                      addLog("Telegram Brief Archived to Drive.", "info");
+                  }
               } catch (e) {
                   addLog("Brief Gen Failed. Sending full report.", "err");
                   telegramPayload = "Brief Generation Failed.";
@@ -573,7 +581,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const now = new Date();
     // 9 hours offset for KST
     const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+    return kstDate.toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-');
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -665,7 +673,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const safeEntry = Number(aiData.supportLevel) || (safePrice * 0.98);
         
         return {
-            ...item, 
+            ...item, // Accumulate Stage 5 data
             ...aiData, 
             price: safePrice,
             convictionScore: Number(aiData.convictionScore || item.compositeAlpha || 0),
@@ -689,7 +697,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
               const payload = {
                   manifest: { version: "9.9.9", count: mergedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
-                  alpha_candidates: mergedFinal
+                  alpha_candidates: mergedFinal // Full accumulated data
               };
               const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
               await uploadFile(accessToken, folderId, fileName, payload);
@@ -748,7 +756,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (token) {
            const timestamp = getKstTimestamp();
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           const fileName = `${timestamp}_Portfolio_Matrix_Combined_${brainLabel}.md`;
+           // [TIMESTAMP] Updated filename format per request
+           const fileName = `PORTFOLIO_MATRIX_AUDIT_${brainLabel}_${timestamp}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
            const saved = await archiveReport(token, fileName, safeReport);
@@ -777,6 +786,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     try {
         const brief = await generateTelegramBrief(currentResults, selectedBrain);
+        
+        // [NEW] Archive Telegram Brief to Drive (Manual)
+        if(accessToken) {
+            const timestamp = getKstTimestamp();
+            const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
+            await archiveReport(accessToken, fileName, brief);
+            addLog("Telegram Brief Archived to Drive.", "info");
+        }
+
         const success = await sendTelegramReport(brief);
         if (success) addLog("Telegram Transmission Successful.", "ok");
         else addLog("Telegram Transmission Failed.", "err");
