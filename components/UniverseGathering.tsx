@@ -417,13 +417,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         // COMMIT
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.5.0_${new Date().toISOString().split('T')[0]}.json`;
+        const now = new Date();
+        const timestamp = now.toISOString().split('.')[0].replace('T', '_').replace(/:/g, '-');
+        // MODIFIED: Version removed, full timestamp added
+        const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
                 version: "3.5.0", 
                 provider: "Triple_Fusion (TV+FMP+Poly)", 
                 auxiliary: "Yahoo_Cross_Validation",
-                date: new Date().toISOString(), 
+                date: now.toISOString(), 
                 count: viableCandidates.length,
                 note: "Fused Data: TV Richness + FMP Metadata + Polygon Coverage"
             }, 
