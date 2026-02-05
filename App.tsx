@@ -274,11 +274,13 @@ const App: React.FC = () => {
          // [NEW] Automatic Report Archiving (Only on Success)
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
-             const date = new Date().toISOString().split('T')[0];
+             const now = new Date();
+             // Timestamp format: YYYY-MM-DD_HH-MM-SS
+             const timestamp = now.toISOString().split('.')[0].replace('T', '_').replace(/:/g, '-');
              const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             // MODIFIED: Timestamp at the end
-             const fileName = `${type}_${selectedStock.symbol}_${brain}_${date}.md`;
+             // MODIFIED: Timestamp at the end with full time
+             const fileName = `${type}_${selectedStock.symbol}_${brain}_${timestamp}.md`;
              
              // Fire and forget
              archiveReport(token, fileName, report).then(ok => {
