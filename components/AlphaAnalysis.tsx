@@ -568,6 +568,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .trim();
   };
 
+  // Helper for KST Timestamp
+  const getKstTimestamp = () => {
+    const now = new Date();
+    // 9 hours offset for KST
+    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+  };
+
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
@@ -579,9 +587,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return create.id;
   };
 
+  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
+    const meta = { name, parents: [folderId], mimeType: 'application/json' };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
+    
+    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+    });
+  };
+
   const loadStage5Data = async () => {
     if (!accessToken) return;
     try {
+      // Changed query to be broader to catch recent files
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -595,7 +615,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (content && content.ict_universe) {
             setElite50(content.ict_universe);
             addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
+        } else {
+             addLog(`Error: Stage 5 data empty.`, "err");
         }
+      } else {
+          addLog("Stage 5 data not found in Drive. Please run Stage 5.", "err");
       }
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
@@ -609,7 +633,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
+      if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -658,6 +682,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           setSelectedStock(first);
           onStockSelected?.(first);
           onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+          
+          // [NEW] Save Alpha Candidates Result to Drive
+          if(accessToken) {
+              const timestamp = getKstTimestamp();
+              const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
+              const payload = {
+                  manifest: { version: "9.9.9", count: mergedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
+                  alpha_candidates: mergedFinal
+              };
+              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+              await uploadFile(accessToken, folderId, fileName, payload);
+              addLog(`Saved Alpha Candidates: ${fileName}`, "ok");
+          }
       }
 
       addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
@@ -684,7 +721,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             apiStatuses: [],
             recommendedData: currentResults,
             mode: 'PORTFOLIO',
-            targetStock: undefined // Added to satisfy type requirement if needed, though optional in updated definition
+            targetStock: undefined 
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
@@ -709,9 +746,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         
         const token = sessionStorage.getItem('gdrive_access_token');
         if (token) {
-           const date = new Date().toISOString().split('T')[0];
+           const timestamp = getKstTimestamp();
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
+           const fileName = `${timestamp}_Portfolio_Matrix_Combined_${brainLabel}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
            const saved = await archiveReport(token, fileName, safeReport);
