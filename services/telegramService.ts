@@ -8,6 +8,9 @@ import { TELEGRAM_CONFIG } from "../constants";
  */
 export async function sendTelegramReport(reportContent: string): Promise<boolean> {
   const { TOKEN, CHAT_ID } = TELEGRAM_CONFIG;
+  
+  console.log(`[Telegram] Initializing transmission to Chat ID: ${CHAT_ID}`);
+
   if (!TOKEN || !CHAT_ID) {
     console.error("Telegram Credentials Missing");
     return false;
