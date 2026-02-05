@@ -11,8 +11,21 @@ export interface ApiConfig {
 }
 
 // [HYBRID CONFIG] Priority: Environment Variables (GitHub Actions) > Hardcoded Fallback (Local Dev)
+// Note: import.meta.env is for Vite, process.env is for Node/Compat
+const getEnvVar = (key: string) => {
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+        // @ts-ignore
+        return import.meta.env[key];
+    }
+    if (typeof process !== 'undefined' && process.env && process.env[key]) {
+        return process.env[key];
+    }
+    return '';
+};
+
 export const TELEGRAM_CONFIG = {
-  TOKEN: process.env.TELEGRAM_TOKEN || '8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs',
+  TOKEN: getEnvVar('TELEGRAM_TOKEN') || process.env.TELEGRAM_TOKEN || '8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs',
   // [FIX] Hardcoded Chat ID to ensure delivery as per user validation
   CHAT_ID: '-1003800785574'
 };
