@@ -802,12 +802,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (error) throw new Error(error);
       
       if (!data) throw new Error("AI returned empty data structure");
+
+      // [SAFEGUARD] Ensure metrics structure exists
+      const safeMetrics = {
+          winRate: data.metrics?.winRate || "0%",
+          profitFactor: data.metrics?.profitFactor || "0",
+          maxDrawdown: data.metrics?.maxDrawdown || "0%",
+          sharpeRatio: data.metrics?.sharpeRatio || "0"
+      };
       
       const safeContext = data.historicalContext || "Analysis data unavailable.";
       setBacktestData(prev => ({ 
         ...prev, 
         [stock.symbol]: { 
             ...data, 
+            metrics: safeMetrics, // Apply safeguard
             historicalContext: safeContext, 
             timestamp: Date.now(),
             isRealData: !!isRealData
@@ -862,8 +871,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   const generateSyntheticData = (metrics: any) => {
-      const winRate = parseFloat(String(metrics?.winRate).replace(/[^0-9.]/g, '')) || 60;
-      const profitFactor = parseFloat(String(metrics?.profitFactor).replace(/[^0-9.]/g, '')) || 1.8;
+      const winRate = parseFloat(String(metrics?.winRate || "60").replace(/[^0-9.]/g, '')) || 60;
+      const profitFactor = parseFloat(String(metrics?.profitFactor || "1.5").replace(/[^0-9.]/g, '')) || 1.8;
       let value = 0;
       const data = [];
       const now = new Date();
@@ -889,6 +898,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
         if (!currentBacktest) return [];
         let rawData: any[] = [];
+        
+        // Robust check for equityCurve
         if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
             rawData = currentBacktest.equityCurve.map((item) => {
                 const valStr = String(item.value);
@@ -899,9 +910,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     value: isNaN(val) ? 0 : val
                 };
             });
+        } else if (currentBacktest.metrics) {
+            // Fallback to synthetic if equityCurve is missing but metrics exist
+            rawData = generateSyntheticData(currentBacktest.metrics);
         } else {
-            rawData = generateSyntheticData(currentBacktest?.metrics);
+            // Last resort fallback
+            rawData = generateSyntheticData({ winRate: "50%", profitFactor: "1.2" });
         }
+
+        // Return empty if rawData somehow failed
+        if (rawData.length === 0) return [];
 
         // Hedge-fund Advanced Logic: Full 24-month calculation
         let runningPeak = -Infinity;
@@ -1444,32 +1462,32 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                              <div className="flex flex-col gap-4">
                                 <div className="space-y-3">
                                     <div 
-                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics.winRate)}
+                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics?.winRate || "N/A")}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'WIN_RATE' ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
-                                        <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics.winRate}</span>
+                                        <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics?.winRate || "---"}</span>
                                     </div>
                                     <div 
-                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics.profitFactor)}
+                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics?.profitFactor || "N/A")}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'PROFIT_FACTOR' ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
-                                        <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics.profitFactor}</span>
+                                        <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics?.profitFactor || "---"}</span>
                                     </div>
                                     <div 
-                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics.maxDrawdown)}
+                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics?.maxDrawdown || "N/A")}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'MAX_DRAWDOWN' ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
-                                        <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics.maxDrawdown}</span>
+                                        <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics?.maxDrawdown || "---"}</span>
                                     </div>
                                     <div 
-                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics.sharpeRatio)}
+                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics?.sharpeRatio || "N/A")}
                                         className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'SHARPE_RATIO' ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                     >
                                         <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
-                                        <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics.sharpeRatio}</span>
+                                        <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics?.sharpeRatio || "---"}</span>
                                     </div>
                                 </div>
 
@@ -1546,7 +1564,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
                                                 <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
                                                 <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                                                <Tooltip 
+                                                <RechartsTooltip 
                                                     contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
                                                     itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
                                                     labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
@@ -1584,7 +1602,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 )}
 
                                                 {/* SHARPE_RATIO Overlay: Regression Path & Consistency Corridor */}
-                                                {activeOverlay === 'SHARPE_RATIO' && (
+                                                {activeOverlay === 'SHARPE_RATIO' && chartData.length > 1 && (
                                                     <>
                                                         <Area 
                                                             type="monotone" 
@@ -1599,7 +1617,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                             stroke="#f59e0b" 
                                                             strokeDasharray="3 3" 
                                                             label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
-                                                            segment={[{ x: chartData[0]?.period, y: 0 }, { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1].value }]}
+                                                            segment={[
+                                                                { x: chartData[0]?.period, y: 0 }, 
+                                                                { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1]?.value ?? 0 }
+                                                            ]}
                                                         />
                                                     </>
                                                 )}
