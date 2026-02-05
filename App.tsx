@@ -210,17 +210,20 @@ const App: React.FC = () => {
         };
       });
 
-      // Inject POLYGON_WS status next to POLYGON
-      const polyIndex = statuses.findIndex(s => s.provider === ApiProvider.POLYGON);
-      if (polyIndex !== -1) {
-          statuses.splice(polyIndex + 1, 0, {
-              provider: 'Polygon WebSocket' as any,
+      // [MODIFIED] Inject Real-time Feed Status (Finnhub WS) 
+      // replacing the previous Polygon WebSocket slot
+      const acquisitionIndex = statuses.findIndex(s => s.category === 'Acquisition');
+      if (acquisitionIndex !== -1) {
+          // Insert after the first acquisition node (usually RapidAPI) to mimic the "3rd slot" look
+          statuses.splice(2, 0, {
+              provider: 'LIVE FEED (FINNHUB)' as any,
               category: 'Acquisition',
-              isConnected: statuses[polyIndex].isConnected,
-              latency: 1, // Real-time
-              lastChecked: 'LIVE'
+              isConnected: !!API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key,
+              latency: 24, // Real-time stream avg (simulated)
+              lastChecked: 'STREAMING'
           });
       }
+      
       return statuses;
     });
   }, []);
@@ -542,8 +545,6 @@ const App: React.FC = () => {
 
       {/* Detail Section */}
       <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
-        {/* ... Detail Content (same as before) ... */}
-        {/* Just rendering children for brevity since no logic changes here */}
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
         </div>
