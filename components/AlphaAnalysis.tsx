@@ -724,7 +724,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             currentStage: 6,
             apiStatuses: [],
             recommendedData: currentResults,
-            mode: 'PORTFOLIO'
+            mode: 'PORTFOLIO',
+            targetStock: undefined // Added to satisfy type requirement if needed, though optional in updated definition
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
@@ -738,7 +739,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     currentStage: 6,
                     apiStatuses: [],
                     recommendedData: currentResults,
-                    mode: 'PORTFOLIO'
+                    mode: 'PORTFOLIO',
+                    targetStock: undefined
                  }, targetBrain);
              }
         }
