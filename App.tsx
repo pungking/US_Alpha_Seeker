@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -138,8 +137,12 @@ const App: React.FC = () => {
 
   // Cleanup on Stage Change
   useEffect(() => {
-    // Keep selection persistence
-  }, [currentStage]);
+    // [UX FIX] Reset selected target when switching stages to prevent stale data in Audit Matrix
+    // Only apply in Manual Mode. In Auto Pilot, we want to preserve context flow unless specific logic overrides it.
+    if (!isAutoPilotRunning) {
+        setSelectedStock(null);
+    }
+  }, [currentStage, isAutoPilotRunning]);
 
   useEffect(() => {
     setAuditBrain(selectedBrain);
