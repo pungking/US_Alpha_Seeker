@@ -10,17 +10,75 @@ interface MarketItem {
   label: string;
   price: number;
   change: number;
+  prevClose?: number;
   isIndex: boolean;
   typeLabel: string;
   colorTheme?: string;
   isProxy?: boolean;
 }
 
+// Sub-component for individual ticker card to handle flash animation state locally
+const TickerCard: React.FC<{ item: MarketItem }> = ({ item }) => {
+  const [flash, setFlash] = useState<'up' | 'down' | null>(null);
+  const prevPriceRef = useRef<number>(item.price);
+
+  useEffect(() => {
+    if (item.price > prevPriceRef.current) {
+      setFlash('up');
+    } else if (item.price < prevPriceRef.current) {
+      setFlash('down');
+    }
+    prevPriceRef.current = item.price;
+
+    const timer = setTimeout(() => setFlash(null), 300); // 300ms flash duration
+    return () => clearTimeout(timer);
+  }, [item.price]);
+
+  // Determine background classes based on flash state or item type
+  let bgClass = "bg-white/5"; // default glass
+  let borderClass = item.change >= 0 ? "border-l-[#10b981]" : "border-l-[#ef4444]";
+  
+  if (item.typeLabel.includes('FEAR')) {
+     bgClass = "bg-purple-900/10";
+     borderClass = "border-l-[#a855f7]";
+  }
+
+  // Flash override
+  if (flash === 'up') bgClass = "bg-emerald-500/20"; // Green flash
+  if (flash === 'down') bgClass = "bg-red-500/20";   // Red flash
+
+  return (
+    <div className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-colors duration-300 ${bgClass}`}
+         style={{ borderLeftColor: item.typeLabel.includes('FEAR') ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}>
+      <div className="flex flex-col">
+        <span className={`text-[7px] font-black uppercase tracking-widest ${item.colorTheme || 'text-slate-500'}`}>{item.typeLabel}</span>
+        <span className="text-[10px] font-black text-white italic tracking-tighter uppercase whitespace-nowrap">{item.label}</span>
+      </div>
+      <div className="text-right">
+        <p className={`text-[10px] font-mono font-bold tracking-tighter ${flash === 'up' ? 'text-emerald-300' : flash === 'down' ? 'text-rose-300' : 'text-white'}`}>
+          {item.price > 1000 ? item.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : item.price.toFixed(2)}
+        </p>
+        <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+        </p>
+      </div>
+    </div>
+  );
+};
+
 const MarketTicker: React.FC = () => {
   const [marketData, setMarketData] = useState<MarketItem[]>([]);
   const [socketStatus, setSocketStatus] = useState<string>('INIT');
   const [lastUpdate, setLastUpdate] = useState<string>('');
-  const [activeProvider, setActiveProvider] = useState<WsProvider>('POLLING');
+  
+  // [FIX] Prioritize WebSocket Providers if keys exist
+  const [activeProvider, setActiveProvider] = useState<WsProvider>(() => {
+    const fh = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+    if (fh) return 'FINNHUB';
+    const alp = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
+    if (alp) return 'ALPACA';
+    return 'POLLING';
+  });
   
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -28,7 +86,7 @@ const MarketTicker: React.FC = () => {
   const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
   const alpacaSecret = ''; // Secret logic not fully implemented in frontend config
 
-  // [UPDATED] Reordered: IXIC (Composite) FIRST, then NDX (100)
+  // [PRESERVED] Index Order: NASDAQ Comp First, then NASDAQ 100
   const indexConfig = [
     { id: 'IXIC', portalId: 'IXIC', etf: 'ONEQ', label: 'NASDAQ Comp', theme: 'text-purple-400' },
     { id: 'NDX', portalId: 'NDX', etf: 'QQQ', label: 'NASDAQ 100', theme: 'text-indigo-400' },
@@ -44,16 +102,22 @@ const MarketTicker: React.FC = () => {
     { symbol: 'MSFT', label: 'MICROSOFT' },
   ];
 
-  const updatePrice = (symbol: string, price: number) => {
+  const updatePrice = (symbol: string, newPrice: number) => {
       setMarketData(prev => {
           const next = [...prev];
           const idx = next.findIndex(i => i.symbol === symbol);
           if (idx !== -1) {
-              next[idx] = { ...next[idx], price };
+              const item = next[idx];
+              // Recalculate change based on derived prevClose if available
+              let newChange = item.change;
+              if (item.prevClose) {
+                  newChange = ((newPrice - item.prevClose) / item.prevClose) * 100;
+              }
+              next[idx] = { ...item, price: newPrice, change: newChange };
           }
           return next;
       });
-      // [UX FIX] 24-hour format
+      // [PRESERVED] 24-hour format
       setLastUpdate(new Date().toLocaleTimeString('en-GB', { hour12: false }));
   };
 
@@ -71,11 +135,14 @@ const MarketTicker: React.FC = () => {
               const d = map.get(cfg.portalId);
               if (d) {
                   if (d.source) source = d.source;
+                  // Derive prevClose for dynamic change calculation
+                  const prevClose = d.price / (1 + (d.change / 100));
                   formatted.push({
                       symbol: cfg.id,
                       label: cfg.label,
                       price: d.price,
                       change: d.change,
+                      prevClose: prevClose,
                       isIndex: true,
                       typeLabel: cfg.id === 'VIX' ? 'FEAR_INDEX' : 'Composite',
                       colorTheme: cfg.theme
@@ -86,11 +153,13 @@ const MarketTicker: React.FC = () => {
           stockConfig.forEach(cfg => {
               const d = map.get(cfg.symbol);
               if (d) {
+                  const prevClose = d.price / (1 + (d.change / 100));
                   formatted.push({
                       symbol: cfg.symbol,
                       label: cfg.label,
                       price: d.price,
                       change: d.change,
+                      prevClose: prevClose,
                       isIndex: false,
                       typeLabel: 'Equity'
                   });
@@ -99,7 +168,6 @@ const MarketTicker: React.FC = () => {
 
           if (formatted.length > 0) {
               setMarketData(formatted);
-              // [UX FIX] 24-hour format
               setLastUpdate(new Date().toLocaleTimeString('en-GB', { hour12: false }));
               if (activeProvider === 'POLLING') {
                   setSocketStatus(`ACTIVE (${source})`);
@@ -113,10 +181,10 @@ const MarketTicker: React.FC = () => {
       }
   };
 
-  // Initial Poll & Interval (Increased to 10s for Real-time feel)
+  // Initial Poll & Interval (Backup / Initialization)
   useEffect(() => {
       fetchMarketData();
-      const interval = setInterval(fetchMarketData, 10000); 
+      const interval = setInterval(fetchMarketData, 10000); // 10s poll for fallback
       return () => clearInterval(interval);
   }, []);
 
@@ -133,6 +201,7 @@ const MarketTicker: React.FC = () => {
     }
 
     const symbolMap = new Map<string, string>();
+    // Map ETF symbols (e.g., QQQ) to Internal IDs (e.g., NDX) for WebSocket matching
     indexConfig.forEach(cfg => symbolMap.set(cfg.etf, cfg.id)); 
     stockConfig.forEach(cfg => symbolMap.set(cfg.symbol, cfg.symbol));
     const trackList = Array.from(symbolMap.keys());
@@ -220,8 +289,10 @@ const MarketTicker: React.FC = () => {
         }
     };
 
+    // Cleanup previous socket
     if (wsRef.current) wsRef.current.close();
     
+    // Connect based on active provider
     if (activeProvider === 'FINNHUB') connectFinnhub();
     else if (activeProvider === 'ALPACA') connectAlpaca();
     else if (activeProvider === 'POLLING') {
@@ -237,21 +308,7 @@ const MarketTicker: React.FC = () => {
     <div className="flex items-center space-x-2 overflow-x-auto no-scrollbar py-1 px-1">
       {marketData.length > 0 ? (
         marketData.map((item) => (
-          <div key={item.symbol} className={`flex-shrink-0 glass-panel px-4 py-2 rounded-xl border-l-2 flex items-center space-x-3 transition-all hover:bg-white/5 ${item.typeLabel.includes('FEAR') ? 'bg-purple-900/10 border-l-purple-500' : ''}`}
-               style={{ borderLeftColor: item.typeLabel.includes('FEAR') ? '#a855f7' : item.change >= 0 ? '#10b981' : '#ef4444' }}>
-            <div className="flex flex-col">
-              <span className={`text-[7px] font-black uppercase tracking-widest ${item.colorTheme || 'text-slate-500'}`}>{item.typeLabel}</span>
-              <span className="text-[10px] font-black text-white italic tracking-tighter uppercase whitespace-nowrap">{item.label}</span>
-            </div>
-            <div className="text-right">
-              <p className="text-[10px] font-mono font-bold text-white tracking-tighter">
-                {item.price > 1000 ? item.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : item.price.toFixed(2)}
-              </p>
-              <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-                {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
-              </p>
-            </div>
-          </div>
+          <TickerCard key={item.symbol} item={item} />
         ))
       ) : (
         <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">
