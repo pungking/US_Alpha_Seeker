@@ -2,15 +2,13 @@
 import puppeteer from 'puppeteer';
 
 /**
- * US_Alpha_Seeker Headless Automation Protocol v2.1
+ * US_Alpha_Seeker Headless Automation Protocol v2.2
  * 
- * Features:
- * 1. Robust Token Refresh with Fallback Client ID
- * 2. Offline Mode Support: Continues pipeline even if auth fails
- * 3. Graceful fallback to static Access Token
+ * Updated: User-provided Client ID integration.
+ * Features: Robust Token Refresh, Offline Mode, Extended Timeouts.
  */
 
-const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
+const FALLBACK_CLIENT_ID = '274071737753-4993td0fv4un5l8lv2eiqp0utc7co6q9.apps.googleusercontent.com';
 
 async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
     if (!clientId || !refreshToken) return null;
@@ -71,7 +69,6 @@ async function getAccessToken() {
         return envAccessToken;
     }
 
-    // Critical Change: Return special token instead of null to enable Offline Mode
     console.warn("⚠️ [AUTH] All authentication methods failed. Proceeding in OFFLINE SIMULATION MODE.");
     return "OFFLINE_MODE_TOKEN";
 }
@@ -84,19 +81,18 @@ async function getAccessToken() {
   const browser = await puppeteer.launch({
     headless: "new",
     args: ['--no-sandbox', '--disable-setuid-sandbox'],
-    protocolTimeout: 3600000 // Set to 1 hour (explicit value) to prevent Runtime.callFunctionOn timeouts
+    protocolTimeout: 3600000 // 1 hour timeout
   });
   
   try {
     const page = await browser.newPage();
     
-    // Extend default navigation and operation timeouts for CI environments
     page.setDefaultNavigationTimeout(60000); 
-    page.setDefaultTimeout(3600000); // Match protocol timeout (1 hour)
+    page.setDefaultTimeout(3600000); 
     
     page.on('console', msg => {
         const text = msg.text();
-        if (text.includes('AUTO-PILOT') || text.includes('Phase') || text.includes('Complete') || text.includes('Error') || text.includes('EXECUTED') || text.includes('[AUTH]')) {
+        if (text.includes('AUTO-PILOT') || text.includes('Phase') || text.includes('Complete') || text.includes('Error') || text.includes('EXECUTED') || text.includes('[AUTH]') || text.includes('Telegram')) {
             console.log(`[BROWSER] ${text}`);
         }
     });
@@ -122,7 +118,7 @@ async function getAccessToken() {
 
     console.log("⏳ Pipeline Execution in Progress...");
     
-    const TIMEOUT_MS = 25 * 60 * 1000; 
+    const TIMEOUT_MS = 45 * 60 * 1000; // Increased to 45 minutes
     
     await page.waitForFunction(
         () => {
@@ -131,7 +127,7 @@ async function getAccessToken() {
                    bodyText.includes("TELEGRAM SEND FAILED") ||
                    bodyText.includes("Brief Generated");
         },
-        { timeout: TIMEOUT_MS, polling: 10000 }
+        { timeout: TIMEOUT_MS, polling: 5000 }
     );
 
     const finalState = await page.evaluate(() => document.body.innerText);
