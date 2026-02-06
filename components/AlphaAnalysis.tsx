@@ -536,6 +536,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (!text) return "";
     let str = String(text);
     
+    // 0. Clean formatting
+    str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
+
     // 1. Remove Emojis (Preserve existing logic)
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
@@ -552,10 +555,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     // Ensure Headers have spacing
     str = str.replace(/([^\n])\n(#{1,3})/g, '$1\n\n$2');
     
-    // Format Personas into a list
-    const personas = ['보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', '마켓 메이커:', 'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:'];
+    // 3. Format Personas into a list (Enhanced)
+    const personas = [
+        '보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', '마켓 메이커:', '모멘텀 트레이더:',
+        'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:', 'Momentum Trader:',
+        '보수적 퀀트 :', '공격적 트레이더 :', '마켓 메이커 :', '모멘텀 트레이더 :'
+    ];
     personas.forEach(p => {
-        str = str.split(p).join(`\n- **${p}**`);
+        // Use trim() to ensure clean formatting inside the bold tags (e.g. "Role :" -> "Role:")
+        // Check identifying regex with lookbehind support
+        try {
+            str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p}`, 'g'), `\n- **${p.trim()}**`);
+        } catch (e) {
+            // Fallback for browsers without lookbehind support
+            str = str.split(p).join(`\n- **${p.trim()}**`);
+        }
     });
 
     return str.trim();
