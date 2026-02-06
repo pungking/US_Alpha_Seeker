@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -539,6 +540,7 @@ const App: React.FC = () => {
           <DeepQualityFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
+            onStockSelected={setSelectedStock}
           />
         </div>
         <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
