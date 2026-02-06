@@ -150,20 +150,26 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// [IMPROVED MARKDOWN COMPONENTS - ENHANCED TEXT RENDERING]
 const MarkdownComponents: any = {
     h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    h2: (props: any) => (
+        <h2 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-3 uppercase tracking-wide border-b border-emerald-500/30 pb-2 flex items-center gap-2">
+            <span className="text-emerald-500 opacity-50">#</span>
+            {props.children}
+        </h2>
+    ),
+    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide pl-2 border-l-2 border-blue-500/50" {...props} />,
     p: (props: any) => <p className="text-sm md:text-[15px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-2 mb-6 mt-2" {...props} />,
+    ul: (props: any) => <ul className="space-y-2 mb-6 mt-2 list-none" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
         <li className="pl-4 relative flex items-start group mb-1" {...props}>
-             <span className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
-             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-6">{props.children}</span>
+             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
+             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-relaxed group-hover:text-slate-200 transition-colors">{props.children}</span>
         </li>
     ),
-    strong: (props: any) => <span className="inline-block bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider mx-1 my-1 shadow-sm" {...props} />,
+    strong: (props: any) => <strong className="text-emerald-300 font-bold bg-emerald-900/40 px-1 rounded mx-0.5 border border-emerald-500/20" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
     ),
@@ -172,12 +178,13 @@ const MarkdownComponents: any = {
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
-    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
-    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/50" {...props} />,
-    th: (props: any) => <th className="px-4 py-3 font-bold" {...props} />,
+    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10 shadow-lg"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
+    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/80" {...props} />,
+    th: (props: any) => <th className="px-4 py-3 font-black tracking-wider border-b border-white/10" {...props} />,
     tbody: (props: any) => <tbody {...props} />,
-    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors" {...props} />,
+    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors odd:bg-white/[0.02]" {...props} />,
     td: (props: any) => <td className="px-4 py-3" {...props} />,
+    hr: () => <hr className="border-white/10 my-8" />
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
@@ -526,11 +533,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return String(text).replace(/\[\d+\]/g, '').trim();
   };
 
+  // [TEXT CLEANER - FIX CLUMPING ISSUES]
   const cleanInsightText = (text: any) => {
     if (!text) return "";
     let str = String(text);
     
-    // 1. Remove Emojis (Preserve existing logic)
+    // 0. Clean formatting
+    str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
+
+    // 1. Remove Emojis & Citations
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
@@ -539,19 +550,46 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       .replace(/[\u{2600}-\u{26FF}]/gu, "")   
       .replace(/[\u{2700}-\u{27BF}]/gu, "")   
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
-      .replace(/\[\d+\]/g, '');
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "")
+      .replace(/\[\d+\]/g, ''); 
 
-    // 2. Improve Layout/Readability
-    // Ensure Headers have spacing
-    str = str.replace(/([^\n])\n(#{1,3})/g, '$1\n\n$2');
+    // 2. Force Newlines for Headers (Important Fix)
+    // Detect patterns like "Content ## Header" and fix to "Content\n\n## Header"
+    const headers = [
+        'COUNCIL DEBATE', 'PRE-MORTEM', 'EXECUTION STRATEGY', 
+        'RISK MANAGEMENT', 'SMART MONEY', 'FUNDAMENTAL', 
+        '3인 합의', '사전 부검', '매매 전략', '리스크 관리',
+        'NEURAL INVESTMENT OUTLOOK'
+    ];
     
-    // Format Personas into a list
-    const personas = ['보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', 'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:'];
-    personas.forEach(p => {
-        str = str.split(p).join(`\n- **${p}**`);
+    headers.forEach(h => {
+        // Regex: (Anything not a newline) followed by optional #, then Header Name
+        // Case 1: "Something ## Header"
+        const re1 = new RegExp(`([^\\n])\\s*(#{1,3}\\s*)?(${h})`, 'gi');
+        str = str.replace(re1, '$1\n\n## $3');
+
+        // Case 2: "## Header Something" (Split Header and Content)
+        // Ensure "## Title: Content" becomes "## Title:\nContent"
+        const re2 = new RegExp(`(#{1,3}\\s*${h}.*?)([\\)\\:]?)\\s*([^\\n#]+)`, 'gi');
+        str = str.replace(re2, (match, title, suffix, content) => {
+             if (content.length < 5) return match; // If content is too short, might be part of title
+             return `${title.trim()}${suffix}\n${content.trim()}\n`;
+        });
     });
 
+    // 3. Force Personas to new lines
+    const personas = ['보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', 'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:'];
+    personas.forEach(p => {
+        str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p}`, 'g'), `\n- **${p}**`);
+    });
+
+    // 4. Fix List Item Clumping
+    // "Sentence. - List item" -> "Sentence.\n- List item"
+    str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
+    
+    // 5. Enhance spacing
+    str = str.replace(/\n\n\n+/g, '\n\n'); 
+    
     return str.trim();
   };
 
@@ -568,6 +606,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .trim();
   };
 
+  const getKstTimestamp = () => {
+    const now = new Date();
+    // 9 hours offset for KST
+    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+    return kstDate.toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-');
+  };
+
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
@@ -577,6 +622,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
     }).then(r => r.json());
     return create.id;
+  };
+
+  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
+    const meta = { name, parents: [folderId], mimeType: 'application/json' };
+    const form = new FormData();
+    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
+    
+    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+    });
   };
 
   const loadStage5Data = async () => {
@@ -595,7 +651,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (content && content.ict_universe) {
             setElite50(content.ict_universe);
             addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
+        } else {
+             addLog(`Error: Stage 5 data empty.`, "err");
         }
+      } else {
+          addLog("Stage 5 data not found in Drive. Please run Stage 5.", "err");
       }
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
@@ -609,7 +669,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
+      if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -658,6 +718,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           setSelectedStock(first);
           onStockSelected?.(first);
           onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+          
+          if(accessToken) {
+              const timestamp = getKstTimestamp();
+              const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
+              const payload = {
+                  manifest: { version: "9.9.9", count: mergedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
+                  alpha_candidates: mergedFinal 
+              };
+              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+              await uploadFile(accessToken, folderId, fileName, payload);
+              addLog(`Saved Alpha Candidates: ${fileName}`, "ok");
+          }
       }
 
       addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
@@ -684,7 +756,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             apiStatuses: [],
             recommendedData: currentResults,
             mode: 'PORTFOLIO',
-            targetStock: undefined // Added to satisfy type requirement if needed, though optional in updated definition
+            targetStock: undefined 
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
@@ -709,9 +781,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         
         const token = sessionStorage.getItem('gdrive_access_token');
         if (token) {
-           const date = new Date().toISOString().split('T')[0];
+           const timestamp = getKstTimestamp();
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
+           const fileName = `PORTFOLIO_MATRIX_AUDIT_${brainLabel}_${timestamp}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
            const saved = await archiveReport(token, fileName, safeReport);
@@ -740,6 +812,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     try {
         const brief = await generateTelegramBrief(currentResults, selectedBrain);
+        
+        if(accessToken) {
+            const timestamp = getKstTimestamp();
+            const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
+            await archiveReport(accessToken, fileName, brief);
+            addLog("Telegram Brief Archived to Drive.", "info");
+        }
+
         const success = await sendTelegramReport(brief);
         if (success) addLog("Telegram Transmission Successful.", "ok");
         else addLog("Telegram Transmission Failed.", "err");
@@ -764,7 +844,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       if (!data) throw new Error("AI returned empty data structure");
 
-      // [SAFEGUARD] Ensure metrics structure exists
       const safeMetrics = {
           winRate: data.metrics?.winRate || "0%",
           profitFactor: data.metrics?.profitFactor || "0",
@@ -777,7 +856,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         ...prev, 
         [stock.symbol]: { 
             ...data, 
-            metrics: safeMetrics, // Apply safeguard
+            metrics: safeMetrics, 
             historicalContext: safeContext, 
             timestamp: Date.now(),
             isRealData: !!isRealData
@@ -860,7 +939,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (!currentBacktest) return [];
         let rawData: any[] = [];
         
-        // Robust check for equityCurve
         if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
             rawData = currentBacktest.equityCurve.map((item) => {
                 const valStr = String(item.value);
@@ -872,26 +950,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 };
             });
         } else if (currentBacktest.metrics) {
-            // Fallback to synthetic if equityCurve is missing but metrics exist
             rawData = generateSyntheticData(currentBacktest.metrics);
         } else {
-            // Last resort fallback
             rawData = generateSyntheticData({ winRate: "50%", profitFactor: "1.2" });
         }
 
-        // Return empty if rawData somehow failed
         if (rawData.length === 0) return [];
 
-        // Hedge-fund Advanced Logic: Full 24-month calculation
         let runningPeak = -Infinity;
         return rawData.map((d, i) => {
             if (d.value > runningPeak) runningPeak = d.value;
             const drawdown = d.value - runningPeak;
             const prevValue = i > 0 ? rawData[i-1].value : 0;
             const delta = d.value - prevValue; 
-            const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
+            const isWin = d.value >= prevValue; 
             
-            // Sharpe Ideal Regression Path
             const totalPeriods = rawData.length - 1;
             const finalVal = rawData[rawData.length - 1].value;
             const idealValue = i * (finalVal / (totalPeriods || 1));
@@ -910,23 +983,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
-
-  // [TACTICAL EXECUTION] Price Positioning Logic - SAFER
-  const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
-      const range = target - stop;
-      if (Math.abs(range) < 0.0001) return 50; // Prevention against div by zero
-      const position = price - stop;
-      let percent = (position / range) * 100;
-      percent = Math.max(0, Math.min(100, percent));
-      return percent;
-  };
-
-  const tacticalPercent = selectedStock ? getTacticalPosition(
-      selectedStock.price, 
-      selectedStock.supportLevel || 0, 
-      selectedStock.resistanceLevel || 0, 
-      selectedStock.stopLoss || 0
-  ) : 50;
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
@@ -980,7 +1036,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   <div 
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
-                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
+                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
                   >
                     {((loading && isSelected) || isAuditRunning) && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
@@ -1105,7 +1161,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
 
-                         {/* Tactical Execution Map - Redesigned for Clarity */}
+                         {/* Tactical Execution Map */}
                          <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 relative mt-4">
                             
                             {/* Header with Explanations */}
@@ -1118,11 +1174,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                             </div>
 
-                            {/* The Bar Visualization - Added mt-8 to prevent overlap */}
+                            {/* The Bar Visualization */}
                             <div className="relative h-16 w-full mt-8">
                                 {/* Track Line */}
                                 <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
-                                     {/* Gradient Background representing the transition from Stop to Target */}
                                      <div className="w-full h-full bg-gradient-to-r from-rose-900 via-slate-800 to-emerald-900 opacity-50"></div>
                                 </div>
 
@@ -1131,10 +1186,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     const stop = selectedStock.stopLoss || 0;
                                     const entry = selectedStock.supportLevel || 0;
                                     const target = selectedStock.resistanceLevel || 0;
-                                    // Use realtime price if available, otherwise fallback to static price
                                     const current = realtimePrices[selectedStock.symbol]?.price || selectedStock.price || 0;
                                     
-                                    // Define Range: Min = Stop - 2%, Max = Target + 2%
                                     const minPrice = stop * 0.98;
                                     const maxPrice = target * 1.02;
                                     const totalRange = maxPrice - minPrice;
@@ -1152,29 +1205,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                                     return (
                                         <>
-                                            {/* Zones (Visualizing ranges) */}
                                             <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${stopPos}%` }}></div>
                                             <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${entryPos}%`, right: '0%' }}></div>
 
-                                            {/* STOP LOSS MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
                                                 <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
                                                 <div className="absolute -top-10 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
                                             </div>
 
-                                            {/* ENTRY MARKER (Top Label - Lowered) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
                                                 <div className="h-4 w-0.5 bg-blue-400"></div>
                                                 <div className="absolute -top-4 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
                                             </div>
 
-                                            {/* TARGET MARKER (Top Label) */}
                                             <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
                                                 <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
                                                 <div className="absolute -top-10 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
                                             </div>
 
-                                            {/* CURRENT PRICE PUCK (Bottom Label) */}
                                             <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${currentPos}%`, transition: 'left 1s ease-out' }}>
                                                 <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
                                                     <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
@@ -1190,48 +1238,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     );
                                 })()}
                             </div>
-
-                            {/* Interactive Toggles */}
-                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10 mt-6 border-t border-white/5 pt-3">
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('RISK')} 
-                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0) & VAPS
-                                </span>
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('ENTRY')}
-                                    className="text-blue-300 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    Optimal Entry Zone
-                                </span>
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('REWARD')}
-                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})<div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                </span>
-                            </div>
-
-                            {/* Tactical Insight Overlay */}
-                            {activeAlphaInsight && ALPHA_INSIGHTS[activeAlphaInsight] && (
-                                <div className="alpha-insight-overlay absolute bottom-20 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
-                                    <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-blue-500/30 shadow-2xl relative">
-                                        <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                        <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                                            {ALPHA_INSIGHTS[activeAlphaInsight].title}
-                                        </h5>
-                                        <p className="text-[10px] text-slate-300 leading-relaxed font-medium mb-3">{ALPHA_INSIGHTS[activeAlphaInsight].desc}</p>
-                                        <div className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20">
-                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">Strategy:</p>
-                                            <p className="text-[9px] text-slate-400 leading-relaxed">{ALPHA_INSIGHTS[activeAlphaInsight].strategy}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
                         </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
@@ -1261,27 +1267,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <div className="space-y-4 relative p-4 rounded-[30px] border border-white/5 bg-black/20">
                                 <h4 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] px-2 italic">Quant Strategic Master Framework</h4>
                                 
-                                {/* PHASE 1: SIZING (SHIELD) */}
                                 <div className="grid grid-cols-2 gap-3">
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('HALF_KELLY')}
-                                        className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            Sizing: Half-Kelly
-                                        </p>
+                                    <div className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger">
+                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">Sizing: Half-Kelly</p>
                                         <div className="flex items-baseline gap-1">
                                             <span className="text-2xl font-black text-white italic">{quantMetrics.sizing.kelly}%</span>
                                             <span className="text-[8px] text-slate-500 font-bold">Max</span>
                                         </div>
                                     </div>
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('VAPS')}
-                                        className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
-                                    >
-                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            Sizing: VAPS (1R)
-                                        </p>
+                                    <div className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger">
+                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">Sizing: VAPS (1R)</p>
                                         <div className="flex flex-col">
                                             <span className="text-xl font-black text-white italic">{quantMetrics.sizing.vapsQty} Shares</span>
                                             <span className="text-[8px] text-slate-500 font-bold">Risk: ${quantMetrics.sizing.riskPerShare}/sh</span>
@@ -1289,51 +1284,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     </div>
                                 </div>
 
-                                {/* PHASE 2: SELECTION (SWORD) */}
                                 <div className="p-4 bg-violet-900/10 rounded-[24px] border border-violet-500/20 flex justify-between items-center gap-2 hover:bg-violet-900/20 transition-all">
                                     {[
                                         { id: 'ERCI', val: quantMetrics.selection.erci, label: 'ERCI' },
                                         { id: 'QM_COMP', val: quantMetrics.selection.qm, label: 'Q-M' },
                                         { id: 'IVG', val: `${quantMetrics.selection.ivg}%`, label: 'IVG' },
                                     ].map((m) => (
-                                        <div 
-                                            key={m.id}
-                                            onClick={() => setActiveAlphaInsight(m.id)}
-                                            className="text-center cursor-help group alpha-insight-trigger flex-1"
-                                        >
+                                        <div key={m.id} className="text-center cursor-help group alpha-insight-trigger flex-1">
                                             <p className="text-[7px] text-violet-400 font-bold uppercase mb-0.5 group-hover:text-white transition-colors">{m.label}</p>
                                             <p className="text-sm font-black text-white">{m.val}</p>
                                         </div>
                                     ))}
                                 </div>
 
-                                {/* PHASE 3: TIMING (CLOCK) */}
                                 <div className="grid grid-cols-3 gap-3">
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('CONVEXITY')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
-                                    >
+                                    <div className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger">
                                         <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Convexity</p>
                                         <p className="text-[9px] font-black text-white">{quantMetrics.timing.convexity}</p>
                                     </div>
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('IFS')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
-                                    >
+                                    <div className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger">
                                         <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">IFS Score</p>
                                         <p className="text-xl font-black text-white italic">{quantMetrics.timing.ifs}</p>
                                     </div>
-                                    <div 
-                                        onClick={() => setActiveAlphaInsight('MRF')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
-                                    >
+                                    <div className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger">
                                         <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Market MRF</p>
                                         <p className="text-[8px] font-black text-white truncate">{quantMetrics.timing.mrf}</p>
                                     </div>
                                 </div>
 
-                                {/* PHASE 4: INTEGRITY (SYSTEM) */}
-                                <div className="p-4 bg-emerald-900/10 rounded-[24px] border border-emerald-500/20 flex justify-between items-center hover:bg-emerald-900/20 transition-all cursor-help alpha-insight-trigger" onClick={() => setActiveAlphaInsight('EXPECTANCY')}>
+                                <div className="p-4 bg-emerald-900/10 rounded-[24px] border border-emerald-500/20 flex justify-between items-center hover:bg-emerald-900/20 transition-all cursor-help alpha-insight-trigger">
                                     <div className="w-full">
                                         <p className="text-[7px] text-emerald-400 font-bold uppercase tracking-wider mb-2 border-b border-emerald-500/20 pb-1">System Integrity</p>
                                         <div className="flex justify-between w-full">
@@ -1341,53 +1320,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                 <span className="text-[8px] text-slate-500 block mb-0.5">Expectancy</span>
                                                 <span className="text-sm font-black text-white">{quantMetrics.system.expectancy}R</span>
                                             </div>
-                                            <div className="flex flex-col items-end" onClick={(e) => { e.stopPropagation(); setActiveAlphaInsight('AIC'); }}>
+                                            <div className="flex flex-col items-end">
                                                 <span className="text-[8px] text-slate-500 block mb-0.5">AI Consensus</span>
                                                 <span className="text-sm font-black text-white">{quantMetrics.system.aic}%</span>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
-
-                                {/* Detail Overlay - Positioned RELATIVE to this Grid with Improved Design */}
-                                {activeAlphaInsight && FRAMEWORK_INSIGHTS[activeAlphaInsight] && (
-                                    <div className="absolute right-0 w-[300%] md:w-[650px] bottom-0 z-50 animate-in fade-in slide-in-from-bottom-2 duration-300">
-                                        <div className="bg-[#0f172a] p-6 rounded-[24px] border border-slate-700 shadow-[0_20px_50px_-10px_rgba(0,0,0,0.8)] relative">
-                                            <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-4 right-4 text-slate-500 hover:text-white p-1 hover:bg-white/10 rounded-full transition-colors">
-                                                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                            </button>
-                                            
-                                            <div className="flex flex-col gap-4">
-                                                {/* Header */}
-                                                <div>
-                                                    <h5 className="text-sm font-bold text-white tracking-wide flex items-center gap-3 mb-2">
-                                                        <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
-                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
-                                                    </h5>
-                                                    <p className="text-[12px] text-slate-400 leading-relaxed pl-4 border-l border-white/5 whitespace-pre-wrap">
-                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}
-                                                    </p>
-                                                </div>
-
-                                                {/* Strategy/Insight Box */}
-                                                <div className="bg-[#1e293b] p-5 rounded-xl border border-white/5 relative overflow-hidden group">
-                                                    <div className="absolute top-0 right-0 w-20 h-20 bg-white/5 rounded-full blur-3xl -translate-y-1/2 translate-x-1/2"></div>
-                                                    <div className="flex items-start gap-3 relative z-10">
-                                                        <div className="mt-0.5 p-1.5 bg-amber-500/10 rounded-lg border border-amber-500/20 shrink-0">
-                                                            <svg className="w-4 h-4 text-amber-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" /></svg>
-                                                        </div>
-                                                        <div>
-                                                            <p className="text-[10px] font-bold text-amber-400 uppercase tracking-wider mb-2">Alpha Insight</p>
-                                                            <p className="text-[12px] text-slate-200 leading-relaxed font-semibold whitespace-pre-wrap">
-                                                                {FRAMEWORK_INSIGHTS[activeAlphaInsight].strategy}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
                             </div>
                         )}
                      </div>
@@ -1622,36 +1561,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                          Simulation Intelligence Insight
                                      </h5>
                                      <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {currentBacktest.historicalContext}
-                                         </ReactMarkdown>
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                            {cleanInsightText(currentBacktest.historicalContext)}
+                                        </ReactMarkdown>
                                      </div>
-                                 </div>
-                            </div>
+                                </div>
+                             </div>
                         </div>
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
-                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                            </div>
-                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
+                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                             </div>
+                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
                     )}
                  </div>
              </div>
         )}
-      </div>
 
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
-          <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : l.includes('[INFO]') ? 'border-cyan-500 text-cyan-400' : 'border-rose-900'}`}>
-                {l}
-              </div>
-            ))}
-          </div>
+        <div className="xl:col-span-1">
+            <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
+                <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
+                <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
+                    {logs.map((l, i) => (
+                    <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
+                        {l}
+                    </div>
+                    ))}
+                </div>
+            </div>
         </div>
       </div>
     </div>
