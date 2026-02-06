@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -58,7 +59,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   
   // Automation Internal State
   const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'COMMITTING' | 'DONE'>('IDLE');
-  
+  const [performAutoCommit, setPerformAutoCommit] = useState(false); // [NEW] Trigger for auto-commit
+
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -82,17 +84,20 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart, autoStep, loading]);
 
-  // Step 2: Auto Commit after Analysis
+  // Step 2: Auto Commit after Analysis (Modified to work for both Auto and Manual Trigger)
   useEffect(() => {
-      if (autoStart && autoStep === 'ANALYZING' && !loading && !isAnalyzing && (aiProposal || aiError)) {
+      if (performAutoCommit && !loading && !isAnalyzing && (aiProposal || aiError)) {
           // Wait briefly for state to settle then commit
           const timer = setTimeout(() => {
-              setAutoStep('COMMITTING');
+              if (autoStart && autoStep === 'ANALYZING') {
+                  setAutoStep('COMMITTING');
+              }
               commitPurification();
+              setPerformAutoCommit(false); // Reset trigger
           }, 2000);
           return () => clearTimeout(timer);
       }
-  }, [autoStart, autoStep, loading, isAnalyzing, aiProposal, aiError]);
+  }, [performAutoCommit, loading, isAnalyzing, aiProposal, aiError, autoStart, autoStep]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -118,6 +123,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
     setLoading(true);
     setIsAnalyzing(true);
+    setPerformAutoCommit(true); // [NEW] Enable auto-commit after this analysis finishes
     setIsManual(false);
     setAiError(null);
     setAiProposal(null);
