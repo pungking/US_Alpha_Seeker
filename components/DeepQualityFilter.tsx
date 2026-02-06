@@ -1,10 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { 
-  ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, 
-  ResponsiveContainer, ReferenceLine, Cell 
-} from 'recharts';
 import { GoogleGenAI } from "@google/genai";
+import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, Cell, LabelList, ReferenceLine } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
@@ -16,28 +13,25 @@ interface QualityTicker {
   volume: number;
   marketValue: number;
   
-  // Quant Metrics
-  qualityScore: number;
-  profitabilityScore: number; // ROE
-  stabilityScore: number;    // Debt/Eq
-  growthScore: number;       // PER (Value/Growth proxy)
+  // 3-Factor Scores
+  profitabilityScore: number; // ROE, Margins
+  stabilityScore: number;     // Debt/Eq, Volatility
+  growthScore: number;        // Sales/EPS Growth
+  qualityScore: number;       // Composite
   
-  // Fundamental Data
+  // Raw Metrics
   per: number;
   pbr: number;
   debtToEquity: number;
   roe: number;
   
+  isValueTrap?: boolean;
   sector: string;
   industry: string;
-  
-  // AI Audit
-  isValueTrap?: boolean;
-  
   lastUpdate: string;
   source: string;
   
-  // Data Preservation
+  // [DATA PRESERVATION]
   [key: string]: any;
 }
 
@@ -46,29 +40,32 @@ interface Props {
   onComplete?: () => void;
 }
 
-const CACHE_PREFIX = 'QUALITY_CACHE_v1_';
-
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0 });
-  const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
+  const startTimeRef = useRef<number>(0);
+  
+  const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.0: 3-Factor Quant Protocol Online.']);
   
-  // AI Audit State
-  const [auditStatus, setAuditStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
-  const [auditResult, setAuditResult] = useState<string | null>(null);
-  
-  // Automation State
+  // Analysis State
+  const [activeEngine, setActiveEngine] = useState<string>('Standby');
+  const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
+  const [aiMessage, setAiMessage] = useState<string | null>(null);
   const [isSafeMode, setIsSafeMode] = useState(false);
 
-  const startTimeRef = useRef<number>(0);
+  const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
   
-  const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  // API Keys
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+
+  const BATCH_SIZE = 5;
+  const DELAY_MS = 250; 
+  const SAFE_DELAY_MS = 2500;
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -114,145 +111,145 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     } catch (e) { return null; }
   };
 
-  const calculateScores = (ratios: any, price: number, marketValue: number) => {
-      // 1. Profitability (ROE) - Max 100
-      const roe = Math.min(100, Math.max(0, (ratios.roe || 0) * 4)); 
+  // 3-Factor Scoring Logic
+  const calculateQuantScores = (ratios: any, price: number, marketCap: number) => {
+      // 1. Profitability (ROE is king)
+      const roe = Math.min(100, Math.max(0, (ratios.roe || 0) * 4)); // 25% ROE = 100pts
       
-      // 2. Stability (Debt/Equity) - Penalty for high debt
+      // 2. Stability (Low Debt)
       const debt = ratios.debt || 1.0;
-      const stability = Math.max(0, 100 - (debt * 30));
+      const stability = Math.max(0, 100 - (debt * 30)); // >3.3 Debt = 0pts
       
-      // 3. Growth/Value (PER) - Sweet spot 10-25
+      // 3. Growth/Value (PER)
       const per = ratios.per || 20;
-      let growth = 50;
-      if (per > 0 && per < 10) growth = 90; // Deep Value
-      else if (per >= 10 && per < 25) growth = 80; // Reasonable
-      else if (per >= 25 && per < 50) growth = 60; // Growth priced
-      else growth = 40; // Overvalued or Distressed
+      let growthVal = 50;
+      if (per > 0 && per < 10) growthVal = 90; // Deep Value
+      else if (per >= 10 && per < 25) growthVal = 80; // GARP
+      else if (per >= 25 && per < 50) growthVal = 60; // High Growth
+      else growthVal = 40; // Overvalued?
       
-      // Weighted Quality Score
-      const quality = Number((roe * 0.4 + stability * 0.3 + growth * 0.3).toFixed(2));
+      // Composite
+      const qualityScore = Number(((roe * 0.4) + (stability * 0.3) + (growthVal * 0.3)).toFixed(2));
       
-      return { 
-          profitScore: roe, 
-          stabilityScore: stability, 
-          growthScore: growth, 
-          qualityScore: quality 
-      };
+      return { profitScore: roe, stabilityScore: stability, growthScore: growthVal, qualityScore };
   };
 
-  const fetchFinancials = async (stock: any): Promise<QualityTicker | null> => {
-      if (!stock || !stock.symbol) return null;
+  const fetchFinancials = async (item: any): Promise<QualityTicker | null> => {
+      if (!item || !item.symbol) return null;
       
-      const cacheKey = `${CACHE_PREFIX}${stock.symbol}`;
+      // Check Session Cache
+      const cacheKey = `QUALITY_CACHE_v1_${item.symbol}_${new Date().toISOString().split('T')[0]}`;
       const cached = sessionStorage.getItem(cacheKey);
       if (cached) {
           try {
               const parsed = JSON.parse(cached);
-              setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
+              setProgress(p => ({ ...p, cacheHits: p.cacheHits + 1 }));
               return parsed;
           } catch(e) { sessionStorage.removeItem(cacheKey); }
       }
 
       try {
           let ratios: any = {};
-          let meta: any = {};
+          let profile: any = {};
           let source = "";
-          let apiUsed = "";
+          let metaSource = "";
 
-          // ATTEMPT 1: FMP (Primary)
+          // Priority 1: FMP (Rich Data)
           if (!isSafeMode) {
               try {
                   const [ratioRes, profileRes] = await Promise.all([
-                      fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${stock.symbol}?apikey=${fmpKey}`),
-                      fetch(`https://financialmodelingprep.com/api/v3/profile/${stock.symbol}?apikey=${fmpKey}`)
+                      fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${item.symbol}?apikey=${fmpKey}`),
+                      fetch(`https://financialmodelingprep.com/api/v3/profile/${item.symbol}?apikey=${fmpKey}`)
                   ]);
                   
                   if (ratioRes.status === 429 || profileRes.status === 429) {
-                      setIsSafeMode(true);
                       throw new Error("FMP_LIMIT");
                   }
-                  
+
                   if (ratioRes.ok) {
                       const data = await ratioRes.json();
-                      if (data && data["Error Message"]) throw new Error("FMP_LIMIT"); // Sometimes returns 200 with error msg
-                      
-                      if (Array.isArray(data) && data.length > 0) {
+                      if (data && data["Error Message"]) throw new Error("FMP_LIMIT");
+                      if (data && Array.isArray(data) && data.length > 0) {
                           const r = data[0];
                           ratios = {
                               per: Number(r.peRatioTTM || 0),
                               pbr: Number(r.priceToBookRatioTTM || 0),
                               debt: Number(r.debtEquityRatioTTM || 0),
-                              roe: Number(r.returnOnEquityTTM || 0) * 100
+                              roe: Number(r.returnOnEquityTTM || 0) * 100 // Convert to %
                           };
-                          apiUsed = "FMP";
+                          source = "FMP";
                       }
                   }
-                  
                   if (profileRes.ok) {
                       const data = await profileRes.json();
-                      if (Array.isArray(data) && data.length > 0) {
+                      if (data && Array.isArray(data) && data.length > 0) {
                           const p = data[0];
-                          meta = { name: p.companyName, sector: p.sector, industry: p.industry };
+                          profile = { name: p.companyName, sector: p.sector, industry: p.industry };
+                          metaSource = "FMP";
                       }
                   }
               } catch (e: any) {
-                  if (e.message === "FMP_LIMIT") throw e;
+                  if (e.message === "FMP_LIMIT") {
+                      setIsSafeMode(true); 
+                      throw e; // Rethrow to handle in batch loop
+                  }
               }
           }
 
-          // ATTEMPT 2: Finnhub (Secondary)
+          // Priority 2: Finnhub (Fallback for Ratios)
           if ((!ratios.per && !ratios.roe)) {
               try {
-                  const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${stock.symbol}&metric=all&token=${finnhubKey}`);
+                  const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${item.symbol}&metric=all&token=${finnhubKey}`);
                   if (res.status === 429) throw new Error("FINNHUB_LIMIT");
                   
                   if (res.ok) {
                       const data = await res.json();
-                      const m = data.metric;
-                      if (m) {
-                          ratios = {
-                              per: Number(m.peNormalized || 0),
-                              pbr: Number(m.pbAnnual || 0),
-                              debt: Number(m.totalDebtEquityRatioQuarterly || 0),
-                              roe: Number(m.roeTTM || 0)
-                          };
-                          apiUsed = "Finnhub";
-                      }
+                      ratios = {
+                          per: Number(data.metric?.peNormalized || 0),
+                          pbr: Number(data.metric?.pbAnnual || 0),
+                          debt: Number(data.metric?.totalDebtEquityRatioQuarterly || 0),
+                          roe: Number(data.metric?.roeTTM || 0)
+                      };
+                      source = "Finnhub";
                   }
-              } catch (e: any) {
+              } catch(e: any) {
                   if (e.message === "FINNHUB_LIMIT") throw e;
               }
           }
 
-          // ATTEMPT 3: Polygon (Meta Fallback)
-          if (!meta.name) {
-             try {
-                 const res = await fetch(`https://api.polygon.io/v3/reference/tickers/${stock.symbol}?apiKey=${polygonKey}`);
-                 if (res.ok) {
-                     const data = await res.json();
-                     if (data.results) {
-                         meta = { name: data.results.name, sector: data.results.sic_description || 'Unknown' };
-                         source += "/Poly";
-                     }
-                 }
-             } catch(e) {}
+          // Priority 3: Polygon (Fallback for Meta)
+          if (!profile.name) {
+              try {
+                  const res = await fetch(`https://api.polygon.io/v3/reference/tickers/${item.symbol}?apiKey=${polygonKey}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (data.results) {
+                          profile = {
+                              name: data.results.name,
+                              sector: data.results.sic_description || "Unknown"
+                          };
+                          metaSource = "Polygon";
+                      }
+                  }
+              } catch {}
           }
 
-          if (!ratios.per && !ratios.roe) return null; // Data insufficient
+          // If still no valid financial data, skip (Quality Filter)
+          if (!ratios.per && !ratios.roe) return null;
 
-          const price = Number(stock.price) || 0;
-          const volume = Number(stock.volume) || 0;
-          const marketValue = Number(stock.marketValue || (price * volume)) || 1000000;
+          const price = Number(item.price) || 0;
+          const vol = Number(item.volume) || 0;
+          const mktCap = Number(item.marketValue || (price * vol)) || 1000000;
 
-          const scores = calculateScores(ratios, price, marketValue);
-          
+          const scores = calculateQuantScores(ratios, price, mktCap);
+
           const result: QualityTicker = {
-              symbol: stock.symbol,
-              name: meta.name || stock.name || "N/A",
-              price,
-              volume,
-              marketValue,
+              ...item, // Preserve previous stage data
+              symbol: item.symbol,
+              name: profile.name || item.name || "N/A",
+              price: price,
+              volume: vol,
+              marketValue: mktCap,
               
               profitabilityScore: scores.profitScore,
               stabilityScore: scores.stabilityScore,
@@ -264,35 +261,37 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               debtToEquity: ratios.debt,
               roe: ratios.roe,
               
-              sector: meta.sector || "N/A",
-              industry: meta.industry || "N/A",
+              sector: profile.sector || "N/A",
+              industry: profile.industry || "N/A",
               
               lastUpdate: new Date().toISOString(),
-              source: `M:${apiUsed}${source}`
+              source: `M:${source}/P:${metaSource}`
           };
-
-          try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch (e) {}
           
+          try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
+
           return result;
 
       } catch (e: any) {
-          if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e; // Propagate limits
+          if (e.message === "FINNHUB_LIMIT" || e.message === "FMP_LIMIT") throw e;
           return null;
       }
   };
 
-  const runAiValueTrapCheck = async (candidates: QualityTicker[]) => {
-      setAuditStatus('ANALYZING');
-      setAuditResult("📡 Gemini 3.0: Scanning for Value Traps & Sector Trends...");
+  const detectValueTraps = async (candidates: QualityTicker[]) => {
+      setAiStatus('ANALYZING');
+      setAiMessage("📡 Gemini 3.0: Scanning for Value Traps & Sector Trends...");
       addLog("Initiating AI Value Trap Detection...", "info");
 
       if (!candidates || candidates.length === 0) {
-          setAuditResult("⚠️ Analysis Skipped: No Tickers.");
-          setAuditStatus('FAILED');
+          setAiMessage("⚠️ Analysis Skipped: No Tickers.");
+          setAiStatus('FAILED');
           return;
       }
 
+      // Analyze top 5 quality leaders
       const top5 = candidates.slice(0, 5);
+      
       const prompt = `
     [Role: Senior Hedge Fund Risk Manager]
     Task: Analyze these top 5 high-quality stocks for "Value Traps" (Red Flags) and identify the dominant sector trend.
@@ -308,66 +307,63 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     `;
 
       let aiResult = null;
-      let modelName = "";
+      let usedProvider = "";
 
       try {
-          // Gemini
-          const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-          const apiKey = process.env.API_KEY || geminiConfig?.key || "";
+          setActiveEngine('Gemini 3 Flash');
+          const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
+          if (!geminiKey) throw new Error("Gemini API Key Missing");
           
-          if (!apiKey) throw new Error("Gemini API Key Missing");
-
-          const ai = new GoogleGenAI({ apiKey });
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
           const response = await ai.models.generateContent({
               model: 'gemini-3-flash-preview',
               contents: prompt,
               config: { responseMimeType: "application/json" }
           });
-          
           trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
           aiResult = sanitizeJson(response.text);
-          modelName = "Gemini 3.0";
-
-      } catch (geminiError: any) {
-          addLog(`Gemini Audit Failed: ${geminiError.message}`, "warn");
-          // Fallback to Perplexity
+          usedProvider = "Gemini 3.0";
+      } catch (e: any) {
+          addLog(`Gemini Audit Failed: ${e.message}`, "warn");
           try {
-             const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
-             const pKey = pConfig?.key || "";
-             
-             const res = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pKey}` },
-                body: JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: prompt + " Return JSON." }] })
-             });
-             const json = await res.json();
-             if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-             aiResult = sanitizeJson(json.choices?.[0]?.message?.content);
-             modelName = "Sonar Pro";
-          } catch (pError: any) {
-             addLog(`Fallback Failed: ${pError.message}`, "err");
+              setActiveEngine('Sonar Pro');
+              const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+              const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                  body: JSON.stringify({
+                      model: 'sonar-pro', 
+                      messages: [{ role: "user", content: prompt + " Return JSON." }]
+                  })
+              });
+              const pJson = await pRes.json();
+              if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
+              aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
+              usedProvider = "Sonar Pro";
+          } catch (e2: any) {
+              addLog(`Fallback Failed: ${e2.message}`, "err");
           }
       }
 
       if (aiResult && aiResult.insight) {
-          const redFlags = aiResult.redFlags?.length > 0 ? `⚠️ Red Flags: ${aiResult.redFlags.join(', ')}` : "✅ No Major Red Flags Detected.";
-          const finalMsg = `[${aiResult.dominantSector}] ${aiResult.insight} | ${redFlags}`;
+          const redFlagNote = aiResult.redFlags?.length > 0 ? `⚠️ Red Flags: ${aiResult.redFlags.join(', ')}` : "✅ No Major Red Flags Detected.";
+          const finalMsg = `[${aiResult.dominantSector}] ${aiResult.insight} | ${redFlagNote}`;
           
-          setAuditResult(`${modelName}: ${finalMsg}`);
-          setAuditStatus('SUCCESS');
-          
-          // Mark value traps in dataset
+          setAiMessage(`${usedProvider}: ${finalMsg}`);
+          setAiStatus('SUCCESS');
+
+          // Apply tags to processed data
           if (aiResult.redFlags && Array.isArray(aiResult.redFlags)) {
-              const updated = candidates.map(c => ({
-                  ...c,
-                  isValueTrap: aiResult.redFlags.includes(c.symbol)
+              const updatedData = candidates.map(t => ({
+                  ...t,
+                  isValueTrap: aiResult.redFlags.includes(t.symbol)
               }));
-              setProcessedData(updated);
+              setProcessedData(updatedData);
           }
-          addLog(`Deep Audit Complete via ${modelName}`, "ok");
+          addLog(`Deep Audit Complete via ${usedProvider}`, "ok");
       } else {
-          setAuditResult("⚠️ AI Audit Unavailable.");
-          setAuditStatus('FAILED');
+          setAiMessage("⚠️ AI Audit Unavailable.");
+          setAiStatus('FAILED');
       }
   };
 
@@ -377,16 +373,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         return;
     }
     if (loading) return;
-
+    
     setLoading(true);
-    setAuditStatus('IDLE');
-    setAuditResult(null);
+    setAiStatus('IDLE');
+    setAiMessage(null);
     startTimeRef.current = Date.now();
     setTimeStats({ elapsed: 0, eta: 0 });
     setProcessedData([]);
     setProgress({ current: 0, total: 0, cacheHits: 0 });
     setIsSafeMode(false);
-
+    
+    setActiveEngine('Processing');
     addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
 
     try {
@@ -396,45 +393,43 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }).then(r => r.json());
 
       if (!listRes.files?.length) {
-        addLog("Stage 1 data missing.", "err");
-        setLoading(false); return;
+          addLog("Stage 1 data missing.", "err");
+          setLoading(false); return;
       }
-
+      
       const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
-
-      let universe = content.investable_universe || [];
-      const total = universe.length;
-
-      // Sort by liquidity (Price * Volume) to prioritize important stocks
-      universe.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
+      
+      let candidates = content.investable_universe || [];
+      const total = candidates.length;
+      
+      // Pre-sort by liquidity to prioritize good stocks
+      candidates.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
 
       addLog(`Universe Loaded: ${total} Assets. Starting 3-Factor Scan...`, "info");
       setProgress({ current: 0, total, cacheHits: 0 });
 
-      const results: QualityTicker[] = [];
-      const BATCH_SIZE = 5;
-      const DELAY_MS = 250;
-      const SAFE_DELAY_MS = 2500;
-
+      const qualifiedAssets: QualityTicker[] = [];
       let processedCount = 0;
       
+      // Batch Processing
       while (processedCount < total) {
-          const batch = universe.slice(processedCount, processedCount + BATCH_SIZE);
+          setActiveEngine(isSafeMode ? `Safe Mode (Delay ${SAFE_DELAY_MS}ms)` : `Turbo Mode (Delay ${DELAY_MS}ms)`);
+          
+          const batch = candidates.slice(processedCount, processedCount + BATCH_SIZE);
           
           try {
-              const promises = batch.map((item: any) => fetchFinancials(item));
-              const batchResults = await Promise.all(promises);
+              const promises = batch.map((c: any) => fetchFinancials(c));
+              const results = await Promise.all(promises);
               
-              batchResults.forEach(res => {
-                  if (res) results.push(res);
+              results.forEach(r => {
+                  if (r) qualifiedAssets.push(r);
               });
               
               processedCount += BATCH_SIZE;
               setProgress(prev => ({ ...prev, current: Math.min(processedCount, total) }));
               
-              // Rate Limiting
               const delay = isSafeMode ? SAFE_DELAY_MS : DELAY_MS;
               await new Promise(r => setTimeout(r, delay));
 
@@ -442,6 +437,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               if (e.message === "FMP_LIMIT") {
                   addLog("FMP Limit. Switching to Backup Providers...", "warn");
                   setIsSafeMode(true);
+                  // Retry this batch with safe mode is implied by loop continuation with changed state
+                  // Just slight pause
                   await new Promise(r => setTimeout(r, 1000));
               } else if (e.message === "FINNHUB_LIMIT") {
                   addLog("Finnhub Rate Limit. Pausing...", "warn");
@@ -453,15 +450,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      addLog(`Scan Complete. ${results.length} Qualified Assets. Validating...`, "info");
+      addLog(`Scan Complete. ${qualifiedAssets.length} Qualified Assets. Validating...`, "info");
       
-      // Sort by Quality Score
-      const elite = results.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 300);
+      // Keep Top 300
+      const elite = qualifiedAssets.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 300);
       setProcessedData(elite);
-
-      // Perform AI Audit on Top 5
-      await runAiValueTrapCheck(elite);
       
+      // AI Audit on Leaders
+      await detectValueTraps(elite);
+
       // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       
@@ -487,13 +484,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       });
 
       addLog(`Vault Finalized: ${fileName}`, "ok");
+      
       if (onComplete) onComplete();
 
     } catch (e: any) {
       addLog(`Critical Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
+      setActiveEngine('Standby');
       startTimeRef.current = 0;
+      setIsSafeMode(false);
     }
   };
 
@@ -515,13 +515,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Scatter Data for Visualization
-  const scatterData = processedData.slice(0, 50).map(t => ({
-      symbol: t.symbol,
-      x: t.growthScore, // Valuation/Growth
-      y: t.qualityScore, // Quality
-      z: t.marketValue, // Size
-      fill: t.isValueTrap ? '#ef4444' : '#10b981'
+  // Top 50 for visualization (Scatter)
+  const chartData = processedData.slice(0, 50).map(d => ({
+      symbol: d.symbol,
+      x: d.growthScore,
+      y: d.qualityScore,
+      z: d.marketValue,
+      fill: d.isValueTrap ? '#ef4444' : '#10b981'
   }));
 
   return (
@@ -532,7 +532,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.0</h2>
@@ -542,7 +542,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                             {loading ? `Scanning: ${progress.current}/${progress.total}` : '3-Factor Quant Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isSafeMode ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' : 'border-purple-500/20 bg-purple-500/10 text-purple-400'}`}>
-                            {isSafeMode ? "Safe Mode (Delay 2500ms)" : "Ready: Adaptive Quant Engine"}
+                            {activeEngine}
                         </span>
                         {progress.cacheHits > 0 && (
                             <span className="text-[8px] px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-500/20 rounded font-black uppercase">
@@ -568,65 +568,66 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             <button 
               onClick={executeDeepQualityScan} 
               disabled={loading} 
-              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all`}
+              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  loading 
+                    ? 'bg-blue-800 text-blue-200/50 shadow-inner scale-95 cursor-wait border-t border-black/20' 
+                    : 'bg-blue-600 text-white shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95'
+              }`}
             >
               {loading ? 'Executing Quant Scan...' : 'Start Deep Quality Filter'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
-            {/* Progress Card */}
-            <div className="flex flex-col gap-6">
-                <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-                    <div className="flex justify-between items-center mb-6">
+              {/* Progress Panel */}
+              <div className="flex flex-col gap-6">
+                  <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
+                     <div className="flex justify-between items-center mb-6">
                         <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
                         <p className="text-xl font-mono font-black text-white italic">{loading ? `${((progress.current / (progress.total || 1)) * 100).toFixed(1)}%` : 'Idle'}</p>
-                    </div>
-                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
-                        <div 
-                            className={`h-full transition-all duration-300 ${isSafeMode ? 'bg-amber-500' : 'bg-blue-500'}`} 
-                            style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}
-                        ></div>
-                    </div>
-                    <div className="flex justify-between text-[8px] uppercase font-bold text-slate-500">
+                     </div>
+                     <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
+                        <div className={`h-full transition-all duration-300 ${isSafeMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                     </div>
+                     <div className="flex justify-between text-[8px] uppercase font-bold text-slate-500">
                         <span>Profitability Check</span>
                         <span>Stability Check</span>
                         <span>Value Check</span>
-                    </div>
-                </div>
+                     </div>
+                  </div>
 
-                {/* AI Audit Widget */}
-                <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${auditStatus === 'ANALYZING' ? 'border-blue-500/50' : auditStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
-                    <div className="flex justify-between items-center mb-2">
-                        <p className={`text-[9px] font-black uppercase tracking-widest ${auditStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Value Trap Detector</p>
-                    </div>
-                    <p className={`text-xs font-bold leading-relaxed italic ${auditResult ? 'text-white' : 'text-slate-500'}`}>
-                        {auditResult || "Awaiting Top-Tier Candidate Analysis..."}
-                    </p>
-                    {auditStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
-                    {auditStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
-                </div>
-            </div>
+                  {/* Value Trap Panel */}
+                  <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
+                      <div className="flex justify-between items-center mb-2">
+                          <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Value Trap Detector</p>
+                      </div>
+                      <p className={`text-xs font-bold leading-relaxed italic ${aiMessage ? 'text-white' : 'text-slate-500'}`}>
+                          {aiMessage || "Awaiting Top-Tier Candidate Analysis..."}
+                      </p>
+                      {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
+                      {aiStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
+                  </div>
+              </div>
 
-            {/* Scatter Chart - Quality vs Value */}
-            <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50)</p>
-                <div className="flex-1 w-full h-full mt-4">
-                    {processedData.length > 0 ? (
-                        <ResponsiveContainer width="100%" height="100%">
+              {/* Chart Panel */}
+              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50)</p>
+                 <div className="flex-1 w-full h-full mt-4">
+                     {processedData.length > 0 ? (
+                         <ResponsiveContainer width="100%" height="100%">
                             <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
                                 <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                                <XAxis type="number" dataKey="x" name="Value Score" stroke="#64748b" fontSize={9} label={{ value: 'Value Score (Upside)', position: 'bottom', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
-                                <YAxis type="number" dataKey="y" name="Quality Score" stroke="#64748b" fontSize={9} label={{ value: 'Quality Score', angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
+                                <XAxis type="number" dataKey="x" name="Value Score" stroke="#64748b" fontSize={9} label={{ value: "Value Score (Upside)", position: "bottom", fill: "#64748b", fontSize: 9 }} domain={[0, 100]} />
+                                <YAxis type="number" dataKey="y" name="Quality Score" stroke="#64748b" fontSize={9} label={{ value: "Quality Score", angle: -90, position: "insideLeft", fill: "#64748b", fontSize: 9 }} domain={[0, 100]} />
                                 <RechartsTooltip 
                                     cursor={{ strokeDasharray: '3 3' }}
                                     content={({ active, payload }) => {
                                         if (active && payload && payload.length) {
-                                            const data = payload[0].payload;
+                                            const d = payload[0].payload;
                                             return (
                                                 <div className="bg-slate-900 border border-slate-700 p-2 rounded-lg shadow-xl">
-                                                    <p className="text-xs font-black text-white">{data.symbol}</p>
-                                                    <p className="text-[9px] text-emerald-400">Q: {data.y} | V: {data.x}</p>
+                                                    <p className="text-xs font-black text-white">{d.symbol}</p>
+                                                    <p className="text-[9px] text-emerald-400">Q: {d.y} | V: {d.x}</p>
                                                 </div>
                                             );
                                         }
@@ -635,20 +636,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                 />
                                 <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
                                 <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
-                                <Scatter name="Elite Stocks" data={scatterData} fill="#3b82f6">
-                                    {scatterData.map((entry, index) => (
+                                <Scatter name="Elite Stocks" data={chartData} fill="#3b82f6">
+                                    {chartData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.fill} />
                                     ))}
+                                    <LabelList dataKey="symbol" position="top" style={{ fill: '#94a3b8', fontSize: '8px', fontWeight: 'bold' }} />
                                 </Scatter>
                             </ScatterChart>
-                        </ResponsiveContainer>
-                    ) : (
-                        <div className="flex items-center justify-center h-full opacity-20">
-                            <p className="text-[10px] font-black uppercase tracking-[0.3em]">No Data Visualization</p>
-                        </div>
-                    )}
-                </div>
-            </div>
+                         </ResponsiveContainer>
+                     ) : (
+                         <div className="flex items-center justify-center h-full opacity-20">
+                             <p className="text-[10px] font-black uppercase tracking-[0.3em]">No Data Visualization</p>
+                         </div>
+                     )}
+                 </div>
+              </div>
           </div>
         </div>
       </div>
