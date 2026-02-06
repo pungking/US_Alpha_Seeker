@@ -466,6 +466,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       headers: { 'Authorization': `Bearer ${token}` }
     });
     
+    // [FIX] Explicit error checking for Auth
+    if (res.status === 401 || res.status === 403) {
+         throw new Error("GDrive Auth Expired. Please refresh page/re-login.");
+    }
+
     if (res.ok) {
         const data = await res.json();
         if (data.files?.length > 0) return data.files[0].id;
@@ -476,6 +481,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     });
+    
+    // [FIX] Explicit check for folder creation failure
+    if (!create.ok) {
+        throw new Error(`Folder Creation Failed: ${create.status}`);
+    }
+
     const createData = await create.json();
     return createData.id;
   };
@@ -489,6 +500,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
     });
+    
+    // [FIX] Explicit check for upload failure
+    if (!res.ok) {
+        throw new Error(`Upload Failed: ${res.status}`);
+    }
+
     return res.json();
   };
 
