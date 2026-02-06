@@ -47,6 +47,7 @@ interface QualityTicker {
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
+  onStockSelected?: (stock: any) => void;
 }
 
 const CACHE_PREFIX = 'QUANT_CACHE_INSTITUTIONAL_v8_';
@@ -65,7 +66,7 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
     'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
 };
 
-const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
+const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
@@ -90,9 +91,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
-  const BATCH_SIZE = 5; 
-  const DELAY_TURBO = 150;   
-  const DELAY_SAFE = 1200;   
+  // [OPTIMIZATION] Increased Batch Size & Reduced Delay for Speed
+  const BATCH_SIZE = 12; 
+  const DELAY_TURBO = 50;   
+  const DELAY_SAFE = 1000;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -465,6 +467,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               else dropped++;
           });
 
+          // [REAL-TIME UPDATE] Update state after each batch for visual feedback
+          const currentSorted = [...validResults].sort((a,b) => b.qualityScore - a.qualityScore);
+          setProcessedData(currentSorted);
+
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
           
@@ -633,7 +639,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 </div>
               </div>
             </div>
-            <button onClick={executeDeepQualityScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
+            <button 
+                onClick={executeDeepQualityScan} 
+                disabled={loading} 
+                className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.3)] hover:shadow-[0_0_30px_rgba(37,99,235,0.5)] hover:scale-105 active:scale-95 transition-all"
+            >
               {loading ? 'Executing Quant Model...' : 'Start Institutional Filter'}
             </button>
           </div>
@@ -723,7 +733,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                              {themeDetails.length > 0 ? themeDetails.map((item, idx) => {
                                  const globalRank = processedData.findIndex(p => p.symbol === item.symbol) + 1;
                                  return (
-                                     <div key={item.symbol} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors">
+                                     <div 
+                                        key={item.symbol} 
+                                        onClick={() => {
+                                            onStockSelected?.(item);
+                                        }}
+                                        className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors cursor-pointer active:scale-95"
+                                     >
                                          <div className="flex items-center gap-3">
                                              <div className="flex flex-col items-center justify-center w-8 h-8 bg-black/40 rounded-lg border border-white/5">
                                                  <span className="text-[8px] text-slate-500 uppercase">Rank</span>
