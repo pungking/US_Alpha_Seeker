@@ -150,28 +150,20 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [IMPROVED MARKDOWN COMPONENTS]
 const MarkdownComponents: any = {
-    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-8 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: (props: any) => (
-        <div className="mt-8 mb-4 border-b border-white/10 pb-2">
-            <h2 className="text-lg md:text-xl font-black text-emerald-400 uppercase tracking-wide flex items-center gap-2">
-                <span className="text-emerald-500 opacity-50">#</span>
-                {props.children}
-            </h2>
-        </div>
-    ),
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-6 mb-2 tracking-wide pl-2 border-l-2 border-blue-500/50" {...props} />,
-    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-300 leading-7 mb-4 font-medium tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-3 mb-6 mt-2 list-none" {...props} />,
+    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
+    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
+    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
+    ul: (props: any) => <ul className="space-y-2 mb-6 mt-2" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
-        <li className="pl-4 relative flex items-start group mb-2" {...props}>
-             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
-             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-relaxed group-hover:text-slate-200 transition-colors">{props.children}</span>
+        <li className="pl-4 relative flex items-start group mb-1" {...props}>
+             <span className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
+             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-6">{props.children}</span>
         </li>
     ),
-    strong: (props: any) => <strong className="text-white font-bold bg-white/5 px-1 rounded mx-0.5 border border-white/10" {...props} />,
+    strong: (props: any) => <span className="inline-block bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider mx-1 my-1 shadow-sm" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
     ),
@@ -180,13 +172,12 @@ const MarkdownComponents: any = {
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
-    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10 shadow-lg"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
-    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/80" {...props} />,
-    th: (props: any) => <th className="px-4 py-3 font-black tracking-wider border-b border-white/10" {...props} />,
+    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
+    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/50" {...props} />,
+    th: (props: any) => <th className="px-4 py-3 font-bold" {...props} />,
     tbody: (props: any) => <tbody {...props} />,
-    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors odd:bg-white/[0.02]" {...props} />,
+    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors" {...props} />,
     td: (props: any) => <td className="px-4 py-3" {...props} />,
-    hr: () => <hr className="border-white/10 my-8" />
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
@@ -455,7 +446,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // Phase 1: Engine Execution
   useEffect(() => {
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
@@ -464,23 +454,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
-  // Phase 2: Transition to Matrix View (Skip Audit, Go straight to Telegram)
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Switching to Portfolio Matrix... (Skipping Audit Step)", "signal");
+          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
-          // Directly set to MATRIX phase to trigger next effect immediately
-          setAutoPhase('MATRIX'); 
+          setAutoPhase('MATRIX');
+          // Add a small delay to ensure render updates before heavy matrix op
+          setTimeout(() => {
+              handleRunMatrixAudit(selectedBrain);
+          }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // Phase 3: Generate Brief and Finish
   useEffect(() => {
       const finishAutoPilot = async () => {
           const currentResults = resultsCache[selectedBrain] || [];
           
-          if (autoStart && autoPhase === 'MATRIX' && currentResults.length > 0) {
+          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && currentResults.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
               let telegramPayload = ""; 
@@ -488,13 +479,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
-                  
-                  if(accessToken) {
-                      const timestamp = getKstTimestamp();
-                      const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
-                      await archiveReport(accessToken, fileName, brief);
-                      addLog("Telegram Brief Archived to Drive.", "info");
-                  }
               } catch (e) {
                   addLog("Brief Gen Failed. Sending full report.", "err");
                   telegramPayload = "Brief Generation Failed.";
@@ -506,7 +490,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       };
       
       finishAutoPilot();
-  }, [autoStart, autoPhase, selectedBrain, resultsCache]);
+  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
 
 
   useEffect(() => {
@@ -546,10 +530,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (!text) return "";
     let str = String(text);
     
-    // 0. Clean formatting
-    str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
-
-    // 1. Remove Emojis & Citations
+    // 1. Remove Emojis (Preserve existing logic)
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
@@ -558,40 +539,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       .replace(/[\u{2600}-\u{26FF}]/gu, "")   
       .replace(/[\u{2700}-\u{27BF}]/gu, "")   
       .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
-      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "")
-      .replace(/\[\d+\]/g, ''); 
+      .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
+      .replace(/\[\d+\]/g, '');
 
-    // 2. Force Newlines for Headers
-    // Detect patterns like "## Title Content" and convert to "## Title\nContent"
-    const headers = [
-        'COUNCIL DEBATE', 'PRE-MORTEM', 'EXECUTION STRATEGY', 
-        'RISK MANAGEMENT', 'SMART MONEY', 'FUNDAMENTAL', 
-        '3인 합의', '사전 부검', '매매 전략', '리스크 관리',
-        'NEURAL INVESTMENT OUTLOOK'
-    ];
+    // 2. Improve Layout/Readability
+    // Ensure Headers have spacing
+    str = str.replace(/([^\n])\n(#{1,3})/g, '$1\n\n$2');
     
-    headers.forEach(h => {
-        // Regex to catch: (Optional #) (Header Name + optional parenthesis) (Content)
-        // We want to break (Content) to a new line
-        const re = new RegExp(`(#{0,3}\\s*)?(${h}.*?)([\\)\\:]?)\\s*([^\\n#]+)`, 'gi');
-        str = str.replace(re, (match, hash, title, suffix, content) => {
-             if (content.length < 5) return match; // If content is too short, might be part of title
-             return `\n\n## ${title.trim()}${suffix}\n${content.trim()}\n`;
-        });
-    });
-
-    // 3. Force Personas to new lines
+    // Format Personas into a list
     const personas = ['보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', 'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:'];
     personas.forEach(p => {
-        str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p}`, 'g'), `\n- **${p}**`);
+        str = str.split(p).join(`\n- **${p}**`);
     });
 
-    // 4. Clean up lists
-    str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
-    
-    // 5. Enhance spacing around headers
-    str = str.replace(/\n\n\n+/g, '\n\n'); 
-    
     return str.trim();
   };
 
@@ -608,14 +568,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .trim();
   };
 
-  // Helper for KST Timestamp
-  const getKstTimestamp = () => {
-    const now = new Date();
-    // 9 hours offset for KST
-    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    return kstDate.toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-');
-  };
-
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
@@ -627,21 +579,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return create.id;
   };
 
-  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
-    const meta = { name, parents: [folderId], mimeType: 'application/json' };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-    
-    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
-    });
-  };
-
   const loadStage5Data = async () => {
     if (!accessToken) return;
     try {
-      // Changed query to be broader to catch recent files
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -655,11 +595,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (content && content.ict_universe) {
             setElite50(content.ict_universe);
             addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
-        } else {
-             addLog(`Error: Stage 5 data empty.`, "err");
         }
-      } else {
-          addLog("Stage 5 data not found in Drive. Please run Stage 5.", "err");
       }
     } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
   };
@@ -673,7 +609,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     try {
       const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
-      if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
+      if (topCandidates.length === 0) throw new Error("No candidates available to analyze.");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
@@ -705,7 +641,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const safeEntry = Number(aiData.supportLevel) || (safePrice * 0.98);
         
         return {
-            ...item, // Accumulate Stage 5 data
+            ...item, 
             ...aiData, 
             price: safePrice,
             convictionScore: Number(aiData.convictionScore || item.compositeAlpha || 0),
@@ -722,19 +658,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           setSelectedStock(first);
           onStockSelected?.(first);
           onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
-          
-          // [NEW] Save Alpha Candidates Result to Drive
-          if(accessToken) {
-              const timestamp = getKstTimestamp();
-              const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
-              const payload = {
-                  manifest: { version: "9.9.9", count: mergedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
-                  alpha_candidates: mergedFinal // Full accumulated data
-              };
-              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-              await uploadFile(accessToken, folderId, fileName, payload);
-              addLog(`Saved Alpha Candidates: ${fileName}`, "ok");
-          }
       }
 
       addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
@@ -761,7 +684,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             apiStatuses: [],
             recommendedData: currentResults,
             mode: 'PORTFOLIO',
-            targetStock: undefined 
+            targetStock: undefined // Added to satisfy type requirement if needed, though optional in updated definition
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
@@ -786,10 +709,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         
         const token = sessionStorage.getItem('gdrive_access_token');
         if (token) {
-           const timestamp = getKstTimestamp();
+           const date = new Date().toISOString().split('T')[0];
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           // [TIMESTAMP] Updated filename format per request
-           const fileName = `PORTFOLIO_MATRIX_AUDIT_${brainLabel}_${timestamp}.md`;
+           const fileName = `${date}_Portfolio_Matrix_Combined_${brainLabel}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
            const saved = await archiveReport(token, fileName, safeReport);
@@ -818,15 +740,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     try {
         const brief = await generateTelegramBrief(currentResults, selectedBrain);
-        
-        // [NEW] Archive Telegram Brief to Drive (Manual)
-        if(accessToken) {
-            const timestamp = getKstTimestamp();
-            const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
-            await archiveReport(accessToken, fileName, brief);
-            addLog("Telegram Brief Archived to Drive.", "info");
-        }
-
         const success = await sendTelegramReport(brief);
         if (success) addLog("Telegram Transmission Successful.", "ok");
         else addLog("Telegram Transmission Failed.", "err");
@@ -1304,7 +1217,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             {activeAlphaInsight && ALPHA_INSIGHTS[activeAlphaInsight] && (
                                 <div className="alpha-insight-overlay absolute bottom-20 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
                                     <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-blue-500/30 shadow-2xl relative">
-                                        <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white p-1 hover:bg-white/10 rounded-full transition-colors">
+                                        <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white">
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                         </button>
                                         <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -1331,7 +1244,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                      </div>
                      <div className="lg:col-span-2 space-y-6 relative">
-                        {/* ... (rest of the file remains unchanged until export) */}
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
                             <ul className="space-y-4">
@@ -1710,36 +1622,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                          Simulation Intelligence Insight
                                      </h5>
                                      <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {cleanInsightText(currentBacktest.historicalContext)}
-                                        </ReactMarkdown>
+                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                            {currentBacktest.historicalContext}
+                                         </ReactMarkdown>
                                      </div>
-                                </div>
-                             </div>
+                                 </div>
+                            </div>
                         </div>
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
-                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-                             </div>
-                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
+                            <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                            </div>
+                            <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
                     )}
                  </div>
              </div>
         )}
+      </div>
 
-        <div className="xl:col-span-1">
-            <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
-                <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
-                <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
-                    {logs.map((l, i) => (
-                    <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
-                        {l}
-                    </div>
-                    ))}
-                </div>
-            </div>
+      <div className="xl:col-span-1">
+        <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
+          <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
+            {logs.map((l, i) => (
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : l.includes('[INFO]') ? 'border-cyan-500 text-cyan-400' : 'border-rose-900'}`}>
+                {l}
+              </div>
+            ))}
+          </div>
         </div>
       </div>
     </div>
