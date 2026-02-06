@@ -541,7 +541,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     // 0. Clean formatting
     str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
 
-    // 1. Remove Emojis & Citations
+    // 1. Remove Emojis & Citations for professionalism
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
@@ -608,7 +608,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const getKstTimestamp = () => {
     const now = new Date();
-    // 9 hours offset for KST
     const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
     return kstDate.toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-');
   };
@@ -691,7 +690,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
-      // [FIX] Sanitization & Type Coercion to prevent Black Screen
       const mergedFinal = safeAiResults.map((aiData: any) => {
         if (!aiData?.symbol) return null;
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
@@ -983,6 +981,120 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
+
+  // [QUANT CALCULATION ENGINE]
+  const quantMetrics = useMemo(() => {
+      try {
+          if (!selectedStock) return null;
+
+          // 1. INPUTS
+          const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
+          const entry = selectedStock.supportLevel || selectedStock.price * 0.98;
+          const stop = selectedStock.stopLoss || selectedStock.price * 0.95;
+          const target = selectedStock.resistanceLevel || selectedStock.price * 1.10;
+          
+          const roe = selectedStock.roe || 15; // default fallback
+          const ictScore = selectedStock.ictScore || conviction; 
+          const intrinsic = selectedStock.intrinsicValue || selectedStock.price;
+          
+          // 2. ODDS & PROB (Backtest or Heuristic)
+          const simMetrics = backtestData[selectedStock.symbol]?.metrics;
+          let P = 0; 
+          let B = 0; 
+          
+          if (simMetrics && parseFloat(String(simMetrics.winRate).replace('%','')) > 0) {
+              P = parseFloat(String(simMetrics.winRate).replace('%','')) / 100;
+              B = parseFloat(simMetrics.profitFactor || "1.5");
+          } else {
+              // [UPDATED] Heuristic: Conservative Win Rate Estimation to avoid Kelly capping
+              // Conviction 50 -> 45% WR, Conviction 90 -> 57% WR
+              // This makes the Half-Kelly result more dynamic and realistic (usually < 20%)
+              P = 0.30 + (conviction / 100) * 0.30; 
+              
+              // B based on Risk Reward
+              if (selectedStock.riskRewardRatio) {
+                  const parts = selectedStock.riskRewardRatio.split(':');
+                  B = parts.length === 2 ? parseFloat(parts[1]) : 2.0;
+              } else {
+                  B = (target - entry) / (entry - stop);
+              }
+          }
+          if (isNaN(B) || B <= 0) B = 1.5;
+          
+          // 3. PHASE 1: SIZING (Shield)
+          // Half-Kelly
+          const Q = 1 - P;
+          let kellyRaw = P - (Q / B);
+          if (kellyRaw < 0) kellyRaw = 0;
+          
+          // Institutional Adjustment: Cap at 20% max per position
+          // Multiply by 100 to get percentage
+          const halfKelly = Math.min((kellyRaw * 0.5 * 100), 20.0);
+          
+          // VAPS (Volatility Adjusted) - Assume $100k Equity, 1% Risk ($1000)
+          const riskPerShare = Math.max(0.01, entry - stop);
+          const vapsQty = Math.floor(1000 / riskPerShare);
+          const vapsAllocation = (vapsQty * entry) / 1000; // % of 100k
+
+          // 4. PHASE 2: SELECTION (Sword)
+          // ERCI = Upside% * log(Conviction) * (ICT/100)
+          const upside = ((target - entry) / entry) * 100;
+          const erci = upside * Math.log10(conviction || 10) * (ictScore / 100);
+          
+          // Q-M Composite
+          const qmScore = (roe * 0.4) + (ictScore * 0.6);
+          
+          // Soros Ratio = (Target-Entry)/(Entry-Stop) * (ictScore/100)
+          const sorosRatio = B * (ictScore / 50);
+
+          // IVG
+          const ivg = selectedStock.fairValueGap || ((intrinsic - selectedStock.price)/selectedStock.price * 100);
+
+          // 5. PHASE 3: TIMING (Clock)
+          // Convexity
+          const squeeze = selectedStock.techMetrics?.squeezeState === 'SQUEEZE_ON';
+          const displacement = selectedStock.ictMetrics?.displacement > 60;
+          const convexity = squeeze ? (displacement ? "Explosive" : "Building") : "Standard";
+          
+          // IFS
+          const ifs = selectedStock.ictMetrics?.smartMoneyFlow || 50;
+
+          // 6. PHASE 4: INTEGRITY (System)
+          // Expectancy (1R normalized) = (P * B) - (Q * 1)
+          const expectancy = (P * B) - (Q * 1);
+          
+          // AIC (Consensus)
+          const aic = selectedStock.aiVerdict === 'STRONG_BUY' ? 95 : selectedStock.aiVerdict === 'BUY' ? 80 : 50;
+
+          return {
+              sizing: {
+                  kelly: halfKelly.toFixed(1),
+                  vapsQty: vapsQty,
+                  vapsPct: vapsAllocation.toFixed(1),
+                  riskPerShare: riskPerShare.toFixed(2)
+              },
+              selection: {
+                  erci: erci.toFixed(1),
+                  qm: qmScore.toFixed(0),
+                  ivg: ivg.toFixed(1),
+                  soros: sorosRatio.toFixed(1)
+              },
+              timing: {
+                  convexity,
+                  ifs: ifs.toFixed(0),
+                  mrf: selectedStock.marketState || 'Neutral'
+              },
+              system: {
+                  expectancy: expectancy.toFixed(2),
+                  aic: aic
+              }
+          };
+
+      } catch (e) {
+          console.error("Quant Metrics Error", e);
+          return null;
+      }
+  }, [selectedStock, backtestData]);
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
