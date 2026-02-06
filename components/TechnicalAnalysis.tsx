@@ -365,7 +365,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 </div>
               </div>
             </div>
-            <button onClick={executeTechnicalScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-orange-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-orange-900/20 hover:scale-105 active:scale-95 transition-all">
+            <button 
+              onClick={executeTechnicalScan} 
+              disabled={loading} 
+              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  loading 
+                    ? 'bg-orange-800 text-orange-200/50 shadow-inner scale-95 cursor-wait border-t border-black/20' 
+                    : 'bg-orange-600 text-white shadow-xl shadow-orange-900/20 hover:scale-105 active:scale-95'
+              }`}
+            >
               {loading ? 'Scanning Volatility...' : 'Execute Momentum Scan'}
             </button>
           </div>
