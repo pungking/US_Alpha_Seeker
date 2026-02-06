@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -367,7 +366,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               <button 
                 onClick={commitPurification} 
                 disabled={loading || rawUniverse.length === 0}
-                className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 bg-emerald-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50`}
+                className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                    loading 
+                      ? 'bg-emerald-800 text-emerald-200/50 shadow-inner scale-95 cursor-wait border-t border-black/20' 
+                      : 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 disabled:shadow-none'
+                }`}
               >
                 {loading ? 'Processing...' : 'Commit Filter'}
               </button>
