@@ -149,20 +149,26 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// [IMPROVED MARKDOWN COMPONENTS - ENHANCED TEXT RENDERING]
 const MarkdownComponents: any = {
     h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
-    h2: (props: any) => <h2 className="text-lg md:text-xl font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2"><span className="text-emerald-500">#</span>{props.children}</h2>,
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    h2: (props: any) => (
+        <h2 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-3 uppercase tracking-wide border-b border-emerald-500/30 pb-2 flex items-center gap-2">
+            <span className="text-emerald-500 opacity-50">#</span>
+            {props.children}
+        </h2>
+    ),
+    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide pl-2 border-l-2 border-blue-500/50" {...props} />,
     p: (props: any) => <p className="text-sm md:text-[15px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-2 mb-6 mt-2" {...props} />,
+    ul: (props: any) => <ul className="space-y-2 mb-6 mt-2 list-none" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
         <li className="pl-4 relative flex items-start group mb-1" {...props}>
-             <span className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
-             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-6">{props.children}</span>
+             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
+             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-relaxed group-hover:text-slate-200 transition-colors">{props.children}</span>
         </li>
     ),
-    strong: (props: any) => <span className="inline-block bg-emerald-900/60 border border-emerald-500/30 text-emerald-300 px-2 py-0.5 rounded text-xs font-bold uppercase tracking-wider mx-1 my-1 shadow-sm" {...props} />,
+    strong: (props: any) => <strong className="text-emerald-300 font-bold bg-emerald-900/40 px-1 rounded mx-0.5 border border-emerald-500/20" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
     ),
@@ -171,12 +177,13 @@ const MarkdownComponents: any = {
         ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
-    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
-    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/50" {...props} />,
-    th: (props: any) => <th className="px-4 py-3 font-bold" {...props} />,
+    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10 shadow-lg"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
+    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/80" {...props} />,
+    th: (props: any) => <th className="px-4 py-3 font-black tracking-wider border-b border-white/10" {...props} />,
     tbody: (props: any) => <tbody {...props} />,
-    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors" {...props} />,
+    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors odd:bg-white/[0.02]" {...props} />,
     td: (props: any) => <td className="px-4 py-3" {...props} />,
+    hr: () => <hr className="border-white/10 my-8" />
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
@@ -445,7 +452,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (accessToken && elite50.length === 0) loadStage5Data();
   }, [accessToken]);
 
-  // Phase 1: Engine Execution
   useEffect(() => {
     if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
         addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
@@ -454,23 +460,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   }, [autoStart, autoPhase, loading, elite50]);
 
-  // Phase 2: Transition to Matrix View (Skip Audit, Go straight to Telegram)
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Switching to Portfolio Matrix... (Skipping Audit Step)", "signal");
+          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
-          // Directly set to MATRIX phase to trigger next effect immediately
-          setAutoPhase('MATRIX'); 
+          setAutoPhase('MATRIX');
+          // Add a small delay to ensure render updates before heavy matrix op
+          setTimeout(() => {
+              handleRunMatrixAudit(selectedBrain);
+          }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
-  // Phase 3: Generate Brief and Finish
   useEffect(() => {
       const finishAutoPilot = async () => {
           const currentResults = resultsCache[selectedBrain] || [];
           
-          if (autoStart && autoPhase === 'MATRIX' && currentResults.length > 0) {
+          if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && currentResults.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
               
               let telegramPayload = ""; 
@@ -478,13 +485,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   const brief = await generateTelegramBrief(currentResults, selectedBrain);
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
-                  
-                  if(accessToken) {
-                      const timestamp = getKstTimestamp();
-                      const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
-                      await archiveReport(accessToken, fileName, brief);
-                      addLog("Telegram Brief Archived to Drive.", "info");
-                  }
               } catch (e) {
                   addLog("Brief Gen Failed. Sending full report.", "err");
                   telegramPayload = "Brief Generation Failed.";
@@ -496,7 +496,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       };
       
       finishAutoPilot();
-  }, [autoStart, autoPhase, selectedBrain, resultsCache]);
+  }, [autoStart, autoPhase, matrixLoading, matrixReports, selectedBrain, resultsCache]);
 
 
   useEffect(() => {
@@ -551,11 +551,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '');
 
-    // 2. Improve Layout/Readability
-    // Ensure Headers have spacing
-    str = str.replace(/([^\n])\n(#{1,3})/g, '$1\n\n$2');
+    // 2. Force Newlines for Headers
+    // Detect patterns like "Content ## Header" and fix to "Content\n\n## Header"
+    const headers = [
+        'COUNCIL DEBATE', 'PRE-MORTEM', 'EXECUTION STRATEGY', 
+        'RISK MANAGEMENT', 'SMART MONEY', 'FUNDAMENTAL', 
+        '3인 합의', '사전 부검', '매매 전략', '리스크 관리',
+        'NEURAL INVESTMENT OUTLOOK'
+    ];
     
-    // 3. Format Personas into a list (Enhanced)
+    headers.forEach(h => {
+        // Regex: (Anything not a newline) followed by optional #, then Header Name
+        // Case 1: "Something ## Header"
+        const re1 = new RegExp(`([^\\n])\\s*(#{1,3}\\s*)?(${h})`, 'gi');
+        str = str.replace(re1, '$1\n\n## $3');
+
+        // Case 2: "## Header Something" (Split Header and Content)
+        // Ensure "## Title: Content" becomes "## Title:\nContent"
+        const re2 = new RegExp(`(#{1,3}\\s*${h}.*?)([\\)\\:]?)\\s*([^\\n#]+)`, 'gi');
+        str = str.replace(re2, (match, title, suffix, content) => {
+             if (content.length < 5) return match; // If content is too short, might be part of title
+             return `${title.trim()}${suffix}\n${content.trim()}\n`;
+        });
+    });
+
+    // 3. Force Personas to new lines (Enhanced)
     const personas = [
         '보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', '마켓 메이커:', '모멘텀 트레이더:',
         'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:', 'Momentum Trader:',
@@ -565,13 +585,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         // Use trim() to ensure clean formatting inside the bold tags (e.g. "Role :" -> "Role:")
         // Check identifying regex with lookbehind support
         try {
-            str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p}`, 'g'), `\n- **${p.trim()}**`);
+            str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p.replace(/\s+/g, '\\s*')}`, 'g'), `\n- **${p.trim()}**`);
         } catch (e) {
             // Fallback for browsers without lookbehind support
             str = str.split(p).join(`\n- **${p.trim()}**`);
         }
     });
 
+    // 4. Fix List Item Clumping
+    // "Sentence. - List item" -> "Sentence.\n- List item"
+    str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
+    
+    // 5. Enhance spacing
+    str = str.replace(/\n\n\n+/g, '\n\n'); 
+    
     return str.trim();
   };
 
