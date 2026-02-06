@@ -553,7 +553,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     str = str.replace(/([^\n])\n(#{1,3})/g, '$1\n\n$2');
     
     // Format Personas into a list
-    const personas = ['보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', 'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:'];
+    const personas = ['보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', '마켓 메이커:', 'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:'];
     personas.forEach(p => {
         str = str.split(p).join(`\n- **${p}**`);
     });
