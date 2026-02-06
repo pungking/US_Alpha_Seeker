@@ -91,10 +91,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
-  // [OPTIMIZATION] Increased Batch Size for Speed
+  // [OPTIMIZATION] Increased Batch Size & Reduced Delay for Speed
   const BATCH_SIZE = 12; 
   const DELAY_TURBO = 50;   
-  const DELAY_SAFE = 1200;   
+  const DELAY_SAFE = 1000;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -470,9 +470,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               else dropped++;
           });
 
-          // [REAL-TIME UPDATE] Update UI with partial results for progress visualization
-          const currentSorted = [...validResults].sort((a,b) => b.qualityScore - a.qualityScore);
-          setProcessedData(currentSorted);
+          // [VISUAL UPDATE DISABLED] To reduce noise, we removed the real-time setProcessedData here.
+          // The progress bar will still update via setProgress below.
 
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
@@ -645,7 +644,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
             <button 
                 onClick={executeDeepQualityScan} 
                 disabled={loading} 
-                className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.5)] hover:shadow-[0_0_30px_rgba(37,99,235,0.7)] hover:scale-105 active:scale-95 transition-all"
+                className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
             >
               {loading ? 'Executing Quant Model...' : 'Start Institutional Filter'}
             </button>
@@ -738,7 +737,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                  return (
                                      <div 
                                         key={item.symbol} 
-                                        onClick={() => onStockSelected?.(item)}
+                                        onClick={() => {
+                                            onStockSelected?.(item);
+                                        }}
                                         className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors cursor-pointer active:scale-95 group"
                                      >
                                          <div className="flex items-center gap-3">
