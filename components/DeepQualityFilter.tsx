@@ -47,6 +47,7 @@ interface QualityTicker {
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
+  onStockSelected?: (stock: any) => void;
 }
 
 const CACHE_PREFIX = 'QUANT_CACHE_INSTITUTIONAL_v8_';
@@ -65,7 +66,7 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
     'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
 };
 
-const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
+const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
@@ -90,8 +91,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
-  const BATCH_SIZE = 5; 
-  const DELAY_TURBO = 150;   
+  // [OPTIMIZATION] Increased Batch Size for Speed
+  const BATCH_SIZE = 12; 
+  const DELAY_TURBO = 50;   
   const DELAY_SAFE = 1200;   
   const TARGET_SELECTION_COUNT = 500; 
   
@@ -347,20 +349,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     tickers.forEach(t => themeCounts[t.theme] = (themeCounts[t.theme] || 0) + 1);
     const topThemes = Object.entries(themeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3).map(x => x[0]).join(", ");
 
+    // [STRICT PROMPT] Forces Korean and prevents refusals
     const prompt = `
-    [SYSTEM: You are a Wall Street Chief Risk Officer]
-    Analyze this filtered stock universe (${totalCount} assets):
-    - Avg Quality Score: ${avgScore}/100
-    - Avg Altman Z-Score: ${avgZ} (Safety Metric)
-    - Dominant Themes: ${topThemes}
+    [SYSTEM: You are a Wall Street Chief Risk Officer. Act as a financial analyst.]
+    [INSTRUCTION: Analyze the provided JSON data summary. Do not search the internet. Output must be in KOREAN.]
+
+    Input Data (${totalCount} assets):
+    - Quality Score Avg: ${avgScore} (0-100 scale)
+    - Z-Score Avg: ${avgZ} (Altman Z-Score)
+    - Top Themes: ${topThemes}
+
+    OUTPUT FORMAT (Korean Markdown):
+    1. **포트폴리오 성격**: [공격형/방어형/밸런스형] 정의.
+    2. **리스크 진단**: Z-Score 기반 안정성 평가.
+    3. **테마 집중도**: 섹터 리스크 분석.
+    4. **최종 등급**: [AAA~C] 등급 부여.
     
-    OUTPUT FORMAT (Markdown Only, Korean):
-    1. **포트폴리오 성격**: [공격형/방어형/밸런스형] 정의 및 한 줄 평.
-    2. **리스크 진단**: Z-Score ${avgZ} 기반 안정성 평가.
-    3. **테마 집중도**: ${topThemes} 위주 구성의 장단점.
-    4. **최종 등급**: [AAA/AA/A/BBB] 중 하나 부여.
-    
-    Do not use emojis. Keep it professional and concise.
+    Write in professional Korean. No introductions.
     `;
     
     try {
@@ -464,6 +469,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               if (r) validResults.push(r);
               else dropped++;
           });
+
+          // [REAL-TIME UPDATE] Update UI with partial results for progress visualization
+          const currentSorted = [...validResults].sort((a,b) => b.qualityScore - a.qualityScore);
+          setProcessedData(currentSorted);
 
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
@@ -633,7 +642,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 </div>
               </div>
             </div>
-            <button onClick={executeDeepQualityScan} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all">
+            <button 
+                onClick={executeDeepQualityScan} 
+                disabled={loading} 
+                className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-[0_0_20px_rgba(37,99,235,0.5)] hover:shadow-[0_0_30px_rgba(37,99,235,0.7)] hover:scale-105 active:scale-95 transition-all"
+            >
               {loading ? 'Executing Quant Model...' : 'Start Institutional Filter'}
             </button>
           </div>
@@ -723,14 +736,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                              {themeDetails.length > 0 ? themeDetails.map((item, idx) => {
                                  const globalRank = processedData.findIndex(p => p.symbol === item.symbol) + 1;
                                  return (
-                                     <div key={item.symbol} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors">
+                                     <div 
+                                        key={item.symbol} 
+                                        onClick={() => onStockSelected?.(item)}
+                                        className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors cursor-pointer active:scale-95 group"
+                                     >
                                          <div className="flex items-center gap-3">
                                              <div className="flex flex-col items-center justify-center w-8 h-8 bg-black/40 rounded-lg border border-white/5">
                                                  <span className="text-[8px] text-slate-500 uppercase">Rank</span>
                                                  <span className="text-[10px] font-black text-blue-400">#{globalRank}</span>
                                              </div>
                                              <div>
-                                                 <p className="text-xs font-black text-white">{item.symbol}</p>
+                                                 <p className="text-xs font-black text-white group-hover:text-blue-400 transition-colors">{item.symbol}</p>
                                                  <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
                                              </div>
                                          </div>
