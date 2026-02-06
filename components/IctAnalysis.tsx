@@ -434,7 +434,15 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                 </div>
               </div>
             </div>
-            <button onClick={executeIntegratedIctProtocol} disabled={loading} className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-indigo-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-indigo-900/20 hover:scale-105 active:scale-95 transition-all">
+            <button 
+              onClick={executeIntegratedIctProtocol} 
+              disabled={loading} 
+              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
+                  loading 
+                    ? 'bg-indigo-800 text-indigo-200/50 shadow-inner scale-95 cursor-wait border-t border-black/20' 
+                    : 'bg-indigo-600 text-white shadow-xl shadow-indigo-900/20 hover:scale-105 active:scale-95'
+              }`}
+            >
               {loading ? 'Sieging Smart Money...' : 'Execute Institutional Scan'}
             </button>
           </div>
