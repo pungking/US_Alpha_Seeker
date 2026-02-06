@@ -39,7 +39,7 @@ interface MasterTicker {
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
-  const [isAuthLoading, setIsAuthLoading] = useState(false); // [NEW] Auth loading state
+  const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
   const [clientId, setClientId] = useState<string>(() => 
@@ -157,13 +157,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           return;
       }
       document.body.setAttribute('data-engine-running', 'true');
-      setIsAuthLoading(true); // [NEW] Set Loading
+      setIsAuthLoading(true);
       try {
         const client = window.google.accounts.oauth2.initTokenClient({
           client_id: clientId.trim(),
           scope: 'https://www.googleapis.com/auth/drive',
           callback: (res: any) => {
-            setIsAuthLoading(false); // [NEW] Clear Loading
+            setIsAuthLoading(false);
             if (res.access_token) {
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
@@ -175,7 +175,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         });
         client.requestAccessToken({ prompt: 'consent' });
       } catch (e: any) {
-        setIsAuthLoading(false); // [NEW] Clear Loading on Error
+        setIsAuthLoading(false);
         addLog(`Auth Error: ${e.message}`, "err");
         setShowConfig(true);
         document.body.removeAttribute('data-engine-running');
@@ -450,7 +450,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     } catch (e: any) {
       clearInterval(discoveryTimer);
-      addLog(`Fatal Error: ${e.message}`, "err");
+      
+      // [AUTH FIX] Handle Auth expiration gracefully
+      if (e.message.includes("Auth Expired") || e.message.includes("401") || e.message.includes("403")) {
+          sessionStorage.removeItem('gdrive_access_token');
+          setAccessToken(null);
+          onAuthSuccess?.(false);
+          addLog("Session Expired. Please re-connect Vault.", "warn");
+      } else {
+          addLog(`Fatal Error: ${e.message}`, "err");
+      }
+      
       setStats(prev => ({ ...prev, phase: 'Idle' }));
     } finally {
       if (timerRef.current) clearInterval(timerRef.current);
