@@ -461,8 +461,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       addLog(`Scan Complete. ${qualifiedAssets.length} Qualified Assets. Validating...`, "info");
       
-      // Keep Top 300
-      const elite = qualifiedAssets.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 300);
+      // Keep Top 500 (Updated from 300)
+      const elite = qualifiedAssets.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 500);
       setProcessedData(elite);
       
       // AI Audit on Leaders
