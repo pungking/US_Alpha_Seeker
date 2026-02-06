@@ -101,7 +101,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Financial_Engine v8.0: Initialized.']);
+  const [logs, setLogs] = useState<string[]>(['> Financial_Engine v8.1: Fallback Logic Enhanced.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -171,7 +171,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   // 1. Fetch Real Data with Full Granularity
   const fetchDeepFinancials = async (symbol: string) => {
       try {
-          // Requesting all critical modules for forensic analysis
           const modules = "financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory,earningsTrend,summaryDetail";
           const res = await fetch(`/api/yahoo?symbols=${symbol}&modules=${modules}`);
           if (!res.ok) return null;
@@ -179,8 +178,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       } catch (e) { return null; }
   };
 
-  // 2. Altman Z-Score Calculation (Public Manufacturing Formula adapted for General)
-  // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
+  // 2. Altman Z-Score Calculation
   const calculateRealAltmanZ = (bs: any, is: any, marketCap: number) => {
       try {
           const totalAssets = getRaw(bs?.totalAssets);
@@ -188,35 +186,31 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
           const currentAssets = getRaw(bs?.totalCurrentAssets);
           const currentLiabs = getRaw(bs?.totalCurrentLiabilities);
-          const retainedEarnings = getRaw(bs?.retainedEarnings) || getRaw(bs?.stockholdersEquity) * 0.5; // Proxy if missing
+          const retainedEarnings = getRaw(bs?.retainedEarnings) || getRaw(bs?.stockholdersEquity) * 0.5;
           const ebit = getRaw(is?.ebit) || getRaw(is?.operatingIncome);
           const totalLiabs = getRaw(bs?.totalLiab);
           const totalRevenue = getRaw(is?.totalRevenue);
 
-          const A = (currentAssets - currentLiabs) / totalAssets; // Working Capital / TA
-          const B = retainedEarnings / totalAssets;               // RE / TA
-          const C = ebit / totalAssets;                           // EBIT / TA
-          const D = marketCap / (totalLiabs || 1);                // MktCap / Total Liabs
-          const E = totalRevenue / totalAssets;                   // Asset Turnover
+          const A = (currentAssets - currentLiabs) / totalAssets; 
+          const B = retainedEarnings / totalAssets;               
+          const C = ebit / totalAssets;                           
+          const D = marketCap / (totalLiabs || 1);                
+          const E = totalRevenue / totalAssets;                   
 
           return (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
       } catch (e) { return 0; }
   };
 
   // 3. ROIC Calculation (Invested Capital Method)
-  // NOPAT / Invested Capital
   const calculateRealROIC = (is: any, bs: any) => {
       try {
           const ebit = getRaw(is?.ebit) || getRaw(is?.operatingIncome);
           const taxProvision = getRaw(is?.incomeTaxExpense);
           const pretaxIncome = getRaw(is?.incomeBeforeTax);
           
-          // Effective Tax Rate
           const taxRate = (pretaxIncome && taxProvision) ? (taxProvision / pretaxIncome) : 0.21;
           const nopat = ebit * (1 - taxRate);
 
-          // Invested Capital = Total Assets - Current Liabilities - Cash (Excess)
-          // Simplified: Invested Capital = Total Equity + Total Debt
           const totalEquity = getRaw(bs?.totalStockholderEquity);
           const totalDebt = (getRaw(bs?.shortLongTermDebt) || 0) + (getRaw(bs?.longTermDebt) || 0);
           const investedCapital = totalEquity + totalDebt;
@@ -224,14 +218,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           if (investedCapital <= 0) return 0;
           return (nopat / investedCapital) * 100;
       } catch (e) { return 0; }
-  };
-
-  // 4. Reverse Engineering Intrinsic Growth
-  // Uses PEG and PE to infer what the market expects, then adjusts.
-  const deriveImpliedGrowth = (pe: number, peg: number) => {
-      if (!peg || peg <= 0) return 0;
-      // PEG = PE / Growth  =>  Growth = PE / PEG
-      return pe / peg;
   };
 
   const executeFundamentalFortress = async () => {
@@ -257,14 +243,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }).then(r => r.json());
 
       let candidates = content.elite_universe || [];
-      // Analyze Top 100 by Quality Score
-      const eliteSquad = candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, 100);
+      // [FIX] Analyze TOP 300 candidates (Previously restricted to 100)
+      const eliteSquad = candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, 300);
 
-      addLog(`Financial Engineering: Auditing ${eliteSquad.length} Prime Assets...`, "info");
+      addLog(`Financial Engineering: Auditing ${eliteSquad.length} Prime Assets (Max Capacity)...`, "info");
       setProgress({ current: 0, total: eliteSquad.length });
 
       const results: FundamentalTicker[] = [];
-      const BATCH_SIZE = 4; // Use small batch to avoid rate limits on complex queries
+      const BATCH_SIZE = 5; 
       
       for (let i = 0; i < eliteSquad.length; i += BATCH_SIZE) {
           const batch = eliteSquad.slice(i, i + BATCH_SIZE);
@@ -274,7 +260,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   // --- A. Data Acquisition ---
                   const realData = await fetchDeepFinancials(item.symbol);
                   
-                  // Extract Financial Statements (Most recent year/quarter)
+                  // Extract Financial Statements
                   const bs = realData?.balanceSheetHistory?.balanceSheetStatements?.[0];
                   const is = realData?.incomeStatementHistory?.incomeStatementHistory?.[0];
                   const cf = realData?.cashflowStatementHistory?.cashflowStatements?.[0];
@@ -282,87 +268,87 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   const finance = realData?.financialData;
                   const details = realData?.summaryDetail;
 
-                  const marketCap = getRaw(details?.marketCap) || item.marketValue || 0;
+                  // [FIX] Robust Fallbacks for Basic Data
+                  const marketCap = getRaw(details?.marketCap) || item.marketValue || item.marketCap || 0;
                   const price = getRaw(finance?.currentPrice) || item.price || 0;
+                  const itemRoe = item.roe || item.returnOnEquity || 15; // Default safe ROE
 
                   // --- B. Forensic Calculations ---
                   
                   // 1. Z-Score (Bankruptcy)
                   let zScore = calculateRealAltmanZ(bs, is, marketCap);
-                  if (zScore === 0) zScore = item.zScore || 2.0; // Fallback to stage 2
+                  if (zScore === 0) zScore = item.zScore || 2.5; // Reasonable default if calc fails
 
                   // 2. ROIC (Efficiency)
                   let roic = calculateRealROIC(is, bs);
-                  // If calculation fails (missing detailed data), derive from ROE
-                  // ROIC approx ROE * (1 - DebtRatio)
-                  const roe = getRaw(finance?.returnOnEquity) * 100;
-                  if (roic === 0 && roe) {
-                      const totalAssets = getRaw(bs?.totalAssets) || 1;
-                      const totalLiabs = getRaw(bs?.totalLiab) || 0;
-                      roic = roe * (1 - (totalLiabs / totalAssets));
+                  // [FIX] Improved ROIC Fallback
+                  if (roic === 0 || isNaN(roic)) {
+                      // Attempt to derive from ROE and Debt
+                      const roe = getRaw(finance?.returnOnEquity) * 100 || itemRoe;
+                      const debtToEquity = getRaw(finance?.debtToEquity) || item.debtToEquity || 50; 
+                      // ROIC approx ROE / (1 + Debt/Equity Ratio)
+                      roic = roe / (1 + (debtToEquity / 100));
                   }
+                  // Sanity check
+                  if (roic > 100) roic = 99;
+                  if (roic < -50) roic = -50;
 
-                  // 3. Earnings Quality (Beneish Proxy)
-                  // Net Income vs OCF
+                  // 3. Earnings Quality (Cash Flow Check)
                   const netIncome = getRaw(is?.netIncome);
                   const ocf = getRaw(cf?.totalCashFromOperatingActivities);
-                  const earningsQuality = (netIncome && ocf) ? (ocf / netIncome) : 1.0;
+                  let earningsQuality = (netIncome && ocf) ? (ocf / netIncome) : 1.0;
+                  if (!isFinite(earningsQuality)) earningsQuality = 1.0;
 
                   // 4. Growth & Valuation Reverse Engineering
-                  const pe = getRaw(details?.trailingPE) || getRaw(details?.forwardPE) || 20;
+                  const pe = getRaw(details?.trailingPE) || getRaw(details?.forwardPE) || item.per || 20;
                   const peg = getRaw(stats?.pegRatio);
                   let impliedGrowth = 0;
                   let isDerivedGrowth = false;
 
                   if (peg && peg > 0) {
-                      impliedGrowth = pe / peg; // Reverse Engineer Growth from PEG
+                      impliedGrowth = pe / peg; 
                       isDerivedGrowth = true;
                   } else {
-                      impliedGrowth = getRaw(finance?.revenueGrowth) * 100;
+                      impliedGrowth = getRaw(finance?.revenueGrowth) * 100 || 8.0;
                   }
-                  if (!impliedGrowth) impliedGrowth = 8.0; // Conservative floor
-
-                  // 5. Intrinsic Value (RIM / Modified Graham)
-                  // V = EPS * (8.5 + 2g) * 0.8 (Safety)
-                  // Or RIM: BPS + (EPS - BPS*CostOfEquity) / CostOfEquity
-                  const eps = getRaw(stats?.trailingEps) || (price / pe);
+                  
+                  // 5. Intrinsic Value
+                  const eps = getRaw(stats?.trailingEps) || (price / (pe || 20));
                   let intrinsicValue = 0;
                   
                   if (eps > 0) {
-                      // Graham Formula with 30% Safety Margin
-                      intrinsicValue = (eps * (8.5 + 2 * Math.min(impliedGrowth, 20))) * 0.7;
+                      intrinsicValue = (eps * (8.5 + 2 * Math.min(impliedGrowth, 15))) * 0.8; // 20% Margin Safety
                   } else {
-                      // Net Net Proxy: (Current Assets - Total Liabs) / Shares
-                      const shares = getRaw(stats?.sharesOutstanding);
-                      if (shares) {
-                          intrinsicValue = (getRaw(bs?.totalCurrentAssets) - getRaw(bs?.totalLiab)) / shares;
-                      }
+                       // Book Value Proxy
+                       const bookVal = getRaw(stats?.bookValue) || (price / (item.pbr || 3));
+                       intrinsicValue = bookVal * 1.5; 
                   }
-                  // Sanity Cap
-                  if (intrinsicValue <= 0) intrinsicValue = price * 0.8;
-                  if (intrinsicValue > price * 3) intrinsicValue = price * 3;
+                  
+                  if (intrinsicValue <= 0 || isNaN(intrinsicValue)) intrinsicValue = price * 0.85;
 
                   // --- C. Composite Scoring ---
-                  const upside = ((intrinsicValue - price) / price) * 100;
+                  const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
                   const fcfYield = marketCap > 0 && ocf ? ((ocf - getRaw(cf?.capitalExpenditures)) / marketCap) * 100 : 0;
                   const grossMargin = getRaw(finance?.grossMargins) * 100 || 30;
-                  const ruleOf40 = impliedGrowth + (getRaw(finance?.profitMargins) * 100);
+                  const ruleOf40 = impliedGrowth + (getRaw(finance?.profitMargins) * 100 || 10);
 
-                  const valScore = normalizeScore(upside, -20, 80);
-                  const qualityScore = normalizeScore(roic, 0, 30);
-                  const safeScore = normalizeScore(zScore, 1.0, 5.0);
+                  // Normalized Scores for Radar
+                  const valScore = normalizeScore(upside, -20, 50); // [FIX] Adjusted range for better visual
+                  const qualityScore = normalizeScore(roic, 5, 30);
+                  const safeScore = normalizeScore(zScore, 1.5, 5.0);
+                  const growthScore = normalizeScore(impliedGrowth, 0, 30);
+                  const moatScore = normalizeScore(grossMargin, 10, 60);
                   const eqScore = normalizeScore(earningsQuality, 0.5, 2.0);
 
-                  // Weighted Alpha Score
-                  const compositeScore = (valScore * 0.35) + (qualityScore * 0.25) + (safeScore * 0.20) + (eqScore * 0.20);
+                  const compositeScore = (valScore * 0.3) + (qualityScore * 0.3) + (safeScore * 0.2) + (growthScore * 0.2);
 
                   const ticker: FundamentalTicker = {
                       ...item,
                       symbol: item.symbol,
-                      name: item.name,
+                      name: item.name || item.symbol,
                       price: price,
                       marketCap: marketCap,
-                      sector: item.sector,
+                      sector: item.sector || "Unclassified",
                       
                       fundamentalScore: Number(compositeScore.toFixed(2)),
                       intrinsicValue: Number(intrinsicValue.toFixed(2)),
@@ -370,7 +356,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       fairValueGap: Number(upside.toFixed(2)),
                       
                       zScore: Number(zScore.toFixed(2)),
-                      fScore: 5, // Placeholder/Calculated elsewhere
+                      fScore: 5, 
                       
                       roic: Number(roic.toFixed(2)),
                       ruleOf40: Number(ruleOf40.toFixed(2)),
@@ -382,15 +368,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                       economicMoat: roic > 15 && grossMargin > 40 ? 'Wide' : roic > 10 ? 'Narrow' : 'None',
                       
                       isDerived: isDerivedGrowth,
-                      source: "Financial_Engineering_V8",
+                      source: "Financial_Engineering_V8.1",
                       lastUpdate: new Date().toISOString(),
                       
                       radarData: [
                           { subject: 'Valuation', A: valScore, fullMark: 100 },
                           { subject: 'Quality', A: qualityScore, fullMark: 100 },
                           { subject: 'Health', A: safeScore, fullMark: 100 },
-                          { subject: 'Growth', A: normalizeScore(impliedGrowth, 0, 30), fullMark: 100 },
-                          { subject: 'Moat', A: normalizeScore(grossMargin, 10, 60), fullMark: 100 },
+                          { subject: 'Growth', A: growthScore, fullMark: 100 },
+                          { subject: 'Moat', A: moatScore, fullMark: 100 },
                           { subject: 'Earnings', A: eqScore, fullMark: 100 },
                       ]
                   };
@@ -401,14 +387,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           }));
 
           setProgress({ current: Math.min(i + BATCH_SIZE, eliteSquad.length), total: eliteSquad.length });
-          await new Promise(r => setTimeout(r, 250)); // Rate limit buffer
+          await new Promise(r => setTimeout(r, 100)); 
       }
 
       results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
       setProcessedData(results);
       if (results.length > 0) handleTickerSelect(results[0]);
 
-      // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
       const now = new Date();
       const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -416,7 +401,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "8.0.0", count: results.length, strategy: "Financial_Engineering_Protocol" },
+        manifest: { version: "8.1.0", count: results.length, strategy: "Financial_Engineering_Protocol_V2" },
         fundamental_universe: results
       };
 
@@ -467,7 +452,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Financial_Engine v8.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Financial_Engine v8.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
