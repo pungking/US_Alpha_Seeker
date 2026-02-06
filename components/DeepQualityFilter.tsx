@@ -38,15 +38,17 @@ interface QualityTicker {
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
+  onStockSelected?: (stock: any) => void;
 }
 
-const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
+const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0 });
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
   
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
+  const [selectedTicker, setSelectedTicker] = useState<QualityTicker | null>(null);
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0.0: 3-Factor Quant Protocol Online.']);
   
   // Analysis State
@@ -109,6 +111,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
       return JSON.parse(clean);
     } catch (e) { return null; }
+  };
+
+  const handleTickerSelect = (ticker: QualityTicker) => {
+      setSelectedTicker(ticker);
+      if (onStockSelected) {
+          onStockSelected(ticker);
+      }
   };
 
   // 3-Factor Scoring Logic
@@ -515,13 +524,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
-  // Top 50 for visualization (Scatter)
-  const chartData = processedData.slice(0, 50).map(d => ({
+  // Use full data for scatter plot, mapped with payload for interactivity
+  const chartData = processedData.map(d => ({
       symbol: d.symbol,
       x: d.growthScore,
       y: d.qualityScore,
       z: d.marketValue,
-      fill: d.isValueTrap ? '#ef4444' : '#10b981'
+      fill: d.isValueTrap ? '#ef4444' : '#10b981',
+      payload: d // Pass full data object for selection
   }));
 
   return (
@@ -611,7 +621,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
               {/* Chart Panel */}
               <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50)</p>
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top {processedData.length})</p>
                  <div className="flex-1 w-full h-full mt-4">
                      {processedData.length > 0 ? (
                          <ResponsiveContainer width="100%" height="100%">
@@ -636,7 +646,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                 />
                                 <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
                                 <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
-                                <Scatter name="Elite Stocks" data={chartData} fill="#3b82f6">
+                                <Scatter 
+                                    name="Elite Stocks" 
+                                    data={chartData} 
+                                    fill="#3b82f6"
+                                    onClick={(p) => handleTickerSelect(p.payload)}
+                                    style={{ cursor: 'pointer' }}
+                                >
                                     {chartData.map((entry, index) => (
                                         <Cell key={`cell-${index}`} fill={entry.fill} />
                                     ))}
