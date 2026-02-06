@@ -91,10 +91,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
-  // [OPTIMIZATION] Increased Batch Size & Reduced Delay for Speed
+  // [OPTIMIZATION] Increased Batch Size for Speed
   const BATCH_SIZE = 12; 
   const DELAY_TURBO = 50;   
-  const DELAY_SAFE = 1000;   
+  const DELAY_SAFE = 1200;   
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -470,8 +470,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               else dropped++;
           });
 
-          // [VISUAL UPDATE DISABLED] To reduce noise, we removed the real-time setProcessedData here.
-          // The progress bar will still update via setProgress below.
+          // [VISUAL FIX] Disabled real-time chart updates to reduce noise/flickering
+          // setProcessedData(currentSorted); 
 
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
@@ -484,7 +484,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       // Select Top Candidates based on Institutional Score
       const eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
-      setProcessedData(eliteSurvivors);
+      setProcessedData(eliteSurvivors); // Update Chart only once at the end
       
       if (eliteSurvivors.length === 0) {
           addLog("Warning: No assets survived the quality filter. Check criteria.", "warn");
