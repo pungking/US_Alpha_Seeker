@@ -216,17 +216,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               if (res.ok) {
                   const json = await res.json();
                   const m = json.metric;
-                  if (m && (m.roeTTM || m.peNormalized)) {
+                  // Finnhub typically returns a flat object in 'metric'
+                  if (m && (m.roeTTM || m.peNormalized || m.epsTTM)) {
                        return {
                           source: 'FINNHUB_METRIC',
                           raw: m,
-                          price: 0, // Should be filled from Stage 0 data
+                          price: 0, // Should be filled from Stage 0 data usually
                           roe: (m.roeTTM || 0) / 100, // Normalize to 0.15 for 15%
                           per: m.peNormalized || m.peTTM || 0,
                           pbr: m.pbAnnual || 0,
-                          debtToEquity: m.totalDebtEquityRatioQuarterly || 0,
-                          currentRatio: m.currentRatioQuarterly || 0,
-                          operatingCashFlow: 0, // Often missing in basic metrics
+                          debtToEquity: m['totalDebt/totalEquityAnnual'] || m['totalDebt/totalEquityQuarterly'] || 0,
+                          currentRatio: m.currentRatioQuarterly || m.currentRatioAnnual || 0,
+                          operatingCashFlow: m.cashFlowPerShareTTM || 0, // Using CF per share as proxy for existence
                           hasHistory: false
                        };
                   }
@@ -249,7 +250,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           source: 'FMP_RATIO',
                           raw: m,
                           price: 0,
-                          roe: m.returnOnEquityTTM || 0, // FMP is usually decimal? Check. Usually 0.15
+                          roe: m.returnOnEquityTTM || 0, 
                           per: m.peRatioTTM || 0,
                           pbr: m.priceToBookRatioTTM || 0,
                           debtToEquity: (m.debtEquityRatioTTM || 0) * 100, // Normalize
@@ -290,10 +291,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               validity = 100;
           }
       } else {
-          // Proxy Z-Score based on Debt/Equity and Current Ratio
+          // Synthetic Z-Score based on Debt/Equity and Current Ratio
+          // Low Debt + High Liquidity = Safer
           if (data.debtToEquity < 50 && data.currentRatio > 1.5) zScore = 3.5;
-          else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.0;
-          else zScore = 1.0;
+          else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.5;
+          else if (data.debtToEquity > 150 || data.currentRatio < 0.8) zScore = 1.0;
+          else zScore = 1.8;
           validity = 70;
       }
 
@@ -313,12 +316,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           // Normalize 0-6 range to 0-9 scale roughly
           fScore = Math.ceil(fScore * 1.5);
       } else {
-          // Proxy F-Score
-          fScore = 0;
-          if (data.roe > 0.05) fScore += 3;
-          if (data.debtToEquity < 80) fScore += 2;
-          if (data.currentRatio > 1.0) fScore += 2;
-          if (data.operatingCashFlow > 0) fScore += 2;
+          // Synthetic F-Score
+          fScore = 4; // Start neutral
+          if (data.roe > 0.10) fScore += 2; // Strong ROE
+          else if (data.roe > 0) fScore += 1;
+          
+          if (data.debtToEquity < 80) fScore += 1;
+          if (data.currentRatio > 1.2) fScore += 1;
+          if (data.operatingCashFlow > 0) fScore += 1;
+          
+          fScore = Math.min(9, fScore);
       }
 
       // 3. Valuation & Profitability
@@ -333,10 +340,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           else if (rel < 1.5) valScore = 50;
           else valScore = 30;
       } else {
-          valScore = 20; // Loss making or unknown
+          // PE invalid or negative usually means no earnings
+          valScore = 20; 
       }
 
-      const profitScore = Math.min(100, Math.max(0, (data.roe || 0) * 100 * 2)); // 20% ROE -> 40pts base, scaled
+      const profitScore = Math.min(100, Math.max(0, (data.roe || 0) * 100 * 2.5)); // 20% ROE -> 50pts base
 
       // Final Weighted Score
       const qScore = (valScore * 0.3) + (profitScore * 0.3) + (Math.min(zScore*20, 100) * 0.2) + (fScore*10 * 0.2);
