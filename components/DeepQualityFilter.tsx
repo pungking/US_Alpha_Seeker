@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
@@ -27,18 +26,20 @@ interface QualityTicker {
   growthScore: number;        
   qualityScore: number;       // Final Weighted Alpha Score
 
-  // Raw Data
+  // Raw Data (Real Financials)
   per: number;
   roe: number;
   debtToEquity: number;
   pbr: number;
+  currentRatio: number;
+  operatingCashFlow: number;
   
   // Meta
   sector: string;
   industry: string;
   theme: string; // New: Market Theme
   lastUpdate: string;
-  source: string;
+  source: string; // "FMP" | "FINNHUB" | "YAHOO" | "HYBRID"
 
   // [DATA ACCUMULATION] Allow arbitrary fields from previous stages
   [key: string]: any;
@@ -50,7 +51,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_INSTITUTIONAL_v8_';
+const CACHE_PREFIX = 'QUANT_CACHE_INSTITUTIONAL_v9_';
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -60,7 +61,7 @@ const getDailyCacheKey = (symbol: string) => {
 
 // [Sector Benchmarks for Relative Valuation] - derived from S&P 500 averages
 const SECTOR_BENCHMARKS: Record<string, number> = {
-    'Technology': 35.0, 'Health Services': 25.0, 'Consumer Services': 28.0, // Adjusted for Tech Premium
+    'Technology': 35.0, 'Health Services': 25.0, 'Consumer Services': 28.0, 
     'Finance': 15.0, 'Energy Minerals': 14.0, 'Consumer Non-Durables': 22.0,
     'Producer Manufacturing': 20.0, 'Utilities': 18.0, 'Transportation': 22.0,
     'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
@@ -71,30 +72,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
   
-  // [NEW] Drill-down State
+  // Drill-down State
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
-
-  // [NEW] Granular Analysis Phase State
-  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'PROFITABILITY' | 'STABILITY' | 'VALUATION' | 'COMPLETE'>('INIT');
+  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'HYBRID_FETCH' | 'SCORING' | 'AI_AUDIT' | 'COMPLETE'>('INIT');
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
 
-  const [networkStatus, setNetworkStatus] = useState<string>('Ready: Institutional Quant Engine');
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v6.1: Mega-Cap Safety Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.0: Hybrid Data Acquisition Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
-  // [OPTIMIZATION] Increased Batch Size for Speed
-  const BATCH_SIZE = 12; 
-  const DELAY_TURBO = 50;   
-  const DELAY_SAFE = 1200;   
+  const BATCH_SIZE = 8; // Optimal batch size for parallel fetching
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -156,7 +152,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (ind.includes('aerospace') || ind.includes('defense')) return 'Defense';
       if (ind.includes('reit') || ind.includes('real estate')) return 'Real Estate';
       if (ind.includes('auto') || ind.includes('vehicle')) return 'Automotive';
-      return sector; // Default to sector if no specific theme match
+      return sector; 
   };
 
   // [CORE LOGIC] Institutional Scoring Model (Enhanced for Mega Caps)
@@ -171,11 +167,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       else profitScore = 20;
 
       // 2. Stability (Altman Z-Score Logic)
-      // [LOGIC PATCH] If Debt is missing (API limit), infer from Market Cap
-      // Mega Caps (>20B) rarely go bankrupt overnight. Assume neutral debt (1.0).
-      let de = metrics.debt;
+      let de = metrics.debtToEquity;
+      // If Debt is missing, infer from Market Cap (Mega Caps usually stable)
       if (de === undefined || de === null) {
-          de = (marketCap > 20_000_000_000) ? 1.0 : 2.0; // Mega-Cap Safety Net
+          de = (marketCap > 20_000_000_000) ? 1.0 : 2.0; 
       }
 
       let stabilityScore = 0;
@@ -199,7 +194,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       else if (relativePe < 1.5) valScore = 50; // Growth Premium
       else valScore = 30; // Expensive
 
-      // [GROWTH PATCH] If ROE is elite (>25%), forgive high PE (Quality Growth)
+      // [GROWTH PATCH] If ROE is elite (>25%), forgive high PE
       if (roe > 25 && valScore < 60) valScore = 60; 
 
       // F-Score Simulation (0-9)
@@ -208,10 +203,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (metrics.operatingCashFlow > 0) fScore++;
       if (de < 1.0) fScore++;
       if (metrics.currentRatio > 1.0) fScore++;
-      fScore += 3; 
+      fScore += 3; // Base value
 
-      // Final Quality Score with Market Cap Bias (Too big to fail factor)
-      // Mega Caps get a slight nudge to ensure they survive the "Data Missing" penalty
+      // Final Quality Score with Market Cap Bias
       const sizeBonus = marketCap > 50_000_000_000 ? 10 : 0;
       const rawScore = ((profitScore * 0.4) + (stabilityScore * 0.35) + (valScore * 0.25)) + sizeBonus;
       const qualityScore = Number(Math.min(100, rawScore).toFixed(2));
@@ -219,205 +213,80 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return { profitScore, stabilityScore, valScore, qualityScore, zScoreProxy, fScore };
   };
 
-  const fetchTickerData = async (target: any): Promise<QualityTicker | null> => {
-    if (!target || !target.symbol) return null;
-    
-    const cacheKey = getDailyCacheKey(target.symbol);
-    const cachedRaw = sessionStorage.getItem(cacheKey);
-    if (cachedRaw) {
-        try {
-            const cachedData = JSON.parse(cachedRaw);
-            if (cachedData.qualityScore) { 
-                setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
-                return cachedData;
-            }
-        } catch(e) { sessionStorage.removeItem(cacheKey); }
-    }
-
-    try {
-      let metrics: any = { roe: target.roe, per: target.pe };
-      let profileData: any = {};
-      let sector = target.sector;
-      
-      let foundData = false;
-      
-      try {
-          const yRes = await fetch(`/api/yahoo?symbols=${target.symbol}`);
-          if (yRes.ok) {
-              const yData = await yRes.json();
-              if (yData && yData.length > 0) {
-                  const y = yData[0];
-                  metrics = {
-                      per: y.trailingPE || y.forwardPE || metrics.per,
-                      pbr: y.priceToBook,
-                      roe: y.returnOnEquity ? y.returnOnEquity * 100 : metrics.roe,
-                      debt: y.debtToEquity ? y.debtToEquity / 100 : undefined
-                  };
-                  if (y.sector) sector = y.sector;
-                  profileData = { name: y.name || target.name };
-                  foundData = true;
-              }
-          }
-      } catch (e) { }
-
-      if ((!foundData || !metrics.roe) && !fmpDepleted && fmpKey) {
-          try {
-            const ratioRes = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${target.symbol}?apikey=${fmpKey}`);
-            if (ratioRes.status === 429) { setFmpDepleted(true); throw new Error("FMP_LIMIT"); }
-            if (ratioRes.ok) {
-                const data = await ratioRes.json();
-                if (data && data.length > 0) {
-                    const m = data[0];
-                    metrics = {
-                        ...metrics,
-                        per: metrics.per || m.peRatioTTM,
-                        debt: metrics.debt || m.debtEquityRatioTTM,
-                        roe: metrics.roe || (m.returnOnEquityTTM ? m.returnOnEquityTTM * 100 : undefined)
-                    };
-                    foundData = true;
-                }
-            }
-          } catch (e: any) { if (e.message === "FMP_LIMIT") throw e; }
-      }
-
-      if (sector === 'Unknown' || !sector) sector = "Unclassified";
-
-      // [CRITICAL] Apply Institutional Scoring
-      const scores = calculateInstitutionalScores(metrics, sector, target.marketCap);
-      
-      // Relaxed Z-Score for Mega Caps (Allow them even if Z-Score is slightly lower due to aggressive leverage)
-      const zCutoff = (target.marketCap > 50_000_000_000) ? 1.0 : 1.2;
-      if (scores.zScoreProxy < zCutoff) {
-          return null; 
-      }
-
-      const resultTicker: QualityTicker = {
-        ...target, // [ACCUMULATION] Spread original Stage 0/1 data first
-        
-        symbol: target.symbol,
-        name: profileData.name || target.name || target.symbol,
-        price: Number(target.price) || 0,
-        volume: Number(target.volume) || 0,
-        marketValue: Number(target.marketValue) || 0,
-        
-        zScore: Number(scores.zScoreProxy.toFixed(2)),
-        fScore: scores.fScore,
-        relativePeScore: scores.valScore,
-        
-        profitabilityScore: scores.profitScore,
-        stabilityScore: scores.stabilityScore,
-        growthScore: scores.valScore,
-        qualityScore: scores.qualityScore, 
-
-        per: metrics.per || 0,
-        roe: metrics.roe || 0,
-        debtToEquity: metrics.debt || 0,
-        pbr: metrics.pbr || 0,
-        
-        sector: sector,
-        industry: target.industry || "Unknown", 
-        theme: mapIndustryToTheme(target.industry, sector),
-        lastUpdate: new Date().toISOString(),
-        source: foundData ? "Validated" : "Estimate"
+  // [HYBRID API FETCH] The secret sauce
+  // 1. Try FMP (Ratios) -> Best Data
+  // 2. Try Finnhub (Metrics) -> Good Backup
+  // 3. Try Yahoo (Summary) -> Last Resort
+  const fetchHybridFinancials = async (symbol: string): Promise<any> => {
+      let data = {
+          per: 0, roe: 0, debtToEquity: 0, pbr: 0, currentRatio: 0, operatingCashFlow: 0, source: 'None'
       };
-      
-      sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker));
-      return resultTicker;
 
-    } catch (e: any) {
-      if (e.message === "FMP_LIMIT") throw e;
-      return null;
-    }
-  };
+      // 1. FMP Strategy
+      if (!fmpDepleted && fmpKey) {
+          try {
+              const res = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`);
+              if (res.status === 429) { setFmpDepleted(true); throw new Error("FMP_LIMIT"); }
+              if (res.ok) {
+                  const json = await res.json();
+                  if (json && json.length > 0) {
+                      const m = json[0];
+                      return {
+                          per: m.peRatioTTM,
+                          roe: (m.returnOnEquityTTM || 0) * 100,
+                          debtToEquity: m.debtEquityRatioTTM,
+                          pbr: m.priceToBookRatioTTM,
+                          currentRatio: m.currentRatioTTM,
+                          operatingCashFlow: m.operatingCashFlowPerShareTTM, // Proxy
+                          source: 'FMP'
+                      };
+                  }
+              }
+          } catch (e: any) { if (e.message !== "FMP_LIMIT") console.warn(`FMP failed for ${symbol}`); }
+      }
 
-  const analyzeUniverseHealth = async (tickers: QualityTicker[]) => {
-    setAiStatus('ANALYZING');
-    setAiAnalysis("📡 Gemini 3.0: Institutional Portfolio Audit in progress...");
-    
-    if (!tickers || tickers.length === 0) {
-        setAiStatus('FAILED');
-        setAiAnalysis("No assets available for audit.");
-        return;
-    }
+      // 2. Finnhub Strategy
+      if (finnhubKey) {
+          try {
+              const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
+              if (res.ok) {
+                  const json = await res.json();
+                  const m = json.metric;
+                  if (m) {
+                      return {
+                          per: m.peNormalized || m.peBasicExclExtraTTM,
+                          roe: m.roeTTM,
+                          debtToEquity: m.totalDebtEquityRatioQuarterly, // Often available
+                          pbr: m.pbAnnual,
+                          currentRatio: m.currentRatioQuarterly,
+                          operatingCashFlow: 0, // Hard to get from Finnhub Basic
+                          source: 'Finnhub'
+                      };
+                  }
+              }
+          } catch (e) { console.warn(`Finnhub failed for ${symbol}`); }
+      }
 
-    const totalCount = tickers.length;
-    const avgScore = (tickers.reduce((sum, t) => sum + t.qualityScore, 0) / totalCount).toFixed(1);
-    const avgZ = (tickers.reduce((sum, t) => sum + t.zScore, 0) / totalCount).toFixed(2);
-    
-    // Dominant Themes
-    const themeCounts: Record<string, number> = {};
-    tickers.forEach(t => themeCounts[t.theme] = (themeCounts[t.theme] || 0) + 1);
-    const topThemes = Object.entries(themeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3).map(x => x[0]).join(", ");
+      // 3. Yahoo Strategy (Internal Proxy)
+      try {
+           const res = await fetch(`/api/yahoo?symbols=${symbol}&modules=financialData,defaultKeyStatistics`);
+           if (res.ok) {
+               const json = await res.json();
+               const m = json; // The proxy flattens it somewhat or returns quoteSummary
+               // Note: Your Yahoo proxy structure might vary, adapting to common structure
+               return {
+                   per: m.trailingPE || m.forwardPE,
+                   roe: (m.returnOnEquity || 0) * 100,
+                   debtToEquity: m.debtToEquity ? m.debtToEquity / 100 : 0,
+                   pbr: m.priceToBook,
+                   currentRatio: m.currentRatio,
+                   operatingCashFlow: m.operatingCashflow,
+                   source: 'Yahoo'
+               };
+           }
+      } catch(e) {}
 
-    // [STRICT PROMPT] Forces Korean and prevents refusals
-    const prompt = `
-    [SYSTEM: You are a Wall Street Chief Risk Officer. Act as a financial analyst.]
-    [INSTRUCTION: Analyze the provided JSON data summary. Do not search the internet. Output must be in KOREAN.]
-
-    Input Data (${totalCount} assets):
-    - Quality Score Avg: ${avgScore} (0-100 scale)
-    - Z-Score Avg: ${avgZ} (Altman Z-Score)
-    - Top Themes: ${topThemes}
-
-    OUTPUT FORMAT (Korean Markdown):
-    1. **포트폴리오 성격**: [공격형/방어형/밸런스형] 정의.
-    2. **리스크 진단**: Z-Score 기반 안정성 평가.
-    3. **테마 집중도**: 섹터 리스크 분석.
-    4. **최종 등급**: [AAA~C] 등급 부여.
-    
-    Write in professional Korean. No introductions.
-    `;
-    
-    try {
-        let resultText = "";
-        let usedEngine = "Gemini 3 Pro";
-
-        // 1. Attempt Gemini First (Default)
-        try {
-            const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-            const ai = new GoogleGenAI({ apiKey: geminiKey });
-            const response = await ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt
-            });
-            trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-            resultText = response.text || "";
-        } catch (geminiError: any) {
-             // 2. Fallback to Perplexity (Sonar)
-             console.warn("Gemini Audit Failed. Switching to Sonar.", geminiError);
-             setAiAnalysis("⚠️ Gemini unresponsive. Rerouting to Perplexity Sonar...");
-
-             const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-             const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST',
-                headers: { 
-                    'Content-Type': 'application/json', 
-                    'Authorization': `Bearer ${perplexityKey}`,
-                    'Accept': 'application/json' 
-                },
-                body: JSON.stringify({
-                    model: 'sonar-pro', 
-                    messages: [{ role: "user", content: prompt }]
-                })
-             });
-             
-             const pJson = await pRes.json();
-             if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
-
-             if (!pRes.ok) throw new Error(pJson.error?.message || "Perplexity Fallback Failed");
-
-             resultText = pJson.choices?.[0]?.message?.content || "";
-             usedEngine = "Sonar Pro";
-        }
-        
-        setAiAnalysis(removeCitations(resultText));
-        setAiStatus('SUCCESS');
-        addLog(`AI Risk Audit Complete via ${usedEngine}.`, "ok");
-    } catch (e: any) {
-        console.error("AI Audit Error", e);
-        setAiAnalysis(`AI Audit Failed: ${e.message}`);
-        setAiStatus('FAILED');
-    }
+      return data;
   };
 
   const executeDeepQualityScan = async () => {
@@ -429,10 +298,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setProcessedData([]);
     startTimeRef.current = Date.now();
     
-    const activeEngine = "Institutional_Quant_Algorithm";
-    
     try {
-      // 1. Load Stage 1
+      // 1. Load Stage 1 Data
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -445,59 +312,99 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }).then(r => r.json());
 
       let targets = content.investable_universe || [];
-      // Filter for Common Stock ONLY for reliable theme analysis
-      targets = targets.filter((t: any) => t.type === 'Common Stock' || !t.type); 
+      // Filter for Common Stock ONLY
+      targets = targets.filter((t: any) => t.type === 'Common Stock' || !t.type);
       
+      // Sort by Market Cap or Volume to prioritize bigger/liquid stocks first
+      targets.sort((a: any, b: any) => (b.marketCap || 0) - (a.marketCap || 0));
+
       setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
+      setAnalysisPhase('HYBRID_FETCH');
       
       const validResults: QualityTicker[] = [];
       let currentIndex = 0;
       let dropped = 0;
 
+      // Parallel Processing Loop
       while (currentIndex < targets.length) {
-          // Visual Phase Switching
-          const progressPercent = currentIndex / targets.length;
-          if (progressPercent < 0.3) setAnalysisPhase('PROFITABILITY');
-          else if (progressPercent < 0.6) setAnalysisPhase('STABILITY');
-          else setAnalysisPhase('VALUATION');
-
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
-          const promises = batch.map((t: any) => fetchTickerData(t));
-          const results = await Promise.all(promises);
           
-          results.forEach(r => {
+          const batchResults = await Promise.all(batch.map(async (t: any) => {
+              const cacheKey = getDailyCacheKey(t.symbol);
+              const cached = sessionStorage.getItem(cacheKey);
+              
+              if (cached) {
+                  setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
+                  return JSON.parse(cached);
+              }
+
+              // Fetch Real Data using Hybrid Strategy
+              const financials = await fetchHybridFinancials(t.symbol);
+              
+              // Basic check: If we have absolutely no PE or ROE, skip (unless big market cap)
+              if (!financials.per && !financials.roe && (t.marketCap < 10_000_000_000)) return null;
+
+              const scores = calculateInstitutionalScores(financials, t.sector || "Unclassified", t.marketCap);
+              
+              // Z-Score Cutoff
+              if (scores.zScoreProxy < 1.2) return null; // Too risky
+
+              const resultTicker: QualityTicker = {
+                  ...t, // Inherit Stage 1 Data
+                  ...financials, // Apply Real Financials
+                  
+                  zScore: Number(scores.zScoreProxy.toFixed(2)),
+                  fScore: scores.fScore,
+                  relativePeScore: scores.valScore,
+                  
+                  profitabilityScore: scores.profitScore,
+                  stabilityScore: scores.stabilityScore,
+                  growthScore: scores.valScore,
+                  qualityScore: scores.qualityScore, 
+                  
+                  sector: t.sector || "Unclassified",
+                  industry: t.industry || "Unknown",
+                  theme: mapIndustryToTheme(t.industry, t.sector || ""),
+                  lastUpdate: new Date().toISOString()
+              };
+
+              sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker));
+              return resultTicker;
+          }));
+
+          batchResults.forEach(r => {
               if (r) validResults.push(r);
               else dropped++;
           });
 
-          // [VISUAL FIX] Disabled real-time chart updates to reduce noise/flickering
-          // setProcessedData(currentSorted); 
-
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
           
-          const delay = fmpDepleted ? DELAY_SAFE : DELAY_TURBO;
+          // Adaptive Delay
+          const delay = fmpDepleted ? 500 : 100;
           await new Promise(r => setTimeout(r, delay));
       }
 
-      setAnalysisPhase('COMPLETE');
+      setAnalysisPhase('SCORING');
       
-      // Select Top Candidates based on Institutional Score
+      // Select Top 500 Elite Candidates
       const eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
-      setProcessedData(eliteSurvivors); // Update Chart only once at the end
+      setProcessedData(eliteSurvivors);
       
       if (eliteSurvivors.length === 0) {
-          addLog("Warning: No assets survived the quality filter. Check criteria.", "warn");
+          addLog("Warning: No assets survived the quality filter.", "warn");
+      } else {
+          setAnalysisPhase('AI_AUDIT');
+          await analyzeUniverseHealth(eliteSurvivors);
       }
 
-      // Trigger AI Audit
-      await analyzeUniverseHealth(eliteSurvivors);
+      setAnalysisPhase('COMPLETE');
 
       // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "6.1.0", strategy: "Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: activeEngine },
+        manifest: { version: "7.0.0", strategy: "Hybrid_Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: "Hybrid_API_Balancer" },
         elite_universe: eliteSurvivors
       };
 
@@ -510,7 +417,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified.`, "ok");
+      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified (Real-Data Verified).`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -596,9 +503,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     );
   };
 
-  // Phase Indicator Helper
   const getPhaseStyle = (phase: string) => {
-      const phases = ['PROFITABILITY', 'STABILITY', 'VALUATION'];
+      const phases = ['HYBRID_FETCH', 'SCORING', 'AI_AUDIT'];
       const currentIdx = phases.indexOf(analysisPhase);
       const targetIdx = phases.indexOf(phase);
       
@@ -609,6 +515,96 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return 'text-slate-700';
   };
 
+  const analyzeUniverseHealth = async (tickers: QualityTicker[]) => {
+    setAiStatus('ANALYZING');
+    setAiAnalysis("📡 Gemini 3.0: Institutional Portfolio Audit in progress...");
+    
+    if (!tickers || tickers.length === 0) {
+        setAiStatus('FAILED');
+        setAiAnalysis("No assets available for audit.");
+        return;
+    }
+
+    const totalCount = tickers.length;
+    const avgScore = (tickers.reduce((sum, t) => sum + t.qualityScore, 0) / totalCount).toFixed(1);
+    const avgZ = (tickers.reduce((sum, t) => sum + t.zScore, 0) / totalCount).toFixed(2);
+    
+    // Dominant Themes
+    const themeCounts: Record<string, number> = {};
+    tickers.forEach(t => themeCounts[t.theme] = (themeCounts[t.theme] || 0) + 1);
+    const topThemes = Object.entries(themeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3).map(x => x[0]).join(", ");
+
+    const prompt = `
+    Please analyze the following stock portfolio metrics and write a professional risk audit report in Korean.
+    
+    Portfolio Data:
+    - Asset Count: ${totalCount}
+    - Average Quality Score: ${avgScore} (0-100)
+    - Average Altman Z-Score: ${avgZ}
+    - Top Themes: ${topThemes}
+
+    Instructions:
+    - Act as a professional financial analyst.
+    - Do NOT search the internet. Use only the provided data.
+    - The output must be entirely in Korean.
+    
+    Required Output Sections (Markdown):
+    1. **포트폴리오 성격**: [공격형/방어형/밸런스형] 중 선택 및 정의.
+    2. **리스크 진단**: Z-Score 기반 재무 안정성 평가 (Z < 1.8 위험, Z > 3.0 안전).
+    3. **테마 집중도**: 섹터 집중 리스크 분석.
+    4. **최종 등급**: [AAA ~ C] 등급 부여.
+    `;
+    
+    try {
+        let resultText = "";
+        let usedEngine = "Gemini 3 Pro";
+
+        try {
+            const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
+            const ai = new GoogleGenAI({ apiKey: geminiKey });
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt
+            });
+            trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+            resultText = response.text || "";
+        } catch (geminiError: any) {
+             console.warn("Gemini Audit Failed. Switching to Sonar.", geminiError);
+             setAiAnalysis("⚠️ Gemini unresponsive. Rerouting to Perplexity Sonar...");
+
+             const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+             const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST',
+                headers: { 
+                    'Content-Type': 'application/json', 
+                    'Authorization': `Bearer ${perplexityKey}`,
+                    'Accept': 'application/json' 
+                },
+                body: JSON.stringify({
+                    model: 'sonar-pro', 
+                    messages: [{ role: "user", content: prompt }]
+                })
+             });
+             
+             const pJson = await pRes.json();
+             if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
+
+             if (!pRes.ok) throw new Error(pJson.error?.message || "Perplexity Fallback Failed");
+
+             resultText = pJson.choices?.[0]?.message?.content || "";
+             usedEngine = "Sonar Pro";
+        }
+        
+        setAiAnalysis(removeCitations(resultText));
+        setAiStatus('SUCCESS');
+        addLog(`AI Risk Audit Complete via ${usedEngine}.`, "ok");
+    } catch (e: any) {
+        console.error("AI Audit Error", e);
+        setAiAnalysis(`AI Audit Failed: ${e.message}`);
+        setAiStatus('FAILED');
+    }
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -617,17 +613,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v6.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v7.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Analyzing: ${progress.current}/${progress.total}` : 'Institutional Quant Engine Ready'}
+                            {loading ? `Scanning: ${progress.current}/${progress.total}` : 'Hybrid Data Protocol Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
-                            {fmpDepleted ? 'Backup Data Mode' : 'Primary Data Mode'}
+                            {fmpDepleted ? 'Backup: Finnhub/Yahoo' : 'Primary: FMP/Hybrid'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -646,7 +642,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 disabled={loading} 
                 className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
             >
-              {loading ? 'Executing Quant Model...' : 'Start Institutional Filter'}
+              {loading ? 'Fetching Hybrid Data...' : 'Start Institutional Filter'}
             </button>
           </div>
 
@@ -661,9 +657,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       <div className={`h-full transition-all duration-300 bg-blue-500`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                     </div>
                     <div className="flex justify-between text-[8px] uppercase font-bold tracking-widest">
-                        <span className={getPhaseStyle('PROFITABILITY')}>1. Profitability (F-Score)</span>
-                        <span className={getPhaseStyle('STABILITY')}>2. Stability (Z-Score)</span>
-                        <span className={getPhaseStyle('VALUATION')}>3. Sector Neutral Value</span>
+                        <span className={getPhaseStyle('HYBRID_FETCH')}>1. Hybrid Data Fetch</span>
+                        <span className={getPhaseStyle('SCORING')}>2. Institutional Scoring</span>
+                        <span className={getPhaseStyle('AI_AUDIT')}>3. Portfolio Risk Audit</span>
                     </div>
                   </div>
 
@@ -683,7 +679,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1 shadow-black drop-shadow-md">Market Theme Dominance</p>
                     <p className="text-[8px] text-slate-500 uppercase font-mono">Based on Elite 500 Selection</p>
                  </div>
-                 <div className="flex-1 w-full h-full mt-14"> {/* Increased margin-top for title visibility */}
+                 <div className="flex-1 w-full h-full mt-14"> 
                      {processedData.length > 0 ? (
                         <ResponsiveContainer width="100%" height="100%">
                             <Treemap
@@ -719,7 +715,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      )}
                  </div>
                  
-                 {/* Sector Detail Overlay */}
                  {selectedTheme && (
                      <div className="absolute inset-0 z-20 bg-slate-900/95 backdrop-blur-md flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
                          <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4">
