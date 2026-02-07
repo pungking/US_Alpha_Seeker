@@ -85,7 +85,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.1: Hybrid Data + Report Archiving Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.2: Robust Reporting Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -93,7 +93,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const logRef = useRef<HTMLDivElement>(null);
 
   const BATCH_SIZE = 8; // Optimal batch size for parallel fetching
-  const REPORT_BATCH_SIZE = 5; // Conservative batch for heavy report fetching
+  const REPORT_BATCH_SIZE = 1; // [FIX] Reduced to 1 to prevent 429 Rate Limits on FMP (6 calls per stock)
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -288,31 +288,69 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return data;
   };
 
-  // [NEW] Deep Report Fetch for 10-K/10-Q Dump
+  // [HELPER] Robust FMP Fetch with Retry & Type Checking
+  const fetchFmpData = async (endpoint: string, retries = 2): Promise<any[]> => {
+      const url = `https://financialmodelingprep.com/api/v3/${endpoint}&apikey=${fmpKey}`;
+      try {
+          const res = await fetch(url);
+          if (res.status === 429) {
+              if (retries > 0) {
+                  // Exponential backoff for rate limits
+                  await new Promise(r => setTimeout(r, 2000 * (3 - retries))); 
+                  return fetchFmpData(endpoint, retries - 1);
+              }
+              console.warn(`FMP 429 Limit Hit: ${endpoint}`);
+              return [];
+          }
+          if (!res.ok) return [];
+          
+          const data = await res.json();
+          // Ensure we actually got an array of data, not an error object or null
+          if (Array.isArray(data) && data.length > 0) {
+              return data;
+          }
+          if (data["Error Message"]) console.warn(`FMP API Error: ${data["Error Message"]}`);
+          
+          return [];
+      } catch (e) {
+          console.error(`FMP Network Error: ${endpoint}`, e);
+          return [];
+      }
+  };
+
+  // [NEW] Deep Report Fetch for 10-K/10-Q Dump (Robust Version)
   const fetchFullFinancials = async (symbol: string) => {
     if (!fmpKey) return null;
     try {
-        const [incAnn, incQt, balAnn, balQt, cfAnn, cfQt] = await Promise.all([
-            fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=5&apikey=${fmpKey}`).then(r => r.json()),
-            fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?period=quarter&limit=8&apikey=${fmpKey}`).then(r => r.json()),
-            fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=5&apikey=${fmpKey}`).then(r => r.json()),
-            fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?period=quarter&limit=8&apikey=${fmpKey}`).then(r => r.json()),
-            fetch(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${symbol}?limit=5&apikey=${fmpKey}`).then(r => r.json()),
-            fetch(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${symbol}?period=quarter&limit=8&apikey=${fmpKey}`).then(r => r.json())
-        ]);
+        // Sequential fetching to allow per-request retries and avoid burst rate limits
+        // Annual (Limit 5 = 5 Years)
+        const incAnn = await fetchFmpData(`income-statement/${symbol}?limit=5`);
+        const balAnn = await fetchFmpData(`balance-sheet-statement/${symbol}?limit=5`);
+        const cfAnn = await fetchFmpData(`cash-flow-statement/${symbol}?limit=5`);
         
+        // Quarterly (Limit 8 = 2 Years)
+        const incQt = await fetchFmpData(`income-statement/${symbol}?period=quarter&limit=8`);
+        const balQt = await fetchFmpData(`balance-sheet-statement/${symbol}?period=quarter&limit=8`);
+        const cfQt = await fetchFmpData(`cash-flow-statement/${symbol}?period=quarter&limit=8`);
+        
+        // Validation: If all data is empty, the dump is useless
+        if (incAnn.length === 0 && balAnn.length === 0 && cfAnn.length === 0) {
+            console.warn(`No financial data found for ${symbol}. Skipping dump.`);
+            return null;
+        }
+
         return {
             symbol,
             updatedAt: new Date().toISOString(),
             annual: {
-                income: Array.isArray(incAnn) ? incAnn : [],
-                balance: Array.isArray(balAnn) ? balAnn : [],
-                cash: Array.isArray(cfAnn) ? cfAnn : []
+                income: incAnn,
+                balance: balAnn,
+                cash: cfAnn
             },
             quarterly: {
-                income: Array.isArray(incQt) ? incQt : [],
-                balance: Array.isArray(balQt) ? balQt : [],
-                cash: Array.isArray(cfQt) ? cfQt : []
+                income: incQt,
+                balance: balQt,
+                cash: cfQt
             }
         };
     } catch (e) {
@@ -325,7 +363,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const archiveFinancialReports = async (eliteStocks: QualityTicker[]) => {
       if (!accessToken) return;
       setAnalysisPhase('REPORT_DUMP');
-      addLog("Initiating Financial Report Archiving Protocol...", "info");
+      addLog("Initiating Financial Report Archiving Protocol (Robust Mode)...", "info");
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
       if(!folderId) {
@@ -338,7 +376,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
       let existingFiles = new Set<string>();
       try {
-          // Pagination might be needed if > 1000 files, simplified for now
           const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=files(name)`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
@@ -355,15 +392,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let current = 0;
       setReportProgress({ current: 0, total, skipped: 0, archived: 0 });
 
+      // Processing one by one to respect FMP Rate Limits (since each stock = 6 calls)
       for (let i = 0; i < total; i += REPORT_BATCH_SIZE) {
           const batch = eliteStocks.slice(i, i + REPORT_BATCH_SIZE);
           
-          await Promise.all(batch.map(async (stock) => {
+          for (const stock of batch) {
               const fileName = `REPORT_${stock.symbol}.json`;
               
               if (existingFiles.has(fileName)) {
                   skipped++;
-                  return; // Incremental Update: Skip if exists
+                  continue; 
               }
 
               const fullData = await fetchFullFinancials(stock.symbol);
@@ -373,16 +411,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
                   form.append('file', new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' }));
 
-                  await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                  const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
                       method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
                   });
-                  archived++;
+                  
+                  if (uploadRes.ok) archived++;
+                  else console.warn(`Failed to upload ${fileName}`);
               }
-          }));
+              
+              // [RATE LIMIT BUFFER] 1.5s delay between stocks (6 calls per stock)
+              await new Promise(r => setTimeout(r, 1500)); 
+          }
 
           current += batch.length;
           setReportProgress({ current: Math.min(current, total), total, skipped, archived });
-          await new Promise(r => setTimeout(r, 200)); // Rate limit buffer
       }
 
       addLog(`Archiving Complete: ${archived} New Reports Saved, ${skipped} Skipped (Existing).`, "ok");
