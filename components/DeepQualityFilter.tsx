@@ -72,7 +72,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
-  const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); // [NEW] Report Dump Stats
+  const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
   // Drill-down State
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
@@ -85,15 +85,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.2: Robust Reporting Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.3: Integrity & Retry Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
-  const BATCH_SIZE = 8; // Optimal batch size for parallel fetching
-  const REPORT_BATCH_SIZE = 1; // [FIX] Reduced to 1 to prevent 429 Rate Limits on FMP (6 calls per stock)
+  // [TUNING] Slower batch size to prevent "Garbage In" from rate limits
+  const BATCH_SIZE = 5; 
+  const REPORT_BATCH_SIZE = 1; 
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -216,17 +217,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return { profitScore, stabilityScore, valScore, qualityScore, zScoreProxy, fScore };
   };
 
-  // [HYBRID API FETCH] The secret sauce
-  const fetchHybridFinancials = async (symbol: string): Promise<any> => {
+  // [HYBRID API FETCH - ENHANCED INTEGRITY] 
+  const fetchHybridFinancials = async (symbol: string, retries = 2): Promise<any> => {
       let data = {
           per: 0, roe: 0, debtToEquity: 0, pbr: 0, currentRatio: 0, operatingCashFlow: 0, source: 'None'
       };
 
-      // 1. FMP Strategy
+      // 1. FMP Strategy (Primary) with Retry Logic
       if (!fmpDepleted && fmpKey) {
           try {
               const res = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`);
-              if (res.status === 429) { setFmpDepleted(true); throw new Error("FMP_LIMIT"); }
+              if (res.status === 429) {
+                   if (retries > 0) {
+                       // [SMART RETRY] Wait and try again if rate limited
+                       await new Promise(r => setTimeout(r, 2000));
+                       return fetchHybridFinancials(symbol, retries - 1);
+                   }
+                   setFmpDepleted(true); 
+                   throw new Error("FMP_LIMIT"); 
+              }
               if (res.ok) {
                   const json = await res.json();
                   if (json && json.length > 0) {
@@ -242,10 +251,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       };
                   }
               }
-          } catch (e: any) { if (e.message !== "FMP_LIMIT") console.warn(`FMP failed for ${symbol}`); }
+          } catch (e: any) { 
+              if (e.message !== "FMP_LIMIT") console.warn(`FMP failed for ${symbol}`); 
+          }
       }
 
-      // 2. Finnhub Strategy
+      // 2. Finnhub Strategy (Backup)
       if (finnhubKey) {
           try {
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
@@ -267,7 +278,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e) { console.warn(`Finnhub failed for ${symbol}`); }
       }
 
-      // 3. Yahoo Strategy (Internal Proxy)
+      // 3. Yahoo Strategy (Deep Backup)
       try {
            const res = await fetch(`/api/yahoo?symbols=${symbol}&modules=financialData,defaultKeyStatistics`);
            if (res.ok) {
@@ -288,7 +299,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return data;
   };
 
-  // [HELPER] Robust FMP Fetch with Retry & Type Checking
+  // [HELPER] Robust FMP Fetch with Retry & Type Checking for Report Dumping
   const fetchFmpData = async (endpoint: string, retries = 2): Promise<any[]> => {
       const url = `https://financialmodelingprep.com/api/v3/${endpoint}&apikey=${fmpKey}`;
       try {
@@ -463,7 +474,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let currentIndex = 0;
       let dropped = 0;
 
-      // Parallel Processing Loop
+      // Parallel Processing Loop (Scoring Phase)
       while (currentIndex < targets.length) {
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
           
@@ -476,9 +487,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   return JSON.parse(cached);
               }
 
+              // [INTEGRITY CHECK] fetchHybridFinancials now retries internally
               const financials = await fetchHybridFinancials(t.symbol);
               
-              if (!financials.per && !financials.roe && (t.marketCap < 10_000_000_000)) return null;
+              // [GARBAGE FILTER] If data is completely missing despite retries, treat as invalid
+              if (!financials.per && !financials.roe && (t.marketCap < 10_000_000_000)) {
+                  // For stocks < $10B, strict check. For Mega caps, sometimes APIs are weird, we might be lenient
+                  // but generally we want data.
+                  return null; 
+              }
 
               const scores = calculateInstitutionalScores(financials, t.sector || "Unclassified", t.marketCap);
               
@@ -511,7 +528,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
-          const delay = fmpDepleted ? 500 : 100;
+          
+          // [THROTTLING] Dynamic delay based on API status
+          const delay = fmpDepleted ? 800 : 300; // Slower if FMP died to protect backups
           await new Promise(r => setTimeout(r, delay));
       }
 
@@ -748,7 +767,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v7.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v7.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
