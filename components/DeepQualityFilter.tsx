@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
@@ -71,10 +72,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
+  const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); // [NEW] Report Dump Stats
   
   // Drill-down State
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
-  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'HYBRID_FETCH' | 'SCORING' | 'AI_AUDIT' | 'COMPLETE'>('INIT');
+  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'HYBRID_FETCH' | 'SCORING' | 'AI_AUDIT' | 'REPORT_DUMP' | 'COMPLETE'>('INIT');
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -83,7 +85,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   const [fmpDepleted, setFmpDepleted] = useState(false);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.0: Hybrid Data Acquisition Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v7.1: Hybrid Data + Report Archiving Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -91,6 +93,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const logRef = useRef<HTMLDivElement>(null);
 
   const BATCH_SIZE = 8; // Optimal batch size for parallel fetching
+  const REPORT_BATCH_SIZE = 5; // Conservative batch for heavy report fetching
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -214,9 +217,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   // [HYBRID API FETCH] The secret sauce
-  // 1. Try FMP (Ratios) -> Best Data
-  // 2. Try Finnhub (Metrics) -> Good Backup
-  // 3. Try Yahoo (Summary) -> Last Resort
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let data = {
           per: 0, roe: 0, debtToEquity: 0, pbr: 0, currentRatio: 0, operatingCashFlow: 0, source: 'None'
@@ -237,7 +237,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           debtToEquity: m.debtEquityRatioTTM,
                           pbr: m.priceToBookRatioTTM,
                           currentRatio: m.currentRatioTTM,
-                          operatingCashFlow: m.operatingCashFlowPerShareTTM, // Proxy
+                          operatingCashFlow: m.operatingCashFlowPerShareTTM, 
                           source: 'FMP'
                       };
                   }
@@ -256,10 +256,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       return {
                           per: m.peNormalized || m.peBasicExclExtraTTM,
                           roe: m.roeTTM,
-                          debtToEquity: m.totalDebtEquityRatioQuarterly, // Often available
+                          debtToEquity: m.totalDebtEquityRatioQuarterly,
                           pbr: m.pbAnnual,
                           currentRatio: m.currentRatioQuarterly,
-                          operatingCashFlow: 0, // Hard to get from Finnhub Basic
+                          operatingCashFlow: 0, 
                           source: 'Finnhub'
                       };
                   }
@@ -272,8 +272,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
            const res = await fetch(`/api/yahoo?symbols=${symbol}&modules=financialData,defaultKeyStatistics`);
            if (res.ok) {
                const json = await res.json();
-               const m = json; // The proxy flattens it somewhat or returns quoteSummary
-               // Note: Your Yahoo proxy structure might vary, adapting to common structure
+               const m = json;
                return {
                    per: m.trailingPE || m.forwardPE,
                    roe: (m.returnOnEquity || 0) * 100,
@@ -287,6 +286,106 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       } catch(e) {}
 
       return data;
+  };
+
+  // [NEW] Deep Report Fetch for 10-K/10-Q Dump
+  const fetchFullFinancials = async (symbol: string) => {
+    if (!fmpKey) return null;
+    try {
+        const [incAnn, incQt, balAnn, balQt, cfAnn, cfQt] = await Promise.all([
+            fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=5&apikey=${fmpKey}`).then(r => r.json()),
+            fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?period=quarter&limit=8&apikey=${fmpKey}`).then(r => r.json()),
+            fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=5&apikey=${fmpKey}`).then(r => r.json()),
+            fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?period=quarter&limit=8&apikey=${fmpKey}`).then(r => r.json()),
+            fetch(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${symbol}?limit=5&apikey=${fmpKey}`).then(r => r.json()),
+            fetch(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${symbol}?period=quarter&limit=8&apikey=${fmpKey}`).then(r => r.json())
+        ]);
+        
+        return {
+            symbol,
+            updatedAt: new Date().toISOString(),
+            annual: {
+                income: Array.isArray(incAnn) ? incAnn : [],
+                balance: Array.isArray(balAnn) ? balAnn : [],
+                cash: Array.isArray(cfAnn) ? cfAnn : []
+            },
+            quarterly: {
+                income: Array.isArray(incQt) ? incQt : [],
+                balance: Array.isArray(balQt) ? balQt : [],
+                cash: Array.isArray(cfQt) ? cfQt : []
+            }
+        };
+    } catch (e) {
+        console.error(`Failed to fetch report for ${symbol}`, e);
+        return null;
+    }
+  };
+
+  // [NEW] Report Archiving Logic
+  const archiveFinancialReports = async (eliteStocks: QualityTicker[]) => {
+      if (!accessToken) return;
+      setAnalysisPhase('REPORT_DUMP');
+      addLog("Initiating Financial Report Archiving Protocol...", "info");
+      
+      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
+      if(!folderId) {
+          addLog("Failed to access Reports Folder. Skipping dump.", "err");
+          return;
+      }
+
+      // 1. Get existing files to skip
+      addLog("Checking existing reports in Vault to optimize bandwidth...", "info");
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+      let existingFiles = new Set<string>();
+      try {
+          // Pagination might be needed if > 1000 files, simplified for now
+          const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=files(name)`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }).then(r => r.json());
+          if (listRes.files) {
+              listRes.files.forEach((f: any) => existingFiles.add(f.name));
+          }
+      } catch (e) {
+          console.warn("Failed to list existing reports", e);
+      }
+
+      const total = eliteStocks.length;
+      let skipped = 0;
+      let archived = 0;
+      let current = 0;
+      setReportProgress({ current: 0, total, skipped: 0, archived: 0 });
+
+      for (let i = 0; i < total; i += REPORT_BATCH_SIZE) {
+          const batch = eliteStocks.slice(i, i + REPORT_BATCH_SIZE);
+          
+          await Promise.all(batch.map(async (stock) => {
+              const fileName = `REPORT_${stock.symbol}.json`;
+              
+              if (existingFiles.has(fileName)) {
+                  skipped++;
+                  return; // Incremental Update: Skip if exists
+              }
+
+              const fullData = await fetchFullFinancials(stock.symbol);
+              if (fullData) {
+                  const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+                  const form = new FormData();
+                  form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+                  form.append('file', new Blob([JSON.stringify(fullData, null, 2)], { type: 'application/json' }));
+
+                  await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                      method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+                  });
+                  archived++;
+              }
+          }));
+
+          current += batch.length;
+          setReportProgress({ current: Math.min(current, total), total, skipped, archived });
+          await new Promise(r => setTimeout(r, 200)); // Rate limit buffer
+      }
+
+      addLog(`Archiving Complete: ${archived} New Reports Saved, ${skipped} Skipped (Existing).`, "ok");
   };
 
   const executeDeepQualityScan = async () => {
@@ -312,10 +411,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }).then(r => r.json());
 
       let targets = content.investable_universe || [];
-      // Filter for Common Stock ONLY
       targets = targets.filter((t: any) => t.type === 'Common Stock' || !t.type);
-      
-      // Sort by Market Cap or Volume to prioritize bigger/liquid stocks first
       targets.sort((a: any, b: any) => (b.marketCap || 0) - (a.marketCap || 0));
 
       setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
@@ -338,30 +434,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   return JSON.parse(cached);
               }
 
-              // Fetch Real Data using Hybrid Strategy
               const financials = await fetchHybridFinancials(t.symbol);
               
-              // Basic check: If we have absolutely no PE or ROE, skip (unless big market cap)
               if (!financials.per && !financials.roe && (t.marketCap < 10_000_000_000)) return null;
 
               const scores = calculateInstitutionalScores(financials, t.sector || "Unclassified", t.marketCap);
               
-              // Z-Score Cutoff
-              if (scores.zScoreProxy < 1.2) return null; // Too risky
+              if (scores.zScoreProxy < 1.2) return null; 
 
               const resultTicker: QualityTicker = {
-                  ...t, // Inherit Stage 1 Data
-                  ...financials, // Apply Real Financials
-                  
+                  ...t,
+                  ...financials,
                   zScore: Number(scores.zScoreProxy.toFixed(2)),
                   fScore: scores.fScore,
                   relativePeScore: scores.valScore,
-                  
                   profitabilityScore: scores.profitScore,
                   stabilityScore: scores.stabilityScore,
                   growthScore: scores.valScore,
                   qualityScore: scores.qualityScore, 
-                  
                   sector: t.sector || "Unclassified",
                   industry: t.industry || "Unknown",
                   theme: mapIndustryToTheme(t.industry, t.sector || ""),
@@ -379,15 +469,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
-          
-          // Adaptive Delay
           const delay = fmpDepleted ? 500 : 100;
           await new Promise(r => setTimeout(r, delay));
       }
 
       setAnalysisPhase('SCORING');
       
-      // Select Top 500 Elite Candidates
       const eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
       setProcessedData(eliteSurvivors);
       
@@ -398,13 +485,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await analyzeUniverseHealth(eliteSurvivors);
       }
 
+      // [NEW] Archive Financial Reports (The "Dump")
+      await archiveFinancialReports(eliteSurvivors);
+
       setAnalysisPhase('COMPLETE');
 
       // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       const fileName = `STAGE2_ELITE_UNIVERSE_${new Date().toISOString().split('T')[0]}.json`;
       const payload = {
-        manifest: { version: "7.0.0", strategy: "Hybrid_Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: "Hybrid_API_Balancer" },
+        manifest: { version: "7.1.0", strategy: "Hybrid_Institutional_Quant_Model", timestamp: new Date().toISOString(), engine: "Hybrid_API_Balancer" },
         elite_universe: eliteSurvivors
       };
 
@@ -417,7 +507,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified (Real-Data Verified).`, "ok");
+      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified.`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -504,7 +594,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const getPhaseStyle = (phase: string) => {
-      const phases = ['HYBRID_FETCH', 'SCORING', 'AI_AUDIT'];
+      const phases = ['HYBRID_FETCH', 'SCORING', 'AI_AUDIT', 'REPORT_DUMP'];
       const currentIdx = phases.indexOf(analysisPhase);
       const targetIdx = phases.indexOf(phase);
       
@@ -616,7 +706,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v7.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v7.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -657,10 +747,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       <div className={`h-full transition-all duration-300 bg-blue-500`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                     </div>
                     <div className="flex justify-between text-[8px] uppercase font-bold tracking-widest">
-                        <span className={getPhaseStyle('HYBRID_FETCH')}>1. Hybrid Data Fetch</span>
-                        <span className={getPhaseStyle('SCORING')}>2. Institutional Scoring</span>
-                        <span className={getPhaseStyle('AI_AUDIT')}>3. Portfolio Risk Audit</span>
+                        <span className={getPhaseStyle('HYBRID_FETCH')}>1. Hybrid Fetch</span>
+                        <span className={getPhaseStyle('SCORING')}>2. Scoring</span>
+                        <span className={getPhaseStyle('AI_AUDIT')}>3. Risk Audit</span>
+                        <span className={getPhaseStyle('REPORT_DUMP')}>4. Archiving</span>
                     </div>
+                    
+                    {/* Report Dump Progress (Visible only during archiving) */}
+                    {analysisPhase === 'REPORT_DUMP' && (
+                        <div className="mt-4 pt-4 border-t border-white/5 animate-in fade-in">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Reports Archiving</span>
+                                <span className="text-[8px] text-emerald-400 font-mono">{reportProgress.archived} Saved / {reportProgress.skipped} Skipped</span>
+                            </div>
+                            <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(reportProgress.current / (reportProgress.total || 1)) * 100}%` }}></div>
+                            </div>
+                        </div>
+                    )}
                   </div>
 
                   <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
