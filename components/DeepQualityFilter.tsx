@@ -162,7 +162,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const mapIndustryToTheme = (industry: string, sector: string) => {
-      if (!industry) return sector;
+      if (!industry) return sector || "Other";
       const ind = industry.toLowerCase();
       if (ind.includes('semi')) return 'Semiconductors';
       if (ind.includes('software') || ind.includes('data') || ind.includes('tech')) return 'SaaS & AI';
@@ -172,7 +172,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (ind.includes('aerospace') || ind.includes('defense')) return 'Defense';
       if (ind.includes('reit') || ind.includes('real estate')) return 'Real Estate';
       if (ind.includes('auto') || ind.includes('vehicle')) return 'Automotive';
-      return sector; 
+      return sector || "Other"; 
   };
 
   const safeNum = (val: any) => {
@@ -441,7 +441,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
       let existingFiles = new Set<string>();
       
-      // [FIX] Pagination for existing files check (Folder might contain > 1000 reports)
       try {
           let pageToken = null;
           do {
@@ -555,6 +554,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               
               if (scores.qualityScore < 15) return null; 
 
+              // [FIX] Ensure theme defaults to "Other" to fix clickable bug
+              const calculatedTheme = mapIndustryToTheme(t.industry, t.sector || "") || "Other";
+
               const resultTicker: QualityTicker = {
                   ...t,
                   // Map retrieved metrics (Prefer Retrieved > Stage 0)
@@ -579,7 +581,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   // Meta
                   sector: t.sector || "Unclassified",
                   industry: t.industry || "Unknown",
-                  theme: mapIndustryToTheme(t.industry, t.sector || ""),
+                  theme: calculatedTheme, 
                   lastUpdate: new Date().toISOString(),
                   
                   // Store RAW report for dumping
