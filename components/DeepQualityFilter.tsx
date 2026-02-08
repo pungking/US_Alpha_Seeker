@@ -87,7 +87,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.5: Omni-Channel Deep Scan Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.6: Deep History Scan (5Y) Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -187,6 +187,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let financials: any = null;
 
       // 1. YAHOO STRATEGY (Deepest - Ledger)
+      // Yahoo typically returns 4 years of history.
       try {
           const yahooSymbol = symbol.replace(/\./g, '-');
           const modules = [
@@ -218,12 +219,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       } catch (e) { }
 
       // 2. FMP STRATEGY (Deep Fallback - Statements)
+      // [UPGRADE] Increased limit from 2 to 5 to capture 5-year trends
       if (!financials && fmpKey && !fmpDepleted) {
           try {
-              // Parallel fetch for Statements (Limit 2 for YoY comparison)
               const [isRes, bsRes, ratioRes] = await Promise.all([
-                  fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=2&apikey=${fmpKey}`),
-                  fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=2&apikey=${fmpKey}`),
+                  fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=5&apikey=${fmpKey}`),
+                  fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=5&apikey=${fmpKey}`),
                   fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`)
               ]);
 
@@ -259,7 +260,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       // 3. POLYGON STRATEGY (Financials Fallback)
       if (!financials && polygonKey) {
          try {
-             const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=2&apiKey=${polygonKey}`);
+             // Limit 5 for trend analysis if needed
+             const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=5&apiKey=${polygonKey}`);
              if (res.ok) {
                  const json = await res.json();
                  if (json.results && json.results.length > 0) {
@@ -285,7 +287,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
          } catch (e) {}
       }
 
-      // 4. FINNHUB STRATEGY (Rich Metrics Fallback)
+      // 4. FINNHUB STRATEGY (Rich Metrics Fallback - ESTIMATED)
+      // This source returns summarized metrics, not deep ledgers.
       if (!financials && finnhubKey) {
           try {
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
@@ -348,7 +351,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               validity = 100;
           }
       } else {
-          // Synthetic Z-Score based on Metric Ratios
+          // Synthetic Z-Score based on Metric Ratios (Estimate)
           if (data.debtToEquity < 50 && data.currentRatio > 1.5) zScore = 3.5;
           else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.5;
           else if (data.debtToEquity > 150 || data.currentRatio < 0.8) zScore = 1.0;
@@ -383,7 +386,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               fScore++;
           }
       } else {
-          // Synthetic F-Score for Metrics
+          // Synthetic F-Score for Metrics (Estimate)
           fScore = 4;
           if (data.roe > 0.15) fScore += 2; 
           else if (data.roe > 0) fScore += 1;
@@ -839,7 +842,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v9.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v9.6</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -983,7 +986,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                                  <div className="flex items-center gap-1.5">
                                                      <p className="text-xs font-black text-white group-hover:text-blue-400 transition-colors">{item.symbol}</p>
                                                      <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('YAHOO') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
-                                                         {item.source.includes('YAHOO') ? 'REAL' : 'EST'}
+                                                         {item.source.includes('YAHOO') || item.source.includes('FMP_DEEP') ? 'REAL' : 'EST'}
                                                      </span>
                                                  </div>
                                                  <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
