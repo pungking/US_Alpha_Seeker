@@ -55,7 +55,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v3_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v4_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -87,11 +87,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.2: Hybrid Fusion Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.3: "Use Everything" Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   // [TUNING] Batch size
@@ -123,7 +124,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Hybrid Quality Scan...", "signal");
+        addLog("AUTO-PILOT: Engaging Full-Spectrum Quality Scan...", "signal");
         executeDeepQualityScan();
     }
   }, [autoStart]);
@@ -161,19 +162,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return sector; 
   };
 
-  // --- SAFE PARSER ---
   const safeNum = (val: any) => {
       if (!val) return 0;
       if (typeof val === 'number') return val;
-      if (typeof val === 'object' && val.raw) return Number(val.raw); // Yahoo format
+      if (typeof val === 'object' && val.raw) return Number(val.raw);
       return Number(val) || 0;
   };
 
-  // --- HYBRID DATA ACQUISITION ---
+  // --- OMNI-CHANNEL DATA ACQUISITION ---
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
-      // 1. YAHOO STRATEGY (Deepest Data)
+      let financials: any = null;
+
+      // 1. YAHOO STRATEGY (Deepest - Ledger)
       try {
-          // Normalize for Yahoo (BRK.B -> BRK-B)
           const yahooSymbol = symbol.replace(/\./g, '-');
           const modules = [
               'financialData', 'defaultKeyStatistics', 'balanceSheetHistory', 
@@ -181,16 +182,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           ].join(',');
 
           const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=${modules}`);
-          
           if (res.ok) {
               const data = await res.json();
-              // Check if we got a valid object with meaningful data
               if (data && (data.financialData || data.defaultKeyStatistics)) {
-                  const hasHistory = data.balanceSheetHistory?.balanceSheetStatements?.length > 0;
-                  return {
+                  financials = {
                       source: 'YAHOO_FULL',
                       raw: data,
-                      // Metrics
                       price: safeNum(data.financialData?.currentPrice),
                       roe: safeNum(data.financialData?.returnOnEquity),
                       per: safeNum(data.summaryDetail?.trailingPE) || safeNum(data.summaryDetail?.forwardPE),
@@ -198,36 +195,73 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       debtToEquity: safeNum(data.financialData?.debtToEquity),
                       currentRatio: safeNum(data.financialData?.currentRatio),
                       operatingCashFlow: safeNum(data.cashflowStatementHistory?.cashflowStatements?.[0]?.totalCashFromOperatingActivities),
-                      // History for F-Score
                       balanceSheets: data.balanceSheetHistory?.balanceSheetStatements || [],
                       incomeStatements: data.incomeStatementHistory?.incomeStatementHistory || [],
                       cashflows: data.cashflowStatementHistory?.cashflowStatements || [],
-                      hasHistory
+                      hasHistory: (data.balanceSheetHistory?.balanceSheetStatements?.length || 0) > 1
                   };
               }
           }
       } catch (e) { }
 
-      // 2. FINNHUB STRATEGY (Reliable Metrics)
-      if (finnhubKey) {
+      // 2. FMP STRATEGY (Deep Fallback - Statements)
+      if (!financials && fmpKey && !fmpDepleted) {
           try {
-              // Finnhub uses dot notation (BRK.B) usually
+              // Parallel fetch for Statements (Limit 2 for YoY comparison)
+              const [isRes, bsRes, ratioRes] = await Promise.all([
+                  fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=2&apikey=${fmpKey}`),
+                  fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=2&apikey=${fmpKey}`),
+                  fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`)
+              ]);
+
+              if (isRes.status === 429 || bsRes.status === 429) {
+                  setFmpDepleted(true);
+                  addLog("FMP Limit Hit. Falling back.", "warn");
+              } else if (isRes.ok && bsRes.ok && ratioRes.ok) {
+                  const is = await isRes.json();
+                  const bs = await bsRes.json();
+                  const ratios = await ratioRes.json();
+                  
+                  if (Array.isArray(is) && is.length > 0) {
+                      const r = ratios[0] || {};
+                      financials = {
+                          source: 'FMP_DEEP',
+                          raw: { incomeStatement: is, balanceSheet: bs, ratios: r },
+                          price: 0, // Will be filled from Stage 0 data
+                          roe: r.returnOnEquityTTM || 0,
+                          per: r.peRatioTTM || 0,
+                          pbr: r.priceToBookRatioTTM || 0,
+                          debtToEquity: (r.debtEquityRatioTTM || 0) * 100,
+                          currentRatio: r.currentRatioTTM || 0,
+                          operatingCashFlow: r.operatingCashFlowPerShareTTM || 0,
+                          balanceSheets: bs, // Standardized Array
+                          incomeStatements: is, // Standardized Array
+                          hasHistory: is.length > 1
+                      };
+                  }
+              }
+          } catch (e) { }
+      }
+
+      // 3. FINNHUB STRATEGY (Rich Metrics)
+      if (!financials && finnhubKey) {
+          try {
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
               if (res.ok) {
                   const json = await res.json();
                   const m = json.metric;
-                  // Finnhub typically returns a flat object in 'metric'
                   if (m && (m.roeTTM || m.peNormalized || m.epsTTM)) {
-                       return {
+                       financials = {
                           source: 'FINNHUB_METRIC',
                           raw: m,
-                          price: 0, // Should be filled from Stage 0 data usually
-                          roe: (m.roeTTM || 0) / 100, // Normalize to 0.15 for 15%
+                          price: 0,
+                          roe: (m.roeTTM || 0) / 100, 
                           per: m.peNormalized || m.peTTM || 0,
                           pbr: m.pbAnnual || 0,
                           debtToEquity: m['totalDebt/totalEquityAnnual'] || m['totalDebt/totalEquityQuarterly'] || 0,
                           currentRatio: m.currentRatioQuarterly || m.currentRatioAnnual || 0,
-                          operatingCashFlow: m.cashFlowPerShareTTM || 0, // Using CF per share as proxy for existence
+                          operatingCashFlow: m.cashFlowPerShareTTM || 0,
+                          epsGrowth: m.epsGrowthTTMYoy || 0, // Bonus metric
                           hasHistory: false
                        };
                   }
@@ -235,64 +269,70 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e) { }
       }
 
-      // 3. FMP STRATEGY (Backup Ratios)
-      if (fmpKey && !fmpDepleted) {
-          try {
-              const res = await fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${symbol}?apikey=${fmpKey}`);
-              if (res.status === 429) {
-                  setFmpDepleted(true);
-                  addLog("FMP Limit Hit. Skipping FMP.", "warn");
-              } else if (res.ok) {
-                  const json = await res.json();
-                  if (json && json.length > 0) {
-                      const m = json[0];
-                      return {
-                          source: 'FMP_RATIO',
-                          raw: m,
-                          price: 0,
-                          roe: m.returnOnEquityTTM || 0, 
-                          per: m.peRatioTTM || 0,
-                          pbr: m.priceToBookRatioTTM || 0,
-                          debtToEquity: (m.debtEquityRatioTTM || 0) * 100, // Normalize
-                          currentRatio: m.currentRatioTTM || 0,
-                          operatingCashFlow: m.operatingCashFlowPerShareTTM || 0, 
-                          hasHistory: false
-                      };
-                  }
-              }
-          } catch (e) { }
+      // 4. POLYGON STRATEGY (Financials Fallback)
+      if (!financials && polygonKey) {
+         try {
+             const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=2&apiKey=${polygonKey}`);
+             if (res.ok) {
+                 const json = await res.json();
+                 if (json.results && json.results.length > 0) {
+                     const r = json.results[0];
+                     const f = r.financials;
+                     financials = {
+                         source: 'POLYGON_FIN',
+                         raw: json.results,
+                         price: 0,
+                         roe: (f.ratios?.return_on_equity?.value || 0), // Polygon ratio is usually decimal
+                         per: 0, // Polygon financials endpoint often lacks realtime PE
+                         pbr: 0,
+                         debtToEquity: (f.balance_sheet?.long_term_debt?.value / f.balance_sheet?.equity?.value) * 100 || 0,
+                         currentRatio: (f.balance_sheet?.current_assets?.value / f.balance_sheet?.current_liabilities?.value) || 0,
+                         operatingCashFlow: f.cash_flow_statement?.net_cash_flow_from_operating_activities?.value || 0,
+                         hasHistory: json.results.length > 1
+                     };
+                 }
+             }
+         } catch (e) {}
       }
 
-      return null; 
+      return financials;
   };
 
-  // --- SCORING LOGIC (Hybrid Capable) ---
+  // --- SCORING LOGIC (Adaptive) ---
   const calculateScores = (data: any, sector: string) => {
-      let fScore = 5; // Default neutral
+      let fScore = 5; 
       let zScore = 0;
       let validity = 50;
 
-      // 1. Z-Score (Altman)
-      if (data.source === 'YAHOO_FULL' && data.hasHistory) {
-          // Calculate strictly if we have ledger
+      // 1. Z-Score (Altman) - Deep vs Synthetic
+      if ((data.source === 'YAHOO_FULL' || data.source === 'FMP_DEEP') && data.hasHistory) {
+          // Deep Calculation
           const bs = data.balanceSheets[0];
           const is = data.incomeStatements[0];
+          
+          // Normalized Accessors (Handle Yahoo vs FMP structure differences roughly)
           const ta = safeNum(bs.totalAssets);
+          const tl = safeNum(bs.totalLiab) || safeNum(bs.totalLiabilities);
+          const ca = safeNum(bs.totalCurrentAssets);
+          const cl = safeNum(bs.totalCurrentLiabilities);
+          const re = safeNum(bs.retainedEarnings);
+          const ebit = safeNum(is.ebit) || safeNum(is.operatingIncome);
+          const rev = safeNum(is.totalRevenue) || safeNum(is.revenue);
+          
           if (ta > 0) {
-              const wc = safeNum(bs.totalCurrentAssets) - safeNum(bs.totalCurrentLiabilities);
-              const re = safeNum(bs.retainedEarnings);
-              const ebit = safeNum(is.ebit) || safeNum(is.operatingIncome);
-              const mv = data.price * (safeNum(data.raw?.defaultKeyStatistics?.sharesOutstanding) || 0);
-              const tl = safeNum(bs.totalLiab);
-              const s = safeNum(is.totalRevenue);
+              const wc = ca - cl;
+              const A = wc/ta; 
+              const B = re/ta; 
+              const C = ebit/ta; 
+              // D: Market Value of Equity / Total Liab. (Proxy using Price * Shares if available, else NetAssets)
+              const D = (ta - tl) / (tl || 1); 
+              const E = rev/ta;
               
-              const A = wc/ta; const B = re/ta; const C = ebit/ta; const D = tl>0?mv/tl:0; const E = s/ta;
               zScore = (1.2*A) + (1.4*B) + (3.3*C) + (0.6*D) + (1.0*E);
               validity = 100;
           }
       } else {
-          // Synthetic Z-Score based on Debt/Equity and Current Ratio
-          // Low Debt + High Liquidity = Safer
+          // Synthetic Z-Score based on Metric Ratios
           if (data.debtToEquity < 50 && data.currentRatio > 1.5) zScore = 3.5;
           else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.5;
           else if (data.debtToEquity > 150 || data.currentRatio < 0.8) zScore = 1.0;
@@ -300,30 +340,41 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           validity = 70;
       }
 
-      // 2. F-Score (Piotroski) - Proxy if history missing
-      if (data.source === 'YAHOO_FULL' && data.hasHistory && data.balanceSheets.length > 1) {
+      // 2. F-Score (Piotroski) - Deep vs Synthetic
+      if ((data.source === 'YAHOO_FULL' || data.source === 'FMP_DEEP') && data.hasHistory) {
           fScore = 0;
-          const cur = 0, prev = 1;
-          const bs = data.balanceSheets; const is = data.incomeStatements; const cf = data.cashflows;
+          const cur = data.incomeStatements[0];
+          const prev = data.incomeStatements[1];
+          const curBS = data.balanceSheets[0];
+          const prevBS = data.balanceSheets[1];
           
-          if(safeNum(is[cur]?.netIncome) > 0) fScore++;
-          if(safeNum(cf[cur]?.totalCashFromOperatingActivities) > 0) fScore++;
-          if(safeNum(is[cur]?.netIncome)/safeNum(bs[cur]?.totalAssets) > safeNum(is[prev]?.netIncome)/safeNum(bs[prev]?.totalAssets)) fScore++;
-          if(safeNum(cf[cur]?.totalCashFromOperatingActivities) > safeNum(is[cur]?.netIncome)) fScore++;
-          if(safeNum(bs[cur]?.totalLiab)/safeNum(bs[cur]?.totalAssets) < safeNum(bs[prev]?.totalLiab)/safeNum(bs[prev]?.totalAssets)) fScore++;
-          if(safeNum(bs[cur]?.totalCurrentAssets)/safeNum(bs[cur]?.totalCurrentLiabilities) > safeNum(bs[prev]?.totalCurrentAssets)/safeNum(bs[prev]?.totalCurrentLiabilities)) fScore++;
-          
-          // Normalize 0-6 range to 0-9 scale roughly
-          fScore = Math.ceil(fScore * 1.5);
+          if (cur && prev && curBS && prevBS) {
+              // Profitability
+              if(safeNum(cur.netIncome) > 0) fScore++;
+              if(safeNum(cur.operatingCashFlow) > 0) fScore++; // Note: Check where CFO comes from
+              if(safeNum(cur.netIncome) > safeNum(prev.netIncome)) fScore++; // Delta NI proxy for ROA delta
+              if(safeNum(cur.operatingCashFlow) > safeNum(cur.netIncome)) fScore++;
+              
+              // Leverage
+              if(safeNum(curBS.totalLiab)/safeNum(curBS.totalAssets) < safeNum(prevBS.totalLiab)/safeNum(prevBS.totalAssets)) fScore++;
+              if(safeNum(curBS.totalCurrentAssets)/safeNum(curBS.totalCurrentLiabilities) > safeNum(prevBS.totalCurrentAssets)/safeNum(prevBS.totalCurrentLiabilities)) fScore++;
+              
+              // Efficiency
+              if((safeNum(cur.grossProfit)/safeNum(cur.totalRevenue)) > (safeNum(prev.grossProfit)/safeNum(prev.totalRevenue))) fScore++;
+              if((safeNum(cur.totalRevenue)/safeNum(curBS.totalAssets)) > (safeNum(prev.totalRevenue)/safeNum(prevBS.totalAssets))) fScore++;
+              
+              // Padding for shares (missing usually) -> assume 1
+              fScore++;
+          }
       } else {
-          // Synthetic F-Score
-          fScore = 4; // Start neutral
-          if (data.roe > 0.10) fScore += 2; // Strong ROE
+          // Synthetic F-Score for Metrics
+          fScore = 4;
+          if (data.roe > 0.15) fScore += 2; 
           else if (data.roe > 0) fScore += 1;
           
           if (data.debtToEquity < 80) fScore += 1;
           if (data.currentRatio > 1.2) fScore += 1;
-          if (data.operatingCashFlow > 0) fScore += 1;
+          if (data.epsGrowth && data.epsGrowth > 0) fScore += 1; 
           
           fScore = Math.min(9, fScore);
       }
@@ -340,11 +391,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           else if (rel < 1.5) valScore = 50;
           else valScore = 30;
       } else {
-          // PE invalid or negative usually means no earnings
           valScore = 20; 
       }
 
-      const profitScore = Math.min(100, Math.max(0, (data.roe || 0) * 100 * 2.5)); // 20% ROE -> 50pts base
+      const profitScore = Math.min(100, Math.max(0, (data.roe || 0) * 100 * 2.5)); 
 
       // Final Weighted Score
       const qScore = (valScore * 0.3) + (profitScore * 0.3) + (Math.min(zScore*20, 100) * 0.2) + (fScore*10 * 0.2);
@@ -365,7 +415,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setAnalysisPhase('REPORT_DUMP');
       
       const targets = eliteStocks; 
-      addLog(`Archiving ${targets.length} Reports (Hybrid Format)...`, "info");
+      addLog(`Archiving ${targets.length} Reports (Multi-Source)...`, "info");
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
       if(!folderId) {
@@ -394,6 +444,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const batch = targets.slice(i, i + REPORT_ARCHIVE_BATCH_SIZE);
           
           await Promise.all(batch.map(async (stock) => {
+              // File name includes source for clarity
               const fileName = `REPORT_${stock.symbol}_${stock.source.split('_')[0]}.json`;
               if (existingFiles.has(fileName)) {
                   skipped++; 
@@ -448,7 +499,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let targets = content.investable_universe || [];
       targets = targets.filter((t: any) => t.type === 'Common Stock' || !t.type);
       
-      // Sort by Market Cap desc to prioritize big reliable data first
+      // Sort by Market Cap desc
       targets.sort((a: any, b: any) => (b.marketCap || 0) - (a.marketCap || 0));
 
       setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
@@ -470,15 +521,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   return JSON.parse(cached);
               }
 
-              // [CORE] Hybrid Fetch (Yahoo -> Finnhub -> FMP)
+              // [CORE] Hybrid Fetch
               const financials = await fetchHybridFinancials(t.symbol);
               
               if (!financials) return null; 
 
               const scores = calculateScores(financials, t.sector || "Unclassified");
               
-              // [FILTER] Relaxed filtering. If it has valid financials, likely good enough to proceed.
-              // Just filter out absolute trash or errors.
               if (scores.qualityScore < 15) return null; 
 
               const resultTicker: QualityTicker = {
@@ -555,7 +604,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "9.2.0", strategy: "Hybrid_Ledger_Metric_Scan", timestamp: new Date().toISOString(), engine: "Yahoo_Finnhub_Mix" },
+        manifest: { version: "9.3.0", strategy: "Hybrid_Ledger_Metric_Scan", timestamp: new Date().toISOString(), engine: "Use_Everything" },
         elite_universe: eliteSurvivors.map(({ financialReport, ...rest }) => rest) // Exclude raw report from main list
       };
 
@@ -767,14 +816,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v9.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v9.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Deep Scan: ${progress.current}/${progress.total}` : 'Hybrid Acquisition Protocol Ready'}
+                            {loading ? `Deep Scan: ${progress.current}/${progress.total}` : 'Multi-Source Protocol Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
-                            {fmpDepleted ? 'Backup: Finnhub Active' : 'Multi-Source Active'}
+                            {fmpDepleted ? 'Backup: Finnhub/Polygon' : 'Primary: Yahoo/FMP Deep'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -910,8 +959,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                              <div>
                                                  <div className="flex items-center gap-1.5">
                                                      <p className="text-xs font-black text-white group-hover:text-blue-400 transition-colors">{item.symbol}</p>
-                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source === 'YAHOO_FULL_LEDGER' ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
-                                                         {item.source === 'YAHOO_FULL_LEDGER' ? 'REAL' : 'EST'}
+                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('YAHOO') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
+                                                         {item.source.includes('YAHOO') ? 'REAL' : 'EST'}
                                                      </span>
                                                  </div>
                                                  <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
