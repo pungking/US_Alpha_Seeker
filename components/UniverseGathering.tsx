@@ -29,11 +29,16 @@ interface MasterTicker {
   marketCap?: number;
   sector?: string;
   industry?: string;
+  
+  // Fundamentals
   pe?: number;
   eps?: number;
   roe?: number;
   debtToEquity?: number;
-  pb?: number;
+  pb?: number;     // Price to Book
+  currentRatio?: number;
+  revenue?: number;
+
   source?: string;
   cik?: number; // SEC ID
 }
@@ -55,13 +60,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [stats, setStats] = useState({
     found: 0,
     synced: 0,
-    target: 13000, // Updated target for TV Scanner
+    target: 15000, 
     elapsed: 0,
     provider: 'Idle',
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v5.0.0: TV_Scanner + SEC Fusion Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v5.1.0: Deep-Scan (Rich Data) Mode.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -150,17 +155,32 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   // --- SOURCE A: TRADINGVIEW SCANNER (The Holy Grail) ---
   const executeTVScanner = async (): Promise<MasterTicker[]> => {
-      addLog("Source A: TradingView Omni-Scanner (Deep Fundamentals)...", "info");
+      addLog("Source A: TradingView Deep-Scanner (PBR/Debt/Rev)...", "info");
       const res = await fetch('/api/nasdaq'); 
       if (!res.ok) throw new Error(`TV Proxy Failed: ${res.status}`);
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error("Invalid TV Data");
-      addLog(`TV Scanner: Retrieved ${data.length} assets (Full Market).`, "ok");
+      addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
+      
       return data.map((item: any) => ({
-          symbol: item.symbol, name: item.name, price: item.price, volume: item.volume, 
-          change: item.change, marketCap: item.marketCap, sector: item.sector || "Unclassified", 
-          industry: item.industry || "Unknown", pe: item.pe, roe: item.roe, eps: item.eps,
-          type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'TV_Scanner'
+          symbol: item.symbol, 
+          name: item.name, 
+          price: item.price, 
+          volume: item.volume, 
+          change: item.change, 
+          marketCap: item.marketCap, 
+          sector: item.sector || "Unclassified", 
+          industry: item.industry || "Unknown", 
+          pe: item.pe, 
+          eps: item.eps,
+          roe: item.roe, // Fundamental fields directly from updated API
+          debtToEquity: item.debtToEquity,
+          pb: item.pbr,
+          currentRatio: item.currentRatio,
+          revenue: item.revenue,
+          type: 'Common Stock', 
+          updated: new Date().toISOString().split('T')[0], 
+          source: 'TV_Scanner'
       }));
   };
 
@@ -275,11 +295,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
-                version: "5.0.0", 
+                version: "5.1.0", 
                 provider: "Dual_Fusion (TV+SEC)", 
                 date: now.toISOString(), 
                 count: viableCandidates.length,
-                note: "Full Market Scan + CIK Mapping"
+                note: "Full Market Scan + CIK + PBR/Debt/Rev Data"
             }, 
             universe: viableCandidates 
         };
