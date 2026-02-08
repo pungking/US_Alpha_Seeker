@@ -10,7 +10,7 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [Advanced Institutional Data Structure]
 interface DeepFinancialReport {
-  source: 'FMP' | 'YAHOO' | 'HYBRID' | 'ESTIMATE';
+  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'ESTIMATE';
   annual: {
     income: any[];
     balance: any[];
@@ -69,7 +69,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v5_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v6_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -91,13 +91,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
   const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
-  // [CIRCUIT BREAKERS - STATE] (For UI Updates)
+  // [CIRCUIT BREAKERS - UI STATE]
   const [fmpDepleted, setFmpDepleted] = useState(false);
-  const [polygonDepleted, setPolygonDepleted] = useState(false);
+  const [rapidActive, setRapidActive] = useState(false);
   
-  // [CIRCUIT BREAKERS - REF] (For Immediate Logic Blocking - "Kill Switch")
+  // [CIRCUIT BREAKERS - HARD REFS] (Instant Kill Switch)
   const fmpDepletedRef = useRef(false);
-  const polygonDepletedRef = useRef(false);
+  const rapidDepletedRef = useRef(false);
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'HYBRID_SCAN' | 'SCORING' | 'DEEP_ENRICHMENT' | 'AI_AUDIT' | 'REPORT_DUMP' | 'COMPLETE'>('INIT');
@@ -108,17 +108,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.9.2: Deep Ledger & Hard-Kill Circuit Breaker Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.0: RapidAPI Backup Integration Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key; // Only for metadata now
+  
   const logRef = useRef<HTMLDivElement>(null);
 
   // [TUNING] Batch size
   const BATCH_SIZE = 5; 
-  const ENRICHMENT_BATCH_SIZE = 3; 
+  const ENRICHMENT_BATCH_SIZE = 2; // Conservative for heavy data
   const REPORT_ARCHIVE_BATCH_SIZE = 10;
   const TARGET_SELECTION_COUNT = 500; 
   
@@ -253,7 +255,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       } catch (e: any) { }
 
       // 2. FMP STRATEGY (Screening Lite Mode)
-      // Checks `fmpDepletedRef` to prevent 429 loop
       if (!financials && fmpKey && !fmpDepletedRef.current) {
           try {
               const [isRes, bsRes, ratioRes] = await Promise.all([
@@ -263,9 +264,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               ]);
 
               if (isRes.status === 429 || bsRes.status === 429) {
-                  fmpDepletedRef.current = true; // IMMEDIATE BLOCK
-                  setFmpDepleted(true); // UI Update
-                  addLog("⚠️ FMP Rate Limit (429). HARD BREAKER TRIPPED.", "err");
+                  fmpDepletedRef.current = true; // HARD TRIP
+                  setFmpDepleted(true);
+                  addLog("⚠️ FMP Rate Limit. Switching to Backup.", "err");
               } else if (isRes.ok && bsRes.ok && ratioRes.ok) {
                   const is = await isRes.json();
                   const bs = await bsRes.json();
@@ -295,44 +296,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e: any) { }
       }
 
-      // 3. POLYGON STRATEGY (Financials Fallback)
-      // Checks `polygonDepletedRef` to prevent 429 loop
-      if (!financials && polygonKey && !polygonDepletedRef.current) {
-         try {
-             const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=2&apiKey=${polygonKey}`);
-             
-             if (res.status === 429) {
-                 polygonDepletedRef.current = true; // IMMEDIATE BLOCK
-                 setPolygonDepleted(true); // UI Update
-                 addLog("⚠️ Polygon Rate Limit (429). HARD BREAKER TRIPPED.", "warn");
-             } else if (res.ok) {
-                 const json = await res.json();
-                 if (json.results && json.results.length > 0) {
-                     const r = json.results[0];
-                     const f = r.financials;
-                     financials = {
-                         source: 'POLYGON_FIN', 
-                         raw: json.results,
-                         price: 0,
-                         roe: (f.ratios?.return_on_equity?.value || 0),
-                         per: 0, 
-                         pbr: 0,
-                         debtToEquity: (f.balance_sheet?.long_term_debt?.value / f.balance_sheet?.equity?.value) * 100 || 0,
-                         currentRatio: (f.balance_sheet?.current_assets?.value / f.balance_sheet?.current_liabilities?.value) || 0,
-                         operatingCashFlow: f.cash_flow_statement?.net_cash_flow_from_operating_activities?.value || 0,
-                         hasHistory: json.results.length > 1,
-                         financialReport: {
-                             source: 'POLYGON',
-                             annual: { income: [], balance: [], cashflow: [] },
-                             quarterly: { income: [], balance: [], cashflow: [] }
-                         }
-                     };
-                 }
-             }
-         } catch (e) {}
-      }
-
-      // 4. FINNHUB STRATEGY (Metric Fallback) - Always safe (Metric endpoint has higher limits usually)
+      // 3. FINNHUB STRATEGY (Metric Fallback)
       if (!financials && finnhubKey) {
           try {
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
@@ -362,58 +326,119 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return financials;
   };
 
+  // --- RAPID API FETCH (FMP CLOUD) ---
+  const fetchRapidFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
+      if (!rapidKey || rapidDepletedRef.current) return null;
+      
+      const host = 'fmpcloud.p.rapidapi.com';
+      const headers = {
+          'X-RapidAPI-Key': rapidKey,
+          'X-RapidAPI-Host': host
+      };
+
+      try {
+          // Sequential calls to be polite to RapidAPI rate limits
+          const get = async (ep: string, params: string) => {
+              const res = await fetch(`https://${host}/api/v3/${ep}/${symbol}?${params}`, { headers });
+              if (res.status === 429) throw new Error("RAPID_429");
+              if (!res.ok) throw new Error(`Status ${res.status}`);
+              return res.json();
+          };
+
+          // Fetch Annuals (Limit 5)
+          const isA = await get('income-statement', 'limit=5');
+          const bsA = await get('balance-sheet-statement', 'limit=5');
+          const cfA = await get('cash-flow-statement', 'limit=5');
+
+          // Fetch Quarterly (Limit 20)
+          const isQ = await get('income-statement', 'period=quarter&limit=20');
+          const bsQ = await get('balance-sheet-statement', 'period=quarter&limit=20');
+          const cfQ = await get('cash-flow-statement', 'period=quarter&limit=20');
+
+          return {
+              source: 'RAPID_FMP',
+              annual: { income: isA, balance: bsA, cashflow: cfA },
+              quarterly: { income: isQ, balance: bsQ, cashflow: cfQ }
+          };
+
+      } catch (e: any) {
+          if (e.message === "RAPID_429") {
+              rapidDepletedRef.current = true;
+              setRapidActive(false);
+              addLog("⚠️ RapidAPI Quota Exceeded.", "warn");
+          }
+          return null;
+      }
+  };
+
   // --- ENRICHMENT LOGIC (Deep 5Y Data) ---
   const enrichEliteCandidates = async (candidates: QualityTicker[]) => {
-      // Only run if FMP is alive
-      if (!fmpKey || fmpDepletedRef.current) return candidates;
       setAnalysisPhase('DEEP_ENRICHMENT');
-
       const enriched: QualityTicker[] = [];
       
-      for (let i = 0; i < candidates.length; i += ENRICHMENT_BATCH_SIZE) {
-          const batch = candidates.slice(i, i + ENRICHMENT_BATCH_SIZE);
+      for (let i = 0; i < candidates.length; i++) {
+          const ticker = candidates[i];
+          let report = ticker.financialReport;
           
-          await Promise.all(batch.map(async (ticker) => {
-              // Only enrich if source is FMP_LITE and breaker is NOT tripped
-              if (ticker.source.includes('FMP') && !fmpDepletedRef.current) {
-                  try {
-                      const [isA, bsA, cfA, isQ, bsQ, cfQ] = await Promise.all([
-                          fetch(`https://financialmodelingprep.com/api/v3/income-statement/${ticker.symbol}?limit=5&apikey=${fmpKey}`),
-                          fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker.symbol}?limit=5&apikey=${fmpKey}`),
-                          fetch(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${ticker.symbol}?limit=5&apikey=${fmpKey}`),
-                          fetch(`https://financialmodelingprep.com/api/v3/income-statement/${ticker.symbol}?period=quarter&limit=20&apikey=${fmpKey}`),
-                          fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${ticker.symbol}?period=quarter&limit=20&apikey=${fmpKey}`),
-                          fetch(`https://financialmodelingprep.com/api/v3/cash-flow-statement/${ticker.symbol}?period=quarter&limit=20&apikey=${fmpKey}`)
-                      ]);
-                      
-                      if ([isA, bsA, cfA, isQ, bsQ, cfQ].some(r => r.status === 429)) {
-                          fmpDepletedRef.current = true; // HARD TRIP
-                          setFmpDepleted(true);
-                          addLog("⚠️ FMP Quota Exceeded during Deep Scan. Stopping Enrichment.", "err");
-                          throw new Error("FMP_429");
-                      }
+          // Check if we already have deep data (Yahoo or FMP full)
+          // If source is LITE or METRIC, we need to upgrade
+          const needsEnrichment = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
 
-                      const [isAd, bsAd, cfAd, isQd, bsQd, cfQd] = await Promise.all([
-                          isA.json(), bsA.json(), cfA.json(), isQ.json(), bsQ.json(), cfQ.json()
-                      ]);
+          if (needsEnrichment) {
+              // 1. Try FMP Direct first
+              if (fmpKey && !fmpDepletedRef.current) {
+                  try {
+                      // Staggered fetch to avoid 429
+                      await new Promise(r => setTimeout(r, 200)); 
+                      
+                      const getFmp = async (ep: string, p: string) => {
+                          const r = await fetch(`https://financialmodelingprep.com/api/v3/${ep}/${ticker.symbol}?${p}&apikey=${fmpKey}`);
+                          if (r.status === 429) throw new Error("FMP_429");
+                          return r.json();
+                      };
+
+                      const isA = await getFmp('income-statement', 'limit=5');
+                      const bsA = await getFmp('balance-sheet-statement', 'limit=5');
+                      const cfA = await getFmp('cash-flow-statement', 'limit=5');
+                      const isQ = await getFmp('income-statement', 'period=quarter&limit=20');
+                      const bsQ = await getFmp('balance-sheet-statement', 'period=quarter&limit=20');
+                      const cfQ = await getFmp('cash-flow-statement', 'period=quarter&limit=20');
 
                       ticker.financialReport = {
                           source: 'FMP',
-                          annual: { income: isAd, balance: bsAd, cashflow: cfAd },
-                          quarterly: { income: isQd, balance: bsQd, cashflow: cfQd }
+                          annual: { income: isA, balance: bsA, cashflow: cfA },
+                          quarterly: { income: isQ, balance: bsQ, cashflow: cfQ }
                       };
-                      ticker.source = 'FMP_DEEP_5Y'; 
-
-                  } catch (e) {
-                      // Keep original data
+                      ticker.source = 'FMP_DEEP_5Y';
+                  } catch (e: any) {
+                      if (e.message === "FMP_429") {
+                          fmpDepletedRef.current = true;
+                          setFmpDepleted(true);
+                      }
                   }
               }
-              enriched.push(ticker);
-          }));
+
+              // 2. Try RapidAPI if FMP Failed or Depleted
+              // Only if we still don't have a deep report
+              if ((!ticker.financialReport || ticker.financialReport.source === 'FMP') && 
+                  (fmpDepletedRef.current || !fmpKey) && 
+                  rapidKey && !rapidDepletedRef.current) {
+                  
+                  if (!rapidActive) setRapidActive(true);
+                  const rapidReport = await fetchRapidFinancials(ticker.symbol);
+                  if (rapidReport) {
+                      ticker.financialReport = rapidReport;
+                      ticker.source = 'RAPID_DEEP_5Y';
+                  }
+                  await new Promise(r => setTimeout(r, 500)); // Respect Rapid rate limits
+              }
+          }
+
+          enriched.push(ticker);
           
-          setProgress(prev => ({ ...prev, current: Math.min(i + ENRICHMENT_BATCH_SIZE, candidates.length), total: candidates.length }));
-          if (fmpDepletedRef.current) break; // Exit loop if breaker tripped
-          await new Promise(r => setTimeout(r, 250));
+          if (i % 5 === 0) {
+              setProgress(prev => ({ ...prev, current: i + 1, total: candidates.length }));
+          }
       }
       return enriched;
   };
@@ -594,9 +619,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     
     // [CRITICAL] Reset Circuit Breakers Ref
     setFmpDepleted(false);
-    setPolygonDepleted(false);
+    setRapidActive(false);
     fmpDepletedRef.current = false;
-    polygonDepletedRef.current = false;
+    rapidDepletedRef.current = false;
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
@@ -951,18 +976,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v9.9.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
                             {loading ? getProgressLabel() : 'Multi-Source Protocol Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
-                            {fmpDepleted ? 'Backup: Finnhub/Polygon' : 'Primary: Yahoo/FMP Deep'}
+                            {fmpDepleted ? 'Backup: RapidAPI' : 'Primary: Yahoo/FMP Direct'}
                         </span>
-                        {polygonDepleted && (
-                            <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-rose-500/20 text-rose-400">
-                                Polygon Halted (429)
+                        {rapidActive && (
+                            <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 text-emerald-400">
+                                RapidAPI Active
                             </span>
                         )}
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
@@ -997,8 +1022,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       <div className={`h-full transition-all duration-300 bg-blue-500`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                     </div>
                     <div className="flex justify-between text-[8px] uppercase font-bold tracking-widest">
-                        <span className={getPhaseStyle('HYBRID_SCAN')}>1. Hybrid Scan</span>
-                        <span className={getPhaseStyle('SCORING')}>2. Scoring</span>
+                        <span className={getPhaseStyle('HYBRID_SCAN')}>1. Scan</span>
+                        <span className={getPhaseStyle('SCORING')}>2. Score</span>
                         <span className={getPhaseStyle('DEEP_ENRICHMENT')}>3. Deep Fetch</span>
                         <span className={getPhaseStyle('REPORT_DUMP')}>4. Archive</span>
                     </div>
