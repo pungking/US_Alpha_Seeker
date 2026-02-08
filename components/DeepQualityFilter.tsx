@@ -216,8 +216,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       hasHistory: (data.balanceSheetHistory?.balanceSheetStatements?.length || 0) > 1
                   };
               }
+          } else {
+              addLog(`[${symbol}] Yahoo Connection Blocked (${res.status}). Switching to FMP...`, "warn");
           }
-      } catch (e) { }
+      } catch (e: any) { 
+          addLog(`[${symbol}] Yahoo Network Error: ${e.message}. Switching to FMP...`, "warn");
+      }
 
       // 2. FMP STRATEGY (Deep Fallback - Statements)
       // [UPGRADE] Increased limit from 2 to 5 to capture 5-year trends
@@ -231,7 +235,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
               if (isRes.status === 429 || bsRes.status === 429) {
                   setFmpDepleted(true);
-                  addLog("FMP Limit Hit. Falling back.", "warn");
+                  addLog("⚠️ FMP Daily Quota Exhausted. Switching to Backup Providers (Poly/FH).", "err");
               } else if (isRes.ok && bsRes.ok && ratioRes.ok) {
                   const is = await isRes.json();
                   const bs = await bsRes.json();
@@ -255,7 +259,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       };
                   }
               }
-          } catch (e) { }
+          } catch (e: any) { 
+              addLog(`[${symbol}] FMP Error: ${e.message}`, "warn");
+          }
       }
 
       // 3. POLYGON STRATEGY (Financials Fallback)
@@ -282,6 +288,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                          balanceSheets: json.results.map((item: any) => item.financials.balance_sheet || {})
                      };
                  }
+             } else {
+                 addLog(`[${symbol}] Polygon API Error (${res.status}).`, "warn");
              }
          } catch (e) {}
       }
@@ -599,10 +607,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               return resultTicker;
           }));
 
+          // Source Analysis for Log
+          const sourcesUsed: Record<string, number> = {};
           batchResults.forEach(r => {
-              if (r) validResults.push(r);
-              else dropped++;
+              if (r) {
+                  const src = r.source.split('_')[0]; // YAHOO, FMP, etc.
+                  sourcesUsed[src] = (sourcesUsed[src] || 0) + 1;
+                  validResults.push(r);
+              } else {
+                  dropped++;
+              }
           });
+          
+          // Log summary for this batch
+          const sourceLog = Object.entries(sourcesUsed).map(([k, v]) => `${k}(${v})`).join(', ');
+          if (sourceLog) {
+             addLog(`Batch Processed: ${sourceLog}`, "info");
+          }
 
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
@@ -964,7 +985,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
