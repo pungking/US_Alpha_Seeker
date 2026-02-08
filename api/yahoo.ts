@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // Yahoo Finance Proxy v4.0: "Deep Drill" Strategy
+  // Yahoo Finance Proxy v4.1: "Deep Drill" Strategy
   // Targets v10 quoteSummary for full ledger acquisition.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -19,7 +19,7 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing symbols query param' });
   }
 
-  // Random User Agents to prevent blocking
+  // Improved Browser Masquerade
   const userAgents = [
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
       'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
@@ -37,8 +37,10 @@ export default async function handler(req: any, res: any) {
       const response = await fetch(url, {
           headers: {
               'User-Agent': userAgent,
-              'Accept': '*/*',
+              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+              'Accept-Language': 'en-US,en;q=0.9', // Added to look more legitimate
               'Accept-Encoding': 'gzip, deflate, br',
+              'Cache-Control': 'no-cache', // Bypass upstream caches
               'Connection': 'keep-alive',
               'Referer': 'https://finance.yahoo.com',
               'Origin': 'https://finance.yahoo.com'
@@ -46,7 +48,6 @@ export default async function handler(req: any, res: any) {
       });
 
       if (!response.ok) {
-          // Retry logic could go here, but for now we fallback gracefully
            console.warn(`Yahoo v10 failed for ${symbol}: ${response.status}`);
            return res.status(200).json({}); // Return empty to allow fallback logic in frontend
       }
@@ -73,6 +74,7 @@ export default async function handler(req: any, res: any) {
         headers: {
             'User-Agent': userAgent,
             'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
+            'Accept-Language': 'en-US,en;q=0.9',
             'Connection': 'keep-alive'
         }
     });
