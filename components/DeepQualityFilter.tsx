@@ -71,7 +71,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v12_'; // Version bumped for Polygon Main Loop
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v13_'; // Version bumped for Robust Polygon Logic
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -84,6 +84,15 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
     'Finance': 15.0, 'Energy Minerals': 14.0, 'Consumer Non-Durables': 22.0,
     'Producer Manufacturing': 20.0, 'Utilities': 18.0, 'Transportation': 22.0,
     'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
+};
+
+// Helper to extract values from Polygon's nested structure { value: 123, unit: 'USD' }
+const getPolyVal = (obj: any, keys: string[]) => {
+    if (!obj) return 0;
+    for (const k of keys) {
+        if (obj[k] && typeof obj[k].value === 'number') return obj[k].value;
+    }
+    return 0;
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
@@ -111,7 +120,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v12.0: Polygon Core Injection Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v13.0: High-Fidelity Data Pipeline Initialized.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -229,12 +238,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // [NEW] Polygon Deep Financials Fetcher
+  // [ENHANCED] Polygon Deep Financials Fetcher
   const fetchPolygonDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       if (!polygonKey) return null;
       setActiveStream(`POLYGON_DEEP_vX [${symbol}]`);
       try {
-          // Polygon vX Financials Endpoint
+          // Polygon vX Financials Endpoint (Annual)
           const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=5&timeframe=annual&apiKey=${polygonKey}`);
           if (!res.ok) return null;
           const data = await res.json();
@@ -244,6 +253,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const balance: any[] = [];
           const cashflow: any[] = [];
 
+          // Map Polygon's flat structure to our standard income/balance/cashflow structure
           data.results.forEach((item: any) => {
               const f = item.financials;
               if (f) {
@@ -265,65 +275,80 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // [UPDATED] Main Scan Function with Polygon Backup
+  // [UPDATED] Main Scan Function with strict data validation
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let financials: any = null;
 
-      // PRIORITY 1: YAHOO FINANCE
-      try {
-          setActiveStream(`YAHOO_V10_STREAM [${symbol}]`);
-          const yahooSymbol = symbol.replace(/\./g, '-');
-          const modules = [
-              'financialData', 
-              'defaultKeyStatistics', 
-              'summaryDetail',
-              'balanceSheetHistory', 
-              'balanceSheetHistoryQuarterly',
-              'incomeStatementHistory', 
-              'incomeStatementHistoryQuarterly', 
-              'cashflowStatementHistory', 
-              'cashflowStatementHistoryQuarterly',
-              'earningsTrend' 
-          ].join(',');
+      // 1. Polygon Deep Fetch (Preferred for Raw Data)
+      if (polygonKey) {
+          const polyReport = await fetchPolygonDeepFinancials(symbol);
+          if (polyReport && polyReport.annual.income.length > 0) {
+                 const lastBs = polyReport.annual.balance[0] || {};
+                 const lastIs = polyReport.annual.income[0] || {};
+                 const lastCf = polyReport.annual.cashflow[0] || {};
+                 
+                 // Polygon uses nested { value: number, unit: string } format
+                 // Use helper to safely extract values from multiple potential keys
+                 const netIncome = getPolyVal(lastIs, ['net_income_loss', 'net_income_loss_available_to_common_stockholders_basic']);
+                 const equity = getPolyVal(lastBs, ['equity', 'equity_attributable_to_parent', 'stockholders_equity']);
+                 const liabilities = getPolyVal(lastBs, ['liabilities', 'total_liabilities']);
+                 const currentAssets = getPolyVal(lastBs, ['current_assets', 'total_current_assets']);
+                 const currentLiabilities = getPolyVal(lastBs, ['current_liabilities', 'total_current_liabilities']);
+                 const opCashFlow = getPolyVal(lastCf, ['net_cash_flow_from_operating_activities']);
 
-          const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=${modules}`);
-          if (res.ok) {
-              const data = await res.json();
-              if (data && (data.balanceSheetHistory || data.financialData)) {
-                  const annualIncome = data.incomeStatementHistory?.incomeStatementHistory || [];
-                  const annualBalance = data.balanceSheetHistory?.balanceSheetStatements || [];
-                  const annualCashflow = data.cashflowStatementHistory?.cashflowStatements || [];
-
-                  financials = {
-                      source: 'YAHOO_FULL',
-                      raw: data,
-                      price: safeNum(data.financialData?.currentPrice),
-                      roe: safeNum(data.financialData?.returnOnEquity),
-                      per: safeNum(data.summaryDetail?.trailingPE) || safeNum(data.summaryDetail?.forwardPE),
-                      pbr: safeNum(data.defaultKeyStatistics?.priceToBook),
-                      debtToEquity: safeNum(data.financialData?.debtToEquity),
-                      currentRatio: safeNum(data.financialData?.currentRatio),
-                      operatingCashFlow: safeNum(annualCashflow[0]?.totalCashFromOperatingActivities),
-                      financialReport: {
-                          source: 'YAHOO',
-                          annual: {
-                              income: annualIncome,
-                              balance: annualBalance,
-                              cashflow: annualCashflow
-                          },
-                          quarterly: {
-                              income: data.incomeStatementHistoryQuarterly?.incomeStatementHistory || [],
-                              balance: data.balanceSheetHistoryQuarterly?.balanceSheetStatements || [],
-                              cashflow: data.cashflowStatementHistoryQuarterly?.cashflowStatements || []
-                          }
-                      },
-                      hasHistory: annualBalance.length > 1
-                  };
-              }
+                 financials = {
+                     source: 'POLYGON_DEEP',
+                     raw: polyReport,
+                     price: 0, // Will be filled by Stage 0 data
+                     roe: equity ? (netIncome / equity) : 0, 
+                     per: 0, // P/E needs market cap, calculated later
+                     pbr: 0,
+                     debtToEquity: equity ? (liabilities / equity) * 100 : 0,
+                     currentRatio: currentLiabilities ? (currentAssets / currentLiabilities) : 0,
+                     operatingCashFlow: opCashFlow,
+                     financialReport: polyReport,
+                     hasHistory: polyReport.annual.income.length > 1
+                 };
           }
-      } catch (e: any) { }
+      }
 
-      // PRIORITY 2: FMP
+      // 2. Yahoo Finance (Backup if Polygon empty)
+      if (!financials) {
+          try {
+              setActiveStream(`YAHOO_V10_STREAM [${symbol}]`);
+              const yahooSymbol = symbol.replace(/\./g, '-');
+              const modules = ['financialData', 'defaultKeyStatistics', 'balanceSheetHistory', 'incomeStatementHistory', 'cashflowStatementHistory'].join(',');
+              const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=${modules}`);
+              if (res.ok) {
+                  const data = await res.json();
+                  if (data && (data.balanceSheetHistory || data.financialData)) {
+                      const annualIncome = data.incomeStatementHistory?.incomeStatementHistory || [];
+                      const annualBalance = data.balanceSheetHistory?.balanceSheetStatements || [];
+                      const annualCashflow = data.cashflowStatementHistory?.cashflowStatements || [];
+
+                      financials = {
+                          source: 'YAHOO_FULL',
+                          raw: data,
+                          price: safeNum(data.financialData?.currentPrice),
+                          roe: safeNum(data.financialData?.returnOnEquity),
+                          per: safeNum(data.summaryDetail?.trailingPE) || safeNum(data.summaryDetail?.forwardPE),
+                          pbr: safeNum(data.defaultKeyStatistics?.priceToBook),
+                          debtToEquity: safeNum(data.financialData?.debtToEquity),
+                          currentRatio: safeNum(data.financialData?.currentRatio),
+                          operatingCashFlow: safeNum(annualCashflow[0]?.totalCashFromOperatingActivities),
+                          financialReport: {
+                              source: 'YAHOO',
+                              annual: { income: annualIncome, balance: annualBalance, cashflow: annualCashflow },
+                              quarterly: { income: [], balance: [], cashflow: [] }
+                          },
+                          hasHistory: annualBalance.length > 1
+                      };
+                  }
+              }
+          } catch (e: any) { }
+      }
+
+      // 3. FMP (Backup)
       if (!financials && fmpKey && !fmpDepletedRef.current) {
           try {
               setActiveStream(`FMP_DIRECT_STREAM [${symbol}]`);
@@ -341,7 +366,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const is = await isRes.json();
                   const bs = await bsRes.json();
                   const ratios = await ratioRes.json();
-
                   if (is['Error Message'] || bs['Error Message']) throw new Error("FMP_LEGACY_ERROR");
                   
                   if (Array.isArray(is) && is.length > 0) {
@@ -373,41 +397,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
       }
 
-      // PRIORITY 3: POLYGON DEEP (Guaranteed Real Data Backup - Injected into Main Loop)
-      if (!financials && polygonKey) {
-          try {
-             const polyReport = await fetchPolygonDeepFinancials(symbol);
-             if (polyReport) {
-                 // Calculate simplified metrics from the first annual report
-                 const lastBs = polyReport.annual.balance?.[0] || {};
-                 const lastIs = polyReport.annual.income?.[0] || {};
-                 
-                 const getVal = (v: any) => v && typeof v === 'object' && 'value' in v ? v.value : v;
-                 
-                 const netIncome = safeNum(getVal(lastIs.net_income_loss));
-                 const equity = safeNum(getVal(lastBs.equity));
-                 const liabilities = safeNum(getVal(lastBs.liabilities));
-                 const currentAssets = safeNum(getVal(lastBs.current_assets));
-                 const currentLiabilities = safeNum(getVal(lastBs.current_liabilities));
-                 
-                 financials = {
-                     source: 'POLYGON_DEEP',
-                     raw: polyReport,
-                     price: 0, 
-                     roe: equity ? (netIncome / equity) : 0.1, // Default small positive if unknown
-                     per: 0, 
-                     pbr: 0,
-                     debtToEquity: equity ? (liabilities / equity) * 100 : 50,
-                     currentRatio: currentLiabilities ? (currentAssets / currentLiabilities) : 1.5,
-                     operatingCashFlow: safeNum(getVal(polyReport.annual.cashflow?.[0]?.net_cash_flow_operating)),
-                     financialReport: polyReport,
-                     hasHistory: polyReport.annual.income.length > 1
-                 };
-             }
-          } catch (e) {}
-      }
-
-      // PRIORITY 4: FINNHUB (Last Resort - Metrics Only)
+      // 4. Finnhub (Last Resort - Metrics Only)
       if (!financials && finnhubKey) {
           try {
               setActiveStream(`FINNHUB_METRIC [${symbol}]`);
@@ -526,8 +516,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           if (needsEnrichment) {
               let enrichmentSuccess = false;
 
-              // 1. Try FMP Direct Deep Fetch
-              if (fmpKey && !fmpDepletedRef.current) {
+              // 1. Try RapidAPI (Most Reliable for Deep History)
+              if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
+                  if (!rapidActive) setRapidActive(true);
+                  const rapidReport = await fetchRapidDeepFinancials(ticker.symbol);
+                  if (rapidReport) {
+                      ticker.financialReport = {
+                          ...rapidReport,
+                          secData: ticker.financialReport?.secData
+                      };
+                      ticker.source = 'RAPID_DEEP_5Y';
+                      enrichmentSuccess = true;
+                  }
+                  await new Promise(r => setTimeout(r, 500)); 
+              }
+
+              // 2. Try FMP Direct Deep Fetch
+              if (!enrichmentSuccess && fmpKey && !fmpDepletedRef.current) {
                   try {
                       setActiveStream(`FMP_DEEP_5Y [${ticker.symbol}]`);
                       await new Promise(r => setTimeout(r, 200)); 
@@ -562,25 +567,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              // 2. Try RapidAPI (Backup)
-              if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
-                  if (!rapidActive) setRapidActive(true);
-                  const rapidReport = await fetchRapidDeepFinancials(ticker.symbol);
-                  if (rapidReport) {
-                      ticker.financialReport = {
-                          ...rapidReport,
-                          secData: ticker.financialReport?.secData
-                      };
-                      ticker.source = 'RAPID_DEEP_5Y';
-                      enrichmentSuccess = true;
-                  }
-                  await new Promise(r => setTimeout(r, 500)); 
-              }
-
-              // 3. Try Polygon Deep (Last Line of Defense)
+              // 3. Try Polygon Deep (Retry if failed before)
               if (!enrichmentSuccess && polygonKey) {
                    const polyReport = await fetchPolygonDeepFinancials(ticker.symbol);
-                   if (polyReport) {
+                   if (polyReport && polyReport.annual.income.length > 0) {
                         ticker.financialReport = {
                           ...polyReport,
                           secData: ticker.financialReport?.secData
@@ -613,27 +603,37 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const is = data.financialReport?.annual?.income?.[0];
 
       if (bs && is) {
-          const getVal = (v: any) => v && typeof v === 'object' && 'value' in v ? v.value : v;
+          // Robust Polygon/Yahoo Value Extractor
+          // Handles {value: 123}, '123', 123 formats
+          const getVal = (v: any) => {
+              if (v === null || v === undefined) return 0;
+              if (typeof v === 'object' && 'value' in v) return Number(v.value) || 0;
+              return Number(v) || 0;
+          };
           
-          const ta = safeNum(getVal(bs.totalAssets || bs.assets));
-          const tl = safeNum(getVal(bs.totalLiab || bs.totalLiabilities || bs.totalLiabilitiesNetMinorityInterest || bs.liabilities));
-          const ca = safeNum(getVal(bs.totalCurrentAssets || bs.current_assets));
-          const cl = safeNum(getVal(bs.totalCurrentLiabilities || bs.current_liabilities));
-          const re = safeNum(getVal(bs.retainedEarnings || bs.equity)); // Fallback
-          const ebit = safeNum(getVal(is.ebit || is.operatingIncome || is.operating_expenses));
-          const rev = safeNum(getVal(is.totalRevenue || is.revenue || is.revenues));
+          // Field mappings (covering Polygon, Yahoo, FMP variations)
+          const ta = getVal(bs.totalAssets || bs.assets);
+          const tl = getVal(bs.totalLiab || bs.totalLiabilities || bs.totalLiabilitiesNetMinorityInterest || bs.liabilities || bs.total_liabilities);
+          const ca = getVal(bs.totalCurrentAssets || bs.current_assets || bs.total_current_assets);
+          const cl = getVal(bs.totalCurrentLiabilities || bs.current_liabilities || bs.total_current_liabilities);
+          const re = getVal(bs.retainedEarnings || bs.equity || bs.equity_attributable_to_parent || bs.stockholders_equity);
+          const ebit = getVal(is.ebit || is.operatingIncome || is.operating_expenses || is.operating_income_loss);
+          const rev = getVal(is.totalRevenue || is.revenue || is.revenues);
           
           if (ta > 0) {
               const wc = ca - cl;
-              const A = wc/ta; const B = re/ta; const C = ebit/ta; const D = (ta - tl) / (tl || 1); const E = rev/ta;
+              const A = wc/ta; 
+              const B = re/ta; 
+              const C = ebit/ta; 
+              const D = (ta - tl) / (tl || 1); 
+              const E = rev/ta;
               zScore = (1.2*A) + (1.4*B) + (3.3*C) + (0.6*D) + (1.0*E);
               validity = 100;
           }
       } else {
-          // Weak Source Fallback logic (Finnhub)
-          // If source is Finnhub, we give it a passing "Gentleman's C" score if ratios are sane
-          if (data.source && data.source.includes('FINNHUB')) {
-              zScore = 1.8; // Assume just above distress zone if missing data
+          // Fallback scoring for limited data
+          if (data.source && (data.source.includes('FINNHUB') || data.source.includes('POLYGON'))) {
+              zScore = 1.8; 
               validity = 40;
           } else if (data.debtToEquity < 50 && data.currentRatio > 1.5) zScore = 3.5;
           else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.5;
@@ -641,7 +641,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           else zScore = 1.8;
       }
 
-      // F-Score Simplified
       fScore = 5; 
       if (data.roe > 0.15) fScore++; 
       if (data.operatingCashFlow > 0) fScore++;
@@ -827,7 +826,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "12.0.0", 
+                version: "13.0.0", 
                 strategy: "Hybrid_Polygon_Deep_Ledger", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
@@ -1038,11 +1037,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v12.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v13.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? getProgressLabel() : 'Priority Queue: SEC > Yahoo > FMP > Polygon'}
+                            {loading ? getProgressLabel() : 'Priority Queue: Polygon (Preferred) > Yahoo > FMP'}
                         </span>
                         {activeStream !== 'IDLE' && (
                              <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 bg-emerald-500/10 text-emerald-400 animate-pulse">
@@ -1089,7 +1088,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     {/* Stage 1: Broad Scan */}
                     <div className="mb-3">
                         <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'HYBRID_SCAN' ? 'text-white' : 'text-slate-500'}`}>1. Market Scan (Yahoo/FMP)</span>
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'HYBRID_SCAN' ? 'text-white' : 'text-slate-500'}`}>1. Market Scan (Polygon/Yahoo)</span>
                             <span className="text-[8px] font-mono text-slate-400">{progress.current} / {progress.total}</span>
                         </div>
                         <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -1177,7 +1176,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
