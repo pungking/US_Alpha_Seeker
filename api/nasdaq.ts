@@ -1,8 +1,8 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Holy Grail" - TradingView Scanner Proxy v8.0 (Pure Real Data Mode)
-  // Hardcoding REMOVED. Only fetches real-time data from TradingView.
-  // Target: All US Equities (NYSE, NASDAQ, AMEX, ARCA, OTC)
+  // "The Holy Grail" - TradingView Scanner Proxy v9.0 (America Endpoint Restore)
+  // Target: Reliable fetch of Top 12,000 US Assets (NYSE, NASDAQ, AMEX)
+  // Strategy: Use 'america/scan' endpoint which is native for US stocks, reducing filter complexity.
   
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -18,7 +18,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  // Unified "Standard" Columns
+  // Unified "Standard" Columns for Rich Data
   const standardColumns = [
       "name",                         // 0
       "close",                        // 1
@@ -38,35 +38,29 @@ export default async function handler(req: any, res: any) {
       "type"                          // 15
   ];
 
-  // Aggressive Payload: US Market + Broad Filters
+  // Strategy: Request 'america' scanner directly.
+  // This implicitly filters for US stocks without needing explicit country filters.
   const getPayload = (start: number, end: number) => ({
       "filter": [
           { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
-          { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit", "unit", "preference"] },
-          { "left": "exchange", "operation": "in_range", "right": ["AMEX", "NASDAQ", "NYSE", "NYSE ARCA", "OTC"] },
-          { "left": "country", "operation": "equal", "right": "US" }
+          { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit"] },
+          { "left": "exchange", "operation": "in_range", "right": ["AMEX", "NASDAQ", "NYSE"] } 
       ],
       "options": { "lang": "en" },
-      "symbols": { "query": { "types": [] } }, // Essential for TV API to accept the request
+      // "symbols" field is sometimes required to be present even if empty
+      "symbols": { "query": { "types": [] } },
       "columns": standardColumns,
       "sort": { "sortBy": "market_cap_basic", "sortOrder": "desc" },
       "range": [start, end]
   });
 
-  // User-Agent Rotation to prevent soft-blocks
-  const userAgents = [
-    "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36",
-    "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36"
-  ];
-  const getRandomAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
-
-  const fetchChunk = async (payload: any, retries = 3): Promise<any> => {
+  const fetchChunk = async (payload: any, retries = 2): Promise<any> => {
       try {
-          const response = await fetch('https://scanner.tradingview.com/global/scan', {
+          const response = await fetch('https://scanner.tradingview.com/america/scan', {
             method: 'POST',
             headers: {
-                'User-Agent': getRandomAgent(),
+                // Use a standard, modern User-Agent to avoid bot detection
+                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Content-Type': 'application/json',
                 'Origin': 'https://www.tradingview.com',
                 'Referer': 'https://www.tradingview.com/'
@@ -77,7 +71,7 @@ export default async function handler(req: any, res: any) {
           if (!response.ok) {
                console.warn(`TV API Warning: ${response.status} ${response.statusText}`);
                if (retries > 0) {
-                   await new Promise(r => setTimeout(r, 1000));
+                   await new Promise(r => setTimeout(r, 1500)); // Cool down
                    return fetchChunk(payload, retries - 1);
                }
                return null;
@@ -86,7 +80,7 @@ export default async function handler(req: any, res: any) {
       } catch (e: any) {
           console.error("TV Chunk Network Error:", e.message);
           if (retries > 0) {
-              await new Promise(r => setTimeout(r, 1000));
+              await new Promise(r => setTimeout(r, 1500));
               return fetchChunk(payload, retries - 1);
           }
           return null;
@@ -95,16 +89,18 @@ export default async function handler(req: any, res: any) {
 
   try {
     let allRows: any[] = [];
-    const CHUNK_SIZE = 5000; // Maximize chunk size to reduce RTT
+    const CHUNK_SIZE = 4000; // Increased chunk size for fewer requests
     let start = 0;
-    // We aim for 20,000 high-quality assets to stay within Vercel execution limits (10s).
-    // Fetching 130k assets would likely timeout on a free serverless function.
-    let totalCount = 25000; 
+    
+    // Target: Top 12,000 assets by Market Cap.
+    // This covers virtually 100% of the relevant investable universe.
+    // Fetching more usually yields illiquid penny stocks/OTC which clog the pipeline.
+    let totalCount = 12000; 
 
-    console.log(`TV Scanner (v8.0): Initiating Pure Real Data Scan...`);
+    console.log(`TV Scanner (v9.0): Starting America Scan for ${totalCount} assets...`);
 
     while (start < totalCount) {
-        if (start >= 25000) break; // Safety brake for serverless timeout
+        if (start >= 12000) break; // Hard safety limit for Serverless Timeout
 
         const end = Math.min(start + CHUNK_SIZE, totalCount);
         const payload = getPayload(start, end);
@@ -113,21 +109,27 @@ export default async function handler(req: any, res: any) {
         
         if (chunk && chunk.data && chunk.data.length > 0) {
             allRows = allRows.concat(chunk.data);
-            totalCount = Math.min(chunk.totalCount, 25000); // Update total but respect safety brake
+            // Dynamic total count adjustment, but cap at 12k to be safe
+            const apiTotal = chunk.totalCount || 0;
+            totalCount = Math.min(apiTotal, 12000); 
+            
             console.log(`TV Scanner: Fetched [${start}-${end}]. Rows: ${chunk.data.length}. Total collected: ${allRows.length}`);
         } else {
-            console.warn(`TV Scanner: Chunk [${start}-${end}] empty or failed.`);
+            console.warn(`TV Scanner: Chunk [${start}-${end}] returned empty or failed.`);
+            // Try one fallback with looser filters if the first chunk fails entirely?
+            // For now, break to return what we have.
             break;
         }
         
         start += CHUNK_SIZE;
-        // Minimal delay to be polite but fast
-        await new Promise(r => setTimeout(r, 50)); 
+        // Minimal delay
+        await new Promise(r => setTimeout(r, 200)); 
     }
 
     if (allRows.length === 0) {
         // [CRITICAL] Do NOT return fake data. Throw error to let the frontend know.
-        throw new Error("TradingView API returned 0 assets. Possible IP Block or API change.");
+        console.error("TV Scanner: Zero assets returned. Check filters/headers.");
+        throw new Error("TradingView API returned 0 assets (America Endpoint). Possible IP Block.");
     }
 
     // Map raw array to schema
@@ -136,7 +138,7 @@ export default async function handler(req: any, res: any) {
         const val = (v: any) => (v === null || v === undefined) ? 0 : v;
 
         return {
-            symbol: r.s.split(':')[1] || r.s,
+            symbol: r.s.split(':')[1] || r.s, // Remove "NASDAQ:" prefix
             name: d[0] || "",
             price: val(d[1]),
             volume: val(d[2]),
@@ -161,7 +163,6 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('TV Proxy Fatal Error:', error.message);
-    // Return Error 500 to signal frontend to retry or handle failure, NO FAKE DATA.
     return res.status(500).json({ error: "Data Gathering Failed", details: error.message }); 
   }
 }
