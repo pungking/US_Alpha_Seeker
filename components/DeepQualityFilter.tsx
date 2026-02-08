@@ -10,7 +10,7 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [Advanced Institutional Data Structure]
 interface DeepFinancialReport {
-  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'FINNHUB' | 'POLYGON';
+  source: string;
   annual: {
     income: any[];
     balance: any[];
@@ -21,7 +21,8 @@ interface DeepFinancialReport {
     balance: any[];
     cashflow: any[];
   };
-  secData?: any; // [NEW] Official SEC Filings Metadata
+  secData?: any; 
+  xbrl?: any; // [NEW] Raw XBRL Facts
 }
 
 interface QualityTicker {
@@ -79,14 +80,7 @@ const getDailyCacheKey = (symbol: string) => {
     return `${CACHE_PREFIX}${symbol}_${today}`;
 };
 
-const SECTOR_BENCHMARKS: Record<string, number> = {
-    'Technology': 35.0, 'Health Services': 25.0, 'Consumer Services': 28.0, 
-    'Finance': 15.0, 'Energy Minerals': 14.0, 'Consumer Non-Durables': 22.0,
-    'Producer Manufacturing': 20.0, 'Utilities': 18.0, 'Transportation': 22.0,
-    'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
-};
-
-// [HELPER] Robust Value Extractor
+// [HELPER] Robust Value Extractor for Polygon/FMP
 const getPolyVal = (obj: any, keys: string[]) => {
     if (!obj) return 0;
     for (const k of keys) {
@@ -97,6 +91,32 @@ const getPolyVal = (obj: any, keys: string[]) => {
         }
     }
     return 0;
+};
+
+// [HELPER] Extract latest value from SEC XBRL facts array
+// Logic: Sort by 'end' date desc, prefer 10-K/10-Q forms.
+const getSecVal = (facts: any, tagName: string) => {
+    if (!facts || !facts[tagName] || !facts[tagName].units || !facts[tagName].units.USD) return 0;
+    const entries = facts[tagName].units.USD;
+    
+    // Filter out very old data to speed up sort (optional, but good for performance)
+    const currentYear = new Date().getFullYear();
+    const valid = entries.filter((e: any) => {
+        const year = parseInt(e.end.substring(0, 4));
+        return year >= currentYear - 2; 
+    });
+
+    if (valid.length === 0) return 0;
+
+    // Sort by end date descending
+    valid.sort((a: any, b: any) => {
+        if (a.end > b.end) return -1;
+        if (a.end < b.end) return 1;
+        return 0;
+    });
+
+    // Prefer Form 10-K for annual data if dates align, otherwise take latest
+    return valid[0].val || 0;
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
@@ -122,7 +142,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v15.0: Tiered Scanning Architecture.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v15.1: SEC XBRL Pipeline Integrated.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -131,7 +151,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  const BATCH_SIZE = 20; // Increased for lighter initial scan speed
+  const BATCH_SIZE = 25; 
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -224,21 +244,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return 0;
   };
 
-  // 1. SEC Data
-  const fetchSECData = async (cik: number): Promise<any> => {
+  // 1. SEC Data (Proxy)
+  const fetchSecXbrlFacts = async (cik: number): Promise<any> => {
       if (!cik) return null;
       try {
-          const res = await fetch(`/api/sec?cik=${cik}`);
+          // Use our proxy to fetch 'facts'
+          const res = await fetch(`/api/sec?action=facts&cik=${cik}`);
           if (!res.ok) return null;
-          return await res.json();
+          const data = await res.json();
+          // data structure: { taxonomy: 'us-gaap', facts: { Assets: {...}, ... } }
+          if (data.facts) return data.facts;
+          return null;
       } catch (e) {
           return null;
       }
   };
 
   // [TIER 1] Lightweight Scan - Ratio & Metrics Only
-  // Uses RapidAPI (FMP Cloud) or Yahoo
-  // [MODIFIED] Now accepts `inputTicker` to allow fallback
+  // Fallback Logic: Rapid -> Yahoo -> Stage 0 (Fail-Open)
   const fetchTier1Metrics = async (inputTicker: any): Promise<any> => {
       let metrics: any = null;
       const symbol = inputTicker.symbol;
@@ -278,7 +301,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           try {
               setActiveStream(`YAHOO_METRICS [${symbol}]`);
               const yahooSymbol = symbol.replace(/\./g, '-');
-              // Using a simple quote endpoint first if possible, or summary
               const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=financialData,defaultKeyStatistics`);
               if (res.ok) {
                   const data = await res.json();
@@ -292,22 +314,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           debtToEquity: safeNum(fd.debtToEquity),
                           pbr: safeNum(ks?.priceToBook),
                           currentRatio: safeNum(fd.currentRatio),
-                          operatingCashFlow: safeNum(fd.operatingCashflow) // might be null in this module
+                          operatingCashFlow: safeNum(fd.operatingCashflow)
                       };
                   }
               }
           } catch(e) {}
       }
       
-      // [FAIL-OPEN FALLBACK] If APIs fail, use Stage 0 data to keep ticker alive
+      // [FAIL-OPEN] Use Stage 0 Data if API fails
       if (!metrics) {
-          // Use data from inputTicker (Stage 0) if available
           metrics = {
               source: 'STAGE0_FALLBACK',
               per: inputTicker.pe || 0,
-              roe: inputTicker.roe || 0, // Should be decimal if from Stage 0
+              roe: inputTicker.roe || 0, 
               debtToEquity: inputTicker.debtToEquity || 0,
-              currentRatio: 0, // Unknown
+              currentRatio: 0, 
               pbr: inputTicker.pb || 0,
               operatingCashFlow: 0
           };
@@ -318,8 +339,26 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   // [TIER 2] Deep Scan - Full Financials for Top Candidates
-  const fetchDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
-      // 1. Polygon Deep (Preferred for XBRL-like structure)
+  // 1. SEC XBRL (Highest Priority)
+  // 2. Polygon Deep / Rapid (Fallback)
+  const fetchDeepFinancials = async (ticker: any): Promise<DeepFinancialReport | null> => {
+      const { symbol, cik } = ticker;
+
+      // 1. SEC EDGAR XBRL (Official Source of Truth)
+      if (cik) {
+          setActiveStream(`SEC_EDGAR_XBRL [${cik}]`);
+          const facts = await fetchSecXbrlFacts(cik);
+          if (facts) {
+               return {
+                   source: 'SEC_XBRL',
+                   annual: { income: [], balance: [], cashflow: [] }, 
+                   quarterly: { income: [], balance: [], cashflow: [] },
+                   xbrl: facts // Store raw facts for precise calc
+               };
+          }
+      }
+
+      // 2. Polygon Deep (Preferred Fallback)
       if (polygonKey) {
           setActiveStream(`POLYGON_XBRL [${symbol}]`);
           try {
@@ -349,7 +388,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch(e) {}
       }
 
-      // 2. RapidAPI (FMP Cloud) Full Statements
+      // 3. RapidAPI (FMP Cloud) Full Statements
       if (rapidKey && !rapidDepletedRef.current) {
           setActiveStream(`RAPID_DEEP [${symbol}]`);
           const host = 'fmpcloud.p.rapidapi.com';
@@ -414,6 +453,37 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const calculatePreciseZScore = (report: DeepFinancialReport, marketCap: number) => {
       try {
+          // A. SEC XBRL Calculation (Highest Precision)
+          if (report.source === 'SEC_XBRL' && report.xbrl) {
+              const facts = report.xbrl;
+              // Helper to extract
+              const getVal = (tag: string) => getSecVal(facts, tag);
+
+              const totalAssets = getVal('Assets');
+              if (!totalAssets) return 0;
+
+              // Calculate Components from US-GAAP Tags
+              const totalLiabs = getVal('Liabilities') || (getVal('LiabilitiesAndStockholdersEquity') - getVal('StockholdersEquity'));
+              const currentAssets = getVal('CurrentAssets') || getVal('AssetsCurrent');
+              const currentLiabs = getVal('CurrentLiabilities') || getVal('LiabilitiesCurrent');
+              const retainedEarnings = getVal('RetainedEarningsAccumulatedDeficit');
+              const ebit = getVal('OperatingIncomeLoss');
+              const revenue = getVal('Revenues') || getVal('RevenueFromContractWithCustomerExcludingAssessedTax');
+              
+              const workingCapital = currentAssets - currentLiabs;
+
+              // Altman Z-Score
+              const A = workingCapital / totalAssets;
+              const B = retainedEarnings / totalAssets;
+              const C = ebit / totalAssets;
+              const D = marketCap / (totalLiabs || 1); // MV Equity / Total Liabilities
+              const E = revenue / totalAssets;
+
+              const z = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
+              return isFinite(z) ? z : 0;
+          }
+
+          // B. Polygon/FMP Calculation (Fallback)
           const bs = report.annual.balance[0];
           const is = report.annual.income[0];
           if (!bs || !is) return 0;
@@ -438,7 +508,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const A = workingCapital / totalAssets;
           const B = retainedEarnings / totalAssets;
           const C = ebit / totalAssets;
-          const D = marketCap / (totalLiab || 1); // Market Value of Equity / Total Liabilities
+          const D = marketCap / (totalLiab || 1); 
           const E = revenue / totalAssets;
 
           const z = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
@@ -493,15 +563,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   return JSON.parse(cached);
               }
 
-              // Lightweight Fetch - Pass 't' for fallback data
+              // Lightweight Fetch - Pass 't' for fallback data extraction
               const metrics = await fetchTier1Metrics(t);
-              if (!metrics) return null; // Should not happen with new fallback logic
+              if (!metrics) return null; 
 
               // Preliminary Scoring (Soft Filter)
               const roe = metrics.roe || 0;
               const debt = metrics.debtToEquity || 0;
               
-              // Basic Quality Gate: Only drop if we have CONFIRMED bad data.
+              // [FAIL-OPEN] Basic Quality Gate: Only drop if confirmed bad data
               // If source is fallback, let it pass to Tier 2 for a second chance.
               if (metrics.source !== 'STAGE0_FALLBACK') {
                    // Extremely loose filter: only kill zombie companies
@@ -531,11 +601,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await new Promise(r => setTimeout(r, 100)); // Reduced throttle
       }
 
-      // --- TIER 2: DEEP MINING (XBRL Reverse Engineering) ---
+      // --- TIER 2: DEEP MINING (SEC XBRL) ---
       setAnalysisPhase('SCORING');
       
       // Select Top Candidates for Deep Scan
-      // If Tier 1 didn't filter much, we take top by market cap or initial quality proxy
       let eliteSurvivors = tier1Survivors.slice(0, TARGET_SELECTION_COUNT);
       
       if (eliteSurvivors.length === 0) {
@@ -565,16 +634,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           for (let i = 0; i < eliteSurvivors.length; i++) {
               const ticker = eliteSurvivors[i];
               
-              // 1. Fetch Deep Ledger (Polygon/Rapid)
-              const report = await fetchDeepFinancials(ticker.symbol);
+              // 1. Fetch Deep Ledger (SEC -> Polygon -> Rapid)
+              const report = await fetchDeepFinancials(ticker);
               
-              if (report && report.annual.balance.length > 0) {
+              if (report && (report.xbrl || report.annual.balance.length > 0)) {
                    // 2. Perform Precise Calculations (User's Formula)
                    const zScore = calculatePreciseZScore(report, ticker.marketCap);
                    
                    // F-Score Estimation (Simplified for brevity, can be expanded)
-                   const netIncome = getPolyVal(report.annual.income[0], ['netIncome', 'net_income']);
-                   const ocf = getPolyVal(report.annual.cashflow[0], ['operatingCashFlow', 'net_cash_flow_from_operating_activities']);
+                   let netIncome = 0, ocf = 0;
+                   if (report.source === 'SEC_XBRL' && report.xbrl) {
+                        netIncome = getSecVal(report.xbrl, 'NetIncomeLoss');
+                        ocf = getSecVal(report.xbrl, 'NetCashProvidedByUsedInOperatingActivities');
+                   } else {
+                        netIncome = getPolyVal(report.annual.income[0], ['netIncome', 'net_income']);
+                        ocf = getPolyVal(report.annual.cashflow[0], ['operatingCashFlow', 'net_cash_flow_from_operating_activities']);
+                   }
+
                    let fScore = 5;
                    if (netIncome > 0) fScore++;
                    if (ocf > 0) fScore++;
@@ -624,11 +700,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               
               const payload = {
                 manifest: { 
-                    version: "15.0.0", 
-                    strategy: "2-Tier_Hybrid_XBRL_DeepScan", 
+                    version: "15.1.0", 
+                    strategy: "2-Tier_Hybrid_SEC_XBRL_DeepScan", 
                     timestamp: new Date().toISOString(), 
                     engine: "Use_Everything",
-                    description: "Tier 1: Rapid Ratios -> Tier 2: Polygon XBRL Logic"
+                    description: "Tier 1: Rapid Ratios (Fail-Open) -> Tier 2: SEC XBRL Precision"
                 },
                 elite_universe: finalElite 
               };
@@ -836,11 +912,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v15.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v15.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? getProgressLabel() : 'Priority Queue: RapidAPI (Real) > Polygon > Yahoo'}
+                            {loading ? getProgressLabel() : 'SEC XBRL Protocol Active'}
                         </span>
                         {activeStream !== 'IDLE' && (
                              <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 bg-emerald-500/10 text-emerald-400 animate-pulse">
@@ -909,7 +985,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      {/* Stage 3: Tier 2 Deep Mining */}
                      <div className="mb-3">
                         <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_ENRICHMENT' ? 'text-white' : 'text-slate-500'}`}>3. Deep Mining (XBRL/5-Year)</span>
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_ENRICHMENT' ? 'text-white' : 'text-slate-500'}`}>3. Deep Mining (SEC XBRL)</span>
                             <span className="text-[8px] font-mono text-slate-400">{enrichProgress.current} / {enrichProgress.total}</span>
                         </div>
                         <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -975,7 +1051,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
@@ -1012,8 +1088,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                              <div>
                                                  <div className="flex items-center gap-1.5">
                                                      <p className="text-xs font-black text-white group-hover:text-blue-400 transition-colors">{item.symbol}</p>
-                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('YAHOO') || item.source.includes('FMP') || item.source.includes('POLYGON_DEEP') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
-                                                         {item.source.includes('YAHOO') || item.source.includes('FMP') || item.source.includes('POLYGON_DEEP') ? 'REAL' : 'EST'}
+                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('SEC') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
+                                                         {item.source.includes('SEC') ? 'SEC' : 'EST'}
                                                      </span>
                                                  </div>
                                                  <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
