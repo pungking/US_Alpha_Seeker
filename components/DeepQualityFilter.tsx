@@ -97,7 +97,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   // [TUNING] Batch size
   const BATCH_SIZE = 5; 
-  const REPORT_ARCHIVE_BATCH_SIZE = 4;
+  const REPORT_ARCHIVE_BATCH_SIZE = 10; // Increased for faster bulk archiving
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -425,12 +425,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       };
   };
 
-  const archiveFinancialReports = async (eliteStocks: QualityTicker[]) => {
+  const archiveFinancialReports = async (stocksToArchive: QualityTicker[]) => {
       if (!accessToken) return;
       setAnalysisPhase('REPORT_DUMP');
       
-      const targets = eliteStocks; 
-      addLog(`Archiving ${targets.length} Reports (Multi-Source)...`, "info");
+      const targets = stocksToArchive; 
+      addLog(`Archiving ${targets.length} Financial Reports (Full Universe)...`, "info");
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
       if(!folderId) {
@@ -440,14 +440,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
       let existingFiles = new Set<string>();
+      
+      // [FIX] Pagination for existing files check (Folder might contain > 1000 reports)
       try {
-          const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=files(name)`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-          }).then(r => r.json());
-          if (listRes.files) {
-              listRes.files.forEach((f: any) => existingFiles.add(f.name));
-          }
-      } catch (e) {}
+          let pageToken = null;
+          do {
+             const url = `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=nextPageToken,files(name)${pageToken ? `&pageToken=${pageToken}` : ''}`;
+             const listRes = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+             }).then(r => r.json());
+             
+             if (listRes.files) {
+                 listRes.files.forEach((f: any) => existingFiles.add(f.name));
+             }
+             pageToken = listRes.nextPageToken;
+          } while (pageToken);
+      } catch (e) {
+          console.warn("Failed to list existing reports", e);
+      }
 
       const total = targets.length;
       let skipped = 0;
@@ -486,7 +496,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await new Promise(r => setTimeout(r, 150)); 
       }
 
-      addLog(`Archives: ${archived} Saved, ${skipped} Skipped.`, "ok");
+      addLog(`Archives: ${archived} New, ${skipped} Existed. All Data Secured.`, "ok");
   };
 
   const executeDeepQualityScan = async () => {
@@ -611,8 +621,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await analyzeUniverseHealth(eliteSurvivors);
       }
 
-      // [NEW] Archive Full Reports for ALL Survivors
-      await archiveFinancialReports(eliteSurvivors);
+      // [NEW] Archive Full Reports for ALL Survivors (Valid Results)
+      // This ensures ALL collected data is preserved in GDrive for reuse
+      await archiveFinancialReports(validResults);
 
       setAnalysisPhase('COMPLETE');
 
