@@ -111,7 +111,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.3: Real-Time Drive Sync Enabled.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.4: FMP Validation & Live Dumping Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -122,7 +122,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const BATCH_SIZE = 5; 
   const TARGET_SELECTION_COUNT = 500; 
-  const REPORT_ARCHIVE_BATCH_SIZE = 5; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -294,6 +293,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const is = await isRes.json();
                   const bs = await bsRes.json();
                   const ratios = await ratioRes.json();
+
+                  // [CRITICAL] Error Check for Legacy Endpoint Message
+                  if (is['Error Message'] || bs['Error Message']) {
+                      throw new Error("FMP_LEGACY_ERROR");
+                  }
                   
                   if (Array.isArray(is) && is.length > 0) {
                       const r = ratios[0] || {};
@@ -316,7 +320,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       };
                   }
               }
-          } catch (e: any) { }
+          } catch (e: any) {
+              if (e.message === "FMP_LEGACY_ERROR" || e.message.includes("Legacy")) {
+                  fmpDepletedRef.current = true;
+                  setFmpDepleted(true);
+                  addLog("⚠️ FMP Legacy Endpoint Error. Switching to Backup.", "err");
+              }
+          }
       }
 
       // PRIORITY 3: FINNHUB (Last Resort for Metrics)
@@ -369,6 +379,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const isQ = await get('income-statement', 'period=quarter&limit=20');
           const bsQ = await get('balance-sheet-statement', 'period=quarter&limit=20');
           const cfQ = await get('cash-flow-statement', 'period=quarter&limit=20');
+          
           return {
               source: 'RAPID_FMP',
               annual: { income: isA, balance: bsA, cashflow: cfA },
@@ -434,7 +445,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       const getFmp = async (ep: string, p: string) => {
                           const r = await fetch(`https://financialmodelingprep.com/api/v3/${ep}/${ticker.symbol}?${p}&apikey=${fmpKey}`);
                           if (r.status === 429) throw new Error("FMP_429");
-                          return r.json();
+                          const data = await r.json();
+                          // [CRITICAL] Validate Response for Legacy/Error Messages
+                          if (data['Error Message']) throw new Error("FMP_LEGACY_ERROR");
+                          return data;
                       };
                       const isA = await getFmp('income-statement', 'limit=5');
                       const bsA = await getFmp('balance-sheet-statement', 'limit=5');
@@ -451,7 +465,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       };
                       ticker.source = 'FMP_DEEP_5Y';
                   } catch (e: any) {
-                      if (e.message === "FMP_429") {
+                      if (e.message === "FMP_429" || e.message === "FMP_LEGACY_ERROR") {
                           fmpDepletedRef.current = true;
                           setFmpDepleted(true);
                       }
@@ -570,11 +584,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     }
   };
 
-  // [MODIFIED] Now used only for bulk backup if needed, or deprecated
-  const archiveFinancialReports = async (stocksToArchive: QualityTicker[]) => {
-      // Logic moved to real-time sync inside enrichAndArchiveCandidates
-  };
-
   const executeDeepQualityScan = async () => {
     if (!accessToken) return;
     if (loading) return;
@@ -678,8 +687,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await analyzeUniverseHealth(eliteSurvivors);
       }
 
-      // No need to call archiveFinancialReports() here anymore as it's done real-time
-
       setAnalysisPhase('COMPLETE');
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
@@ -691,7 +698,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "10.3.0", 
+                version: "10.4.0", 
                 strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_SEC_Enhanced", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
@@ -902,7 +909,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.4</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -1041,7 +1048,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
