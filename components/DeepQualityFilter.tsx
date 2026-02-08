@@ -191,10 +191,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  // V17.2: Optimized Batch Sizes
-  const BATCH_SIZE_TIER1 = 100; // Fast scan for Stage 1 data
-  const TARGET_TIER2_COUNT = 500; // Deep dive candidates
-  const FINAL_SELECTION_COUNT = 250; // Final output
+  // V17.2: Process small batches to allow UI updates
+  const BATCH_SIZE_TIER1 = 10; 
+  const TARGET_TIER2_COUNT = 500; 
+  const FINAL_SELECTION_COUNT = 250; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -489,7 +489,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const scannedTickers: QualityTicker[] = [];
       let currentIndex = 0;
 
-      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL - Fast) ---
+      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL - Fast with Visual Delay) ---
+      setActiveStream('TIER1_SCAN');
       while (currentIndex < targets.length) {
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE_TIER1);
           
@@ -508,18 +509,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               const eps = safeNum(t.eps);
               const earningsYield = eps / price;
 
-              // Live Audit Feed (Tier 1 Metrics)
-              if (Math.random() > 0.8) {
-                   const auditData: AuditPacket = {
-                      symbol: t.symbol,
-                      stage: 'TIER1',
-                      data1: rawRoe * 100, // ROE
-                      data2: pe, // PE
-                      source: 'STAGE1_DATA',
-                      timestamp: new Date().toLocaleTimeString()
-                  };
-                  setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 7));
-              }
+              // Force update audit feed for visualization
+              const auditData: AuditPacket = {
+                  symbol: t.symbol,
+                  stage: 'TIER1',
+                  data1: rawRoe * 100, // ROE
+                  data2: pe, // PE
+                  source: 'STAGE1_DATA',
+                  timestamp: new Date().toLocaleTimeString()
+              };
+              setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 7));
 
               return {
                   ...t,
@@ -545,7 +544,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           currentIndex += BATCH_SIZE_TIER1;
           setProgress(prev => ({ ...prev, current: currentIndex }));
           
-          await new Promise(r => setTimeout(r, 0)); 
+          // Intentional delay for visualization
+          await new Promise(r => setTimeout(r, 20)); 
       }
 
       // --- RANKING PHASE ---
@@ -569,6 +569,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       // --- TIER 2: DEEP MINING (EXTERNAL API) ---
       setAnalysisPhase('DEEP_MINING');
+      setActiveStream('TIER2_DEEP_API');
       addLog(`Initiating Tier 2 Deep Mining for Top ${eliteSurvivors.length} Elite Candidates...`, "signal");
       
       const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
@@ -714,6 +715,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
 
       setAnalysisPhase('COMPLETE');
+      setActiveStream('IDLE');
 
     } catch (e: any) {
       addLog(`Error: ${e.message}`, "err");
