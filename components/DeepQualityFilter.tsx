@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
@@ -39,7 +40,7 @@ interface QualityTicker {
   // Advanced Metrics (Calculated or Retrieved)
   zScore: number;       
   fScore: number;       
-  relativePeScore: number; 
+  sectorRelativeVal: number; // Sector Neutral Value
   
   // 3-Factor Scores (0-100)
   profitabilityScore: number; 
@@ -70,12 +71,12 @@ interface QualityTicker {
   [key: string]: any;
 }
 
-// [NEW] Audit Packet for Visualization
+// [NEW] Audit Packet for Visualization (Dual Stage Support)
 interface AuditPacket {
   symbol: string;
-  roe: number;
-  debt: number;
-  per: number;
+  stage: 'TIER1' | 'TIER2'; // Scan vs Deep Dive
+  data1: number; // T1: ROE, T2: Z-Score
+  data2: number; // T1: PE, T2: F-Score
   source: string;
   timestamp: string;
 }
@@ -86,8 +87,8 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// [CACHE RESET] V17.1 Optimized: No API calls in Tier 1
-const CACHE_PREFIX = 'QUANT_CACHE_V17.1_OPTIMIZED_'; 
+// [CACHE RESET] V17.2 Upgrade: Deep Mining & Sector Neutrality
+const CACHE_PREFIX = 'QUANT_CACHE_V17.2_DEEP_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -173,7 +174,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [activeStream, setActiveStream] = useState<string>('IDLE');
   
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
-  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'TRIPLE_EXCEL_SCAN' | 'RANKING' | 'DEEP_MINING' | 'REPORT_DUMP' | 'AI_AUDIT' | 'COMPLETE'>('INIT');
+  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'TRIPLE_EXCEL_SCAN' | 'RANKING' | 'DEEP_MINING' | 'SECTOR_NEUTRAL' | 'FINAL_FILTER' | 'REPORT_DUMP' | 'AI_AUDIT' | 'COMPLETE'>('INIT');
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -181,7 +182,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v17.1: Zero-Latency Mode Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v17.2: Deep Mining & Sector Neutrality Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
@@ -190,9 +191,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  // V17.1: Process batch instantly since we use cached data
-  const BATCH_SIZE = 50; 
-  const TARGET_SELECTION_COUNT = 250; 
+  // V17.2: Optimized Batch Sizes
+  const BATCH_SIZE_TIER1 = 100; // Fast scan for Stage 1 data
+  const TARGET_TIER2_COUNT = 500; // Deep dive candidates
+  const FINAL_SELECTION_COUNT = 250; // Final output
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -225,7 +227,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging V17.1 Optimized Protocol...", "signal");
+        addLog("AUTO-PILOT: Engaging V17.2 Deep Quality Protocol...", "signal");
         executeDeepQualityScan();
     }
   }, [autoStart]);
@@ -239,8 +241,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     if (!loading) return 'Multi-Source Protocol Ready';
     switch(analysisPhase) {
         case 'TRIPLE_EXCEL_SCAN': return `Tier 1 Scan (Internal): ${progress.current}/${progress.total}`;
-        case 'RANKING': return 'Applying Triple Excel Formula...';
-        case 'DEEP_MINING': return `Tier 2 Deep Mining (External): ${enrichProgress.current}/${enrichProgress.total}`;
+        case 'RANKING': return 'Triple Excel Ranking...';
+        case 'DEEP_MINING': return `Tier 2 Deep Mining (5-Year Financials): ${enrichProgress.current}/${enrichProgress.total}`;
+        case 'SECTOR_NEUTRAL': return 'Calculating Sector Neutral Scores...';
+        case 'FINAL_FILTER': return `Final Selection (Top ${FINAL_SELECTION_COUNT})...`;
         case 'AI_AUDIT': return 'AI Risk Audit...';
         case 'COMPLETE': return 'Scan Complete';
         default: return 'Initializing...';
@@ -317,8 +321,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch(e) {}
       }
       try {
-          // Fallback to Yahoo/FMP if SEC fails
-          const res = await fetch(`/api/yahoo?symbols=${ticker.symbol}&modules=financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory`);
+          // Fallback to Yahoo (proxy) - Requests extensive modules for 5-year history
+          const modules = "financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory,earningsTrend";
+          const res = await fetch(`/api/yahoo?symbols=${ticker.symbol}&modules=${modules}`);
           if (res.ok) {
               const data = await res.json();
               return {
@@ -334,6 +339,65 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
       } catch(e) {}
       return null;
+  };
+
+  const calculatePiotroskiFScore = (report: DeepFinancialReport): number => {
+    let score = 0;
+    try {
+        const inc = report.annual.income;
+        const bal = report.annual.balance;
+        const cf = report.annual.cashflow;
+        
+        if (inc.length < 2 || bal.length < 2 || cf.length < 1) return 5; // Neutral default
+
+        // Data Helpers
+        const getVal = (arr: any[], idx: number, key: string) => getRaw(arr[idx]?.[key]);
+        
+        // 1. Profitability
+        const netIncome = getVal(inc, 0, 'netIncome');
+        const totalAssets = getVal(bal, 0, 'totalAssets');
+        const prevAssets = getVal(bal, 1, 'totalAssets');
+        const roa = totalAssets ? netIncome / totalAssets : 0;
+        const cfo = getVal(cf, 0, 'totalCashFromOperatingActivities');
+        
+        if (netIncome > 0) score++;
+        if (cfo > 0) score++;
+        
+        const prevNetIncome = getVal(inc, 1, 'netIncome');
+        const prevRoa = prevAssets ? prevNetIncome / prevAssets : 0;
+        if (roa > prevRoa) score++;
+        
+        if (cfo > netIncome) score++;
+
+        // 2. Leverage/Liquidity
+        const longTermDebt = getVal(bal, 0, 'longTermDebt');
+        const prevLongTermDebt = getVal(bal, 1, 'longTermDebt');
+        if (longTermDebt < prevLongTermDebt) score++;
+        
+        const currentRatio = getVal(bal, 0, 'totalCurrentAssets') / (getVal(bal, 0, 'totalCurrentLiabilities') || 1);
+        const prevCurrentRatio = getVal(bal, 1, 'totalCurrentAssets') / (getVal(bal, 1, 'totalCurrentLiabilities') || 1);
+        if (currentRatio > prevCurrentRatio) score++;
+        
+        score++; // Share dilution check omitted (assume positive)
+
+        // 3. Operating Efficiency
+        const grossProfit = getVal(inc, 0, 'grossProfit');
+        const revenue = getVal(inc, 0, 'totalRevenue');
+        const grossMargin = revenue ? grossProfit / revenue : 0;
+        
+        const prevGrossProfit = getVal(inc, 1, 'grossProfit');
+        const prevRevenue = getVal(inc, 1, 'totalRevenue');
+        const prevGrossMargin = prevRevenue ? prevGrossProfit / prevRevenue : 0;
+        if (grossMargin > prevGrossMargin) score++;
+        
+        const assetTurnover = revenue / ((totalAssets + prevAssets)/2 || 1);
+        const prevAssetTurnover = prevRevenue / ((prevAssets + getVal(bal, 2, 'totalAssets') || prevAssets)/2 || 1); 
+        if (assetTurnover > prevAssetTurnover) score++;
+        
+    } catch (e) {
+        return 5;
+    }
+    return score;
   };
 
   const calculatePreciseZScore = (report: DeepFinancialReport, marketCap: number) => {
@@ -393,38 +457,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       });
   };
 
-  // [TIER 1 OPTIMIZED] Zero-Cost Scan
-  // Uses data already present in 'inputTicker' (from Stage 0)
-  // Only use API if critical data is completely missing and we *really* need it.
-  const fetchTier1Metrics = async (inputTicker: any): Promise<any> => {
-      const symbol = inputTicker.symbol;
-      
-      // Use existing data from Stage 0 if available
-      // Stage 0 sources (TradingView) usually provide PE, ROE, EPS.
-      // We accept 0/null values here and filter them out via scoring later.
-      const metrics = {
-          source: inputTicker.source || 'STAGE0_CACHE',
-          per: safeNum(inputTicker.pe),
-          roe: safeNum(inputTicker.roe), // TradingView usually provides direct number
-          eps: safeNum(inputTicker.eps),
-          debtToEquity: safeNum(inputTicker.debtToEquity), // Often missing in Stage 0, but acceptable
-          pbr: safeNum(inputTicker.pb),
-          currentRatio: 0, // Usually requires deep scan
-          operatingCashFlow: 0 
-      };
-
-      // Only if we have ABSOLUTELY NO data, try a lightweight fallback (rare)
-      // This prevents the 429 errors by avoiding API calls for 99% of tickers
-      if (metrics.per === 0 && metrics.roe === 0 && rapidKey) {
-          try {
-              // ... fallback logic (rarely used now)
-          } catch(e) {}
-      }
-      
-      setActiveStream('INTERNAL_CACHE');
-      return metrics;
-  };
-
   const executeDeepQualityScan = async () => {
     if (!accessToken) return;
     if (loading) return;
@@ -457,16 +489,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const scannedTickers: QualityTicker[] = [];
       let currentIndex = 0;
 
-      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL) ---
-      // This loop is now very fast because it avoids API calls
+      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL - Fast) ---
       while (currentIndex < targets.length) {
-          const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE);
+          const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE_TIER1);
           
           const batchResults = batch.map((t: any) => {
-              // Direct mapping from Stage 0 data
               const price = t.price || 1;
               const pe = Math.max(0.1, safeNum(t.pe));
-              const rawRoe = safeNum(t.roe); // TradingView usually is decimal
+              const rawRoe = safeNum(t.roe); 
               
               // 1. Winsorization
               const winsorizedRoe = winsorize(rawRoe, -0.5, 0.4);
@@ -478,13 +508,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               const eps = safeNum(t.eps);
               const earningsYield = eps / price;
 
-              // Live Audit Feed (Fake latency to show processing)
-              if (Math.random() > 0.9) {
+              // Live Audit Feed (Tier 1 Metrics)
+              if (Math.random() > 0.8) {
                    const auditData: AuditPacket = {
                       symbol: t.symbol,
-                      roe: rawRoe * 100,
-                      debt: safeNum(t.debtToEquity),
-                      per: pe,
+                      stage: 'TIER1',
+                      data1: rawRoe * 100, // ROE
+                      data2: pe, // PE
                       source: 'STAGE1_DATA',
                       timestamp: new Date().toLocaleTimeString()
                   };
@@ -512,16 +542,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           });
 
           scannedTickers.push(...batchResults);
-          currentIndex += BATCH_SIZE;
+          currentIndex += BATCH_SIZE_TIER1;
           setProgress(prev => ({ ...prev, current: currentIndex }));
           
-          // Tiny yield to let UI update
           await new Promise(r => setTimeout(r, 0)); 
       }
 
       // --- RANKING PHASE ---
       setAnalysisPhase('RANKING');
-      addLog(`Ranking ${scannedTickers.length} assets with Triple Excel Formula...`, "info");
+      addLog(`Tier 1 Scanned: ${scannedTickers.length} assets. Calculating Triple Excel Ranks...`, "info");
       
       normalizeScores(scannedTickers, 'profitDensity');
       normalizeScores(scannedTickers, 'earningsYield');
@@ -536,15 +565,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       });
 
       scannedTickers.sort((a, b) => b.qualityScore - a.qualityScore);
-      let eliteSurvivors = scannedTickers.slice(0, TARGET_SELECTION_COUNT);
+      let eliteSurvivors = scannedTickers.slice(0, TARGET_TIER2_COUNT);
       
       // --- TIER 2: DEEP MINING (EXTERNAL API) ---
-      // Only now do we call the expensive APIs
       setAnalysisPhase('DEEP_MINING');
-      addLog(`Initiating Tier 2 Deep Mining (SEC/FMP) for Top ${eliteSurvivors.length} Elite Candidates...`, "signal");
+      addLog(`Initiating Tier 2 Deep Mining for Top ${eliteSurvivors.length} Elite Candidates...`, "signal");
       
       const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
-      const finalElite: QualityTicker[] = [];
+      const finalCandidates: QualityTicker[] = [];
       
       setEnrichProgress({ current: 0, total: eliteSurvivors.length });
       let archiveCount = 0;
@@ -556,8 +584,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const report = await fetchDeepFinancials(ticker);
           
           if (report && (report.xbrl || report.annual.balance.length > 0)) {
+               // 1. Z-Score
                const zScore = calculatePreciseZScore(report, ticker.marketCap);
+               
+               // 2. F-Score (Piotroski)
+               const fScore = calculatePiotroskiFScore(report);
+
                ticker.zScore = Number(zScore.toFixed(2));
+               ticker.fScore = fScore;
                ticker.financialReport = report;
                ticker.source = `TIER2_${report.source}`;
                
@@ -571,20 +605,78 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                    await uploadSingleReport(reportsFolderId, ticker);
                    archiveCount++;
                }
-               finalElite.push(ticker);
+               
+               // Live Audit Feed (Tier 2 Metrics)
+               const auditData: AuditPacket = {
+                   symbol: ticker.symbol,
+                   stage: 'TIER2',
+                   data1: ticker.zScore,
+                   data2: ticker.fScore,
+                   source: ticker.source,
+                   timestamp: new Date().toLocaleTimeString()
+               };
+               setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 7));
+               
+               finalCandidates.push(ticker);
           } else {
-              // If Deep Scan fails, we still keep it but flag it
-              ticker.zScore = 1.8; // Safe default
-              finalElite.push(ticker);
+              // If Deep Scan fails, assume neutral but penalize slightly
+              ticker.zScore = 1.8; 
+              ticker.fScore = 5;
+              finalCandidates.push(ticker);
           }
 
           setEnrichProgress({ current: i + 1, total: eliteSurvivors.length });
           setReportProgress(prev => ({ ...prev, current: i + 1, archived: archiveCount }));
           
-          // Throttling for Tier 2 to prevent 429
-          await new Promise(r => setTimeout(r, 250));
+          // Throttling for Tier 2
+          await new Promise(r => setTimeout(r, 200));
       }
+
+      // --- SECTOR NEUTRALITY & FINAL FILTER ---
+      setAnalysisPhase('SECTOR_NEUTRAL');
+      addLog("Calculating Sector Neutral Value Scores...", "info");
       
+      // Calculate Sector Medians (PE/PB)
+      const sectorStats: Record<string, { peSum: number, pbSum: number, count: number }> = {};
+      finalCandidates.forEach(t => {
+          if(!sectorStats[t.sector]) sectorStats[t.sector] = { peSum: 0, pbSum: 0, count: 0 };
+          sectorStats[t.sector].peSum += t.per;
+          sectorStats[t.sector].pbSum += t.pbr;
+          sectorStats[t.sector].count++;
+      });
+      
+      const sectorMedians: Record<string, { pe: number, pb: number }> = {};
+      Object.keys(sectorStats).forEach(s => {
+          sectorMedians[s] = {
+              pe: sectorStats[s].peSum / sectorStats[s].count,
+              pb: sectorStats[s].pbSum / sectorStats[s].count
+          };
+      });
+
+      // Assign Relative Scores
+      finalCandidates.forEach(t => {
+          const med = sectorMedians[t.sector];
+          let relScore = 50;
+          if (med && t.per > 0 && t.pbr > 0) {
+              const peRel = med.pe / t.per;
+              const pbRel = med.pb / t.pbr;
+              relScore = Math.min(100, (peRel * 50 + pbRel * 50));
+          }
+          t.sectorRelativeVal = Number(relScore.toFixed(2));
+          
+          // Final Composite V17.2 Score
+          // Quality(Tier1) 30% + F-Score 20% + Z-Score 20% + RelativeVal 30%
+          const fScoreNorm = (t.fScore / 9) * 100;
+          const zScoreNorm = Math.min(100, Math.max(0, (t.zScore / 5) * 100));
+          
+          t.qualityScore = Number(((t.qualityScore * 0.3) + (fScoreNorm * 0.2) + (zScoreNorm * 0.2) + (t.sectorRelativeVal * 0.3)).toFixed(2));
+      });
+
+      // Cut to Top 250
+      setAnalysisPhase('FINAL_FILTER');
+      finalCandidates.sort((a, b) => b.qualityScore - a.qualityScore);
+      const finalElite = finalCandidates.slice(0, FINAL_SELECTION_COUNT);
+
       setProcessedData(finalElite);
       setAnalysisPhase('AI_AUDIT');
       await analyzeUniverseHealth(finalElite);
@@ -599,11 +691,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "17.1.0", 
-                strategy: "V17.1_Hybrid_Optimized_Scan", 
+                version: "17.2.0", 
+                strategy: "V17.2_Deep_Sector_Neutral_Alpha", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
-                description: "Tier 1: Internal Triple Excel -> Tier 2: External SEC/FMP Deep Dive"
+                description: "Tier 1: Triple Excel -> Tier 2: F-Score/Z-Score/Relative Value (5-Year Deep Dive)"
             },
             elite_universe: finalElite 
           };
@@ -697,7 +789,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const getPhaseStyle = (phase: string) => {
-      const phases = ['TRIPLE_EXCEL_SCAN', 'RANKING', 'DEEP_MINING', 'AI_AUDIT', 'COMPLETE'];
+      const phases = ['TRIPLE_EXCEL_SCAN', 'RANKING', 'DEEP_MINING', 'SECTOR_NEUTRAL', 'FINAL_FILTER', 'AI_AUDIT', 'COMPLETE'];
       const currentIdx = phases.indexOf(analysisPhase);
       const targetIdx = phases.indexOf(phase);
       
@@ -730,7 +822,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     const prompt = `
     Please analyze the following stock portfolio metrics and write a professional risk audit report in Korean.
     
-    Portfolio Data (Triple Excel Strategy):
+    Portfolio Data (Triple Excel + Deep Quality Strategy):
     - Asset Count: ${totalCount}
     - Average Quality Score: ${avgScore} (0-100)
     - Average Altman Z-Score: ${avgZ}
@@ -810,7 +902,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v17.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v17.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -855,7 +947,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     </div>
 
                     <div className="flex justify-between items-center mb-6">
-                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Execution Pipeline (V17.1)</p>
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Execution Pipeline (V17.2)</p>
                     </div>
 
                     {/* Stage 1: Tier 1 Scan */}
@@ -869,25 +961,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                         </div>
                     </div>
 
-                    {/* Stage 2: Scoring */}
+                    {/* Stage 2: Tier 2 Deep Mining */}
                     <div className="mb-3">
                          <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'RANKING' || analysisPhase === 'TRIPLE_EXCEL_SCAN' ? 'text-white' : 'text-slate-500'}`}>2. Ranking & Selection</span>
-                             <span className="text-[8px] font-mono text-slate-400">{progress.current > 0 ? 'Active' : 'Pending'}</span>
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_MINING' || analysisPhase === 'SECTOR_NEUTRAL' ? 'text-white' : 'text-slate-500'}`}>2. Tier 2 Deep Mining (API)</span>
+                             <span className="text-[8px] font-mono text-slate-400">{enrichProgress.current} / {enrichProgress.total}</span>
                         </div>
                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                            <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${(enrichProgress.current / (enrichProgress.total || 1)) * 100}%` }}></div>
                         </div>
                     </div>
 
-                     {/* Stage 3: Tier 2 Deep Mining */}
+                     {/* Stage 3: Sector & Final */}
                      <div className="mb-3">
                         <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_MINING' ? 'text-white' : 'text-slate-500'}`}>3. Deep Mining (SEC/FMP API)</span>
-                            <span className="text-[8px] font-mono text-slate-400">{enrichProgress.current} / {enrichProgress.total}</span>
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'FINAL_FILTER' || analysisPhase === 'AI_AUDIT' ? 'text-white' : 'text-slate-500'}`}>3. Sector Neutrality & Final Filter</span>
+                            <span className="text-[8px] font-mono text-slate-400">{analysisPhase === 'FINAL_FILTER' ? 'Filtering...' : 'Pending'}</span>
                         </div>
                         <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-violet-500 transition-all duration-300" style={{ width: `${(enrichProgress.current / (enrichProgress.total || 1)) * 100}%` }}></div>
+                            <div className="h-full bg-violet-500 transition-all duration-300" style={{ width: `${analysisPhase === 'FINAL_FILTER' || analysisPhase === 'COMPLETE' ? 100 : 0}%` }}></div>
                         </div>
                     </div>
 
@@ -1043,13 +1135,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                    <div key={`${item.symbol}-${idx}`} className="flex justify-between items-center p-2 rounded-lg bg-white/5 border border-white/5 text-[9px] font-mono animate-in fade-in slide-in-from-right-2">
                        <div className="flex items-center gap-2">
                            <span className="text-white font-bold w-10">{item.symbol}</span>
-                           <span className={`px-1 rounded text-[7px] font-bold ${item.source.includes('STAGE0') ? 'bg-amber-500/20 text-amber-500' : 'bg-emerald-500/20 text-emerald-500'}`}>
-                               {item.source.includes('STAGE0') ? 'EST' : 'REAL'}
+                           <span className={`px-1 rounded text-[7px] font-bold ${item.stage === 'TIER2' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>
+                               {item.stage === 'TIER2' ? 'DEEP' : 'SCAN'}
                            </span>
                        </div>
-                       <div className="flex gap-3 text-slate-400">
-                           <span>ROE: <span className={item.roe > 0 ? 'text-emerald-400' : 'text-rose-400'}>{item.roe.toFixed(1)}%</span></span>
-                           <span>Debt: {item.debt.toFixed(1)}</span>
+                       <div className="flex gap-3 text-slate-400 font-mono">
+                           {item.stage === 'TIER1' ? (
+                               <>
+                                   <span>ROE: <span className={item.data1 > 15 ? 'text-emerald-400' : 'text-slate-400'}>{item.data1.toFixed(1)}%</span></span>
+                                   <span>PE: {item.data2.toFixed(1)}</span>
+                               </>
+                           ) : (
+                               <>
+                                   <span>Z-Sc: <span className={item.data1 > 2.99 ? 'text-emerald-400' : item.data1 < 1.8 ? 'text-rose-400' : 'text-amber-400'}>{item.data1.toFixed(2)}</span></span>
+                                   <span>F-Sc: <span className={item.data2 >= 7 ? 'text-blue-400' : 'text-slate-400'}>{item.data2}</span></span>
+                               </>
+                           )}
                        </div>
                    </div>
                )) : (
