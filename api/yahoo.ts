@@ -1,7 +1,7 @@
 
 export default async function handler(req: any, res: any) {
-  // Yahoo Finance Proxy v4.1: "Deep Drill" Strategy
-  // Targets v10 quoteSummary for full ledger acquisition.
+  // Yahoo Finance Proxy v5.0: "Polymer" Strategy
+  // Features: Rotational User-Agents, Dual Endpoint Fallback (v10 -> v7)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -19,45 +19,70 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Missing symbols query param' });
   }
 
-  // Improved Browser Masquerade
+  // [STEALTH MODE] Advanced User-Agent Rotation Pool
   const userAgents = [
       'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/118.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36 Edg/119.0.0.0',
+      'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.2 Safari/605.1.15',
+      'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:121.0) Gecko/20100101 Firefox/121.0'
   ];
-  const userAgent = userAgents[Math.floor(Math.random() * userAgents.length)];
+  
+  const getRandomAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
-  // STRATEGY 1: DEEP LEDGER FETCH (v10 quoteSummary)
-  // This endpoint returns EVERYTHING: Balance Sheet, Cash Flow, Income Statement, Earnings, Statistics.
+  // Helper to fetch with retry and rotation
+  const fetchWithRotation = async (url: string, retries = 1): Promise<any> => {
+      try {
+          const response = await fetch(url, {
+              headers: {
+                  'User-Agent': getRandomAgent(),
+                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+                  'Accept-Language': 'en-US,en;q=0.9',
+                  'Connection': 'keep-alive',
+                  'Upgrade-Insecure-Requests': '1',
+                  'Sec-Fetch-Dest': 'document',
+                  'Sec-Fetch-Mode': 'navigate',
+                  'Sec-Fetch-Site': 'none',
+                  'Sec-Fetch-User': '?1',
+                  'Cache-Control': 'no-cache',
+                  'Pragma': 'no-cache'
+              }
+          });
+          
+          if (!response.ok) {
+              if (retries > 0 && response.status === 429) {
+                   await new Promise(r => setTimeout(r, 1000)); // Cool down
+                   return fetchWithRotation(url, retries - 1);
+              }
+              throw new Error(`HTTP_${response.status}`);
+          }
+          return response.json();
+      } catch (e) {
+          throw e;
+      }
+  };
+
+  // STRATEGY 1: DEEP LEDGER FETCH (v10 quoteSummary) -> Fallback to v7 quote
   if (modules) {
     try {
-      const symbol = symbols.split(',')[0]; // quoteSummary only supports one symbol at a time usually
-      const url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=${modules}&formatting=false&corsDomain=finance.yahoo.com`;
+      const symbol = String(symbols).split(',')[0];
+      const urlV10 = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${symbol}?modules=${modules}&formatting=false&corsDomain=finance.yahoo.com`;
       
-      const response = await fetch(url, {
-          headers: {
-              'User-Agent': userAgent,
-              'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
-              'Accept-Language': 'en-US,en;q=0.9', // Added to look more legitimate
-              'Accept-Encoding': 'gzip, deflate, br',
-              'Cache-Control': 'no-cache', // Bypass upstream caches
-              'Connection': 'keep-alive',
-              'Referer': 'https://finance.yahoo.com',
-              'Origin': 'https://finance.yahoo.com'
-          }
-      });
-
-      if (!response.ok) {
-           console.warn(`Yahoo v10 failed for ${symbol}: ${response.status}`);
-           return res.status(200).json({}); // Return empty to allow fallback logic in frontend
+      try {
+          const data = await fetchWithRotation(urlV10);
+          const result = data.quoteSummary?.result?.[0] || {};
+          if (Object.keys(result).length === 0) throw new Error("Empty V10 Response");
+          
+          res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+          return res.status(200).json(result);
+      } catch (v10Error) {
+          console.warn(`Yahoo v10 failed for ${symbol}, falling back to v7. Error:`, v10Error);
+          // FALLBACK to v7 (Summary only)
+          const urlV7 = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbol}`;
+          const dataV7 = await fetchWithRotation(urlV7);
+          // Return as array to signal it's a fallback list
+          return res.status(200).json(dataV7.quoteResponse?.result || []); 
       }
-
-      const data = await response.json();
-      const result = data.quoteSummary?.result?.[0] || {};
-      
-      // Cache for performance
-      res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
-      return res.status(200).json(result);
       
     } catch (error: any) {
       console.error("Yahoo Deep Scan Error:", error);
@@ -66,24 +91,9 @@ export default async function handler(req: any, res: any) {
   }
 
   // STRATEGY 2: BULK QUOTE FETCH (v7 quote) - Fast, lightweight
-  // Used for price updates and simple metrics
   try {
     const url = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-    
-    const response = await fetch(url, {
-        headers: {
-            'User-Agent': userAgent,
-            'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8',
-            'Accept-Language': 'en-US,en;q=0.9',
-            'Connection': 'keep-alive'
-        }
-    });
-
-    if (!response.ok) {
-        return res.status(response.status).json({ error: 'Upstream Error' });
-    }
-    
-    const data = await response.json();
+    const data = await fetchWithRotation(url);
     const result = data.quoteResponse?.result || [];
 
     const mappedData = result.map((item: any) => ({
