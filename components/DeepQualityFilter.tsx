@@ -111,7 +111,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.5: RapidAPI Fallback Enhanced.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.6: Archiving & Enrichment Patch Applied.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -429,6 +429,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           // Identify if current report is insufficient (Metric only or missing)
           const isWeakSource = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
           const hasEmptyReport = !report || (report.source === 'FINNHUB' && Object.keys(report.annual).length === 0);
+          
+          // [CRITICAL FIX] Always try enrichment if data is not deep (missing full history)
+          // Previously, this only checked specific source strings, missing some fallback cases.
           const needsEnrichment = isWeakSource || hasEmptyReport;
 
           // [SEC INTEGRATION] Fetch SEC metadata if CIK exists - Highest Priority
@@ -480,7 +483,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              // 2. Try RapidAPI (if FMP failed/depleted/skipped)
+              // 2. Try RapidAPI (if FMP failed/depleted or was skipped)
+              // [CRITICAL FIX] Removed condition checking for 'FMP' source only.
+              // Now it runs if FMP failed OR if enrichment failed previously.
               if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
                   
                   if (!rapidActive) setRapidActive(true);
@@ -561,13 +566,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return { qualityScore: Number(qScore.toFixed(2)), zScore: Number(zScore.toFixed(2)), fScore, profitScore, stabilityScore: Math.min(100, zScore*25), valScore, validityScore: validity };
   };
 
-  // [UPDATED] Robust File Upload & Creation
+  // [UPDATED] Robust File Upload & Creation with Root Fallback
   const ensureFolder = async (token: string, name: string) => {
     try {
         const rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
-        // Check if folder exists
-        const q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
-        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+        
+        // 1. Try finding in the specified root folder
+        let q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
+        let res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
           headers: { 'Authorization': `Bearer ${token}` }
         }).then(r => r.json());
         
@@ -575,18 +581,40 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
             return res.files[0].id;
         }
 
-        // Create folder
-        const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-          method: 'POST',
-          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
+        // 2. If not found in specified root, check user's Drive root (Fallback)
+        q = encodeURIComponent(`name = '${name}' and 'root' in parents and trashed = false`);
+        res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
         }).then(r => r.json());
-        
-        if (create.error) throw new Error(create.error.message);
-        return create.id;
+
+        if (res.files && res.files.length > 0) {
+            return res.files[0].id;
+        }
+
+        // 3. Create folder (Try in specified root first, fallback to 'root' if fails)
+        try {
+             const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
+              }).then(r => r.json());
+              
+             if (create.error) throw new Error(create.error.message);
+             return create.id;
+        } catch(createError) {
+             // Fallback create in 'root'
+             const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
+              }).then(r => r.json());
+             
+             if (createRoot.error) throw new Error(createRoot.error.message);
+             return createRoot.id;
+        }
 
     } catch (e: any) {
-        console.error("ensureFolder failed:", e);
+        console.error("ensureFolder failed completely:", e);
         return null; // Handle null in caller
     }
   };
@@ -686,7 +714,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
              addLog(`Live Sync: All reports archived to ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder}`, "ok");
           } else {
              addLog("Warning: Reports folder unavailable. Running enrichment without sync.", "warn");
-             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, ""); // Fallback to non-archiving version if needed
+             // Still run enrichment even if archive folder fails, so we get Real Data
+             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, ""); 
           }
 
           setProcessedData(eliteSurvivors);
@@ -705,7 +734,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "10.5.0", 
+                version: "10.6.0", 
                 strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_SEC_Enhanced", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
@@ -916,7 +945,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.6</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -1055,7 +1084,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
