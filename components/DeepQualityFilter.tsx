@@ -10,7 +10,7 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [Advanced Institutional Data Structure]
 interface DeepFinancialReport {
-  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'FINNHUB';
+  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'ESTIMATE';
   annual: {
     income: any[];
     balance: any[];
@@ -21,7 +21,6 @@ interface DeepFinancialReport {
     balance: any[];
     cashflow: any[];
   };
-  secData?: any; // [NEW] Official SEC Filings Metadata
 }
 
 interface QualityTicker {
@@ -56,8 +55,7 @@ interface QualityTicker {
   industry: string;
   theme: string; 
   lastUpdate: string;
-  source: string;
-  cik?: number; // SEC CIK 
+  source: string; 
 
   // [DATA PRESERVATION] Store raw financial report (Deep Ledger)
   financialReport?: DeepFinancialReport; 
@@ -71,7 +69,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v9_'; // Version bumped for restored logic
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v6_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -79,6 +77,7 @@ const getDailyCacheKey = (symbol: string) => {
     return `${CACHE_PREFIX}${symbol}_${today}`;
 };
 
+// [Sector Benchmarks for Relative Valuation]
 const SECTOR_BENCHMARKS: Record<string, number> = {
     'Technology': 35.0, 'Health Services': 25.0, 'Consumer Services': 28.0, 
     'Finance': 15.0, 'Energy Minerals': 14.0, 'Consumer Non-Durables': 22.0,
@@ -89,16 +88,14 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
-  
-  // Granular Progress Tracking
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
-  const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
   const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
-  // Source Management
-  const [activeStream, setActiveStream] = useState<string>('IDLE');
+  // [CIRCUIT BREAKERS - UI STATE]
   const [fmpDepleted, setFmpDepleted] = useState(false);
   const [rapidActive, setRapidActive] = useState(false);
+  
+  // [CIRCUIT BREAKERS - HARD REFS] (Instant Kill Switch)
   const fmpDepletedRef = useRef(false);
   const rapidDepletedRef = useRef(false);
 
@@ -111,16 +108,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.9: Restored Deep Drill Protocol (Legacy).']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.0: RapidAPI Backup Integration Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key; // Only for metadata now
   
   const logRef = useRef<HTMLDivElement>(null);
 
+  // [TUNING] Batch size
   const BATCH_SIZE = 5; 
+  const ENRICHMENT_BATCH_SIZE = 2; // Conservative for heavy data
+  const REPORT_ARCHIVE_BATCH_SIZE = 10;
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -134,25 +135,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
         let etaSec = 0;
-        
-        // Calculate ETA based on the current active phase
-        if (analysisPhase === 'HYBRID_SCAN' && progress.current > 0 && progress.total > 0) {
+        if (progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
-        } else if (analysisPhase === 'DEEP_ENRICHMENT' && enrichProgress.current > 0 && enrichProgress.total > 0) {
-            // Re-calculate for enrichment phase which is slower
-            const enrichElapsed = elapsedSec; // Simplified
-            const rate = enrichProgress.current / (enrichElapsed || 1);
-            const remaining = enrichProgress.total - enrichProgress.current;
-            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
-
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [loading, progress, enrichProgress, analysisPhase]);
+  }, [loading, progress]);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -166,14 +158,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
+  // [UI HELPER] Dynamic Progress Label
   const getProgressLabel = () => {
     if (!loading) return 'Multi-Source Protocol Ready';
     switch(analysisPhase) {
-        case 'HYBRID_SCAN': return `Scanning Market: ${progress.current}/${progress.total}`;
-        case 'SCORING': return 'Calculating Composite Scores...';
-        case 'DEEP_ENRICHMENT': return `Deep Mining & Sync: ${enrichProgress.current}/${enrichProgress.total}`;
+        case 'HYBRID_SCAN': return `Scanning: ${progress.current}/${progress.total}`;
+        case 'SCORING': return 'Calculating Quant Scores...';
+        case 'DEEP_ENRICHMENT': return `Deep Fetching (5Y Data)...`;
         case 'AI_AUDIT': return 'AI Risk Audit...';
-        case 'REPORT_DUMP': return `Finalizing Archives...`;
+        case 'REPORT_DUMP': return `Archiving Reports...`;
         case 'COMPLETE': return 'Scan Complete';
         default: return 'Initializing...';
     }
@@ -214,52 +207,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Number(val) || 0;
   };
 
-  // --- DATA ACQUISITION & PRIORITY LOGIC ---
-
-  // 1. SEC Data (Identity & Compliance) - Highest Priority
-  const fetchSECData = async (cik: number): Promise<any> => {
-      if (!cik) return null;
-      try {
-          const res = await fetch(`/api/sec?cik=${cik}`);
-          if (!res.ok) return null;
-          return await res.json();
-      } catch (e) {
-          return null;
-      }
-  };
-
+  // --- OMNI-CHANNEL DATA ACQUISITION ---
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let financials: any = null;
 
-      // PRIORITY 1: YAHOO FINANCE (RESTORED v10 DEEP STRATEGY)
-      // This is the "Powerful" method from the old code that pulls everything at once.
+      // 1. YAHOO V10 STRATEGY (The "Powerful" Method - Single Call)
       try {
-          setActiveStream(`YAHOO_V10_STREAM [${symbol}]`);
           const yahooSymbol = symbol.replace(/\./g, '-');
-          
-          // [RESTORED] Full list of modules from Old Code
           const modules = [
-              'financialData', 
-              'defaultKeyStatistics', 
-              'summaryDetail',
-              'balanceSheetHistory', 
-              'balanceSheetHistoryQuarterly',
-              'incomeStatementHistory', 
-              'incomeStatementHistoryQuarterly', 
-              'cashflowStatementHistory', 
-              'cashflowStatementHistoryQuarterly',
-              'earningsTrend' // Added from old code for completeness
+              'financialData', 'defaultKeyStatistics', 'summaryDetail',
+              'balanceSheetHistory', 'balanceSheetHistoryQuarterly',
+              'incomeStatementHistory', 'incomeStatementHistoryQuarterly', 
+              'cashflowStatementHistory', 'cashflowStatementHistoryQuarterly'
           ].join(',');
 
           const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=${modules}`);
           if (res.ok) {
               const data = await res.json();
               if (data && (data.balanceSheetHistory || data.financialData)) {
-                  // Reconstructing the specific structure expected by old logic
-                  const annualIncome = data.incomeStatementHistory?.incomeStatementHistory || [];
-                  const annualBalance = data.balanceSheetHistory?.balanceSheetStatements || [];
-                  const annualCashflow = data.cashflowStatementHistory?.cashflowStatements || [];
-
                   financials = {
                       source: 'YAHOO_FULL',
                       raw: data,
@@ -269,13 +234,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       pbr: safeNum(data.defaultKeyStatistics?.priceToBook),
                       debtToEquity: safeNum(data.financialData?.debtToEquity),
                       currentRatio: safeNum(data.financialData?.currentRatio),
-                      operatingCashFlow: safeNum(annualCashflow[0]?.totalCashFromOperatingActivities),
+                      operatingCashFlow: safeNum(data.cashflowStatementHistory?.cashflowStatements?.[0]?.totalCashFromOperatingActivities),
                       financialReport: {
                           source: 'YAHOO',
                           annual: {
-                              income: annualIncome,
-                              balance: annualBalance,
-                              cashflow: annualCashflow
+                              income: data.incomeStatementHistory?.incomeStatementHistory || [],
+                              balance: data.balanceSheetHistory?.balanceSheetStatements || [],
+                              cashflow: data.cashflowStatementHistory?.cashflowStatements || []
                           },
                           quarterly: {
                               income: data.incomeStatementHistoryQuarterly?.incomeStatementHistory || [],
@@ -283,17 +248,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               cashflow: data.cashflowStatementHistoryQuarterly?.cashflowStatements || []
                           }
                       },
-                      // Valid if we have at least 2 years of history
-                      hasHistory: annualBalance.length > 1
+                      hasHistory: (data.balanceSheetHistory?.balanceSheetStatements?.length || 0) > 1
                   };
               }
           }
       } catch (e: any) { }
 
-      // PRIORITY 2: FMP (Ratio Verification & Backup)
+      // 2. FMP STRATEGY (Screening Lite Mode)
       if (!financials && fmpKey && !fmpDepletedRef.current) {
           try {
-              setActiveStream(`FMP_DIRECT_STREAM [${symbol}]`);
               const [isRes, bsRes, ratioRes] = await Promise.all([
                   fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=2&apikey=${fmpKey}`),
                   fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=2&apikey=${fmpKey}`),
@@ -301,15 +264,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               ]);
 
               if (isRes.status === 429 || bsRes.status === 429) {
-                  fmpDepletedRef.current = true;
+                  fmpDepletedRef.current = true; // HARD TRIP
                   setFmpDepleted(true);
                   addLog("⚠️ FMP Rate Limit. Switching to Backup.", "err");
               } else if (isRes.ok && bsRes.ok && ratioRes.ok) {
                   const is = await isRes.json();
                   const bs = await bsRes.json();
                   const ratios = await ratioRes.json();
-
-                  if (is['Error Message'] || bs['Error Message']) throw new Error("FMP_LEGACY_ERROR");
                   
                   if (Array.isArray(is) && is.length > 0) {
                       const r = ratios[0] || {};
@@ -332,18 +293,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       };
                   }
               }
-          } catch (e: any) {
-              if (e.message === "FMP_LEGACY_ERROR") {
-                  fmpDepletedRef.current = true;
-                  setFmpDepleted(true);
-              }
-          }
+          } catch (e: any) { }
       }
 
-      // PRIORITY 3: FINNHUB (Last Resort)
+      // 3. FINNHUB STRATEGY (Metric Fallback)
       if (!financials && finnhubKey) {
           try {
-              setActiveStream(`FINNHUB_METRIC [${symbol}]`);
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
               if (res.ok) {
                   const json = await res.json();
@@ -367,21 +322,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               }
           } catch (e) { }
       }
-      
-      setActiveStream('IDLE');
+
       return financials;
   };
 
-  // [RESTORED] Explicit Deep Fetch for RapidAPI (FMP Mirror) from Old Code
-  // This was the logic that guaranteed 5-year data in the old version.
-  const fetchRapidDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
+  // --- RAPID API FETCH (FMP CLOUD) ---
+  const fetchRapidFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       if (!rapidKey || rapidDepletedRef.current) return null;
-      setActiveStream(`RAPID_API_DEEP [${symbol}]`);
       
       const host = 'fmpcloud.p.rapidapi.com';
-      const headers = { 'X-RapidAPI-Key': rapidKey, 'X-RapidAPI-Host': host };
-      
+      const headers = {
+          'X-RapidAPI-Key': rapidKey,
+          'X-RapidAPI-Host': host
+      };
+
       try {
+          // Sequential calls to be polite to RapidAPI rate limits
           const get = async (ep: string, params: string) => {
               const res = await fetch(`https://${host}/api/v3/${ep}/${symbol}?${params}`, { headers });
               if (res.status === 429) throw new Error("RAPID_429");
@@ -389,20 +345,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               return res.json();
           };
 
-          // Explicitly requesting LIMIT=5 for 5 years of history
+          // Fetch Annuals (Limit 5)
           const isA = await get('income-statement', 'limit=5');
           const bsA = await get('balance-sheet-statement', 'limit=5');
           const cfA = await get('cash-flow-statement', 'limit=5');
-          
+
+          // Fetch Quarterly (Limit 20)
           const isQ = await get('income-statement', 'period=quarter&limit=20');
           const bsQ = await get('balance-sheet-statement', 'period=quarter&limit=20');
           const cfQ = await get('cash-flow-statement', 'period=quarter&limit=20');
-          
+
           return {
               source: 'RAPID_FMP',
               annual: { income: isA, balance: bsA, cashflow: cfA },
               quarterly: { income: isQ, balance: bsQ, cashflow: cfQ }
           };
+
       } catch (e: any) {
           if (e.message === "RAPID_429") {
               rapidDepletedRef.current = true;
@@ -413,69 +371,32 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // [NEW] Single File Upload Helper
-  const uploadSingleReport = async (folderId: string, ticker: QualityTicker) => {
-      if (!ticker.financialReport) return;
-      const fileName = `REPORT_${ticker.symbol}_${ticker.source.split('_')[0]}.json`;
-      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(ticker.financialReport, null, 2)], { type: 'application/json' }));
-      
-      try {
-          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-              method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-          });
-      } catch (e) { 
-          console.error("Upload failed for", ticker.symbol); 
-      }
-  };
-
-  const enrichAndArchiveCandidates = async (candidates: QualityTicker[], archiveFolderId: string) => {
+  // --- ENRICHMENT LOGIC (Deep 5Y Data) ---
+  const enrichEliteCandidates = async (candidates: QualityTicker[]) => {
       setAnalysisPhase('DEEP_ENRICHMENT');
-      const total = candidates.length;
-      setEnrichProgress({ current: 0, total });
-      setReportProgress({ current: 0, total, skipped: 0, archived: 0 });
-      
       const enriched: QualityTicker[] = [];
-      let archiveCount = 0;
       
-      for (let i = 0; i < total; i++) {
+      for (let i = 0; i < candidates.length; i++) {
           const ticker = candidates[i];
           let report = ticker.financialReport;
           
-          // Check if we have DEEP data (5 years of history)
-          // If source is LITE, METRIC, or missing annual history -> Force Enrich
-          const hasDeepHistory = report && report.annual && report.annual.income && report.annual.income.length >= 4;
-          const needsEnrichment = !hasDeepHistory || ticker.source.includes('LITE') || ticker.source.includes('METRIC');
-
-          // [SEC INTEGRATION] Fetch SEC metadata if CIK exists - Highest Priority
-          if (ticker.cik) {
-              setActiveStream(`SEC_EDGAR_CIK [${ticker.cik}]`);
-              const secData = await fetchSECData(ticker.cik);
-              if (secData && ticker.financialReport) {
-                  ticker.financialReport.secData = secData;
-                  ticker.source += "+SEC";
-              }
-          }
+          // Check if we already have deep data (Yahoo or FMP full)
+          // If source is LITE or METRIC, we need to upgrade
+          const needsEnrichment = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
 
           if (needsEnrichment) {
-              let enrichmentSuccess = false;
-
-              // 1. Try FMP Direct Deep Fetch (Old Code Logic)
+              // 1. Try FMP Direct first
               if (fmpKey && !fmpDepletedRef.current) {
                   try {
-                      setActiveStream(`FMP_DEEP_5Y [${ticker.symbol}]`);
+                      // Staggered fetch to avoid 429
                       await new Promise(r => setTimeout(r, 200)); 
+                      
                       const getFmp = async (ep: string, p: string) => {
                           const r = await fetch(`https://financialmodelingprep.com/api/v3/${ep}/${ticker.symbol}?${p}&apikey=${fmpKey}`);
                           if (r.status === 429) throw new Error("FMP_429");
-                          const data = await r.json();
-                          if (data['Error Message']) throw new Error("FMP_LEGACY_ERROR");
-                          return data;
+                          return r.json();
                       };
-                      
-                      // Explicit 5-year fetch matching old logic
+
                       const isA = await getFmp('income-statement', 'limit=5');
                       const bsA = await getFmp('balance-sheet-statement', 'limit=5');
                       const cfA = await getFmp('cash-flow-statement', 'limit=5');
@@ -486,57 +407,53 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       ticker.financialReport = {
                           source: 'FMP',
                           annual: { income: isA, balance: bsA, cashflow: cfA },
-                          quarterly: { income: isQ, balance: bsQ, cashflow: cfQ },
-                          secData: ticker.financialReport?.secData
+                          quarterly: { income: isQ, balance: bsQ, cashflow: cfQ }
                       };
                       ticker.source = 'FMP_DEEP_5Y';
-                      enrichmentSuccess = true;
                   } catch (e: any) {
-                      if (e.message === "FMP_429" || e.message === "FMP_LEGACY_ERROR") {
+                      if (e.message === "FMP_429") {
                           fmpDepletedRef.current = true;
                           setFmpDepleted(true);
                       }
                   }
               }
 
-              // 2. Try RapidAPI (Backup)
-              if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
+              // 2. Try RapidAPI if FMP Failed or Depleted
+              // Only if we still don't have a deep report
+              if ((!ticker.financialReport || ticker.financialReport.source === 'FMP') && 
+                  (fmpDepletedRef.current || !fmpKey) && 
+                  rapidKey && !rapidDepletedRef.current) {
+                  
                   if (!rapidActive) setRapidActive(true);
-                  const rapidReport = await fetchRapidDeepFinancials(ticker.symbol);
+                  const rapidReport = await fetchRapidFinancials(ticker.symbol);
                   if (rapidReport) {
-                      ticker.financialReport = {
-                          ...rapidReport,
-                          secData: ticker.financialReport?.secData
-                      };
+                      ticker.financialReport = rapidReport;
                       ticker.source = 'RAPID_DEEP_5Y';
-                      enrichmentSuccess = true;
                   }
-                  await new Promise(r => setTimeout(r, 500)); 
+                  await new Promise(r => setTimeout(r, 500)); // Respect Rapid rate limits
               }
           }
 
           enriched.push(ticker);
-          setEnrichProgress({ current: i + 1, total });
-
-          // [REAL-TIME ARCHIVING]
-          if (archiveFolderId && ticker.financialReport) {
-              await uploadSingleReport(archiveFolderId, ticker);
-              archiveCount++;
-              setReportProgress(prev => ({ ...prev, current: i + 1, archived: archiveCount }));
+          
+          if (i % 5 === 0) {
+              setProgress(prev => ({ ...prev, current: i + 1, total: candidates.length }));
           }
       }
-      setActiveStream('IDLE');
       return enriched;
   };
 
+  // --- SCORING LOGIC (Adaptive) ---
   const calculateScores = (data: any, sector: string) => {
       let fScore = 5; 
       let zScore = 0;
       let validity = 50;
+
       const bs = data.financialReport?.annual?.balance?.[0];
       const is = data.financialReport?.annual?.income?.[0];
 
       if (bs && is) {
+          // Deep Calculation
           const ta = safeNum(bs.totalAssets);
           const tl = safeNum(bs.totalLiab) || safeNum(bs.totalLiabilities) || safeNum(bs.totalLiabilitiesNetMinorityInterest);
           const ca = safeNum(bs.totalCurrentAssets);
@@ -544,13 +461,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const re = safeNum(bs.retainedEarnings);
           const ebit = safeNum(is.ebit) || safeNum(is.operatingIncome);
           const rev = safeNum(is.totalRevenue) || safeNum(is.revenue);
+          
           if (ta > 0) {
               const wc = ca - cl;
-              const A = wc/ta; const B = re/ta; const C = ebit/ta; const D = (ta - tl) / (tl || 1); const E = rev/ta;
+              const A = wc/ta; 
+              const B = re/ta; 
+              const C = ebit/ta; 
+              const D = (ta - tl) / (tl || 1); 
+              const E = rev/ta;
+              
               zScore = (1.2*A) + (1.4*B) + (3.3*C) + (0.6*D) + (1.0*E);
               validity = 100;
           }
       } else {
+          // Synthetic Z-Score
           if (data.debtToEquity < 50 && data.currentRatio > 1.5) zScore = 3.5;
           else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.5;
           else if (data.debtToEquity > 150 || data.currentRatio < 0.8) zScore = 1.0;
@@ -558,79 +482,130 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           validity = 70;
       }
 
-      // F-Score Simplified
-      fScore = 5; // Base
-      if (data.roe > 0.15) fScore++; 
-      if (data.operatingCashFlow > 0) fScore++;
+      // F-Score
+      const prevIs = data.financialReport?.annual?.income?.[1];
+      const prevBs = data.financialReport?.annual?.balance?.[1];
 
+      if (bs && is && prevIs && prevBs) {
+          fScore = 0;
+          if(safeNum(is.netIncome) > 0) fScore++;
+          if(safeNum(is.operatingCashFlow || data.operatingCashFlow) > 0) fScore++; 
+          if(safeNum(is.netIncome) > safeNum(prevIs.netIncome)) fScore++;
+          if(safeNum(is.operatingCashFlow || data.operatingCashFlow) > safeNum(is.netIncome)) fScore++;
+          if(safeNum(bs.totalLiab)/safeNum(bs.totalAssets) < safeNum(prevBs.totalLiab)/safeNum(prevBs.totalAssets)) fScore++;
+          if(safeNum(bs.totalCurrentAssets)/safeNum(bs.totalCurrentLiabilities) > safeNum(prevBs.totalCurrentAssets)/safeNum(prevBs.totalCurrentLiabilities)) fScore++;
+          if((safeNum(is.grossProfit)/safeNum(is.totalRevenue)) > (safeNum(prevIs.grossProfit)/safeNum(prevIs.totalRevenue))) fScore++;
+          if((safeNum(is.totalRevenue)/safeNum(bs.totalAssets)) > (safeNum(prevIs.totalRevenue)/safeNum(prevBs.totalAssets))) fScore++;
+          fScore++;
+      } else {
+          // Synthetic F-Score
+          fScore = 4;
+          if (data.roe > 0.15) fScore += 2; 
+          else if (data.roe > 0) fScore += 1;
+          if (data.debtToEquity < 80) fScore += 1;
+          if (data.currentRatio > 1.2) fScore += 1;
+          fScore = Math.min(9, fScore);
+      }
+
+      // Valuation
       let valScore = 0;
       const pe = data.per;
       const sectorPE = SECTOR_BENCHMARKS[sector] || 20;
+      
       if (pe > 0) {
           const rel = pe / sectorPE;
           if (rel < 0.8) valScore = 90;
           else if (rel < 1.2) valScore = 70;
           else if (rel < 1.5) valScore = 50;
           else valScore = 30;
-      } else valScore = 20; 
+      } else {
+          valScore = 20; 
+      }
 
       const profitScore = Math.min(100, Math.max(0, (data.roe || 0) * 100 * 2.5)); 
       const qScore = (valScore * 0.3) + (profitScore * 0.3) + (Math.min(zScore*20, 100) * 0.2) + (fScore*10 * 0.2);
 
-      return { qualityScore: Number(qScore.toFixed(2)), zScore: Number(zScore.toFixed(2)), fScore, profitScore, stabilityScore: Math.min(100, zScore*25), valScore, validityScore: validity };
+      return {
+          qualityScore: Number(qScore.toFixed(2)),
+          zScore: Number(zScore.toFixed(2)),
+          fScore,
+          profitScore,
+          stabilityScore: Math.min(100, zScore*25),
+          valScore,
+          validityScore: validity
+      };
   };
 
-  // [UPDATED] Robust File Upload & Creation with Root Fallback
-  const ensureFolder = async (token: string, name: string) => {
-    try {
-        const rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
-        
-        // 1. Try finding in the specified root folder
-        let q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
-        let res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json());
-        
-        if (res.files && res.files.length > 0) {
-            return res.files[0].id;
-        }
+  const archiveFinancialReports = async (stocksToArchive: QualityTicker[]) => {
+      if (!accessToken) return;
+      setAnalysisPhase('REPORT_DUMP');
+      
+      const targets = stocksToArchive; 
+      addLog(`Archiving ${targets.length} Financial Reports (Full Universe)...`, "info");
+      
+      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
+      if(!folderId) {
+          addLog("Failed to access Reports Folder.", "err");
+          return;
+      }
 
-        // 2. If not found in specified root, check user's Drive root (Fallback)
-        q = encodeURIComponent(`name = '${name}' and 'root' in parents and trashed = false`);
-        res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-        }).then(r => r.json());
-
-        if (res.files && res.files.length > 0) {
-            return res.files[0].id;
-        }
-
-        // 3. Create folder (Try in specified root first, fallback to 'root' if fails)
-        try {
-             const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
-              }).then(r => r.json());
-              
-             if (create.error) throw new Error(create.error.message);
-             return create.id;
-        } catch(createError) {
-             // Fallback create in 'root'
-             const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
-              }).then(r => r.json());
+      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
+      let existingFiles = new Set<string>();
+      
+      try {
+          let pageToken = null;
+          do {
+             const url = `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=nextPageToken,files(name)${pageToken ? `&pageToken=${pageToken}` : ''}`;
+             const listRes = await fetch(url, {
+                headers: { 'Authorization': `Bearer ${accessToken}` }
+             }).then(r => r.json());
              
-             if (createRoot.error) throw new Error(createRoot.error.message);
-             return createRoot.id;
-        }
+             if (listRes.files) {
+                 listRes.files.forEach((f: any) => existingFiles.add(f.name));
+             }
+             pageToken = listRes.nextPageToken;
+          } while (pageToken);
+      } catch (e) {
+          console.warn("Failed to list existing reports", e);
+      }
 
-    } catch (e: any) {
-        console.error("ensureFolder failed completely:", e);
-        return null; // Handle null in caller
-    }
+      const total = targets.length;
+      let skipped = 0;
+      let archived = 0;
+      let current = 0;
+      setReportProgress({ current: 0, total, skipped: 0, archived: 0 });
+
+      for (let i = 0; i < total; i += REPORT_ARCHIVE_BATCH_SIZE) {
+          const batch = targets.slice(i, i + REPORT_ARCHIVE_BATCH_SIZE);
+          
+          await Promise.all(batch.map(async (stock) => {
+              const fileName = `REPORT_${stock.symbol}_${stock.source.split('_')[0]}.json`;
+              if (existingFiles.has(fileName)) {
+                  skipped++; 
+                  return;
+              }
+
+              if (stock.financialReport) {
+                  const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+                  const form = new FormData();
+                  form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+                  form.append('file', new Blob([JSON.stringify(stock.financialReport, null, 2)], { type: 'application/json' }));
+
+                  try {
+                      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+                          method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+                      });
+                      if (res.ok) archived++;
+                  } catch (e) { }
+              }
+          }));
+
+          current += batch.length;
+          setReportProgress({ current: Math.min(current, total), total, skipped, archived });
+          await new Promise(r => setTimeout(r, 150)); 
+      }
+
+      addLog(`Archives: ${archived} New, ${skipped} Existed. All Data Secured.`, "ok");
   };
 
   const executeDeepQualityScan = async () => {
@@ -641,6 +616,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setAnalysisPhase('INIT');
     setProcessedData([]);
     startTimeRef.current = Date.now();
+    
+    // [CRITICAL] Reset Circuit Breakers Ref
     setFmpDepleted(false);
     setRapidActive(false);
     fmpDepletedRef.current = false;
@@ -675,102 +652,133 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const batchResults = await Promise.all(batch.map(async (t: any) => {
               const cacheKey = getDailyCacheKey(t.symbol);
               const cached = sessionStorage.getItem(cacheKey);
+              
               if (cached) {
                   setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
                   return JSON.parse(cached);
               }
+
+              // Hybrid Fetch (Respects refs)
               const financials = await fetchHybridFinancials(t.symbol);
-              if (!financials) return null; 
-              const scores = calculateScores(financials, t.sector || "Unclassified");
-              if (scores.qualityScore < 15) return null; 
               
+              if (!financials) return null; 
+
+              const scores = calculateScores(financials, t.sector || "Unclassified");
+              
+              if (scores.qualityScore < 15) return null; 
+
               const calculatedTheme = mapIndustryToTheme(t.industry, t.sector || "") || "Other";
+
               const resultTicker: QualityTicker = {
                   ...t,
-                  per: financials.per, roe: financials.roe * 100, debtToEquity: financials.debtToEquity,
-                  pbr: financials.pbr, currentRatio: financials.currentRatio, operatingCashFlow: financials.operatingCashFlow,
+                  per: financials.per,
+                  roe: financials.roe * 100, 
+                  debtToEquity: financials.debtToEquity,
+                  pbr: financials.pbr,
+                  currentRatio: financials.currentRatio,
+                  operatingCashFlow: financials.operatingCashFlow,
                   source: financials.source,
-                  zScore: scores.zScore, fScore: scores.fScore, relativePeScore: scores.valScore,
-                  profitabilityScore: scores.profitScore, stabilityScore: scores.stabilityScore,
-                  growthScore: scores.valScore, qualityScore: scores.qualityScore, validityScore: scores.validityScore,
-                  sector: t.sector || "Unclassified", industry: t.industry || "Unknown", theme: calculatedTheme, 
+                  
+                  zScore: scores.zScore,
+                  fScore: scores.fScore,
+                  relativePeScore: scores.valScore,
+                  profitabilityScore: scores.profitScore,
+                  stabilityScore: scores.stabilityScore,
+                  growthScore: scores.valScore,
+                  qualityScore: scores.qualityScore, 
+                  validityScore: scores.validityScore,
+                  
+                  sector: t.sector || "Unclassified",
+                  industry: t.industry || "Unknown",
+                  theme: calculatedTheme, 
                   lastUpdate: new Date().toISOString(),
-                  financialReport: financials.financialReport,
-                  cik: t.cik // Preserve CIK from Stage 0
+                  
+                  financialReport: financials.financialReport 
               };
+
               try {
                   const { financialReport, ...cacheSafeTicker } = resultTicker;
                   sessionStorage.setItem(cacheKey, JSON.stringify(cacheSafeTicker));
-              } catch(e) {}
+              } catch(e) {
+                  console.warn("SessionStorage Quota Exceeded. Skipping cache write.");
+              }
+              
               return resultTicker;
           }));
 
-          batchResults.forEach(r => { if (r) validResults.push(r); else dropped++; });
+          const sourcesUsed: Record<string, number> = {};
+          batchResults.forEach(r => {
+              if (r) {
+                  const src = r.source.split('_')[0];
+                  sourcesUsed[src] = (sourcesUsed[src] || 0) + 1;
+                  validResults.push(r);
+              } else {
+                  dropped++;
+              }
+          });
+          
+          const sourceLog = Object.entries(sourcesUsed).map(([k, v]) => `${k}(${v})`).join(', ');
+          if (sourceLog) {
+             addLog(`Batch Processed: ${sourceLog}`, "info");
+          }
+
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
+          
           await new Promise(r => setTimeout(r, 200)); 
       }
 
       setAnalysisPhase('SCORING');
+      
       let eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
       
       if (eliteSurvivors.length === 0) {
           addLog("Warning: No assets survived even the hybrid filter.", "warn");
       } else {
+          // [DEEP ENRICHMENT]
           setAnalysisPhase('DEEP_ENRICHMENT');
-          addLog(`Initiating Deep Enrichment & Live Sync (Target: ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder})...`, "signal");
+          addLog(`Initiating Deep Enrichment for top ${eliteSurvivors.length} assets (5Y/Quarterly)...`, "signal");
           
-          // [NEW] Ensure folder exists before loop
-          const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
-          if (reportsFolderId) {
-             // [MODIFIED] Pass folder ID to enable real-time dumping
-             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, reportsFolderId);
-             addLog(`Live Sync: All reports archived to ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder}`, "ok");
-          } else {
-             addLog("Warning: Reports folder unavailable. Running enrichment without sync.", "warn");
-             // Still run enrichment even if archive folder fails, so we get Real Data
-             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, ""); 
-          }
-
+          eliteSurvivors = await enrichEliteCandidates(eliteSurvivors);
           setProcessedData(eliteSurvivors);
+
           setAnalysisPhase('AI_AUDIT');
           await analyzeUniverseHealth(eliteSurvivors);
       }
 
+      await archiveFinancialReports(eliteSurvivors);
+
       setAnalysisPhase('COMPLETE');
-      
+
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
-      if (folderId) {
-          const now = new Date();
-          const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-          const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-          const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
-          
-          const payload = {
-            manifest: { 
-                version: "10.9.0", 
-                strategy: "Hybrid_Legacy_Deep_5Y_Real_Only", 
-                timestamp: new Date().toISOString(), 
-                engine: "Use_Everything",
-                description: "Contains full 5-year financial statements and SEC metadata."
-            },
-            elite_universe: eliteSurvivors 
-          };
+      const now = new Date();
+      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+      
+      const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
+      
+      const payload = {
+        manifest: { 
+            version: "9.9.2", 
+            strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_HardBreaker", 
+            timestamp: new Date().toISOString(), 
+            engine: "Use_Everything",
+            description: "Contains full 5-year annual/quarterly financial statements (BS, IS, CF) for Stage 3 Analysis."
+        },
+        elite_universe: eliteSurvivors 
+      };
 
-          const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-          const form = new FormData();
-          form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-          form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
-          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-            method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-          });
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+      });
 
-          addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified & Saved.`, "ok");
-          if (onComplete) onComplete();
-      } else {
-          addLog("Error: Could not resolve Stage 2 Folder ID.", "err");
-      }
+      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified & Saved.`, "ok");
+      if (onComplete) onComplete();
 
     } catch (e: any) {
       addLog(`Error: ${e.message}`, "err");
@@ -780,8 +788,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     }
   };
 
+  const ensureFolder = async (token: string, name: string) => {
+    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+    if (res.files?.length > 0) return res.files[0].id;
+    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+    }).then(r => r.json());
+    return create.id;
+  };
+
   const formatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
     const secs = seconds % 60;
     return `${mins}:${secs.toString().padStart(2, '0')}`;
@@ -952,23 +970,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
-          {/* Header Section */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.9</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? getProgressLabel() : 'Priority Queue: SEC > Yahoo > FMP'}
+                            {loading ? getProgressLabel() : 'Multi-Source Protocol Ready'}
                         </span>
-                        {activeStream !== 'IDLE' && (
-                             <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 bg-emerald-500/10 text-emerald-400 animate-pulse">
-                                 LIVE: {activeStream}
-                             </span>
+                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
+                            {fmpDepleted ? 'Backup: RapidAPI' : 'Primary: Yahoo/FMP Direct'}
+                        </span>
+                        {rapidActive && (
+                            <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 text-emerald-400">
+                                RapidAPI Active
+                            </span>
                         )}
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -987,70 +1007,39 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 disabled={loading} 
                 className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
             >
-              {loading ? 'Processing Pipeline...' : 'Start Deep Quality Scan'}
+              {loading ? 'Executing Hybrid Scan...' : 'Start Deep Quality Scan'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
               <div className="flex flex-col gap-6">
-                  {/* Detailed Pipeline Progress HUD */}
-                  <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5 relative overflow-hidden">
-                    {/* Live Data Stream Indicator */}
-                    <div className="absolute top-0 right-0 p-4 opacity-50">
-                        <div className="flex items-center gap-2">
-                             <div className={`w-1.5 h-1.5 rounded-full ${activeStream !== 'IDLE' ? 'bg-emerald-500 animate-ping' : 'bg-slate-700'}`}></div>
-                             <span className="text-[8px] font-mono text-slate-500 uppercase">{activeStream !== 'IDLE' ? 'STREAM ACTIVE' : 'STREAM IDLE'}</span>
-                        </div>
-                    </div>
-
+                  <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
                     <div className="flex justify-between items-center mb-6">
-                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Execution Pipeline</p>
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
+                      <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
                     </div>
-
-                    {/* Stage 1: Broad Scan */}
-                    <div className="mb-3">
-                        <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'HYBRID_SCAN' ? 'text-white' : 'text-slate-500'}`}>1. Market Scan (Yahoo/FMP)</span>
-                            <span className="text-[8px] font-mono text-slate-400">{progress.current} / {progress.total}</span>
-                        </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
-                        </div>
+                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
+                      <div className={`h-full transition-all duration-300 bg-blue-500`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
                     </div>
-
-                    {/* Stage 2: Scoring (Implicit in Stage 1 but logically separate) */}
-                    <div className="mb-3">
-                         <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'SCORING' || analysisPhase === 'HYBRID_SCAN' ? 'text-white' : 'text-slate-500'}`}>2. Quant Scoring (F/Z/Alpha)</span>
-                             <span className="text-[8px] font-mono text-slate-400">{progress.current > 0 ? 'Active' : 'Pending'}</span>
-                        </div>
-                         <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
-                        </div>
+                    <div className="flex justify-between text-[8px] uppercase font-bold tracking-widest">
+                        <span className={getPhaseStyle('HYBRID_SCAN')}>1. Scan</span>
+                        <span className={getPhaseStyle('SCORING')}>2. Score</span>
+                        <span className={getPhaseStyle('DEEP_ENRICHMENT')}>3. Deep Fetch</span>
+                        <span className={getPhaseStyle('REPORT_DUMP')}>4. Archive</span>
                     </div>
-
-                     {/* Stage 3: Deep Enrichment */}
-                     <div className="mb-3">
-                        <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_ENRICHMENT' ? 'text-white' : 'text-slate-500'}`}>3. Deep Mining (SEC/5Y History)</span>
-                            <span className="text-[8px] font-mono text-slate-400">{enrichProgress.current} / {enrichProgress.total}</span>
+                    
+                    {/* Report Dump Progress (Visible only during archiving) */}
+                    {analysisPhase === 'REPORT_DUMP' && (
+                        <div className="mt-4 pt-4 border-t border-white/5 animate-in fade-in">
+                            <div className="flex justify-between items-center mb-2">
+                                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Saving Financial Reports</span>
+                                <span className="text-[8px] text-emerald-400 font-mono">{reportProgress.archived} Saved / {reportProgress.skipped} Skipped</span>
+                            </div>
+                            <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
+                                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(reportProgress.current / (reportProgress.total || 1)) * 100}%` }}></div>
+                            </div>
                         </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-violet-500 transition-all duration-300" style={{ width: `${(enrichProgress.current / (enrichProgress.total || 1)) * 100}%` }}></div>
-                        </div>
-                    </div>
-
-                    {/* Stage 4: Archiving */}
-                    <div>
-                        <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_ENRICHMENT' || analysisPhase === 'REPORT_DUMP' ? 'text-white' : 'text-slate-500'}`}>4. Vault Sync (Google Drive)</span>
-                            <span className="text-[8px] font-mono text-slate-400">{reportProgress.archived} Files</span>
-                        </div>
-                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
-                            <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(reportProgress.current / (reportProgress.total || 1)) * 100}%` }}></div>
-                        </div>
-                    </div>
-
+                    )}
                   </div>
 
                   <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
@@ -1098,7 +1087,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
