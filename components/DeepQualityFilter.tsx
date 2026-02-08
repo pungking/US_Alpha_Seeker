@@ -79,6 +79,7 @@ interface AuditPacket {
   data2: number; // T1: PE, T2: F-Score
   source: string;
   timestamp: string;
+  status: 'OK' | 'WARN' | 'FAIL'; // Visual Indicator
 }
 
 interface Props {
@@ -170,6 +171,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [liveAuditFeed, setLiveAuditFeed] = useState<AuditPacket[]>([]);
   const [sourceStats, setSourceStats] = useState({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, fallback: 0 });
+  const [filterSource, setFilterSource] = useState<string | null>(null);
 
   const [activeStream, setActiveStream] = useState<string>('IDLE');
   
@@ -190,15 +192,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
+  const listRef = useRef<HTMLDivElement>(null);
 
-  // V17.2: Process small batches to allow UI updates
-  const BATCH_SIZE_TIER1 = 10; 
-  const TARGET_TIER2_COUNT = 500; 
-  const FINAL_SELECTION_COUNT = 250; 
+  // V17.2: Optimized Batch Sizes
+  const BATCH_SIZE_TIER1 = 100; // Fast scan for Stage 1 data
+  const TARGET_TIER2_COUNT = 500; // Deep dive candidates
+  const FINAL_SELECTION_COUNT = 250; // Final output
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Auto-scroll the live audit feed when not hovered
+  useEffect(() => {
+    if (listRef.current && liveAuditFeed.length > 0) {
+       listRef.current.scrollTop = 0; // Scroll to top to see newest
+    }
+  }, [liveAuditFeed]);
 
   useEffect(() => {
     let interval: any;
@@ -489,8 +499,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const scannedTickers: QualityTicker[] = [];
       let currentIndex = 0;
 
-      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL - Fast with Visual Delay) ---
-      setActiveStream('TIER1_SCAN');
+      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL - Fast) ---
       while (currentIndex < targets.length) {
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE_TIER1);
           
@@ -509,16 +518,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               const eps = safeNum(t.eps);
               const earningsYield = eps / price;
 
-              // Force update audit feed for visualization
-              const auditData: AuditPacket = {
-                  symbol: t.symbol,
-                  stage: 'TIER1',
-                  data1: rawRoe * 100, // ROE
-                  data2: pe, // PE
-                  source: 'STAGE1_DATA',
-                  timestamp: new Date().toLocaleTimeString()
-              };
-              setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 7));
+              // Live Audit Feed (Tier 1 Metrics) - Only add some to avoid flooding UI thread
+              if (Math.random() > 0.9) {
+                   const auditData: AuditPacket = {
+                      symbol: t.symbol,
+                      stage: 'TIER1',
+                      data1: rawRoe * 100, // ROE
+                      data2: pe, // PE
+                      source: 'STAGE1_DATA',
+                      timestamp: new Date().toLocaleTimeString(),
+                      status: 'OK'
+                  };
+                  setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 100)); // Keep last 100
+              }
 
               return {
                   ...t,
@@ -544,8 +556,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           currentIndex += BATCH_SIZE_TIER1;
           setProgress(prev => ({ ...prev, current: currentIndex }));
           
-          // Intentional delay for visualization
-          await new Promise(r => setTimeout(r, 20)); 
+          await new Promise(r => setTimeout(r, 0)); 
       }
 
       // --- RANKING PHASE ---
@@ -569,7 +580,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       // --- TIER 2: DEEP MINING (EXTERNAL API) ---
       setAnalysisPhase('DEEP_MINING');
-      setActiveStream('TIER2_DEEP_API');
       addLog(`Initiating Tier 2 Deep Mining for Top ${eliteSurvivors.length} Elite Candidates...`, "signal");
       
       const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
@@ -580,6 +590,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       for (let i = 0; i < eliteSurvivors.length; i++) {
           const ticker = eliteSurvivors[i];
+          let status: 'OK' | 'WARN' | 'FAIL' = 'OK';
           
           // REAL API CALL HAPPENS HERE
           const report = await fetchDeepFinancials(ticker);
@@ -598,6 +609,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                
                if (report.source === 'SEC_XBRL') {
                    setSourceStats(prev => ({...prev, sec: prev.sec + 1}));
+               } else if (report.source === 'YAHOO_V10') {
+                   setSourceStats(prev => ({...prev, yahoo: prev.yahoo + 1}));
                } else {
                    setSourceStats(prev => ({...prev, rapid: prev.rapid + 1}));
                }
@@ -607,24 +620,28 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                    archiveCount++;
                }
                
-               // Live Audit Feed (Tier 2 Metrics)
-               const auditData: AuditPacket = {
-                   symbol: ticker.symbol,
-                   stage: 'TIER2',
-                   data1: ticker.zScore,
-                   data2: ticker.fScore,
-                   source: ticker.source,
-                   timestamp: new Date().toLocaleTimeString()
-               };
-               setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 7));
-               
                finalCandidates.push(ticker);
           } else {
               // If Deep Scan fails, assume neutral but penalize slightly
               ticker.zScore = 1.8; 
               ticker.fScore = 5;
+              ticker.source = 'FALLBACK';
+              status = 'WARN';
+              setSourceStats(prev => ({...prev, fallback: prev.fallback + 1}));
               finalCandidates.push(ticker);
           }
+          
+           // Live Audit Feed (Tier 2 Metrics) - Ensure EVERY item is logged for visibility
+           const auditData: AuditPacket = {
+               symbol: ticker.symbol,
+               stage: 'TIER2',
+               data1: ticker.zScore,
+               data2: ticker.fScore,
+               source: ticker.source,
+               timestamp: new Date().toLocaleTimeString(),
+               status: status
+           };
+           setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 100)); // Increased buffer
 
           setEnrichProgress({ current: i + 1, total: eliteSurvivors.length });
           setReportProgress(prev => ({ ...prev, current: i + 1, archived: archiveCount }));
@@ -715,7 +732,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
 
       setAnalysisPhase('COMPLETE');
-      setActiveStream('IDLE');
 
     } catch (e: any) {
       addLog(`Error: ${e.message}`, "err");
@@ -757,6 +773,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const stocks = processedData.filter(t => t.theme === selectedTheme);
       return stocks.sort((a, b) => b.qualityScore - a.qualityScore);
   }, [selectedTheme, processedData]);
+
+  // Filtered Audit Feed based on selected source
+  const filteredAuditFeed = useMemo(() => {
+      if (!filterSource) return liveAuditFeed;
+      return liveAuditFeed.filter(item => item.source.toLowerCase().includes(filterSource.toLowerCase()));
+  }, [liveAuditFeed, filterSource]);
 
   const CustomizedContent = (props: any) => {
     const { x, y, width, height, name, value, fill } = props;
@@ -1118,13 +1140,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
            {/* Source Stats */}
            <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
                 {[
-                  { label: 'Real (FMP)', count: sourceStats.rapid, color: 'text-emerald-400', border: 'border-emerald-500/30' },
-                  { label: 'Real (Finnhub)', count: sourceStats.finnhub, color: 'text-cyan-400', border: 'border-cyan-500/30' },
-                  { label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
-                  { label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
-                  { label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
+                  { id: 'fmp', label: 'Real (FMP)', count: sourceStats.rapid, color: 'text-emerald-400', border: 'border-emerald-500/30' },
+                  { id: 'finnhub', label: 'Real (Finnhub)', count: sourceStats.finnhub, color: 'text-cyan-400', border: 'border-cyan-500/30' },
+                  { id: 'yahoo', label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
+                  { id: 'sec', label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
+                  { id: 'fallback', label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
                 ].map((stat, idx) => (
-                    <div key={idx} className={`flex flex-col px-3 py-1.5 rounded-lg bg-black/40 border ${stat.border} min-w-[70px]`}>
+                    <div 
+                        key={idx} 
+                        onClick={() => setFilterSource(filterSource === stat.id ? null : stat.id)}
+                        className={`flex flex-col px-3 py-1.5 rounded-lg bg-black/40 border cursor-pointer hover:bg-white/5 transition-colors min-w-[70px] ${stat.border} ${filterSource === stat.id ? 'bg-white/10 ring-1 ring-white/30' : ''}`}
+                    >
                         <span className="text-[7px] text-slate-500 uppercase font-bold whitespace-nowrap">{stat.label}</span>
                         <span className={`text-[12px] font-mono font-black ${stat.color}`}>{stat.count}</span>
                     </div>
@@ -1132,32 +1158,39 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
            </div>
 
            {/* Ticker Tape List */}
-           <div className="flex-1 overflow-y-auto no-scrollbar space-y-2 relative">
-               {liveAuditFeed.length > 0 ? liveAuditFeed.map((item, idx) => (
-                   <div key={`${item.symbol}-${idx}`} className="flex justify-between items-center p-2 rounded-lg bg-white/5 border border-white/5 text-[9px] font-mono animate-in fade-in slide-in-from-right-2">
+           <div ref={listRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 relative max-h-[400px]">
+               {filteredAuditFeed.length > 0 ? filteredAuditFeed.map((item, idx) => (
+                   <div key={`${item.symbol}-${idx}`} className="flex justify-between items-center p-2 rounded-lg bg-white/5 border border-white/5 text-[9px] font-mono animate-in fade-in slide-in-from-right-2 hover:bg-white/10 transition-colors">
                        <div className="flex items-center gap-2">
                            <span className="text-white font-bold w-10">{item.symbol}</span>
-                           <span className={`px-1 rounded text-[7px] font-bold ${item.stage === 'TIER2' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'}`}>
+                           <span className={`px-1.5 py-0.5 rounded text-[6px] font-black uppercase tracking-wider ${
+                               item.stage === 'TIER2' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                           }`}>
                                {item.stage === 'TIER2' ? 'DEEP' : 'SCAN'}
                            </span>
                        </div>
-                       <div className="flex gap-3 text-slate-400 font-mono">
+                       <div className="flex items-center gap-3">
                            {item.stage === 'TIER1' ? (
-                               <>
+                               <div className="flex gap-3 text-slate-400">
                                    <span>ROE: <span className={item.data1 > 15 ? 'text-emerald-400' : 'text-slate-400'}>{item.data1.toFixed(1)}%</span></span>
                                    <span>PE: {item.data2.toFixed(1)}</span>
-                               </>
+                               </div>
                            ) : (
-                               <>
-                                   <span>Z-Sc: <span className={item.data1 > 2.99 ? 'text-emerald-400' : item.data1 < 1.8 ? 'text-rose-400' : 'text-amber-400'}>{item.data1.toFixed(2)}</span></span>
-                                   <span>F-Sc: <span className={item.data2 >= 7 ? 'text-blue-400' : 'text-slate-400'}>{item.data2}</span></span>
-                               </>
+                               <div className="flex gap-3 text-slate-400">
+                                   <span>Z: <span className={item.data1 > 2.99 ? 'text-emerald-400' : item.data1 < 1.8 ? 'text-rose-400' : 'text-amber-400'}>{item.data1.toFixed(2)}</span></span>
+                                   <span>F: <span className={item.data2 >= 7 ? 'text-blue-400' : 'text-slate-400'}>{item.data2}</span></span>
+                               </div>
                            )}
+                           <span className={`text-[6px] uppercase opacity-50 w-8 text-right ${item.status === 'WARN' ? 'text-amber-500' : 'text-slate-600'}`}>
+                               {item.status === 'WARN' ? '⚠' : item.source.split('_')[1] || 'SRC'}
+                           </span>
                        </div>
                    </div>
                )) : (
                    <div className="absolute inset-0 flex items-center justify-center opacity-20">
-                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">No Active Data Stream</p>
+                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                           {filterSource ? `No ${filterSource} data` : "No Active Data Stream"}
+                       </p>
                    </div>
                )}
            </div>
