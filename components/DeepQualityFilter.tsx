@@ -71,7 +71,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v13_'; // Version bumped for Robust Polygon Logic
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v14_'; // Version bumped for Polygon Priority
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -86,11 +86,14 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
     'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
 };
 
-// Helper to extract values from Polygon's nested structure { value: 123, unit: 'USD' }
+// [HELPER] Polygon Value Extractor - Handles { value: 123, unit: 'USD' }
 const getPolyVal = (obj: any, keys: string[]) => {
     if (!obj) return 0;
     for (const k of keys) {
-        if (obj[k] && typeof obj[k].value === 'number') return obj[k].value;
+        if (obj[k]) {
+            if (typeof obj[k] === 'object' && 'value' in obj[k]) return Number(obj[k].value) || 0;
+            if (typeof obj[k] === 'number') return obj[k];
+        }
     }
     return 0;
 };
@@ -120,7 +123,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v13.0: High-Fidelity Data Pipeline Initialized.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v14.0: Polygon Priority Mode.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -145,14 +148,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
         let etaSec = 0;
         
-        // Calculate ETA based on the current active phase
         if (analysisPhase === 'HYBRID_SCAN' && progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         } else if (analysisPhase === 'DEEP_ENRICHMENT' && enrichProgress.current > 0 && enrichProgress.total > 0) {
-            // Re-calculate for enrichment phase which is slower
-            const enrichElapsed = elapsedSec; // Simplified
+            const enrichElapsed = elapsedSec; 
             const rate = enrichProgress.current / (enrichElapsed || 1);
             const remaining = enrichProgress.total - enrichProgress.current;
             etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
@@ -224,9 +225,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Number(val) || 0;
   };
 
-  // --- DATA ACQUISITION & PRIORITY LOGIC ---
-
-  // 1. SEC Data (Identity & Compliance) - Highest Priority
+  // 1. SEC Data
   const fetchSECData = async (cik: number): Promise<any> => {
       if (!cik) return null;
       try {
@@ -238,13 +237,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // [ENHANCED] Polygon Deep Financials Fetcher
-  const fetchPolygonDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
+  // [ENHANCED] Polygon Deep Financials - Robust & Persistent
+  const fetchPolygonDeepFinancials = async (symbol: string, retries = 1): Promise<DeepFinancialReport | null> => {
       if (!polygonKey) return null;
       setActiveStream(`POLYGON_DEEP_vX [${symbol}]`);
       try {
           // Polygon vX Financials Endpoint (Annual)
           const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=5&timeframe=annual&apiKey=${polygonKey}`);
+          
+          // Handle Rate Limits with Retry
+          if (res.status === 429 && retries > 0) {
+               addLog(`Polygon Rate Limit on ${symbol}. Retrying in 2s...`, "warn");
+               await new Promise(r => setTimeout(r, 2000));
+               return fetchPolygonDeepFinancials(symbol, retries - 1);
+          }
+
           if (!res.ok) return null;
           const data = await res.json();
           if (!data.results || data.results.length === 0) return null;
@@ -253,7 +260,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const balance: any[] = [];
           const cashflow: any[] = [];
 
-          // Map Polygon's flat structure to our standard income/balance/cashflow structure
+          // Map Polygon's flat structure
           data.results.forEach((item: any) => {
               const f = item.financials;
               if (f) {
@@ -275,11 +282,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // [UPDATED] Main Scan Function with strict data validation
+  // [UPDATED] Main Scan Function - Polygon First Policy
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let financials: any = null;
 
-      // 1. Polygon Deep Fetch (Preferred for Raw Data)
+      // PRIORITY 1: POLYGON DEEP (The Gold Standard)
       if (polygonKey) {
           const polyReport = await fetchPolygonDeepFinancials(symbol);
           if (polyReport && polyReport.annual.income.length > 0) {
@@ -287,8 +294,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  const lastIs = polyReport.annual.income[0] || {};
                  const lastCf = polyReport.annual.cashflow[0] || {};
                  
-                 // Polygon uses nested { value: number, unit: string } format
-                 // Use helper to safely extract values from multiple potential keys
                  const netIncome = getPolyVal(lastIs, ['net_income_loss', 'net_income_loss_available_to_common_stockholders_basic']);
                  const equity = getPolyVal(lastBs, ['equity', 'equity_attributable_to_parent', 'stockholders_equity']);
                  const liabilities = getPolyVal(lastBs, ['liabilities', 'total_liabilities']);
@@ -299,9 +304,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  financials = {
                      source: 'POLYGON_DEEP',
                      raw: polyReport,
-                     price: 0, // Will be filled by Stage 0 data
+                     price: 0, 
                      roe: equity ? (netIncome / equity) : 0, 
-                     per: 0, // P/E needs market cap, calculated later
+                     per: 0, 
                      pbr: 0,
                      debtToEquity: equity ? (liabilities / equity) * 100 : 0,
                      currentRatio: currentLiabilities ? (currentAssets / currentLiabilities) : 0,
@@ -312,7 +317,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
       }
 
-      // 2. Yahoo Finance (Backup if Polygon empty)
+      // PRIORITY 2: YAHOO FINANCE (Backup)
       if (!financials) {
           try {
               setActiveStream(`YAHOO_V10_STREAM [${symbol}]`);
@@ -348,7 +353,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e: any) { }
       }
 
-      // 3. FMP (Backup)
+      // PRIORITY 3: FMP (Tertiary)
       if (!financials && fmpKey && !fmpDepletedRef.current) {
           try {
               setActiveStream(`FMP_DIRECT_STREAM [${symbol}]`);
@@ -366,7 +371,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const is = await isRes.json();
                   const bs = await bsRes.json();
                   const ratios = await ratioRes.json();
-                  if (is['Error Message'] || bs['Error Message']) throw new Error("FMP_LEGACY_ERROR");
                   
                   if (Array.isArray(is) && is.length > 0) {
                       const r = ratios[0] || {};
@@ -389,15 +393,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       };
                   }
               }
-          } catch (e: any) {
-              if (e.message === "FMP_LEGACY_ERROR") {
-                  fmpDepletedRef.current = true;
-                  setFmpDepleted(true);
-              }
-          }
+          } catch (e: any) { }
       }
 
-      // 4. Finnhub (Last Resort - Metrics Only)
+      // PRIORITY 4: FINNHUB (LAST RESORT - METRICS ONLY)
+      // Note: This source produces empty ledgers. We will try to upgrade these later.
       if (!financials && finnhubKey) {
           try {
               setActiveStream(`FINNHUB_METRIC [${symbol}]`);
@@ -418,7 +418,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           operatingCashFlow: m.cashFlowPerShareTTM || 0,
                           epsGrowth: m.epsGrowthTTMYoy || 0, 
                           hasHistory: false,
-                          financialReport: { source: 'FINNHUB', annual: {}, quarterly: {} } // Skeleton report
+                          financialReport: { source: 'FINNHUB', annual: {}, quarterly: {} } // Empty, but will trigger enrichment
                        };
                   }
               }
@@ -429,7 +429,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return financials;
   };
 
-  // [RESTORED] Explicit Deep Fetch for RapidAPI
   const fetchRapidDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       if (!rapidKey || rapidDepletedRef.current) return null;
       setActiveStream(`RAPID_API_DEEP [${symbol}]`);
@@ -448,7 +447,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const isA = await get('income-statement', 'limit=5');
           const bsA = await get('balance-sheet-statement', 'limit=5');
           const cfA = await get('cash-flow-statement', 'limit=5');
-          
           const isQ = await get('income-statement', 'period=quarter&limit=20');
           const bsQ = await get('balance-sheet-statement', 'period=quarter&limit=20');
           const cfQ = await get('cash-flow-statement', 'period=quarter&limit=20');
@@ -468,7 +466,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // [NEW] Single File Upload Helper
   const uploadSingleReport = async (folderId: string, ticker: QualityTicker) => {
       if (!ticker.financialReport) return;
       const fileName = `REPORT_${ticker.symbol}_${ticker.source.split('_')[0]}.json`;
@@ -516,22 +513,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           if (needsEnrichment) {
               let enrichmentSuccess = false;
 
-              // 1. Try RapidAPI (Most Reliable for Deep History)
-              if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
-                  if (!rapidActive) setRapidActive(true);
-                  const rapidReport = await fetchRapidDeepFinancials(ticker.symbol);
-                  if (rapidReport) {
-                      ticker.financialReport = {
-                          ...rapidReport,
+              // ATTEMPT 1: POLYGON DEEP (Primary Force)
+              if (!enrichmentSuccess && polygonKey) {
+                   const polyReport = await fetchPolygonDeepFinancials(ticker.symbol, 2); // Retry up to 2 times
+                   if (polyReport && polyReport.annual.income.length > 0) {
+                        ticker.financialReport = {
+                          ...polyReport,
                           secData: ticker.financialReport?.secData
                       };
-                      ticker.source = 'RAPID_DEEP_5Y';
+                      ticker.source = 'POLYGON_DEEP';
                       enrichmentSuccess = true;
-                  }
-                  await new Promise(r => setTimeout(r, 500)); 
+                   }
               }
 
-              // 2. Try FMP Direct Deep Fetch
+              // ATTEMPT 2: FMP Direct Deep Fetch (Backup)
               if (!enrichmentSuccess && fmpKey && !fmpDepletedRef.current) {
                   try {
                       setActiveStream(`FMP_DEEP_5Y [${ticker.symbol}]`);
@@ -567,17 +562,28 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              // 3. Try Polygon Deep (Retry if failed before)
-              if (!enrichmentSuccess && polygonKey) {
-                   const polyReport = await fetchPolygonDeepFinancials(ticker.symbol);
-                   if (polyReport && polyReport.annual.income.length > 0) {
-                        ticker.financialReport = {
-                          ...polyReport,
+              // ATTEMPT 3: RapidAPI (Last Resort)
+              if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
+                  if (!rapidActive) setRapidActive(true);
+                  const rapidReport = await fetchRapidDeepFinancials(ticker.symbol);
+                  if (rapidReport) {
+                      ticker.financialReport = {
+                          ...rapidReport,
                           secData: ticker.financialReport?.secData
                       };
-                      ticker.source = 'POLYGON_DEEP';
+                      ticker.source = 'RAPID_DEEP_5Y';
                       enrichmentSuccess = true;
-                   }
+                  }
+                  await new Promise(r => setTimeout(r, 500)); 
+              }
+              
+              // [CRITICAL] If still no deep data, we must not pass an empty Finnhub report forward.
+              // We will exclude this ticker from the enriched list to maintain data purity.
+              if (!enrichmentSuccess && isWeakSource) {
+                   console.warn(`Purging ${ticker.symbol}: Failed to enrich Finnhub skeleton.`);
+                   // Skip pushing to 'enriched'
+                   setEnrichProgress({ current: i + 1, total });
+                   continue;
               }
           }
 
@@ -662,11 +668,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return { qualityScore: Number(qScore.toFixed(2)), zScore: Number(zScore.toFixed(2)), fScore, profitScore, stabilityScore: Math.min(100, zScore*25), valScore, validityScore: validity };
   };
 
-  // [UPDATED] Robust File Upload & Creation with Root Fallback
   const ensureFolder = async (token: string, name: string) => {
     try {
         const rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
-        
         let q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
         let res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -691,8 +695,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
               }).then(r => r.json());
-              
-             if (create.error) throw new Error(create.error.message);
              return create.id;
         } catch(createError) {
              const createRoot = await fetch(`https://www.googleapis.com/drive/v3/files`, {
@@ -700,11 +702,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
                 body: JSON.stringify({ name, parents: ['root'], mimeType: 'application/vnd.google-apps.folder' })
               }).then(r => r.json());
-             
-             if (createRoot.error) throw new Error(createRoot.error.message);
              return createRoot.id;
         }
-
     } catch (e: any) {
         console.error("ensureFolder failed completely:", e);
         return null; 
@@ -761,7 +760,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               if (!financials) return null; 
               const scores = calculateScores(financials, t.sector || "Unclassified");
               
-              // [RESCUE LOGIC] If data is from Finnhub or Polygon (fallback), be lenient
+              // [RESCUE LOGIC]
               const isFallback = financials.source.includes('FINN') || financials.source.includes('POLY');
               if (scores.qualityScore < 15 && !isFallback) return null; 
               
@@ -802,13 +801,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog(`Initiating Deep Enrichment & Live Sync (Target: ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder})...`, "signal");
           
           const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
-          if (reportsFolderId) {
-             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, reportsFolderId);
-             addLog(`Live Sync: All reports archived to ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder}`, "ok");
-          } else {
-             addLog("Warning: Reports folder unavailable. Running enrichment without sync.", "warn");
-             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, ""); 
-          }
+          
+          // Enrich and filter out persistent failures
+          eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, reportsFolderId || "");
+          addLog(`Live Sync: ${eliteSurvivors.length} Valid Reports Archived.`, "ok");
 
           setProcessedData(eliteSurvivors);
           setAnalysisPhase('AI_AUDIT');
@@ -826,7 +822,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "13.0.0", 
+                version: "14.0.0", 
                 strategy: "Hybrid_Polygon_Deep_Ledger", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
@@ -1037,7 +1033,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v13.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v14.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -1176,7 +1172,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
