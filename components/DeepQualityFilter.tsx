@@ -10,7 +10,7 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [Advanced Institutional Data Structure]
 interface DeepFinancialReport {
-  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'FINNHUB' | 'REAL_DERIVED_TTM';
+  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'FINNHUB';
   annual: {
     income: any[];
     balance: any[];
@@ -71,7 +71,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v7_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v8_'; // Version bumped for new logic
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -111,7 +111,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.8: Real Data Enforcement Policy Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.9: Restored Deep Drill Protocol (Legacy).']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -231,21 +231,35 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let financials: any = null;
 
-      // PRIORITY 1: YAHOO FINANCE (Market Data & Basic Fundamentals)
+      // PRIORITY 1: YAHOO FINANCE (RESTORED v10 DEEP STRATEGY)
+      // This is the "Powerful" method from the old code that pulls everything at once.
       try {
           setActiveStream(`YAHOO_V10_STREAM [${symbol}]`);
           const yahooSymbol = symbol.replace(/\./g, '-');
+          
+          // [RESTORED] Full list of modules from Old Code
           const modules = [
-              'financialData', 'defaultKeyStatistics', 'summaryDetail',
-              'balanceSheetHistory', 'balanceSheetHistoryQuarterly',
-              'incomeStatementHistory', 'incomeStatementHistoryQuarterly', 
-              'cashflowStatementHistory', 'cashflowStatementHistoryQuarterly'
+              'financialData', 
+              'defaultKeyStatistics', 
+              'summaryDetail',
+              'balanceSheetHistory', 
+              'balanceSheetHistoryQuarterly',
+              'incomeStatementHistory', 
+              'incomeStatementHistoryQuarterly', 
+              'cashflowStatementHistory', 
+              'cashflowStatementHistoryQuarterly',
+              'earningsTrend' // Added from old code for completeness
           ].join(',');
 
           const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=${modules}`);
           if (res.ok) {
               const data = await res.json();
               if (data && (data.balanceSheetHistory || data.financialData)) {
+                  // Reconstructing the specific structure expected by old logic
+                  const annualIncome = data.incomeStatementHistory?.incomeStatementHistory || [];
+                  const annualBalance = data.balanceSheetHistory?.balanceSheetStatements || [];
+                  const annualCashflow = data.cashflowStatementHistory?.cashflowStatements || [];
+
                   financials = {
                       source: 'YAHOO_FULL',
                       raw: data,
@@ -255,13 +269,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       pbr: safeNum(data.defaultKeyStatistics?.priceToBook),
                       debtToEquity: safeNum(data.financialData?.debtToEquity),
                       currentRatio: safeNum(data.financialData?.currentRatio),
-                      operatingCashFlow: safeNum(data.cashflowStatementHistory?.cashflowStatements?.[0]?.totalCashFromOperatingActivities),
+                      operatingCashFlow: safeNum(annualCashflow[0]?.totalCashFromOperatingActivities),
                       financialReport: {
                           source: 'YAHOO',
                           annual: {
-                              income: data.incomeStatementHistory?.incomeStatementHistory || [],
-                              balance: data.balanceSheetHistory?.balanceSheetStatements || [],
-                              cashflow: data.cashflowStatementHistory?.cashflowStatements || []
+                              income: annualIncome,
+                              balance: annualBalance,
+                              cashflow: annualCashflow
                           },
                           quarterly: {
                               income: data.incomeStatementHistoryQuarterly?.incomeStatementHistory || [],
@@ -269,7 +283,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               cashflow: data.cashflowStatementHistoryQuarterly?.cashflowStatements || []
                           }
                       },
-                      hasHistory: (data.balanceSheetHistory?.balanceSheetStatements?.length || 0) > 1
+                      // Valid if we have at least 2 years of history
+                      hasHistory: annualBalance.length > 1
                   };
               }
           }
@@ -294,10 +309,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const bs = await bsRes.json();
                   const ratios = await ratioRes.json();
 
-                  // [CRITICAL] Error Check for Legacy Endpoint Message
-                  if (is['Error Message'] || bs['Error Message']) {
-                      throw new Error("FMP_LEGACY_ERROR");
-                  }
+                  if (is['Error Message'] || bs['Error Message']) throw new Error("FMP_LEGACY_ERROR");
                   
                   if (Array.isArray(is) && is.length > 0) {
                       const r = ratios[0] || {};
@@ -321,15 +333,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
           } catch (e: any) {
-              if (e.message === "FMP_LEGACY_ERROR" || e.message.includes("Legacy")) {
+              if (e.message === "FMP_LEGACY_ERROR") {
                   fmpDepletedRef.current = true;
                   setFmpDepleted(true);
-                  addLog("⚠️ FMP Legacy Endpoint Error. Switching to Backup.", "err");
               }
           }
       }
 
-      // PRIORITY 3: FINNHUB (Last Resort for Metrics)
+      // PRIORITY 3: FINNHUB (Last Resort)
       if (!financials && finnhubKey) {
           try {
               setActiveStream(`FINNHUB_METRIC [${symbol}]`);
@@ -361,11 +372,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return financials;
   };
 
-  const fetchRapidFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
+  // [RESTORED] Explicit Deep Fetch for RapidAPI (FMP Mirror) from Old Code
+  // This was the logic that guaranteed 5-year data in the old version.
+  const fetchRapidDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       if (!rapidKey || rapidDepletedRef.current) return null;
-      setActiveStream(`RAPID_API_BACKUP [${symbol}]`);
+      setActiveStream(`RAPID_API_DEEP [${symbol}]`);
+      
       const host = 'fmpcloud.p.rapidapi.com';
       const headers = { 'X-RapidAPI-Key': rapidKey, 'X-RapidAPI-Host': host };
+      
       try {
           const get = async (ep: string, params: string) => {
               const res = await fetch(`https://${host}/api/v3/${ep}/${symbol}?${params}`, { headers });
@@ -373,9 +388,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               if (!res.ok) throw new Error(`Status ${res.status}`);
               return res.json();
           };
+
+          // Explicitly requesting LIMIT=5 for 5 years of history
           const isA = await get('income-statement', 'limit=5');
           const bsA = await get('balance-sheet-statement', 'limit=5');
           const cfA = await get('cash-flow-statement', 'limit=5');
+          
           const isQ = await get('income-statement', 'period=quarter&limit=20');
           const bsQ = await get('balance-sheet-statement', 'period=quarter&limit=20');
           const cfQ = await get('cash-flow-statement', 'period=quarter&limit=20');
@@ -393,62 +411,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
           return null;
       }
-  };
-
-  // [NEW] Real Data Reconstruction from TTM Metrics
-  // This uses ACTUAL REPORTED NUMBERS (metrics) to reconstruct a single-year ledger.
-  // It is NOT synthetic/fake data. It is a "Sparse Real Data" mapping.
-  const constructRealTtmReport = (ticker: QualityTicker): DeepFinancialReport => {
-      const marketCap = ticker.marketValue || 0;
-      const pe = ticker.per || 0;
-      const roe = ticker.roe || 0; // %
-      const de = ticker.debtToEquity || 0; // %
-      
-      // Calculate REAL implied numbers from metrics
-      // Net Income = Market Cap / PE (definition of PE)
-      const netIncome = (marketCap > 0 && pe > 0) ? marketCap / pe : 0;
-      
-      // Equity = Net Income / (ROE%) (definition of ROE)
-      const equity = (netIncome > 0 && roe > 0) ? netIncome / (roe / 100) : 0;
-      
-      // Debt = Equity * (D/E%)
-      const debt = (equity > 0 && de > 0) ? equity * (de / 100) : 0;
-      
-      // Assets = Equity + Debt (Accounting Equation)
-      const totalAssets = equity + debt;
-      
-      const dateStr = new Date().toISOString().split('T')[0];
-      
-      return {
-          source: 'REAL_DERIVED_TTM',
-          annual: {
-              income: [{
-                  date: dateStr,
-                  symbol: ticker.symbol,
-                  netIncome: netIncome,
-                  // Placeholder for missing granular rows, but Net Income is REAL
-                  revenue: 0, 
-                  operatingIncome: netIncome * 1.3 // Rough heuristic for OpIncome based on NI, but marked as derived
-              }],
-              balance: [{
-                  date: dateStr,
-                  symbol: ticker.symbol,
-                  totalAssets: totalAssets,
-                  totalLiabilities: debt,
-                  totalStockholdersEquity: equity,
-                  totalEquity: equity
-              }],
-              cashflow: [{
-                  date: dateStr,
-                  symbol: ticker.symbol,
-                  // OCF approx Net Income * 1.2 is a standard proxy if missing, 
-                  // but we mark this whole report as derived so it's transparent.
-                  operatingCashFlow: netIncome * 1.2 
-              }]
-          },
-          quarterly: { income: [], balance: [], cashflow: [] }, 
-          secData: ticker.financialReport?.secData
-      };
   };
 
   // [NEW] Single File Upload Helper
@@ -473,7 +435,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setAnalysisPhase('DEEP_ENRICHMENT');
       const total = candidates.length;
       setEnrichProgress({ current: 0, total });
-      setReportProgress({ current: 0, total, skipped: 0, archived: 0 }); // Init archive progress too
+      setReportProgress({ current: 0, total, skipped: 0, archived: 0 });
       
       const enriched: QualityTicker[] = [];
       let archiveCount = 0;
@@ -482,13 +444,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const ticker = candidates[i];
           let report = ticker.financialReport;
           
-          // Identify if current report is insufficient (Metric only or missing)
-          const isWeakSource = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
-          const hasEmptyReport = !report || (report.source === 'FINNHUB' && Object.keys(report.annual).length === 0);
-          
-          // [CRITICAL FIX] Always try enrichment if data is not deep (missing full history)
-          // Previously, this only checked specific source strings, missing some fallback cases.
-          const needsEnrichment = isWeakSource || hasEmptyReport;
+          // Check if we have DEEP data (5 years of history)
+          // If source is LITE, METRIC, or missing annual history -> Force Enrich
+          const hasDeepHistory = report && report.annual && report.annual.income && report.annual.income.length >= 4;
+          const needsEnrichment = !hasDeepHistory || ticker.source.includes('LITE') || ticker.source.includes('METRIC');
 
           // [SEC INTEGRATION] Fetch SEC metadata if CIK exists - Highest Priority
           if (ticker.cik) {
@@ -503,7 +462,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           if (needsEnrichment) {
               let enrichmentSuccess = false;
 
-              // 1. Try FMP Direct (if key valid and not depleted)
+              // 1. Try FMP Direct Deep Fetch (Old Code Logic)
               if (fmpKey && !fmpDepletedRef.current) {
                   try {
                       setActiveStream(`FMP_DEEP_5Y [${ticker.symbol}]`);
@@ -512,10 +471,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           const r = await fetch(`https://financialmodelingprep.com/api/v3/${ep}/${ticker.symbol}?${p}&apikey=${fmpKey}`);
                           if (r.status === 429) throw new Error("FMP_429");
                           const data = await r.json();
-                          // [CRITICAL] Validate Response for Legacy/Error Messages
                           if (data['Error Message']) throw new Error("FMP_LEGACY_ERROR");
                           return data;
                       };
+                      
+                      // Explicit 5-year fetch matching old logic
                       const isA = await getFmp('income-statement', 'limit=5');
                       const bsA = await getFmp('balance-sheet-statement', 'limit=5');
                       const cfA = await getFmp('cash-flow-statement', 'limit=5');
@@ -527,7 +487,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           source: 'FMP',
                           annual: { income: isA, balance: bsA, cashflow: cfA },
                           quarterly: { income: isQ, balance: bsQ, cashflow: cfQ },
-                          secData: ticker.financialReport?.secData // Preserve SEC data
+                          secData: ticker.financialReport?.secData
                       };
                       ticker.source = 'FMP_DEEP_5Y';
                       enrichmentSuccess = true;
@@ -539,29 +499,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              // 2. Try RapidAPI (if FMP failed/depleted or was skipped)
-              // [CRITICAL FIX] Forced fallback to RapidAPI
+              // 2. Try RapidAPI (Backup)
               if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
-                  
                   if (!rapidActive) setRapidActive(true);
-                  const rapidReport = await fetchRapidFinancials(ticker.symbol);
+                  const rapidReport = await fetchRapidDeepFinancials(ticker.symbol);
                   if (rapidReport) {
                       ticker.financialReport = {
                           ...rapidReport,
-                          secData: ticker.financialReport?.secData // Preserve SEC data
+                          secData: ticker.financialReport?.secData
                       };
                       ticker.source = 'RAPID_DEEP_5Y';
                       enrichmentSuccess = true;
                   }
                   await new Promise(r => setTimeout(r, 500)); 
-              }
-
-              // 3. REAL TTM SNAPSHOT FALLBACK
-              // If deep fetching fails, construct a single-year report from valid TTM metrics.
-              // This is NOT synthetic. It's real data from the exchange, just less granular.
-              if (!enrichmentSuccess && (!ticker.financialReport || Object.keys(ticker.financialReport.annual).length === 0)) {
-                   ticker.financialReport = constructRealTtmReport(ticker);
-                   ticker.source = 'REAL_DERIVED_TTM';
               }
           }
 
@@ -798,8 +748,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "10.8.0", 
-                strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_SEC_Enhanced", 
+                version: "10.9.0", 
+                strategy: "Hybrid_Legacy_Deep_5Y_Real_Only", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
                 description: "Contains full 5-year financial statements and SEC metadata."
@@ -1009,7 +959,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.8</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.9</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
