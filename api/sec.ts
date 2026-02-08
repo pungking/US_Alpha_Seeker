@@ -2,7 +2,8 @@
 export default async function handler(req: any, res: any) {
   // SEC EDGAR Proxy
   // Mode 1: Listing (No params) -> https://www.sec.gov/files/company_tickers.json
-  // Mode 2: Detail (query.cik) -> https://data.sec.gov/submissions/CIK##########.json
+  // Mode 2: Detail (cik) -> https://data.sec.gov/submissions/CIK##########.json
+  // Mode 3: XBRL Facts (action=facts, cik) -> https://data.sec.gov/api/xbrl/companyfacts/CIK##########.json
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -14,25 +15,64 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { cik } = req.query;
-  const userAgent = "US_Alpha_Seeker_Research contact@example.com";
+  const { cik, action } = req.query;
+  // SEC strictly requires a User-Agent with contact info.
+  // Using a generic academic research string to comply.
+  const userAgent = "AlphaSeekerResearch contact@alphaseeker.com";
 
   try {
     if (cik) {
-        // [MODE 2] Fetch Specific Company Data
-        // SEC requires 10-digit CIK with leading zeros
         const paddedCik = String(cik).padStart(10, '0');
+
+        // [MODE 3] XBRL Company Facts (The "Pure" Data)
+        if (action === 'facts') {
+             const url = `https://data.sec.gov/api/xbrl/companyfacts/CIK${paddedCik}.json`;
+             const response = await fetch(url, {
+                headers: { 
+                    'User-Agent': userAgent, 
+                    'Host': 'data.sec.gov',
+                    'Accept-Encoding': 'gzip, deflate',
+                    'Cache-Control': 'no-cache'
+                }
+             });
+
+             if (!response.ok) throw new Error(`SEC XBRL Error: ${response.status}`);
+             
+             const data = await response.json();
+             const facts = data.facts?.['us-gaap'];
+
+             if (!facts) return res.status(200).json({ error: "No US-GAAP facts found" });
+
+             // Filter only essential tags for Quant Scoring to reduce payload size
+             const essentialTags = [
+                 'Assets', 'Liabilities', 'StockholdersEquity', 
+                 'CurrentAssets', 'CurrentLiabilities', 
+                 'RetainedEarningsAccumulatedDeficit', 
+                 'OperatingIncomeLoss', 'Revenues', 'RevenueFromContractWithCustomerExcludingAssessedTax',
+                 'NetIncomeLoss', 'NetCashProvidedByUsedInOperatingActivities'
+             ];
+
+             const filteredFacts: any = {};
+             essentialTags.forEach(tag => {
+                 if (facts[tag]) filteredFacts[tag] = facts[tag];
+             });
+
+             res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
+             return res.status(200).json({ taxonomy: 'us-gaap', facts: filteredFacts });
+        }
+
+        // [MODE 2] Fetch Submission Metadata (Existing)
         const url = `https://data.sec.gov/submissions/CIK${paddedCik}.json`;
-        
         const response = await fetch(url, {
-            headers: { 'User-Agent': userAgent, 'Host': 'data.sec.gov' }
+            headers: { 
+                'User-Agent': userAgent, 
+                'Host': 'data.sec.gov'
+            }
         });
 
         if (!response.ok) throw new Error(`SEC Detail Error: ${response.status}`);
-        
         const data = await response.json();
         
-        // Extract useful subset to save bandwidth
         const result = {
             cik: data.cik,
             entityType: data.entityType,
@@ -56,7 +96,10 @@ export default async function handler(req: any, res: any) {
     } else {
         // [MODE 1] Fetch All Tickers
         const response = await fetch('https://www.sec.gov/files/company_tickers.json', {
-            headers: { 'User-Agent': userAgent, 'Host': 'www.sec.gov' }
+            headers: { 
+                'User-Agent': userAgent, 
+                'Host': 'www.sec.gov' 
+            }
         });
 
         if (!response.ok) throw new Error(`SEC List Error: ${response.status}`);
