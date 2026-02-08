@@ -82,7 +82,8 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_V15_TIERED_'; 
+// [CACHE RESET] Version bumped to invalidate previous 'Fallback' loops
+const CACHE_PREFIX = 'QUANT_CACHE_V15.2_TIERED_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -140,12 +141,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   // [NEW] Live Audit State
   const [liveAuditFeed, setLiveAuditFeed] = useState<AuditPacket[]>([]);
-  const [sourceStats, setSourceStats] = useState({ rapid: 0, yahoo: 0, sec: 0, fallback: 0 });
+  const [sourceStats, setSourceStats] = useState({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, fallback: 0 });
 
   // Source Management
   const [activeStream, setActiveStream] = useState<string>('IDLE');
-  const [rapidActive, setRapidActive] = useState(false);
   const rapidDepletedRef = useRef(false);
+  const finnhubDepletedRef = useRef(false);
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'HYBRID_SCAN' | 'SCORING' | 'DEEP_ENRICHMENT' | 'AI_AUDIT' | 'REPORT_DUMP' | 'COMPLETE'>('INIT');
@@ -156,12 +157,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v15.1: SEC XBRL Pipeline Integrated.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v15.2: Smart Cache Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key; // [NEW] Finnhub Key
   
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -227,12 +229,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const keysToRemove: string[] = [];
           for (let i = 0; i < sessionStorage.length; i++) {
               const key = sessionStorage.key(i);
-              if (key && key.startsWith(CACHE_PREFIX)) keysToRemove.push(key);
+              // Clean ALL previous versions or current version
+              if (key && (key.startsWith(CACHE_PREFIX) || key.includes('QUANT_CACHE'))) {
+                  keysToRemove.push(key);
+              }
           }
-          if (keysToRemove.length === 0) return;
+          if (keysToRemove.length === 0) {
+              addLog(`[CACHE] No cache found to clear.`, "warn");
+              return;
+          }
           keysToRemove.forEach(k => sessionStorage.removeItem(k));
           setProcessedData([]); 
-          addLog(`[CACHE] System flushed. Clean slate ready.`, "warn");
+          addLog(`[CACHE] Flushed ${keysToRemove.length} entries. Clean slate ready.`, "ok");
       } catch (e) { console.error(e); }
   };
 
@@ -275,7 +283,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   // [TIER 1] Lightweight Scan - Ratio & Metrics Only
-  // Fallback Logic: Rapid -> Yahoo -> Stage 0 (Fail-Open)
+  // Fallback Logic: Rapid(FMP) -> Finnhub -> Yahoo -> Stage 0 (Fail-Open)
   const fetchTier1Metrics = async (inputTicker: any): Promise<any> => {
       let metrics: any = null;
       const symbol = inputTicker.symbol;
@@ -310,25 +318,66 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch(e) {}
       }
 
-      // SOURCE B: Yahoo Finance (Fallback)
+      // SOURCE B: Finnhub (Reliable Alternative)
+      if (!metrics && finnhubKey && !finnhubDepletedRef.current) {
+          try {
+             setActiveStream(`FINNHUB_METRICS [${symbol}]`);
+             const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
+             
+             if (res.status === 429) {
+                 finnhubDepletedRef.current = true;
+                 addLog("⚠️ Finnhub Limit Reached. Switching to Yahoo.", "warn");
+             } else if (res.ok) {
+                 const data = await res.json();
+                 const m = data.metric;
+                 if (m) {
+                     metrics = {
+                         source: 'FINNHUB_METRICS',
+                         per: safeNum(m.peNormalizedAnnual) || safeNum(m.peTTM),
+                         roe: safeNum(m.roeTTM), // Finnhub often returns %, so keep as is
+                         debtToEquity: safeNum(m.totalDebtEquityRatioQuarterly),
+                         pbr: safeNum(m.pbAnnual),
+                         currentRatio: safeNum(m.currentRatioQuarterly),
+                         operatingCashFlow: 0 // Finnhub basic metrics might not have this easily
+                     };
+                 }
+             }
+          } catch(e) {}
+      }
+
+      // SOURCE C: Yahoo Finance (Fallback with Rotating User-Agent)
       if (!metrics) {
           try {
               setActiveStream(`YAHOO_METRICS [${symbol}]`);
               const yahooSymbol = symbol.replace(/\./g, '-');
+              // Request both v10 (deep) and v7 (summary) modules logic handled by proxy
               const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=financialData,defaultKeyStatistics`);
               if (res.ok) {
                   const data = await res.json();
                   const fd = data.financialData;
                   const ks = data.defaultKeyStatistics;
+                  // Handle V7 response structure (flat) vs V10 (nested)
                   if (fd) {
                       metrics = {
-                          source: 'YAHOO_METRICS',
+                          source: 'YAHOO_METRICS_V10',
                           per: safeNum(data.summaryDetail?.trailingPE) || safeNum(data.summaryDetail?.forwardPE),
                           roe: safeNum(fd.returnOnEquity),
                           debtToEquity: safeNum(fd.debtToEquity),
                           pbr: safeNum(ks?.priceToBook),
                           currentRatio: safeNum(fd.currentRatio),
                           operatingCashFlow: safeNum(fd.operatingCashflow)
+                      };
+                  } else if (Array.isArray(data) && data.length > 0) {
+                      // V7 Fallback structure
+                      const d = data[0];
+                      metrics = {
+                          source: 'YAHOO_METRICS_V7',
+                          per: safeNum(d.trailingPE) || safeNum(d.forwardPE),
+                          roe: safeNum(d.returnOnEquity),
+                          debtToEquity: safeNum(d.debtToEquity),
+                          pbr: safeNum(d.priceToBook),
+                          currentRatio: 0,
+                          operatingCashFlow: 0
                       };
                   }
               }
@@ -540,9 +589,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setAnalysisPhase('INIT');
     setProcessedData([]);
     setLiveAuditFeed([]); // Reset Feed
-    setSourceStats({ rapid: 0, yahoo: 0, sec: 0, fallback: 0 }); // Reset Stats
+    setSourceStats({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, fallback: 0 }); // Reset Stats
     startTimeRef.current = Date.now();
     rapidDepletedRef.current = false;
+    finnhubDepletedRef.current = false;
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
@@ -574,9 +624,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const batchResults = await Promise.all(batch.map(async (t: any) => {
               const cacheKey = getDailyCacheKey(t.symbol);
               const cached = sessionStorage.getItem(cacheKey);
+              
               if (cached) {
-                  setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
-                  return JSON.parse(cached);
+                  try {
+                      const parsed = JSON.parse(cached);
+                      // [SMART CACHE VALIDATION]
+                      // Only use cache if it's NOT a fallback record.
+                      // If it's a STAGE0_FALLBACK, ignore it and re-fetch to get real data.
+                      if (parsed.source !== 'STAGE0_FALLBACK') {
+                          setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
+                          return parsed;
+                      }
+                  } catch(e) { /* corrupted cache, ignore */ }
               }
 
               // Lightweight Fetch - Pass 't' for fallback data extraction
@@ -598,6 +657,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               setSourceStats(prev => ({
                   ...prev,
                   rapid: metrics.source.includes('RAPID') ? prev.rapid + 1 : prev.rapid,
+                  finnhub: metrics.source.includes('FINNHUB') ? prev.finnhub + 1 : prev.finnhub,
                   yahoo: metrics.source.includes('YAHOO') ? prev.yahoo + 1 : prev.yahoo,
                   fallback: metrics.source.includes('STAGE0') ? prev.fallback + 1 : prev.fallback
               }));
@@ -737,7 +797,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               
               const payload = {
                 manifest: { 
-                    version: "15.1.0", 
+                    version: "15.2.0", 
                     strategy: "2-Tier_Hybrid_SEC_XBRL_DeepScan", 
                     timestamp: new Date().toISOString(), 
                     engine: "Use_Everything",
@@ -1088,7 +1148,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
@@ -1164,12 +1224,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
            <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
                 {[
                   { label: 'Real (FMP)', count: sourceStats.rapid, color: 'text-emerald-400', border: 'border-emerald-500/30' },
+                  { label: 'Real (Finnhub)', count: sourceStats.finnhub, color: 'text-cyan-400', border: 'border-cyan-500/30' },
                   { label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
                   { label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
                   { label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
                 ].map((stat, idx) => (
                     <div key={idx} className={`flex flex-col px-3 py-1.5 rounded-lg bg-black/40 border ${stat.border} min-w-[70px]`}>
-                        <span className="text-[7px] text-slate-500 uppercase font-bold">{stat.label}</span>
+                        <span className="text-[7px] text-slate-500 uppercase font-bold whitespace-nowrap">{stat.label}</span>
                         <span className={`text-[12px] font-mono font-black ${stat.color}`}>{stat.count}</span>
                     </div>
                 ))}
@@ -1201,7 +1262,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         <div className="glass-panel h-[300px] lg:h-[400px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Logs</h3>
-            <button onClick={clearStageCache} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors">Clear Cache</button>
+            <button onClick={clearStageCache} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">Clear Cache</button>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((l, i) => (
