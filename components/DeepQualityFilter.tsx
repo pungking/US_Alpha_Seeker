@@ -314,6 +314,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const fetchDeepFinancials = async (ticker: QualityTicker): Promise<DeepFinancialReport | null> => {
+      // Prioritize SEC XBRL if CIK is available (from Stage 0)
       if (ticker.cik) {
           try {
               const res = await fetch(`/api/sec?action=facts&cik=${ticker.cik}`);
@@ -593,6 +594,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let status: 'OK' | 'WARN' | 'FAIL' = 'OK';
           
           // REAL API CALL HAPPENS HERE
+          // CIK should be available from Stage 0 if SEC was used
           const report = await fetchDeepFinancials(ticker);
           
           if (report && (report.xbrl || report.annual.balance.length > 0)) {
@@ -622,10 +624,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                
                finalCandidates.push(ticker);
           } else {
-              // If Deep Scan fails, assume neutral but penalize slightly
-              ticker.zScore = 1.8; 
-              ticker.fScore = 5;
-              ticker.source = 'FALLBACK';
+              // If Deep Scan fails, use Snapshot Data from Stage 0/1 as Soft Fallback
+              // Since Stage 0 (TV Scanner) provides ROE/Debt/PE, we can approximate quality.
+              
+              // Approx Z-Score based on Debt/Equity (Inverse relation)
+              const approxZ = ticker.debtToEquity > 0 ? (100 / ticker.debtToEquity) : 3.0;
+              
+              // Approx F-Score based on ROE (Profitability)
+              const approxF = ticker.roe > 0 ? 5 : 3;
+
+              ticker.zScore = Number(approxZ.toFixed(2)); 
+              ticker.fScore = approxF;
+              ticker.source = 'FALLBACK_SNAPSHOT';
+              
               status = 'WARN';
               setSourceStats(prev => ({...prev, fallback: prev.fallback + 1}));
               finalCandidates.push(ticker);
@@ -1079,8 +1090,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                  <h4 className="text-lg font-black text-white italic tracking-tighter uppercase">{selectedTheme}</h4>
                                  <p className="text-[10px] text-slate-400">Elite Assets Ranked by Quality</p>
                              </div>
-                             <button onClick={() => setSelectedTheme(null)} className="p-2 hover:bg-white/10 rounded-full transition-colors">
-                                 <svg className="w-5 h-5 text-slate-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                             {/* [FIXED] Explicit BACK button */}
+                             <button onClick={() => setSelectedTheme(null)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-[9px] font-black uppercase border border-slate-600 hover:bg-slate-700 transition-colors flex items-center gap-2">
+                                 ← BACK TO MAP
                              </button>
                          </div>
                          <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
