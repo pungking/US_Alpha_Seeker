@@ -66,6 +66,16 @@ interface QualityTicker {
   [key: string]: any;
 }
 
+// [NEW] Audit Packet for Visualization
+interface AuditPacket {
+  symbol: string;
+  roe: number;
+  debt: number;
+  per: number;
+  source: string;
+  timestamp: string;
+}
+
 interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
@@ -128,6 +138,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
   const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
+  // [NEW] Live Audit State
+  const [liveAuditFeed, setLiveAuditFeed] = useState<AuditPacket[]>([]);
+  const [sourceStats, setSourceStats] = useState({ rapid: 0, yahoo: 0, sec: 0, fallback: 0 });
+
   // Source Management
   const [activeStream, setActiveStream] = useState<string>('IDLE');
   const [rapidActive, setRapidActive] = useState(false);
@@ -525,6 +539,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setLoading(true);
     setAnalysisPhase('INIT');
     setProcessedData([]);
+    setLiveAuditFeed([]); // Reset Feed
+    setSourceStats({ rapid: 0, yahoo: 0, sec: 0, fallback: 0 }); // Reset Stats
     startTimeRef.current = Date.now();
     rapidDepletedRef.current = false;
     
@@ -566,6 +582,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               // Lightweight Fetch - Pass 't' for fallback data extraction
               const metrics = await fetchTier1Metrics(t);
               if (!metrics) return null; 
+              
+              // [LIVE AUDIT] Feed Update
+              const auditData: AuditPacket = {
+                  symbol: t.symbol,
+                  roe: metrics.roe * 100,
+                  debt: metrics.debtToEquity,
+                  per: metrics.per,
+                  source: metrics.source,
+                  timestamp: new Date().toLocaleTimeString()
+              };
+              setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 7)); // Keep last 7
+              
+              // [LIVE AUDIT] Stats Update
+              setSourceStats(prev => ({
+                  ...prev,
+                  rapid: metrics.source.includes('RAPID') ? prev.rapid + 1 : prev.rapid,
+                  yahoo: metrics.source.includes('YAHOO') ? prev.yahoo + 1 : prev.yahoo,
+                  fallback: metrics.source.includes('STAGE0') ? prev.fallback + 1 : prev.fallback
+              }));
 
               // Preliminary Scoring (Soft Filter)
               const roe = metrics.roe || 0;
@@ -646,6 +681,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                    if (report.source === 'SEC_XBRL' && report.xbrl) {
                         netIncome = getSecVal(report.xbrl, 'NetIncomeLoss');
                         ocf = getSecVal(report.xbrl, 'NetCashProvidedByUsedInOperatingActivities');
+                        // [LIVE AUDIT] SEC Stats Update
+                        setSourceStats(prev => ({ ...prev, sec: prev.sec + 1 }));
                    } else {
                         netIncome = getPolyVal(report.annual.income[0], ['netIncome', 'net_income']);
                         ocf = getPolyVal(report.annual.cashflow[0], ['operatingCashFlow', 'net_cash_flow_from_operating_activities']);
@@ -1051,7 +1088,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
@@ -1115,8 +1152,53 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         </div>
       </div>
 
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+      <div className="xl:col-span-1 space-y-6">
+        {/* [NEW] Live Audit Dashboard */}
+        <div className="glass-panel p-6 rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-purple-600 flex flex-col shadow-2xl relative overflow-hidden min-h-[300px]">
+           <div className="flex items-center justify-between mb-4 px-2">
+              <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Live Audit Stream</h3>
+              <span className="text-[8px] font-mono text-purple-400 animate-pulse">{loading ? 'SCANNING...' : 'WAITING'}</span>
+           </div>
+
+           {/* Source Stats */}
+           <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
+                {[
+                  { label: 'Real (FMP)', count: sourceStats.rapid, color: 'text-emerald-400', border: 'border-emerald-500/30' },
+                  { label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
+                  { label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
+                  { label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
+                ].map((stat, idx) => (
+                    <div key={idx} className={`flex flex-col px-3 py-1.5 rounded-lg bg-black/40 border ${stat.border} min-w-[70px]`}>
+                        <span className="text-[7px] text-slate-500 uppercase font-bold">{stat.label}</span>
+                        <span className={`text-[12px] font-mono font-black ${stat.color}`}>{stat.count}</span>
+                    </div>
+                ))}
+           </div>
+
+           {/* Ticker Tape List */}
+           <div className="flex-1 overflow-y-auto no-scrollbar space-y-2 relative">
+               {liveAuditFeed.length > 0 ? liveAuditFeed.map((item, idx) => (
+                   <div key={`${item.symbol}-${idx}`} className="flex justify-between items-center p-2 rounded-lg bg-white/5 border border-white/5 text-[9px] font-mono animate-in fade-in slide-in-from-right-2">
+                       <div className="flex items-center gap-2">
+                           <span className="text-white font-bold w-10">{item.symbol}</span>
+                           <span className={`px-1 rounded text-[7px] font-bold ${item.source.includes('STAGE0') ? 'bg-amber-500/20 text-amber-500' : 'bg-emerald-500/20 text-emerald-500'}`}>
+                               {item.source.includes('STAGE0') ? 'EST' : 'REAL'}
+                           </span>
+                       </div>
+                       <div className="flex gap-3 text-slate-400">
+                           <span>ROE: <span className={item.roe > 0 ? 'text-emerald-400' : 'text-rose-400'}>{item.roe.toFixed(1)}%</span></span>
+                           <span>Debt: {item.debt.toFixed(1)}</span>
+                       </div>
+                   </div>
+               )) : (
+                   <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">No Active Data Stream</p>
+                   </div>
+               )}
+           </div>
+        </div>
+
+        <div className="glass-panel h-[300px] lg:h-[400px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Logs</h3>
             <button onClick={clearStageCache} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors">Clear Cache</button>
