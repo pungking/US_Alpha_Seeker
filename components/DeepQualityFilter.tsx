@@ -87,7 +87,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.7: Powerful Yahoo V10 & FMP Deep Scan.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.8: Deep Ledger Integration Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -97,7 +97,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   // [TUNING] Batch size
   const BATCH_SIZE = 5; 
-  const REPORT_ARCHIVE_BATCH_SIZE = 10; // Increased for faster bulk archiving
+  const REPORT_ARCHIVE_BATCH_SIZE = 10;
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -637,8 +637,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "9.3.0", strategy: "Hybrid_Ledger_Metric_Scan", timestamp: new Date().toISOString(), engine: "Use_Everything" },
-        elite_universe: eliteSurvivors.map(({ financialReport, ...rest }) => rest) // Exclude raw report from main list
+        manifest: { 
+            version: "9.8.0", 
+            strategy: "Hybrid_Ledger_Metric_Scan_Deep", 
+            timestamp: new Date().toISOString(), 
+            engine: "Use_Everything",
+            description: "Contains full financial statements (Balance Sheet, Income Statement, Cash Flow) for Stage 3 Analysis."
+        },
+        // [MODIFICATION] Include the full object including 'financialReport'
+        elite_universe: eliteSurvivors 
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
