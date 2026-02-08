@@ -35,6 +35,7 @@ interface MasterTicker {
   debtToEquity?: number;
   pb?: number;
   source?: string;
+  cik?: number; // SEC ID
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
@@ -64,7 +65,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.5.2: Triple Hybrid Fusion Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v4.0.0: Quadruple Hybrid Fusion (SEC Integrated).']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -95,7 +96,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         if (!accessToken) {
              addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
         } else {
-             addLog("AUTO-PILOT: Engaging Triple Fusion Sequence...", "signal");
+             addLog("AUTO-PILOT: Engaging Quadruple Fusion Sequence...", "signal");
              startEngine();
         }
     }
@@ -280,6 +281,28 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }));
   };
 
+  const executeSECRegistry = async (): Promise<MasterTicker[]> => {
+      addLog("Source D: SEC Official Registry (Government Data)...", "info");
+      try {
+          const res = await fetch('/api/sec');
+          if (!res.ok) throw new Error(`SEC Proxy Failed: ${res.status}`);
+          const data = await res.json();
+          addLog(`SEC Registry: Retrieved ${data.length} official issuers.`, "ok");
+          
+          return data.map((item: any) => ({
+              symbol: item.symbol, 
+              name: item.name, 
+              price: 0, volume: 0, change: 0, // Metadata only
+              updated: new Date().toISOString().split('T')[0],
+              source: 'SEC_EDGAR',
+              cik: item.cik
+          }));
+      } catch (e: any) {
+          addLog(`SEC Fetch Error: ${e.message}`, "warn");
+          return [];
+      }
+  };
+
   // [AUXILIARY] Yahoo Cross-Validation & Price Correction
   const validateWithYahoo = async (candidates: MasterTicker[]) => {
       addLog("Auxiliary Source: Initiating Yahoo Finance Sample Check...", "info");
@@ -316,11 +339,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  const fuseDatasets = (tv: MasterTicker[], fmp: MasterTicker[], poly: MasterTicker[]): MasterTicker[] => {
+  const fuseDatasets = (tv: MasterTicker[], fmp: MasterTicker[], poly: MasterTicker[], sec: MasterTicker[]): MasterTicker[] => {
       const map = new Map<string, MasterTicker>();
+      const secMap = new Set(sec.map(s => s.symbol));
 
       // 1. Base Layer: TradingView (Rich Fundamentals)
-      tv.forEach(item => map.set(item.symbol, item));
+      tv.forEach(item => {
+          // Enforce SEC validation if available
+          if (sec.length > 0 && !secMap.has(item.symbol)) return; // Skip non-official tickers? Optional.
+          // For now, we just mark them.
+          if (secMap.has(item.symbol)) item.source += "+SEC";
+          map.set(item.symbol, item);
+      });
       
       // 2. Enrichment Layer: FMP (Sector/Industry + Missing Tickers)
       let fmpAdded = 0;
@@ -355,7 +385,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           }
       });
 
-      addLog(`Fusion Result: ${tv.length} TV + ${fmpAdded} FMP + ${polyAdded} Poly = ${map.size} Total.`, "ok");
+      addLog(`Fusion Result: ${tv.length} TV + ${fmpAdded} FMP + ${polyAdded} Poly + SEC Validated = ${map.size} Total.`, "ok");
       return Array.from(map.values());
   };
 
@@ -377,10 +407,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }, 1000);
 
     try {
-        const [tvData, fmpData, polyData] = await Promise.allSettled([
+        const [tvData, fmpData, polyData, secData] = await Promise.allSettled([
             executeTVScanner(),
             executeFMPScreener(),
-            executePolygonAggs()
+            executePolygonAggs(),
+            executeSECRegistry()
         ]);
 
         clearInterval(discoveryTimer); // Stop fake counter
@@ -388,6 +419,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const tv = tvData.status === 'fulfilled' ? tvData.value : [];
         const fmp = fmpData.status === 'fulfilled' ? fmpData.value : [];
         const poly = polyData.status === 'fulfilled' ? polyData.value : [];
+        const sec = secData.status === 'fulfilled' ? secData.value : [];
 
         if (tv.length === 0 && poly.length === 0) {
             throw new Error("Critical Failure: TV and Polygon both failed.");
@@ -395,12 +427,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
         if (tvData.status === 'rejected') addLog(`TV Scanner Failed: ${tvData.reason}`, "err");
         if (polyData.status === 'rejected') addLog(`Polygon Failed: ${polyData.reason}`, "err");
+        if (secData.status === 'rejected') addLog(`SEC Registry Failed: ${secData.reason}`, "warn");
 
         // FUSE
         setStats(prev => ({ ...prev, phase: 'Fusion' }));
-        addLog("Executing Triple Hybrid Fusion...", "info");
+        addLog("Executing Quadruple Hybrid Fusion...", "info");
         
-        let masterList = fuseDatasets(tv, fmp, poly);
+        let masterList = fuseDatasets(tv, fmp, poly, sec);
 
         // VALIDATION STEP
         setStats(prev => ({ ...prev, phase: 'Validation' }));
@@ -416,7 +449,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         setRegistry(newRegistry); 
         addLog("System Registry Updated. Global Validator Active.", "ok");
 
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Triple_Hybrid" }));
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Quad_Hybrid" }));
         addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
 
         // COMMIT
@@ -430,17 +463,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
-                version: "3.5.0", 
-                provider: "Triple_Fusion (TV+FMP+Poly)", 
-                auxiliary: "Yahoo_Cross_Validation",
+                version: "4.0.0", 
+                provider: "Quad_Fusion (TV+FMP+Poly+SEC)", 
+                auxiliary: "Yahoo_Cross_Validation", 
                 date: now.toISOString(), 
                 count: viableCandidates.length,
-                note: "Fused Data: TV Richness + FMP Metadata + Polygon Coverage"
+                note: "Fused Data: TV Richness + FMP Metadata + Polygon Coverage + SEC Validation"
             }, 
             universe: viableCandidates 
         };
 
-        const folderId = await ensureFolder(token);
+        const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
         if (folderId) {
             await uploadFile(token, folderId, fileName, payload);
             setStats(prev => ({ ...prev, synced: viableCandidates.length, phase: 'Finalized' }));
@@ -469,9 +502,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   };
 
-  const ensureFolder = async (token: string) => {
+  const ensureFolder = async (token: string, name: string) => {
     let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
-    const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
+    const q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
     const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
       headers: { 'Authorization': `Bearer ${token}` }
     });
@@ -489,7 +522,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
+      body: JSON.stringify({ name: name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     });
     
     // [FIX] Explicit check for folder creation failure
@@ -575,10 +608,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.5.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v4.0.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Triple Hybrid Fusion'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Quadruple Hybrid Fusion (SEC)'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
@@ -597,7 +630,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               }`}
             >
               {isEngineRunning 
-                ? 'Fusing 3 Sources...' 
+                ? 'Fusing 4 Sources...' 
                 : cooldown > 0 
                     ? `Wait ${cooldown}s` 
                     : isAuthLoading
