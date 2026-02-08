@@ -83,7 +83,7 @@ interface Props {
 }
 
 // [CACHE RESET] Version bumped to invalidate previous 'Fallback' loops
-const CACHE_PREFIX = 'QUANT_CACHE_V15.2_TIERED_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_V15.3_TIERED_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -145,8 +145,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   // Source Management
   const [activeStream, setActiveStream] = useState<string>('IDLE');
-  const rapidDepletedRef = useRef(false);
-  const finnhubDepletedRef = useRef(false);
+  
+  // [CRITICAL FIX] Removed permanent depletion refs (rapidDepletedRef, finnhubDepletedRef)
+  // We now allow retrying APIs even after 429s, just with local backoff.
 
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
   const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'HYBRID_SCAN' | 'SCORING' | 'DEEP_ENRICHMENT' | 'AI_AUDIT' | 'REPORT_DUMP' | 'COMPLETE'>('INIT');
@@ -157,17 +158,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v15.2: Smart Cache Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v15.3: Resilient Stream Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key; // [NEW] Finnhub Key
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  const BATCH_SIZE = 25; 
+  // [OPTIMIZATION] Reduced batch size to prevent 429s (was 25, now 8)
+  // This slows down the scan but ensures "Real Data" retrieval.
+  const BATCH_SIZE = 8; 
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -288,8 +291,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let metrics: any = null;
       const symbol = inputTicker.symbol;
 
+      // Stagger requests slightly to avoid burst rate limits even within Promise.all
+      const randomDelay = Math.floor(Math.random() * 500); 
+      await new Promise(r => setTimeout(r, randomDelay));
+
       // SOURCE A: RapidAPI (FMP) - Ratios Endpoint (Lightweight)
-      if (rapidKey && !rapidDepletedRef.current) {
+      if (rapidKey) {
           try {
              setActiveStream(`RAPID_RATIOS [${symbol}]`);
              const host = 'fmpcloud.p.rapidapi.com';
@@ -298,8 +305,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
              });
 
              if (res.status === 429) {
-                 rapidDepletedRef.current = true;
-                 addLog("⚠️ RapidAPI Limit Reached. Switching to Backup.", "warn");
+                 // Do not set global depleted ref. Just log and fail over for this item.
+                 addLog(`[RATE_LIMIT] FMP hit limit for ${symbol}. Retrying with Finnhub...`, "warn");
+                 await new Promise(r => setTimeout(r, 1000)); // Brief penalty wait
              } else if (res.ok) {
                  const data = await res.json();
                  if (Array.isArray(data) && data.length > 0) {
@@ -319,14 +327,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
 
       // SOURCE B: Finnhub (Reliable Alternative)
-      if (!metrics && finnhubKey && !finnhubDepletedRef.current) {
+      if (!metrics && finnhubKey) {
           try {
              setActiveStream(`FINNHUB_METRICS [${symbol}]`);
              const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
              
              if (res.status === 429) {
-                 finnhubDepletedRef.current = true;
-                 addLog("⚠️ Finnhub Limit Reached. Switching to Yahoo.", "warn");
+                 addLog(`[RATE_LIMIT] Finnhub hit limit for ${symbol}. Retrying with Yahoo...`, "warn");
+                 await new Promise(r => setTimeout(r, 1000));
              } else if (res.ok) {
                  const data = await res.json();
                  const m = data.metric;
@@ -452,7 +460,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
 
       // 3. RapidAPI (FMP Cloud) Full Statements
-      if (rapidKey && !rapidDepletedRef.current) {
+      if (rapidKey) {
           setActiveStream(`RAPID_DEEP [${symbol}]`);
           const host = 'fmpcloud.p.rapidapi.com';
           try {
@@ -591,8 +599,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setLiveAuditFeed([]); // Reset Feed
     setSourceStats({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, fallback: 0 }); // Reset Stats
     startTimeRef.current = Date.now();
-    rapidDepletedRef.current = false;
-    finnhubDepletedRef.current = false;
     
     try {
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
@@ -693,7 +699,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           batchResults.forEach(r => { if (r) tier1Survivors.push(r); else dropped++; });
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
-          await new Promise(r => setTimeout(r, 100)); // Reduced throttle
+          // [THROTTLING] Ensure we don't hammer APIs too hard
+          await new Promise(r => setTimeout(r, 1500)); 
       }
 
       // --- TIER 2: DEEP MINING (SEC XBRL) ---
@@ -797,11 +804,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               
               const payload = {
                 manifest: { 
-                    version: "15.2.0", 
+                    version: "15.3.0", 
                     strategy: "2-Tier_Hybrid_SEC_XBRL_DeepScan", 
                     timestamp: new Date().toISOString(), 
                     engine: "Use_Everything",
-                    description: "Tier 1: Rapid Ratios (Fail-Open) -> Tier 2: SEC XBRL Precision"
+                    description: "Tier 1: Rapid Ratios (Resilient) -> Tier 2: SEC XBRL Precision"
                 },
                 elite_universe: finalElite 
               };
@@ -1148,7 +1155,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
