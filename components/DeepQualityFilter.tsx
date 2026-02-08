@@ -134,6 +134,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
+  // [UI HELPER] Dynamic Progress Label
+  const getProgressLabel = () => {
+    if (!loading) return 'Multi-Source Protocol Ready';
+    switch(analysisPhase) {
+        case 'HYBRID_SCAN': return `Deep Scan: ${progress.current}/${progress.total}`;
+        case 'SCORING': return 'Calculating Quant Scores...';
+        case 'AI_AUDIT': return 'AI Risk Audit...';
+        case 'REPORT_DUMP': return `Archiving Reports (${reportProgress.current}/${reportProgress.total})`;
+        case 'COMPLETE': return 'Scan Complete';
+        default: return 'Initializing...';
+    }
+  };
+
   const clearStageCache = () => {
       try {
           const keysToRemove: string[] = [];
@@ -564,7 +577,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   financialReport: financials.raw 
               };
 
-              sessionStorage.setItem(cacheKey, JSON.stringify(resultTicker));
+              // [FIX] Store ONLY lightweight data in SessionStorage to prevent Quota Exceeded
+              try {
+                  const { financialReport, ...cacheSafeTicker } = resultTicker;
+                  sessionStorage.setItem(cacheKey, JSON.stringify(cacheSafeTicker));
+              } catch(e) {
+                  console.warn("SessionStorage Quota Exceeded. Skipping cache write.");
+              }
+              
               return resultTicker;
           }));
 
@@ -823,7 +843,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? `Deep Scan: ${progress.current}/${progress.total}` : 'Multi-Source Protocol Ready'}
+                            {loading ? getProgressLabel() : 'Multi-Source Protocol Ready'}
                         </span>
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
                             {fmpDepleted ? 'Backup: Finnhub/Polygon' : 'Primary: Yahoo/FMP Deep'}
