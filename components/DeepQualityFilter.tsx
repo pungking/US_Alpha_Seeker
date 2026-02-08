@@ -86,11 +86,11 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
     'Non-Energy Minerals': 18.0, 'Commercial Services': 26.0, 'Communications': 20.0
 };
 
-// [HELPER] Polygon Value Extractor - Handles { value: 123, unit: 'USD' }
+// [HELPER] Polygon Value Extractor - Handles { value: 123, unit: 'USD' } and raw numbers
 const getPolyVal = (obj: any, keys: string[]) => {
     if (!obj) return 0;
     for (const k of keys) {
-        if (obj[k]) {
+        if (obj[k] !== undefined && obj[k] !== null) {
             if (typeof obj[k] === 'object' && 'value' in obj[k]) return Number(obj[k].value) || 0;
             if (typeof obj[k] === 'number') return obj[k];
         }
@@ -294,17 +294,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  const lastIs = polyReport.annual.income[0] || {};
                  const lastCf = polyReport.annual.cashflow[0] || {};
                  
-                 const netIncome = getPolyVal(lastIs, ['net_income_loss', 'net_income_loss_available_to_common_stockholders_basic']);
+                 // Robust extraction using new helper
+                 const netIncome = getPolyVal(lastIs, ['net_income_loss', 'net_income_loss_available_to_common_stockholders_basic', 'net_income']);
                  const equity = getPolyVal(lastBs, ['equity', 'equity_attributable_to_parent', 'stockholders_equity']);
                  const liabilities = getPolyVal(lastBs, ['liabilities', 'total_liabilities']);
                  const currentAssets = getPolyVal(lastBs, ['current_assets', 'total_current_assets']);
                  const currentLiabilities = getPolyVal(lastBs, ['current_liabilities', 'total_current_liabilities']);
-                 const opCashFlow = getPolyVal(lastCf, ['net_cash_flow_from_operating_activities']);
+                 const opCashFlow = getPolyVal(lastCf, ['net_cash_flow_from_operating_activities', 'net_cash_flow']);
 
                  financials = {
                      source: 'POLYGON_DEEP',
                      raw: polyReport,
-                     price: 0, 
+                     price: 0, // Will be filled by Stage 0 data
                      roe: equity ? (netIncome / equity) : 0, 
                      per: 0, 
                      pbr: 0,
