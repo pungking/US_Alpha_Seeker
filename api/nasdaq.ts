@@ -17,7 +17,7 @@ export default async function handler(req: any, res: any) {
     const url = 'https://scanner.tradingview.com/america/scan';
     
     // Requesting massive data columns: Close, Volume, MarketCap, Sector, Industry, PER, EPS, ROE
-    // range: [0, 20000] attempts to get everything sorted by volume
+    // [UPDATED v5.0] Added PBR, Debt/Equity, Current Ratio, Revenue
     const payload = {
         "filter": [
             { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
@@ -26,17 +26,21 @@ export default async function handler(req: any, res: any) {
         "options": { "lang": "en" },
         "symbols": { "query": { "types": [] }, "tickers": [] },
         "columns": [
-            "name",                 // d[0]
-            "close",                // d[1]
-            "volume",               // d[2]
-            "market_cap_basic",     // d[3]
-            "sector",               // d[4]
-            "industry",             // d[5]
-            "price_earnings_ttm",   // d[6]
+            "name",                         // d[0]
+            "close",                        // d[1]
+            "volume",                       // d[2]
+            "market_cap_basic",             // d[3]
+            "sector",                       // d[4]
+            "industry",                     // d[5]
+            "price_earnings_ttm",           // d[6]
             "earnings_per_share_basic_ttm", // d[7]
-            "return_on_equity_fq",  // d[8]
-            "change",               // d[9]
-            "description"           // d[10]
+            "return_on_equity_fq",          // d[8]
+            "change",                       // d[9]
+            "description",                  // d[10]
+            "price_book_ratio_fq",          // d[11] (NEW: PBR)
+            "debt_to_equity_fq",            // d[12] (NEW: D/E)
+            "current_ratio_fq",             // d[13] (NEW: Current Ratio)
+            "total_revenue_ttm"             // d[14] (NEW: Revenue)
         ],
         "sort": { "sortBy": "volume", "sortOrder": "desc" },
         "range": [0, 20000]
@@ -76,6 +80,11 @@ export default async function handler(req: any, res: any) {
             eps: d[7] || 0,
             roe: d[8] || 0, // TV returns percentage directly usually
             change: d[9] || 0,
+            // [NEW DATA POINTS]
+            pbr: d[11] || 0,
+            debtToEquity: d[12] || 0,
+            currentRatio: d[13] || 0,
+            revenue: d[14] || 0,
             source: 'TradingView_Scan'
         };
     });
