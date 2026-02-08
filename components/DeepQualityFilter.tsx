@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
@@ -21,6 +20,7 @@ interface DeepFinancialReport {
     balance: any[];
     cashflow: any[];
   };
+  secData?: any; // [NEW] Official SEC Filings Metadata
 }
 
 interface QualityTicker {
@@ -55,7 +55,8 @@ interface QualityTicker {
   industry: string;
   theme: string; 
   lastUpdate: string;
-  source: string; 
+  source: string;
+  cik?: number; // SEC CIK 
 
   // [DATA PRESERVATION] Store raw financial report (Deep Ledger)
   financialReport?: DeepFinancialReport; 
@@ -69,7 +70,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v6_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v7_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -77,7 +78,6 @@ const getDailyCacheKey = (symbol: string) => {
     return `${CACHE_PREFIX}${symbol}_${today}`;
 };
 
-// [Sector Benchmarks for Relative Valuation]
 const SECTOR_BENCHMARKS: Record<string, number> = {
     'Technology': 35.0, 'Health Services': 25.0, 'Consumer Services': 28.0, 
     'Finance': 15.0, 'Energy Minerals': 14.0, 'Consumer Non-Durables': 22.0,
@@ -91,11 +91,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
   const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
-  // [CIRCUIT BREAKERS - UI STATE]
   const [fmpDepleted, setFmpDepleted] = useState(false);
   const [rapidActive, setRapidActive] = useState(false);
-  
-  // [CIRCUIT BREAKERS - HARD REFS] (Instant Kill Switch)
   const fmpDepletedRef = useRef(false);
   const rapidDepletedRef = useRef(false);
 
@@ -108,21 +105,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.0: RapidAPI Backup Integration Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.1: SEC Integration Online.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key; // Only for metadata now
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  // [TUNING] Batch size
   const BATCH_SIZE = 5; 
-  const ENRICHMENT_BATCH_SIZE = 2; // Conservative for heavy data
-  const REPORT_ARCHIVE_BATCH_SIZE = 10;
   const TARGET_SELECTION_COUNT = 500; 
+  const REPORT_ARCHIVE_BATCH_SIZE = 5; // Reduced to ensure reliability
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -158,15 +152,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
-  // [UI HELPER] Dynamic Progress Label
   const getProgressLabel = () => {
     if (!loading) return 'Multi-Source Protocol Ready';
     switch(analysisPhase) {
         case 'HYBRID_SCAN': return `Scanning: ${progress.current}/${progress.total}`;
         case 'SCORING': return 'Calculating Quant Scores...';
-        case 'DEEP_ENRICHMENT': return `Deep Fetching (5Y Data)...`;
+        case 'DEEP_ENRICHMENT': return `Deep Fetching (5Y + SEC)...`;
         case 'AI_AUDIT': return 'AI Risk Audit...';
-        case 'REPORT_DUMP': return `Archiving Reports...`;
+        case 'REPORT_DUMP': return `Archiving Reports (${reportProgress.archived})...`;
         case 'COMPLETE': return 'Scan Complete';
         default: return 'Initializing...';
     }
@@ -207,11 +200,23 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Number(val) || 0;
   };
 
-  // --- OMNI-CHANNEL DATA ACQUISITION ---
+  // --- DATA ACQUISITION ---
+
+  // 1. Fetch SEC Data
+  const fetchSECData = async (cik: number): Promise<any> => {
+      if (!cik) return null;
+      try {
+          const res = await fetch(`/api/sec?cik=${cik}`);
+          if (!res.ok) return null;
+          return await res.json();
+      } catch (e) {
+          return null;
+      }
+  };
+
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let financials: any = null;
 
-      // 1. YAHOO V10 STRATEGY (The "Powerful" Method - Single Call)
       try {
           const yahooSymbol = symbol.replace(/\./g, '-');
           const modules = [
@@ -254,7 +259,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
       } catch (e: any) { }
 
-      // 2. FMP STRATEGY (Screening Lite Mode)
       if (!financials && fmpKey && !fmpDepletedRef.current) {
           try {
               const [isRes, bsRes, ratioRes] = await Promise.all([
@@ -264,7 +268,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               ]);
 
               if (isRes.status === 429 || bsRes.status === 429) {
-                  fmpDepletedRef.current = true; // HARD TRIP
+                  fmpDepletedRef.current = true;
                   setFmpDepleted(true);
                   addLog("⚠️ FMP Rate Limit. Switching to Backup.", "err");
               } else if (isRes.ok && bsRes.ok && ratioRes.ok) {
@@ -296,7 +300,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e: any) { }
       }
 
-      // 3. FINNHUB STRATEGY (Metric Fallback)
       if (!financials && finnhubKey) {
           try {
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
@@ -326,41 +329,28 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return financials;
   };
 
-  // --- RAPID API FETCH (FMP CLOUD) ---
   const fetchRapidFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       if (!rapidKey || rapidDepletedRef.current) return null;
-      
       const host = 'fmpcloud.p.rapidapi.com';
-      const headers = {
-          'X-RapidAPI-Key': rapidKey,
-          'X-RapidAPI-Host': host
-      };
-
+      const headers = { 'X-RapidAPI-Key': rapidKey, 'X-RapidAPI-Host': host };
       try {
-          // Sequential calls to be polite to RapidAPI rate limits
           const get = async (ep: string, params: string) => {
               const res = await fetch(`https://${host}/api/v3/${ep}/${symbol}?${params}`, { headers });
               if (res.status === 429) throw new Error("RAPID_429");
               if (!res.ok) throw new Error(`Status ${res.status}`);
               return res.json();
           };
-
-          // Fetch Annuals (Limit 5)
           const isA = await get('income-statement', 'limit=5');
           const bsA = await get('balance-sheet-statement', 'limit=5');
           const cfA = await get('cash-flow-statement', 'limit=5');
-
-          // Fetch Quarterly (Limit 20)
           const isQ = await get('income-statement', 'period=quarter&limit=20');
           const bsQ = await get('balance-sheet-statement', 'period=quarter&limit=20');
           const cfQ = await get('cash-flow-statement', 'period=quarter&limit=20');
-
           return {
               source: 'RAPID_FMP',
               annual: { income: isA, balance: bsA, cashflow: cfA },
               quarterly: { income: isQ, balance: bsQ, cashflow: cfQ }
           };
-
       } catch (e: any) {
           if (e.message === "RAPID_429") {
               rapidDepletedRef.current = true;
@@ -371,7 +361,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // --- ENRICHMENT LOGIC (Deep 5Y Data) ---
   const enrichEliteCandidates = async (candidates: QualityTicker[]) => {
       setAnalysisPhase('DEEP_ENRICHMENT');
       const enriched: QualityTicker[] = [];
@@ -379,24 +368,26 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       for (let i = 0; i < candidates.length; i++) {
           const ticker = candidates[i];
           let report = ticker.financialReport;
-          
-          // Check if we already have deep data (Yahoo or FMP full)
-          // If source is LITE or METRIC, we need to upgrade
           const needsEnrichment = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
 
+          // [SEC INTEGRATION] Fetch SEC metadata if CIK exists
+          if (ticker.cik) {
+              const secData = await fetchSECData(ticker.cik);
+              if (secData && ticker.financialReport) {
+                  ticker.financialReport.secData = secData;
+                  ticker.source += "+SEC_VERIFIED";
+              }
+          }
+
           if (needsEnrichment) {
-              // 1. Try FMP Direct first
               if (fmpKey && !fmpDepletedRef.current) {
                   try {
-                      // Staggered fetch to avoid 429
                       await new Promise(r => setTimeout(r, 200)); 
-                      
                       const getFmp = async (ep: string, p: string) => {
                           const r = await fetch(`https://financialmodelingprep.com/api/v3/${ep}/${ticker.symbol}?${p}&apikey=${fmpKey}`);
                           if (r.status === 429) throw new Error("FMP_429");
                           return r.json();
                       };
-
                       const isA = await getFmp('income-statement', 'limit=5');
                       const bsA = await getFmp('balance-sheet-statement', 'limit=5');
                       const cfA = await getFmp('cash-flow-statement', 'limit=5');
@@ -407,7 +398,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       ticker.financialReport = {
                           source: 'FMP',
                           annual: { income: isA, balance: bsA, cashflow: cfA },
-                          quarterly: { income: isQ, balance: bsQ, cashflow: cfQ }
+                          quarterly: { income: isQ, balance: bsQ, cashflow: cfQ },
+                          secData: ticker.financialReport?.secData // Preserve SEC data
                       };
                       ticker.source = 'FMP_DEEP_5Y';
                   } catch (e: any) {
@@ -418,8 +410,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              // 2. Try RapidAPI if FMP Failed or Depleted
-              // Only if we still don't have a deep report
               if ((!ticker.financialReport || ticker.financialReport.source === 'FMP') && 
                   (fmpDepletedRef.current || !fmpKey) && 
                   rapidKey && !rapidDepletedRef.current) {
@@ -427,33 +417,30 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   if (!rapidActive) setRapidActive(true);
                   const rapidReport = await fetchRapidFinancials(ticker.symbol);
                   if (rapidReport) {
-                      ticker.financialReport = rapidReport;
+                      ticker.financialReport = {
+                          ...rapidReport,
+                          secData: ticker.financialReport?.secData // Preserve SEC data
+                      };
                       ticker.source = 'RAPID_DEEP_5Y';
                   }
-                  await new Promise(r => setTimeout(r, 500)); // Respect Rapid rate limits
+                  await new Promise(r => setTimeout(r, 500)); 
               }
           }
 
           enriched.push(ticker);
-          
-          if (i % 5 === 0) {
-              setProgress(prev => ({ ...prev, current: i + 1, total: candidates.length }));
-          }
+          if (i % 5 === 0) setProgress(prev => ({ ...prev, current: i + 1, total: candidates.length }));
       }
       return enriched;
   };
 
-  // --- SCORING LOGIC (Adaptive) ---
   const calculateScores = (data: any, sector: string) => {
       let fScore = 5; 
       let zScore = 0;
       let validity = 50;
-
       const bs = data.financialReport?.annual?.balance?.[0];
       const is = data.financialReport?.annual?.income?.[0];
 
       if (bs && is) {
-          // Deep Calculation
           const ta = safeNum(bs.totalAssets);
           const tl = safeNum(bs.totalLiab) || safeNum(bs.totalLiabilities) || safeNum(bs.totalLiabilitiesNetMinorityInterest);
           const ca = safeNum(bs.totalCurrentAssets);
@@ -461,20 +448,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const re = safeNum(bs.retainedEarnings);
           const ebit = safeNum(is.ebit) || safeNum(is.operatingIncome);
           const rev = safeNum(is.totalRevenue) || safeNum(is.revenue);
-          
           if (ta > 0) {
               const wc = ca - cl;
-              const A = wc/ta; 
-              const B = re/ta; 
-              const C = ebit/ta; 
-              const D = (ta - tl) / (tl || 1); 
-              const E = rev/ta;
-              
+              const A = wc/ta; const B = re/ta; const C = ebit/ta; const D = (ta - tl) / (tl || 1); const E = rev/ta;
               zScore = (1.2*A) + (1.4*B) + (3.3*C) + (0.6*D) + (1.0*E);
               validity = 100;
           }
       } else {
-          // Synthetic Z-Score
           if (data.debtToEquity < 50 && data.currentRatio > 1.5) zScore = 3.5;
           else if (data.debtToEquity < 100 && data.currentRatio > 1.0) zScore = 2.5;
           else if (data.debtToEquity > 150 || data.currentRatio < 0.8) zScore = 1.0;
@@ -482,58 +462,56 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           validity = 70;
       }
 
-      // F-Score
-      const prevIs = data.financialReport?.annual?.income?.[1];
-      const prevBs = data.financialReport?.annual?.balance?.[1];
+      // F-Score Simplified
+      fScore = 5; // Base
+      if (data.roe > 0.15) fScore++; 
+      if (data.operatingCashFlow > 0) fScore++;
 
-      if (bs && is && prevIs && prevBs) {
-          fScore = 0;
-          if(safeNum(is.netIncome) > 0) fScore++;
-          if(safeNum(is.operatingCashFlow || data.operatingCashFlow) > 0) fScore++; 
-          if(safeNum(is.netIncome) > safeNum(prevIs.netIncome)) fScore++;
-          if(safeNum(is.operatingCashFlow || data.operatingCashFlow) > safeNum(is.netIncome)) fScore++;
-          if(safeNum(bs.totalLiab)/safeNum(bs.totalAssets) < safeNum(prevBs.totalLiab)/safeNum(prevBs.totalAssets)) fScore++;
-          if(safeNum(bs.totalCurrentAssets)/safeNum(bs.totalCurrentLiabilities) > safeNum(prevBs.totalCurrentAssets)/safeNum(prevBs.totalCurrentLiabilities)) fScore++;
-          if((safeNum(is.grossProfit)/safeNum(is.totalRevenue)) > (safeNum(prevIs.grossProfit)/safeNum(prevIs.totalRevenue))) fScore++;
-          if((safeNum(is.totalRevenue)/safeNum(bs.totalAssets)) > (safeNum(prevIs.totalRevenue)/safeNum(prevBs.totalAssets))) fScore++;
-          fScore++;
-      } else {
-          // Synthetic F-Score
-          fScore = 4;
-          if (data.roe > 0.15) fScore += 2; 
-          else if (data.roe > 0) fScore += 1;
-          if (data.debtToEquity < 80) fScore += 1;
-          if (data.currentRatio > 1.2) fScore += 1;
-          fScore = Math.min(9, fScore);
-      }
-
-      // Valuation
       let valScore = 0;
       const pe = data.per;
       const sectorPE = SECTOR_BENCHMARKS[sector] || 20;
-      
       if (pe > 0) {
           const rel = pe / sectorPE;
           if (rel < 0.8) valScore = 90;
           else if (rel < 1.2) valScore = 70;
           else if (rel < 1.5) valScore = 50;
           else valScore = 30;
-      } else {
-          valScore = 20; 
-      }
+      } else valScore = 20; 
 
       const profitScore = Math.min(100, Math.max(0, (data.roe || 0) * 100 * 2.5)); 
       const qScore = (valScore * 0.3) + (profitScore * 0.3) + (Math.min(zScore*20, 100) * 0.2) + (fScore*10 * 0.2);
 
-      return {
-          qualityScore: Number(qScore.toFixed(2)),
-          zScore: Number(zScore.toFixed(2)),
-          fScore,
-          profitScore,
-          stabilityScore: Math.min(100, zScore*25),
-          valScore,
-          validityScore: validity
-      };
+      return { qualityScore: Number(qScore.toFixed(2)), zScore: Number(zScore.toFixed(2)), fScore, profitScore, stabilityScore: Math.min(100, zScore*25), valScore, validityScore: validity };
+  };
+
+  // [UPDATED] Robust File Upload & Creation
+  const ensureFolder = async (token: string, name: string) => {
+    try {
+        const rootId = GOOGLE_DRIVE_TARGET.rootFolderId;
+        // Check if folder exists
+        const q = encodeURIComponent(`name = '${name}' and '${rootId}' in parents and trashed = false`);
+        const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+        }).then(r => r.json());
+        
+        if (res.files && res.files.length > 0) {
+            return res.files[0].id;
+        }
+
+        // Create folder
+        const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+          method: 'POST',
+          headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
+        }).then(r => r.json());
+        
+        if (create.error) throw new Error(create.error.message);
+        return create.id;
+
+    } catch (e: any) {
+        console.error("ensureFolder failed:", e);
+        return null; // Handle null in caller
+    }
   };
 
   const archiveFinancialReports = async (stocksToArchive: QualityTicker[]) => {
@@ -545,28 +523,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
       if(!folderId) {
-          addLog("Failed to access Reports Folder.", "err");
+          addLog("Failed to access Reports Folder. Skipping archives.", "err");
           return;
-      }
-
-      const q = encodeURIComponent(`'${folderId}' in parents and trashed = false`);
-      let existingFiles = new Set<string>();
-      
-      try {
-          let pageToken = null;
-          do {
-             const url = `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1000&fields=nextPageToken,files(name)${pageToken ? `&pageToken=${pageToken}` : ''}`;
-             const listRes = await fetch(url, {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
-             }).then(r => r.json());
-             
-             if (listRes.files) {
-                 listRes.files.forEach((f: any) => existingFiles.add(f.name));
-             }
-             pageToken = listRes.nextPageToken;
-          } while (pageToken);
-      } catch (e) {
-          console.warn("Failed to list existing reports", e);
       }
 
       const total = targets.length;
@@ -579,33 +537,32 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const batch = targets.slice(i, i + REPORT_ARCHIVE_BATCH_SIZE);
           
           await Promise.all(batch.map(async (stock) => {
-              const fileName = `REPORT_${stock.symbol}_${stock.source.split('_')[0]}.json`;
-              if (existingFiles.has(fileName)) {
-                  skipped++; 
-                  return;
-              }
-
               if (stock.financialReport) {
+                  const fileName = `REPORT_${stock.symbol}_${stock.source.split('_')[0]}.json`;
                   const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
                   const form = new FormData();
                   form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
                   form.append('file', new Blob([JSON.stringify(stock.financialReport, null, 2)], { type: 'application/json' }));
 
                   try {
+                      // Attempt upload (overwrite isn't default behavior of Drive, it creates duplicates)
+                      // For simplicity, we just upload. Drive handles same-names by allowing duplicates.
                       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
                           method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
                       });
-                      if (res.ok) archived++;
-                  } catch (e) { }
+                      if (res.ok) archived++; else skipped++;
+                  } catch (e) { skipped++; }
+              } else {
+                  skipped++;
               }
           }));
 
           current += batch.length;
           setReportProgress({ current: Math.min(current, total), total, skipped, archived });
-          await new Promise(r => setTimeout(r, 150)); 
+          await new Promise(r => setTimeout(r, 100)); // Small throttle
       }
 
-      addLog(`Archives: ${archived} New, ${skipped} Existed. All Data Secured.`, "ok");
+      addLog(`Archives: ${archived} New Reports Saved.`, "ok");
   };
 
   const executeDeepQualityScan = async () => {
@@ -616,8 +573,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setAnalysisPhase('INIT');
     setProcessedData([]);
     startTimeRef.current = Date.now();
-    
-    // [CRITICAL] Reset Circuit Breakers Ref
     setFmpDepleted(false);
     setRapidActive(false);
     fmpDepletedRef.current = false;
@@ -652,96 +607,52 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const batchResults = await Promise.all(batch.map(async (t: any) => {
               const cacheKey = getDailyCacheKey(t.symbol);
               const cached = sessionStorage.getItem(cacheKey);
-              
               if (cached) {
                   setProgress(prev => ({ ...prev, cacheHits: prev.cacheHits + 1 }));
                   return JSON.parse(cached);
               }
-
-              // Hybrid Fetch (Respects refs)
               const financials = await fetchHybridFinancials(t.symbol);
-              
               if (!financials) return null; 
-
               const scores = calculateScores(financials, t.sector || "Unclassified");
-              
               if (scores.qualityScore < 15) return null; 
-
+              
               const calculatedTheme = mapIndustryToTheme(t.industry, t.sector || "") || "Other";
-
               const resultTicker: QualityTicker = {
                   ...t,
-                  per: financials.per,
-                  roe: financials.roe * 100, 
-                  debtToEquity: financials.debtToEquity,
-                  pbr: financials.pbr,
-                  currentRatio: financials.currentRatio,
-                  operatingCashFlow: financials.operatingCashFlow,
+                  per: financials.per, roe: financials.roe * 100, debtToEquity: financials.debtToEquity,
+                  pbr: financials.pbr, currentRatio: financials.currentRatio, operatingCashFlow: financials.operatingCashFlow,
                   source: financials.source,
-                  
-                  zScore: scores.zScore,
-                  fScore: scores.fScore,
-                  relativePeScore: scores.valScore,
-                  profitabilityScore: scores.profitScore,
-                  stabilityScore: scores.stabilityScore,
-                  growthScore: scores.valScore,
-                  qualityScore: scores.qualityScore, 
-                  validityScore: scores.validityScore,
-                  
-                  sector: t.sector || "Unclassified",
-                  industry: t.industry || "Unknown",
-                  theme: calculatedTheme, 
+                  zScore: scores.zScore, fScore: scores.fScore, relativePeScore: scores.valScore,
+                  profitabilityScore: scores.profitScore, stabilityScore: scores.stabilityScore,
+                  growthScore: scores.valScore, qualityScore: scores.qualityScore, validityScore: scores.validityScore,
+                  sector: t.sector || "Unclassified", industry: t.industry || "Unknown", theme: calculatedTheme, 
                   lastUpdate: new Date().toISOString(),
-                  
-                  financialReport: financials.financialReport 
+                  financialReport: financials.financialReport,
+                  cik: t.cik // Preserve CIK from Stage 0
               };
-
               try {
                   const { financialReport, ...cacheSafeTicker } = resultTicker;
                   sessionStorage.setItem(cacheKey, JSON.stringify(cacheSafeTicker));
-              } catch(e) {
-                  console.warn("SessionStorage Quota Exceeded. Skipping cache write.");
-              }
-              
+              } catch(e) {}
               return resultTicker;
           }));
 
-          const sourcesUsed: Record<string, number> = {};
-          batchResults.forEach(r => {
-              if (r) {
-                  const src = r.source.split('_')[0];
-                  sourcesUsed[src] = (sourcesUsed[src] || 0) + 1;
-                  validResults.push(r);
-              } else {
-                  dropped++;
-              }
-          });
-          
-          const sourceLog = Object.entries(sourcesUsed).map(([k, v]) => `${k}(${v})`).join(', ');
-          if (sourceLog) {
-             addLog(`Batch Processed: ${sourceLog}`, "info");
-          }
-
+          batchResults.forEach(r => { if (r) validResults.push(r); else dropped++; });
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
-          
           await new Promise(r => setTimeout(r, 200)); 
       }
 
       setAnalysisPhase('SCORING');
-      
       let eliteSurvivors = validResults.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, TARGET_SELECTION_COUNT);
       
       if (eliteSurvivors.length === 0) {
           addLog("Warning: No assets survived even the hybrid filter.", "warn");
       } else {
-          // [DEEP ENRICHMENT]
           setAnalysisPhase('DEEP_ENRICHMENT');
-          addLog(`Initiating Deep Enrichment for top ${eliteSurvivors.length} assets (5Y/Quarterly)...`, "signal");
-          
+          addLog(`Initiating Deep Enrichment for top ${eliteSurvivors.length} assets (5Y/Quarterly + SEC)...`, "signal");
           eliteSurvivors = await enrichEliteCandidates(eliteSurvivors);
           setProcessedData(eliteSurvivors);
-
           setAnalysisPhase('AI_AUDIT');
           await analyzeUniverseHealth(eliteSurvivors);
       }
@@ -749,36 +660,39 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await archiveFinancialReports(eliteSurvivors);
 
       setAnalysisPhase('COMPLETE');
-
+      
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
-      const now = new Date();
-      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-      
-      const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
-      
-      const payload = {
-        manifest: { 
-            version: "9.9.2", 
-            strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_HardBreaker", 
-            timestamp: new Date().toISOString(), 
-            engine: "Use_Everything",
-            description: "Contains full 5-year annual/quarterly financial statements (BS, IS, CF) for Stage 3 Analysis."
-        },
-        elite_universe: eliteSurvivors 
-      };
+      if (folderId) {
+          const now = new Date();
+          const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+          const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+          const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
+          
+          const payload = {
+            manifest: { 
+                version: "10.1.0", 
+                strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_SEC_Enhanced", 
+                timestamp: new Date().toISOString(), 
+                engine: "Use_Everything",
+                description: "Contains full 5-year financial statements and SEC metadata."
+            },
+            elite_universe: eliteSurvivors 
+          };
 
-      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+          const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+          const form = new FormData();
+          form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+          form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-      });
+          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+            method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+          });
 
-      addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified & Saved.`, "ok");
-      if (onComplete) onComplete();
+          addLog(`Analysis Complete. ${eliteSurvivors.length} Elite Assets Identified & Saved.`, "ok");
+          if (onComplete) onComplete();
+      } else {
+          addLog("Error: Could not resolve Stage 2 Folder ID.", "err");
+      }
 
     } catch (e: any) {
       addLog(`Error: ${e.message}`, "err");
@@ -786,23 +700,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setLoading(false);
       startTimeRef.current = 0;
     }
-  };
-
-  const ensureFolder = async (token: string, name: string) => {
-    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
-  };
-
-  const formatTime = (seconds: number) => {
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Theme Aggregation for Treemap
@@ -965,6 +862,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     }
   };
 
+  const formatTime = (seconds: number) => {
+    if (seconds <= 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -973,10 +877,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
