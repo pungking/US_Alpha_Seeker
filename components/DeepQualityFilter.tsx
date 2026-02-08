@@ -111,7 +111,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.2: Priority Queue Active (SEC > Yahoo > FMP).']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.3: Real-Time Drive Sync Enabled.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -172,9 +172,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     switch(analysisPhase) {
         case 'HYBRID_SCAN': return `Scanning Market: ${progress.current}/${progress.total}`;
         case 'SCORING': return 'Calculating Composite Scores...';
-        case 'DEEP_ENRICHMENT': return `Deep Mining (SEC/FMP): ${enrichProgress.current}/${enrichProgress.total}`;
+        case 'DEEP_ENRICHMENT': return `Deep Mining & Sync: ${enrichProgress.current}/${enrichProgress.total}`;
         case 'AI_AUDIT': return 'AI Risk Audit...';
-        case 'REPORT_DUMP': return `Archiving Reports (${reportProgress.archived})...`;
+        case 'REPORT_DUMP': return `Finalizing Archives...`;
         case 'COMPLETE': return 'Scan Complete';
         default: return 'Initializing...';
     }
@@ -384,12 +384,32 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  const enrichEliteCandidates = async (candidates: QualityTicker[]) => {
+  // [NEW] Single File Upload Helper
+  const uploadSingleReport = async (folderId: string, ticker: QualityTicker) => {
+      if (!ticker.financialReport) return;
+      const fileName = `REPORT_${ticker.symbol}_${ticker.source.split('_')[0]}.json`;
+      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(ticker.financialReport, null, 2)], { type: 'application/json' }));
+      
+      try {
+          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+              method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+          });
+      } catch (e) { 
+          console.error("Upload failed for", ticker.symbol); 
+      }
+  };
+
+  const enrichAndArchiveCandidates = async (candidates: QualityTicker[], archiveFolderId: string) => {
       setAnalysisPhase('DEEP_ENRICHMENT');
       const total = candidates.length;
       setEnrichProgress({ current: 0, total });
+      setReportProgress({ current: 0, total, skipped: 0, archived: 0 }); // Init archive progress too
       
       const enriched: QualityTicker[] = [];
+      let archiveCount = 0;
       
       for (let i = 0; i < total; i++) {
           const ticker = candidates[i];
@@ -457,6 +477,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           enriched.push(ticker);
           setEnrichProgress({ current: i + 1, total });
+
+          // [REAL-TIME ARCHIVING]
+          if (archiveFolderId && ticker.financialReport) {
+              await uploadSingleReport(archiveFolderId, ticker);
+              archiveCount++;
+              setReportProgress(prev => ({ ...prev, current: i + 1, archived: archiveCount }));
+          }
       }
       setActiveStream('IDLE');
       return enriched;
@@ -543,53 +570,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     }
   };
 
+  // [MODIFIED] Now used only for bulk backup if needed, or deprecated
   const archiveFinancialReports = async (stocksToArchive: QualityTicker[]) => {
-      if (!accessToken) return;
-      setAnalysisPhase('REPORT_DUMP');
-      
-      const targets = stocksToArchive; 
-      addLog(`Archiving ${targets.length} Financial Reports (Full Universe)...`, "info");
-      
-      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
-      if(!folderId) {
-          addLog("Failed to access Reports Folder. Skipping archives.", "err");
-          return;
-      }
-
-      const total = targets.length;
-      let skipped = 0;
-      let archived = 0;
-      let current = 0;
-      setReportProgress({ current: 0, total, skipped: 0, archived: 0 });
-
-      for (let i = 0; i < total; i += REPORT_ARCHIVE_BATCH_SIZE) {
-          const batch = targets.slice(i, i + REPORT_ARCHIVE_BATCH_SIZE);
-          
-          await Promise.all(batch.map(async (stock) => {
-              if (stock.financialReport) {
-                  const fileName = `REPORT_${stock.symbol}_${stock.source.split('_')[0]}.json`;
-                  const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-                  const form = new FormData();
-                  form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-                  form.append('file', new Blob([JSON.stringify(stock.financialReport, null, 2)], { type: 'application/json' }));
-
-                  try {
-                      const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-                          method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-                      });
-                      if (res.ok) archived++; else skipped++;
-                  } catch (e) { skipped++; }
-              } else {
-                  skipped++;
-              }
-          }));
-
-          current += batch.length;
-          setReportProgress({ current: Math.min(current, total), total, skipped, archived });
-          await new Promise(r => setTimeout(r, 100)); // Small throttle
-      }
-
-      addLog(`Archives: ${archived} New Reports Saved.`, "ok");
+      // Logic moved to real-time sync inside enrichAndArchiveCandidates
   };
 
   const executeDeepQualityScan = async () => {
@@ -677,14 +660,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog("Warning: No assets survived even the hybrid filter.", "warn");
       } else {
           setAnalysisPhase('DEEP_ENRICHMENT');
-          addLog(`Initiating Deep Enrichment for top ${eliteSurvivors.length} assets (5Y/Quarterly + SEC)...`, "signal");
-          eliteSurvivors = await enrichEliteCandidates(eliteSurvivors);
+          addLog(`Initiating Deep Enrichment & Live Sync (Target: ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder})...`, "signal");
+          
+          // [NEW] Ensure folder exists before loop
+          const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
+          if (reportsFolderId) {
+             // [MODIFIED] Pass folder ID to enable real-time dumping
+             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, reportsFolderId);
+             addLog(`Live Sync: All reports archived to ${GOOGLE_DRIVE_TARGET.reportsArchiveFolder}`, "ok");
+          } else {
+             addLog("Warning: Reports folder unavailable. Running enrichment without sync.", "warn");
+             eliteSurvivors = await enrichAndArchiveCandidates(eliteSurvivors, ""); // Fallback to non-archiving version if needed
+          }
+
           setProcessedData(eliteSurvivors);
           setAnalysisPhase('AI_AUDIT');
           await analyzeUniverseHealth(eliteSurvivors);
       }
 
-      await archiveFinancialReports(eliteSurvivors);
+      // No need to call archiveFinancialReports() here anymore as it's done real-time
 
       setAnalysisPhase('COMPLETE');
       
@@ -697,7 +691,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "10.1.0", 
+                version: "10.3.0", 
                 strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_SEC_Enhanced", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
@@ -908,7 +902,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -992,7 +986,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     {/* Stage 4: Archiving */}
                     <div>
                         <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'REPORT_DUMP' ? 'text-white' : 'text-slate-500'}`}>4. Vault Sync (Google Drive)</span>
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_ENRICHMENT' || analysisPhase === 'REPORT_DUMP' ? 'text-white' : 'text-slate-500'}`}>4. Vault Sync (Google Drive)</span>
                             <span className="text-[8px] font-mono text-slate-400">{reportProgress.archived} Files</span>
                         </div>
                         <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
