@@ -131,7 +131,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const logRef = useRef<HTMLDivElement>(null);
 
-  const BATCH_SIZE = 10; // Increased for lighter initial scan
+  const BATCH_SIZE = 20; // Increased for lighter initial scan speed
   const TARGET_SELECTION_COUNT = 500; 
   
   useEffect(() => {
@@ -238,8 +238,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   // [TIER 1] Lightweight Scan - Ratio & Metrics Only
   // Uses RapidAPI (FMP Cloud) or Yahoo
-  const fetchTier1Metrics = async (symbol: string): Promise<any> => {
+  // [MODIFIED] Now accepts `inputTicker` to allow fallback
+  const fetchTier1Metrics = async (inputTicker: any): Promise<any> => {
       let metrics: any = null;
+      const symbol = inputTicker.symbol;
 
       // SOURCE A: RapidAPI (FMP) - Ratios Endpoint (Lightweight)
       if (rapidKey && !rapidDepletedRef.current) {
@@ -276,6 +278,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           try {
               setActiveStream(`YAHOO_METRICS [${symbol}]`);
               const yahooSymbol = symbol.replace(/\./g, '-');
+              // Using a simple quote endpoint first if possible, or summary
               const res = await fetch(`/api/yahoo?symbols=${yahooSymbol}&modules=financialData,defaultKeyStatistics`);
               if (res.ok) {
                   const data = await res.json();
@@ -296,12 +299,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch(e) {}
       }
       
+      // [FAIL-OPEN FALLBACK] If APIs fail, use Stage 0 data to keep ticker alive
+      if (!metrics) {
+          // Use data from inputTicker (Stage 0) if available
+          metrics = {
+              source: 'STAGE0_FALLBACK',
+              per: inputTicker.pe || 0,
+              roe: inputTicker.roe || 0, // Should be decimal if from Stage 0
+              debtToEquity: inputTicker.debtToEquity || 0,
+              currentRatio: 0, // Unknown
+              pbr: inputTicker.pb || 0,
+              operatingCashFlow: 0
+          };
+      }
+      
       setActiveStream('IDLE');
       return metrics;
   };
 
   // [TIER 2] Deep Scan - Full Financials for Top Candidates
-  // Uses Polygon Deep or RapidAPI (FMP) Full Statements
   const fetchDeepFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       // 1. Polygon Deep (Preferred for XBRL-like structure)
       if (polygonKey) {
@@ -477,16 +493,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   return JSON.parse(cached);
               }
 
-              // Lightweight Fetch
-              const metrics = await fetchTier1Metrics(t.symbol);
-              if (!metrics) return null; 
+              // Lightweight Fetch - Pass 't' for fallback data
+              const metrics = await fetchTier1Metrics(t);
+              if (!metrics) return null; // Should not happen with new fallback logic
 
               // Preliminary Scoring (Soft Filter)
               const roe = metrics.roe || 0;
               const debt = metrics.debtToEquity || 0;
               
-              // Basic Quality Gate: ROE must be positive or Debt not crazy high
-              if (roe < -20 && debt > 200) return null; 
+              // Basic Quality Gate: Only drop if we have CONFIRMED bad data.
+              // If source is fallback, let it pass to Tier 2 for a second chance.
+              if (metrics.source !== 'STAGE0_FALLBACK') {
+                   // Extremely loose filter: only kill zombie companies
+                   if (roe < -50 && debt > 500) return null; 
+              }
 
               const resultTicker: QualityTicker = {
                   ...t,
@@ -508,18 +528,31 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           batchResults.forEach(r => { if (r) tier1Survivors.push(r); else dropped++; });
           currentIndex += BATCH_SIZE;
           setProgress(prev => ({ ...prev, current: currentIndex, filteredOut: dropped }));
-          await new Promise(r => setTimeout(r, 200)); 
+          await new Promise(r => setTimeout(r, 100)); // Reduced throttle
       }
 
       // --- TIER 2: DEEP MINING (XBRL Reverse Engineering) ---
       setAnalysisPhase('SCORING');
       
-      // Select Top Candidates for Deep Scan (e.g., Top 500 by MarketCap/Prelim Quality)
+      // Select Top Candidates for Deep Scan
+      // If Tier 1 didn't filter much, we take top by market cap or initial quality proxy
       let eliteSurvivors = tier1Survivors.slice(0, TARGET_SELECTION_COUNT);
       
       if (eliteSurvivors.length === 0) {
-          addLog("Warning: No assets survived Tier 1 scan.", "warn");
-      } else {
+          addLog("Warning: No assets survived Tier 1 scan. Checking Stage 0 Fallback...", "warn");
+          // Emergency Fallback: If everything failed, take raw targets (Safety Net)
+          eliteSurvivors = targets.slice(0, 100).map((t: any) => ({
+             ...t,
+             source: "EMERGENCY_FALLBACK",
+             qualityScore: 50,
+             sector: t.sector || "Unknown",
+             industry: t.industry || "Unknown",
+             theme: "Unknown",
+             lastUpdate: new Date().toISOString()
+          }));
+      }
+
+      if (eliteSurvivors.length > 0) {
           setAnalysisPhase('DEEP_ENRICHMENT');
           addLog(`Initiating Tier 2 Deep Mining for ${eliteSurvivors.length} Elites...`, "signal");
           
@@ -807,7 +840,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? getProgressLabel() : 'System Ready: 2-Tier Architecture Active'}
+                            {loading ? getProgressLabel() : 'Priority Queue: RapidAPI (Real) > Polygon > Yahoo'}
                         </span>
                         {activeStream !== 'IDLE' && (
                              <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 bg-emerald-500/10 text-emerald-400 animate-pulse">
@@ -942,7 +975,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      ) : (
                          <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
                              <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2-2v-2z" /></svg>
                              </div>
                              <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
                          </div>
