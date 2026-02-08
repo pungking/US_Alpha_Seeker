@@ -2,8 +2,7 @@
 export default async function handler(req: any, res: any) {
   // "The Holy Grail" - TradingView Scanner Proxy
   // Fetches entire US market + Fundamentals.
-  // V5.5 Update: Implemented Pagination (Chunking) to bypass 20k range limits.
-  // Also ensures Basic Fallback includes PBR & Debt columns.
+  // V5.6 Update: Hyper-Robust Chunking + 3-Level Fallback + Header Camouflage
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,36 +16,36 @@ export default async function handler(req: any, res: any) {
 
   const url = 'https://scanner.tradingview.com/america/scan';
   
-  // Base columns shared by both modes
-  const baseColumns = [
-      "name",                         // 0
-      "close",                        // 1
-      "volume",                       // 2
-      "market_cap_basic",             // 3
-      "sector",                       // 4
-      "industry",                     // 5
-      "price_earnings_ttm",           // 6
-      "earnings_per_share_basic_ttm", // 7
-      "return_on_equity_fq",          // 8
-      "change",                       // 9
-      "description"                   // 10
-  ];
-
-  // 1. Rich Columns: Include heavy calculation fields
+  // Columns Definitions
+  // Level 1: Full Fundamental Data
   const richColumns = [
-      ...baseColumns,
-      "price_book_ratio_fq",          // 11
-      "debt_to_equity_fq",            // 12
-      "current_ratio_fq",             // 13 (Heavy)
-      "total_revenue_ttm"             // 14 (Heavy)
+      "name", "close", "volume", "market_cap_basic", "sector", "industry",
+      "price_earnings_ttm", "earnings_per_share_basic_ttm", "return_on_equity_fq",
+      "change", "description",
+      "price_book_ratio_fq", "debt_to_equity_fq", "current_ratio_fq", "total_revenue_ttm"
   ];
 
-  // 2. Basic Columns: Include CRITICAL fields only (PBR & Debt are critical)
+  // Level 2: Critical Fundamentals only (PBR/Debt included)
   const basicColumns = [
-      ...baseColumns,
-      "price_book_ratio_fq",          // 11
-      "debt_to_equity_fq"             // 12
+      "name", "close", "volume", "market_cap_basic", "sector", "industry",
+      "price_earnings_ttm", "earnings_per_share_basic_ttm", "return_on_equity_fq",
+      "change", "description",
+      "price_book_ratio_fq", "debt_to_equity_fq"
   ];
+
+  // Level 3: Bare minimum (Survival Mode)
+  const minimalColumns = [
+      "name", "close", "volume", "market_cap_basic", "sector", "industry",
+      "change", "description"
+  ];
+
+  // Random User Agent Rotator
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0'
+  ];
+  const getRandomAgent = () => userAgents[Math.floor(Math.random() * userAgents.length)];
 
   const getPayload = (rangeStart: number, rangeEnd: number, columns: string[]) => ({
       "filter": [
@@ -60,109 +59,159 @@ export default async function handler(req: any, res: any) {
       "range": [rangeStart, rangeEnd]
   });
 
-  const fetchScan = async (payload: any) => {
+  const fetchChunk = async (payload: any, retries = 3): Promise<any> => {
       try {
           const response = await fetch(url, {
             method: 'POST',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-                'Content-Type': 'application/json'
+                'User-Agent': getRandomAgent(),
+                'Content-Type': 'application/json',
+                'Origin': 'https://www.tradingview.com',
+                'Referer': 'https://www.tradingview.com/'
             },
             body: JSON.stringify(payload)
           });
-          if (!response.ok) return null;
+          
+          if (!response.ok) {
+               if (retries > 0 && (response.status === 429 || response.status >= 500)) {
+                   await new Promise(r => setTimeout(r, 2000));
+                   return fetchChunk(payload, retries - 1);
+               }
+               return null;
+          }
           return await response.json();
       } catch (e) {
-          console.error("TV Fetch Error:", e);
+          if (retries > 0) {
+              await new Promise(r => setTimeout(r, 2000));
+              return fetchChunk(payload, retries - 1);
+          }
+          console.error("TV Chunk Error:", e);
           return null;
       }
   };
 
   try {
     let allRows: any[] = [];
-    let isRich = true;
+    let activeColumns = richColumns;
+    let mode = 'Rich';
+    
+    // Chunking Strategy: Smaller chunks are safer
+    const CHUNK_SIZE = 2000; 
     let start = 0;
-    const step = 8000; // Safe chunk size (below 10k limit often imposed by TV)
-    const maxFetchLimit = 30000; // Safety brake
+    let totalCount = 20000; // Will update after first request
 
-    console.log(`TV Scanner: Initiating Paginated Scan (Step: ${step})...`);
+    // Initial Probe to determine capability
+    console.log(`TV Scanner: Probing API...`);
+    let firstBatch = await fetchChunk(getPayload(0, CHUNK_SIZE, richColumns));
 
-    // 1. Initial Probe (Rich Data)
-    let firstBatch = await fetchScan(getPayload(0, step, richColumns));
-
-    // 2. Fallback Probe (Basic Data) if Rich failed
     if (!firstBatch || !firstBatch.data || firstBatch.data.length === 0) {
-        console.warn("TV Scanner: Rich Probe failed or empty. Switching to Robust Basic Mode.");
-        isRich = false;
-        firstBatch = await fetchScan(getPayload(0, step, basicColumns));
+        console.warn("TV Scanner: Rich Mode failed. Downgrading to Basic...");
+        mode = 'Basic';
+        activeColumns = basicColumns;
+        firstBatch = await fetchChunk(getPayload(0, CHUNK_SIZE, basicColumns));
     }
 
     if (!firstBatch || !firstBatch.data || firstBatch.data.length === 0) {
-        throw new Error("Critical: TradingView returned 0 assets in both Rich and Basic modes.");
+        console.warn("TV Scanner: Basic Mode failed. Downgrading to Minimal...");
+        mode = 'Minimal';
+        activeColumns = minimalColumns;
+        firstBatch = await fetchChunk(getPayload(0, CHUNK_SIZE, minimalColumns));
     }
 
-    // Add first batch
+    if (!firstBatch || !firstBatch.data || firstBatch.data.length === 0) {
+        throw new Error("Critical: TradingView returned 0 assets across all modes.");
+    }
+
+    // Process First Batch
+    totalCount = firstBatch.totalCount || 20000;
     allRows = [...firstBatch.data];
-    const totalCount = firstBatch.totalCount || 20000;
-    start += step;
+    start += CHUNK_SIZE;
 
-    // 3. Pagination Loop
-    while (start < totalCount && start < maxFetchLimit) {
-        const columns = isRich ? richColumns : basicColumns;
-        console.log(`TV Scanner: Fetching chunk [${start} - ${start + step}] (${isRich ? 'Rich' : 'Basic'})...`);
+    console.log(`TV Scanner: Mode [${mode}] Active. Total assets to fetch: ${totalCount}`);
+
+    // Fetch remaining chunks
+    while (start < totalCount) {
+        // Range cannot exceed totalCount
+        const end = Math.min(start + CHUNK_SIZE, totalCount); 
         
-        const chunk = await fetchScan(getPayload(start, start + step, columns));
+        // Safety break
+        if (start >= 25000) break; 
+
+        const chunk = await fetchChunk(getPayload(start, end, activeColumns));
         
         if (chunk && chunk.data && chunk.data.length > 0) {
             allRows = allRows.concat(chunk.data);
-            if (chunk.data.length < step) break; // End of list reached
+            console.log(`TV Scanner: Chunk [${start}-${end}] OK. Total: ${allRows.length}`);
         } else {
-            break; // No more data or error
+            console.warn(`TV Scanner: Chunk [${start}-${end}] Empty/Failed. Stop.`);
+            break;
         }
         
-        start += step;
-        await new Promise(r => setTimeout(r, 100)); // Rate limit niceness
+        start += CHUNK_SIZE;
+        // Rate limit niceness
+        await new Promise(r => setTimeout(r, 500)); 
     }
 
-    console.log(`TV Scanner: Total assets retrieved: ${allRows.length}`);
-
-    // Map raw array to schema
+    // Mapping Logic based on Mode
     const normalized = allRows.map((r: any) => {
         const d = r.d; // data array
         const val = (v: any) => (v === null || v === undefined) ? 0 : v;
 
-        const baseObj = {
-            symbol: r.s.split(':')[1] || r.s, // Remove "NASDAQ:" prefix
-            name: d[10] || "",
-            price: val(d[1]),
-            volume: val(d[2]),
-            marketCap: val(d[3]),
-            sector: d[4] || "Unclassified",
-            industry: d[5] || "Unknown",
-            pe: val(d[6]),
-            eps: val(d[7]),
-            roe: val(d[8]),
-            change: val(d[9]),
-            // Fields present in BOTH Rich and Basic (indices 11, 12 match)
-            pbr: val(d[11]),
-            debtToEquity: val(d[12]),
-            source: isRich ? 'TradingView_Rich' : 'TradingView_Robust'
-        };
+        // Base 11 columns (0-10) are same for Rich/Basic/Minimal (Minimal cuts off after 7 actually)
+        // Adjust indices based on columns definition
+        /*
+          Rich/Basic: 0:name, 1:close, 2:vol, 3:mktcap, 4:sect, 5:ind, 6:pe, 7:eps, 8:roe, 9:chg, 10:desc
+          Minimal:    0:name, 1:close, 2:vol, 3:mktcap, 4:sect, 5:ind, 6:chg, 7:desc
+        */
 
-        if (isRich) {
-            return {
-                ...baseObj,
-                currentRatio: val(d[13]),
-                revenue: val(d[14])
+        let baseObj: any = {};
+        
+        if (mode === 'Minimal') {
+             baseObj = {
+                symbol: r.s.split(':')[1] || r.s,
+                name: d[0] || "",
+                price: val(d[1]),
+                volume: val(d[2]),
+                marketCap: val(d[3]),
+                sector: d[4] || "Unclassified",
+                industry: d[5] || "Unknown",
+                change: val(d[6]),
+                description: d[7] || "",
+                // Zero out missing
+                pe: 0, eps: 0, roe: 0, pbr: 0, debtToEquity: 0, currentRatio: 0, revenue: 0,
+                source: 'TradingView_Minimal_Rescue'
             };
-        }
+        } else {
+            // Rich or Basic (Indices 0-10 match)
+            baseObj = {
+                symbol: r.s.split(':')[1] || r.s,
+                name: d[0] || "",
+                price: val(d[1]),
+                volume: val(d[2]),
+                marketCap: val(d[3]),
+                sector: d[4] || "Unclassified",
+                industry: d[5] || "Unknown",
+                pe: val(d[6]),
+                eps: val(d[7]),
+                roe: val(d[8]),
+                change: val(d[9]),
+                description: d[10] || "",
+                // Conditional fields
+                pbr: val(d[11]), // Rich/Basic index 11
+                debtToEquity: val(d[12]), // Rich/Basic index 12
+                source: mode === 'Rich' ? 'TradingView_Rich' : 'TradingView_Basic'
+            };
 
-        // Fallback fills
-        return {
-            ...baseObj,
-            currentRatio: 0,
-            revenue: 0
-        };
+            if (mode === 'Rich') {
+                baseObj.currentRatio = val(d[13]);
+                baseObj.revenue = val(d[14]);
+            } else {
+                baseObj.currentRatio = 0;
+                baseObj.revenue = 0;
+            }
+        }
+        
+        return baseObj;
     });
 
     res.setHeader('Cache-Control', 's-maxage=3600, stale-while-revalidate');
