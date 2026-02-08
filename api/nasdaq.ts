@@ -2,7 +2,7 @@
 export default async function handler(req: any, res: any) {
   // "The Holy Grail" - TradingView Scanner Proxy
   // Fetches entire US market + Fundamentals.
-  // V5.2 Update: Added Fallback Mechanism (Rich -> Basic) to prevent "0 assets" error.
+  // V5.3 Update: Range restored to 20k to ensure full market coverage (~13k+ assets).
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -16,7 +16,7 @@ export default async function handler(req: any, res: any) {
 
   const url = 'https://scanner.tradingview.com/america/scan';
   
-  // 1. Rich Payload: All desired columns (High risk of timeout/empty if overloaded)
+  // 1. Rich Payload: All desired columns
   const richPayload = {
       "filter": [
           { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
@@ -42,10 +42,10 @@ export default async function handler(req: any, res: any) {
           "total_revenue_ttm"             // d[14] (NEW)
       ],
       "sort": { "sortBy": "volume", "sortOrder": "desc" },
-      "range": [0, 10000] // Safer range to avoid silent failures
+      "range": [0, 20000] // Restored to 20k to capture full market
   };
 
-  // 2. Basic Payload: Core columns only (High reliability)
+  // 2. Basic Payload: Core columns only (High reliability fallback)
   const basicPayload = {
       ...richPayload,
       "columns": [
@@ -53,7 +53,7 @@ export default async function handler(req: any, res: any) {
           "price_earnings_ttm", "earnings_per_share_basic_ttm", "return_on_equity_fq", 
           "change", "description"
       ],
-      "range": [0, 10000]
+      "range": [0, 20000] // Restored to 20k
   };
 
   const fetchScan = async (payload: any) => {
@@ -75,12 +75,12 @@ export default async function handler(req: any, res: any) {
   };
 
   try {
-    // Attempt 1: Rich Scan
+    // Attempt 1: Rich Scan (Full Range)
     let json = await fetchScan(richPayload);
     let rows = json?.data || [];
     let isRich = true;
 
-    // Attempt 2: Basic Scan (Fallback)
+    // Attempt 2: Basic Scan (Full Range) - Fallback if rich data fails
     if (rows.length === 0) {
         console.warn("TV Scanner: Rich Scan returned 0 items. Falling back to Basic Scan...");
         json = await fetchScan(basicPayload);
