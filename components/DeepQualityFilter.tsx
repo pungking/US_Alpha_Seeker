@@ -43,7 +43,7 @@ interface QualityTicker {
   lastUpdate: string;
   source: string; 
 
-  // [DATA PRESERVATION] Store raw financial report for dumping
+  // [DATA PRESERVATION] Store raw financial report (Deep Ledger)
   financialReport?: any; 
 
   [key: string]: any;
@@ -55,7 +55,7 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v4_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_HYBRID_v5_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 const getDailyCacheKey = (symbol: string) => {
@@ -87,7 +87,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.3: "Use Everything" Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v9.5: Omni-Channel Deep Scan Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -243,7 +243,36 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e) { }
       }
 
-      // 3. FINNHUB STRATEGY (Rich Metrics)
+      // 3. POLYGON STRATEGY (Financials Fallback)
+      if (!financials && polygonKey) {
+         try {
+             const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=2&apiKey=${polygonKey}`);
+             if (res.ok) {
+                 const json = await res.json();
+                 if (json.results && json.results.length > 0) {
+                     const r = json.results[0];
+                     const f = r.financials;
+                     financials = {
+                         source: 'POLYGON_FIN',
+                         raw: json.results,
+                         price: 0,
+                         roe: (f.ratios?.return_on_equity?.value || 0), // Polygon ratio is usually decimal
+                         per: 0, // Polygon financials endpoint often lacks realtime PE
+                         pbr: 0,
+                         debtToEquity: (f.balance_sheet?.long_term_debt?.value / f.balance_sheet?.equity?.value) * 100 || 0,
+                         currentRatio: (f.balance_sheet?.current_assets?.value / f.balance_sheet?.current_liabilities?.value) || 0,
+                         operatingCashFlow: f.cash_flow_statement?.net_cash_flow_from_operating_activities?.value || 0,
+                         hasHistory: json.results.length > 1,
+                         // Store as array for consistency
+                         incomeStatements: json.results.map((item: any) => item.financials.income_statement || {}),
+                         balanceSheets: json.results.map((item: any) => item.financials.balance_sheet || {})
+                     };
+                 }
+             }
+         } catch (e) {}
+      }
+
+      // 4. FINNHUB STRATEGY (Rich Metrics Fallback)
       if (!financials && finnhubKey) {
           try {
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
@@ -267,32 +296,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
           } catch (e) { }
-      }
-
-      // 4. POLYGON STRATEGY (Financials Fallback)
-      if (!financials && polygonKey) {
-         try {
-             const res = await fetch(`https://api.polygon.io/vX/reference/financials?ticker=${symbol}&limit=2&apiKey=${polygonKey}`);
-             if (res.ok) {
-                 const json = await res.json();
-                 if (json.results && json.results.length > 0) {
-                     const r = json.results[0];
-                     const f = r.financials;
-                     financials = {
-                         source: 'POLYGON_FIN',
-                         raw: json.results,
-                         price: 0,
-                         roe: (f.ratios?.return_on_equity?.value || 0), // Polygon ratio is usually decimal
-                         per: 0, // Polygon financials endpoint often lacks realtime PE
-                         pbr: 0,
-                         debtToEquity: (f.balance_sheet?.long_term_debt?.value / f.balance_sheet?.equity?.value) * 100 || 0,
-                         currentRatio: (f.balance_sheet?.current_assets?.value / f.balance_sheet?.current_liabilities?.value) || 0,
-                         operatingCashFlow: f.cash_flow_statement?.net_cash_flow_from_operating_activities?.value || 0,
-                         hasHistory: json.results.length > 1
-                     };
-                 }
-             }
-         } catch (e) {}
       }
 
       return financials;
