@@ -2,8 +2,7 @@
 export default async function handler(req: any, res: any) {
   // "The Holy Grail" - TradingView Scanner Proxy
   // Fetches entire US market + Fundamentals.
-  // V5.7 Update: DISABLING CACHE to fix "0 data" persistence issues.
-  // Unified "Standard" column set to ensure consistency.
+  // V5.8 Update: Fixed Payload Structure (Removed 'symbols', added Exchange filter)
   
   // [CRITICAL] Disable Caching to force fresh data fetch
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
@@ -44,15 +43,16 @@ export default async function handler(req: any, res: any) {
   // Fixed Reliable User Agent
   const userAgent = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36';
 
+  // [FIX] Clean Payload: Removed 'symbols' field, Added Exchange Filter, Sort by Market Cap
   const getPayload = (rangeStart: number, rangeEnd: number) => ({
       "filter": [
           { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
-          { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit"] }
+          { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit"] },
+          { "left": "exchange", "operation": "in_range", "right": ["AMEX", "NASDAQ", "NYSE"] }
       ],
       "options": { "lang": "en" },
-      "symbols": { "query": { "types": [] }, "tickers": [] },
       "columns": standardColumns,
-      "sort": { "sortBy": "volume", "sortOrder": "desc" },
+      "sort": { "sortBy": "market_cap_basic", "sortOrder": "desc" },
       "range": [rangeStart, rangeEnd]
   });
 
@@ -70,6 +70,7 @@ export default async function handler(req: any, res: any) {
           });
           
           if (!response.ok) {
+               console.warn(`TV API Error: ${response.status} ${response.statusText}`);
                if (retries > 0) {
                    await new Promise(r => setTimeout(r, 1500));
                    return fetchChunk(payload, retries - 1);
@@ -77,12 +78,12 @@ export default async function handler(req: any, res: any) {
                return null;
           }
           return await response.json();
-      } catch (e) {
+      } catch (e: any) {
           if (retries > 0) {
               await new Promise(r => setTimeout(r, 1500));
               return fetchChunk(payload, retries - 1);
           }
-          console.error("TV Chunk Error:", e);
+          console.error("TV Chunk Network Error:", e.message);
           return null;
       }
   };
@@ -90,17 +91,17 @@ export default async function handler(req: any, res: any) {
   try {
     let allRows: any[] = [];
     
-    // Chunking Strategy: 4000 items per chunk (Balance between speed and payload size)
+    // Chunking Strategy: 4000 items per chunk
     const CHUNK_SIZE = 4000; 
     let start = 0;
     let totalCount = 20000; // Updated by first request
 
-    console.log(`TV Scanner (No-Cache): Starting scan with Standard columns...`);
+    console.log(`TV Scanner (No-Cache): Starting scan...`);
 
     // Fetch loop
     while (start < totalCount) {
-        // Limit total to top 16k to prevent timeouts on free tiers
-        if (start >= 16000) break;
+        // Limit total to top 12k to ensure quality and speed
+        if (start >= 12000) break;
 
         const end = Math.min(start + CHUNK_SIZE, totalCount);
         const payload = getPayload(start, end);
@@ -117,11 +118,11 @@ export default async function handler(req: any, res: any) {
         }
         
         start += CHUNK_SIZE;
-        await new Promise(r => setTimeout(r, 300)); // Gentle pacing
+        await new Promise(r => setTimeout(r, 200)); // Gentle pacing
     }
 
     if (allRows.length === 0) {
-        throw new Error("Critical: TradingView returned 0 assets.");
+        throw new Error("Critical: TradingView returned 0 assets. Payload rejection likely.");
     }
 
     // Map raw array to schema
@@ -156,6 +157,7 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('TV Proxy Critical Error:', error.message);
+    // Return empty array instead of 500 to allow failover logic in frontend
     return res.status(200).json([]); 
   }
 }
