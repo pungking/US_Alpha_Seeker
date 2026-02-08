@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
@@ -88,9 +89,14 @@ const SECTOR_BENCHMARKS: Record<string, number> = {
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [processedData, setProcessedData] = useState<QualityTicker[]>([]);
+  
+  // Granular Progress Tracking
   const [progress, setProgress] = useState({ current: 0, total: 0, cacheHits: 0, filteredOut: 0 });
+  const [enrichProgress, setEnrichProgress] = useState({ current: 0, total: 0 });
   const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
+  // Source Management
+  const [activeStream, setActiveStream] = useState<string>('IDLE');
   const [fmpDepleted, setFmpDepleted] = useState(false);
   const [rapidActive, setRapidActive] = useState(false);
   const fmpDepletedRef = useRef(false);
@@ -105,7 +111,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.1: SEC Integration Online.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.2: Priority Queue Active (SEC > Yahoo > FMP).']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -116,7 +122,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const BATCH_SIZE = 5; 
   const TARGET_SELECTION_COUNT = 500; 
-  const REPORT_ARCHIVE_BATCH_SIZE = 5; // Reduced to ensure reliability
+  const REPORT_ARCHIVE_BATCH_SIZE = 5; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -129,16 +135,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
         let etaSec = 0;
-        if (progress.current > 0 && progress.total > 0) {
+        
+        // Calculate ETA based on the current active phase
+        if (analysisPhase === 'HYBRID_SCAN' && progress.current > 0 && progress.total > 0) {
            const rate = progress.current / elapsedSec; 
            const remaining = progress.total - progress.current;
            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
+        } else if (analysisPhase === 'DEEP_ENRICHMENT' && enrichProgress.current > 0 && enrichProgress.total > 0) {
+            // Re-calculate for enrichment phase which is slower
+            const enrichElapsed = elapsedSec; // Simplified
+            const rate = enrichProgress.current / (enrichElapsed || 1);
+            const remaining = enrichProgress.total - enrichProgress.current;
+            etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
+
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [loading, progress]);
+  }, [loading, progress, enrichProgress, analysisPhase]);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -155,9 +170,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const getProgressLabel = () => {
     if (!loading) return 'Multi-Source Protocol Ready';
     switch(analysisPhase) {
-        case 'HYBRID_SCAN': return `Scanning: ${progress.current}/${progress.total}`;
-        case 'SCORING': return 'Calculating Quant Scores...';
-        case 'DEEP_ENRICHMENT': return `Deep Fetching (5Y + SEC)...`;
+        case 'HYBRID_SCAN': return `Scanning Market: ${progress.current}/${progress.total}`;
+        case 'SCORING': return 'Calculating Composite Scores...';
+        case 'DEEP_ENRICHMENT': return `Deep Mining (SEC/FMP): ${enrichProgress.current}/${enrichProgress.total}`;
         case 'AI_AUDIT': return 'AI Risk Audit...';
         case 'REPORT_DUMP': return `Archiving Reports (${reportProgress.archived})...`;
         case 'COMPLETE': return 'Scan Complete';
@@ -200,9 +215,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Number(val) || 0;
   };
 
-  // --- DATA ACQUISITION ---
+  // --- DATA ACQUISITION & PRIORITY LOGIC ---
 
-  // 1. Fetch SEC Data
+  // 1. SEC Data (Identity & Compliance) - Highest Priority
   const fetchSECData = async (cik: number): Promise<any> => {
       if (!cik) return null;
       try {
@@ -217,7 +232,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const fetchHybridFinancials = async (symbol: string): Promise<any> => {
       let financials: any = null;
 
+      // PRIORITY 1: YAHOO FINANCE (Market Data & Basic Fundamentals)
       try {
+          setActiveStream(`YAHOO_V10_STREAM [${symbol}]`);
           const yahooSymbol = symbol.replace(/\./g, '-');
           const modules = [
               'financialData', 'defaultKeyStatistics', 'summaryDetail',
@@ -259,8 +276,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
       } catch (e: any) { }
 
+      // PRIORITY 2: FMP (Ratio Verification & Backup)
       if (!financials && fmpKey && !fmpDepletedRef.current) {
           try {
+              setActiveStream(`FMP_DIRECT_STREAM [${symbol}]`);
               const [isRes, bsRes, ratioRes] = await Promise.all([
                   fetch(`https://financialmodelingprep.com/api/v3/income-statement/${symbol}?limit=2&apikey=${fmpKey}`),
                   fetch(`https://financialmodelingprep.com/api/v3/balance-sheet-statement/${symbol}?limit=2&apikey=${fmpKey}`),
@@ -300,8 +319,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch (e: any) { }
       }
 
+      // PRIORITY 3: FINNHUB (Last Resort for Metrics)
       if (!financials && finnhubKey) {
           try {
+              setActiveStream(`FINNHUB_METRIC [${symbol}]`);
               const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${symbol}&metric=all&token=${finnhubKey}`);
               if (res.ok) {
                   const json = await res.json();
@@ -325,12 +346,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               }
           } catch (e) { }
       }
-
+      
+      setActiveStream('IDLE');
       return financials;
   };
 
   const fetchRapidFinancials = async (symbol: string): Promise<DeepFinancialReport | null> => {
       if (!rapidKey || rapidDepletedRef.current) return null;
+      setActiveStream(`RAPID_API_BACKUP [${symbol}]`);
       const host = 'fmpcloud.p.rapidapi.com';
       const headers = { 'X-RapidAPI-Key': rapidKey, 'X-RapidAPI-Host': host };
       try {
@@ -363,25 +386,30 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const enrichEliteCandidates = async (candidates: QualityTicker[]) => {
       setAnalysisPhase('DEEP_ENRICHMENT');
+      const total = candidates.length;
+      setEnrichProgress({ current: 0, total });
+      
       const enriched: QualityTicker[] = [];
       
-      for (let i = 0; i < candidates.length; i++) {
+      for (let i = 0; i < total; i++) {
           const ticker = candidates[i];
           let report = ticker.financialReport;
           const needsEnrichment = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
 
-          // [SEC INTEGRATION] Fetch SEC metadata if CIK exists
+          // [SEC INTEGRATION] Fetch SEC metadata if CIK exists - Highest Priority
           if (ticker.cik) {
+              setActiveStream(`SEC_EDGAR_CIK [${ticker.cik}]`);
               const secData = await fetchSECData(ticker.cik);
               if (secData && ticker.financialReport) {
                   ticker.financialReport.secData = secData;
-                  ticker.source += "+SEC_VERIFIED";
+                  ticker.source += "+SEC";
               }
           }
 
           if (needsEnrichment) {
               if (fmpKey && !fmpDepletedRef.current) {
                   try {
+                      setActiveStream(`FMP_DEEP_5Y [${ticker.symbol}]`);
                       await new Promise(r => setTimeout(r, 200)); 
                       const getFmp = async (ep: string, p: string) => {
                           const r = await fetch(`https://financialmodelingprep.com/api/v3/${ep}/${ticker.symbol}?${p}&apikey=${fmpKey}`);
@@ -428,8 +456,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
 
           enriched.push(ticker);
-          if (i % 5 === 0) setProgress(prev => ({ ...prev, current: i + 1, total: candidates.length }));
+          setEnrichProgress({ current: i + 1, total });
       }
+      setActiveStream('IDLE');
       return enriched;
   };
 
@@ -545,8 +574,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   form.append('file', new Blob([JSON.stringify(stock.financialReport, null, 2)], { type: 'application/json' }));
 
                   try {
-                      // Attempt upload (overwrite isn't default behavior of Drive, it creates duplicates)
-                      // For simplicity, we just upload. Drive handles same-names by allowing duplicates.
                       const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
                           method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
                       });
@@ -700,6 +727,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setLoading(false);
       startTimeRef.current = 0;
     }
+  };
+
+  const formatTime = (seconds: number) => {
+    if (seconds <= 0) return "--:--";
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
   // Theme Aggregation for Treemap
@@ -862,37 +896,28 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     }
   };
 
-  const formatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
+          {/* Header Section */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                            {loading ? getProgressLabel() : 'Multi-Source Protocol Ready'}
+                            {loading ? getProgressLabel() : 'Priority Queue: SEC > Yahoo > FMP'}
                         </span>
-                        <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${fmpDepleted ? 'border-amber-500/20 text-amber-400' : 'border-purple-500/20 text-purple-400'}`}>
-                            {fmpDepleted ? 'Backup: RapidAPI' : 'Primary: Yahoo/FMP Direct'}
-                        </span>
-                        {rapidActive && (
-                            <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 text-emerald-400">
-                                RapidAPI Active
-                            </span>
+                        {activeStream !== 'IDLE' && (
+                             <span className="text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest border-emerald-500/20 bg-emerald-500/10 text-emerald-400 animate-pulse">
+                                 LIVE: {activeStream}
+                             </span>
                         )}
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -911,39 +936,70 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 disabled={loading} 
                 className="w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all disabled:opacity-50 disabled:scale-100 disabled:shadow-none"
             >
-              {loading ? 'Executing Hybrid Scan...' : 'Start Deep Quality Scan'}
+              {loading ? 'Processing Pipeline...' : 'Start Deep Quality Scan'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
               <div className="flex flex-col gap-6">
-                  <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-                    <div className="flex justify-between items-center mb-6">
-                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
-                      <p className="text-xl font-mono font-black text-white italic">{loading ? `${(progress.current / (progress.total || 1) * 100).toFixed(1)}%` : 'Idle'}</p>
-                    </div>
-                    <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
-                      <div className={`h-full transition-all duration-300 bg-blue-500`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
-                    </div>
-                    <div className="flex justify-between text-[8px] uppercase font-bold tracking-widest">
-                        <span className={getPhaseStyle('HYBRID_SCAN')}>1. Scan</span>
-                        <span className={getPhaseStyle('SCORING')}>2. Score</span>
-                        <span className={getPhaseStyle('DEEP_ENRICHMENT')}>3. Deep Fetch</span>
-                        <span className={getPhaseStyle('REPORT_DUMP')}>4. Archive</span>
-                    </div>
-                    
-                    {/* Report Dump Progress (Visible only during archiving) */}
-                    {analysisPhase === 'REPORT_DUMP' && (
-                        <div className="mt-4 pt-4 border-t border-white/5 animate-in fade-in">
-                            <div className="flex justify-between items-center mb-2">
-                                <span className="text-[8px] text-slate-400 font-bold uppercase tracking-widest">Saving Financial Reports</span>
-                                <span className="text-[8px] text-emerald-400 font-mono">{reportProgress.archived} Saved / {reportProgress.skipped} Skipped</span>
-                            </div>
-                            <div className="h-1 bg-slate-800 rounded-full overflow-hidden">
-                                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(reportProgress.current / (reportProgress.total || 1)) * 100}%` }}></div>
-                            </div>
+                  {/* Detailed Pipeline Progress HUD */}
+                  <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5 relative overflow-hidden">
+                    {/* Live Data Stream Indicator */}
+                    <div className="absolute top-0 right-0 p-4 opacity-50">
+                        <div className="flex items-center gap-2">
+                             <div className={`w-1.5 h-1.5 rounded-full ${activeStream !== 'IDLE' ? 'bg-emerald-500 animate-ping' : 'bg-slate-700'}`}></div>
+                             <span className="text-[8px] font-mono text-slate-500 uppercase">{activeStream !== 'IDLE' ? 'STREAM ACTIVE' : 'STREAM IDLE'}</span>
                         </div>
-                    )}
+                    </div>
+
+                    <div className="flex justify-between items-center mb-6">
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Execution Pipeline</p>
+                    </div>
+
+                    {/* Stage 1: Broad Scan */}
+                    <div className="mb-3">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'HYBRID_SCAN' ? 'text-white' : 'text-slate-500'}`}>1. Market Scan (Yahoo/FMP)</span>
+                            <span className="text-[8px] font-mono text-slate-400">{progress.current} / {progress.total}</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                        </div>
+                    </div>
+
+                    {/* Stage 2: Scoring (Implicit in Stage 1 but logically separate) */}
+                    <div className="mb-3">
+                         <div className="flex justify-between items-center mb-1">
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'SCORING' || analysisPhase === 'HYBRID_SCAN' ? 'text-white' : 'text-slate-500'}`}>2. Quant Scoring (F/Z/Alpha)</span>
+                             <span className="text-[8px] font-mono text-slate-400">{progress.current > 0 ? 'Active' : 'Pending'}</span>
+                        </div>
+                         <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-indigo-500 transition-all duration-300" style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
+                        </div>
+                    </div>
+
+                     {/* Stage 3: Deep Enrichment */}
+                     <div className="mb-3">
+                        <div className="flex justify-between items-center mb-1">
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_ENRICHMENT' ? 'text-white' : 'text-slate-500'}`}>3. Deep Mining (SEC/5Y History)</span>
+                            <span className="text-[8px] font-mono text-slate-400">{enrichProgress.current} / {enrichProgress.total}</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-violet-500 transition-all duration-300" style={{ width: `${(enrichProgress.current / (enrichProgress.total || 1)) * 100}%` }}></div>
+                        </div>
+                    </div>
+
+                    {/* Stage 4: Archiving */}
+                    <div>
+                        <div className="flex justify-between items-center mb-1">
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'REPORT_DUMP' ? 'text-white' : 'text-slate-500'}`}>4. Vault Sync (Google Drive)</span>
+                            <span className="text-[8px] font-mono text-slate-400">{reportProgress.archived} Files</span>
+                        </div>
+                        <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(reportProgress.current / (reportProgress.total || 1)) * 100}%` }}></div>
+                        </div>
+                    </div>
+
                   </div>
 
                   <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiStatus === 'ANALYZING' ? 'border-blue-500/50' : aiStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
