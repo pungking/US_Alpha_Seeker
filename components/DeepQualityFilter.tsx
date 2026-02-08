@@ -10,7 +10,7 @@ import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [Advanced Institutional Data Structure]
 interface DeepFinancialReport {
-  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'ESTIMATE';
+  source: 'FMP' | 'YAHOO' | 'RAPID_FMP' | 'RAPID_YAHOO' | 'HYBRID' | 'ESTIMATE' | 'FINNHUB';
   annual: {
     income: any[];
     balance: any[];
@@ -111,7 +111,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.4: FMP Validation & Live Dumping Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v10.5: RapidAPI Fallback Enhanced.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
@@ -425,7 +425,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       for (let i = 0; i < total; i++) {
           const ticker = candidates[i];
           let report = ticker.financialReport;
-          const needsEnrichment = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
+          
+          // Identify if current report is insufficient (Metric only or missing)
+          const isWeakSource = ticker.source.includes('LITE') || ticker.source.includes('METRIC') || ticker.source.includes('FIN');
+          const hasEmptyReport = !report || (report.source === 'FINNHUB' && Object.keys(report.annual).length === 0);
+          const needsEnrichment = isWeakSource || hasEmptyReport;
 
           // [SEC INTEGRATION] Fetch SEC metadata if CIK exists - Highest Priority
           if (ticker.cik) {
@@ -438,6 +442,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
 
           if (needsEnrichment) {
+              let enrichmentSuccess = false;
+
+              // 1. Try FMP Direct (if key valid and not depleted)
               if (fmpKey && !fmpDepletedRef.current) {
                   try {
                       setActiveStream(`FMP_DEEP_5Y [${ticker.symbol}]`);
@@ -464,6 +471,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           secData: ticker.financialReport?.secData // Preserve SEC data
                       };
                       ticker.source = 'FMP_DEEP_5Y';
+                      enrichmentSuccess = true;
                   } catch (e: any) {
                       if (e.message === "FMP_429" || e.message === "FMP_LEGACY_ERROR") {
                           fmpDepletedRef.current = true;
@@ -472,9 +480,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              if ((!ticker.financialReport || ticker.financialReport.source === 'FMP') && 
-                  (fmpDepletedRef.current || !fmpKey) && 
-                  rapidKey && !rapidDepletedRef.current) {
+              // 2. Try RapidAPI (if FMP failed/depleted/skipped)
+              if (!enrichmentSuccess && rapidKey && !rapidDepletedRef.current) {
                   
                   if (!rapidActive) setRapidActive(true);
                   const rapidReport = await fetchRapidFinancials(ticker.symbol);
@@ -698,7 +705,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "10.4.0", 
+                version: "10.5.0", 
                 strategy: "Hybrid_Ledger_Metric_Scan_Deep_5Y_SEC_Enhanced", 
                 timestamp: new Date().toISOString(), 
                 engine: "Use_Everything",
@@ -909,7 +916,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.4</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v10.5</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
