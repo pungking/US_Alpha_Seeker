@@ -1,9 +1,8 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v11.2 (Stealth ID Hunter)
-  // 1. Bulk Quote: FMP/Yahoo (Base)
-  // 2. Surgical Strike: Yahoo v10 (Deep)
-  // 3. ID Hunter: Parse specific "Analysis" Sitemap for direct Ticker -> SecretID mapping
+  // "The Fundamentalist" - MSN Secret Protocol v2.0
+  // 1. Map Builder: Parses sitemaps to link Tickers <-> Secret IDs
+  // 2. Deep Dive: Uses Secret IDs to fetch rich fundamental data from assets.msn.com
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,257 +14,110 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { symbols, mode } = req.query;
+  const { mode, symbol, id } = req.query;
+  const MSN_API_KEY = '0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM'; // User provided key
 
-  const getRandomUA = () => {
-    const uas = [
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-    ];
-    return uas[Math.floor(Math.random() * uas.length)];
-  };
-
-  // --- [NEW] UTILITY MODE: GENERATE ID MAP (Single Source Truth) ---
-  // Targets the specific 'stockdetails-analysis' sitemap for maximum efficiency
+  // --- MODE A: GENERATE ID MAP (Sitemap Parsing) ---
   if (mode === 'generate_map') {
       try {
-          // The "Golden Source" sitemap
-          const targetMap = "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/stockdetails-analysis-en-us-sitemap.xml";
+          // Target the specific sitemap provided by user
+          // Note: This sitemap often contains links to other sitemaps or direct links. 
+          // We will try to parse a few known equity sitemaps derived from the index structure.
+          const targetMaps = [
+              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/stockdetails-en-us-sitemap.xml",
+              // Fallbacks/Alternatives often found in the index
+              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-0.xml",
+              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-1.xml"
+          ];
           
           const idMap: Record<string, string> = {};
           let totalFound = 0;
 
-          // [FIX] Add Headers to bypass 403 Forbidden on CDNs
-          const response = await fetch(targetMap, {
-              headers: {
-                  'User-Agent': getRandomUA(),
-                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
-                  'Accept-Language': 'en-US,en;q=0.9',
-                  'Cache-Control': 'no-cache'
-              }
-          });
-          
-          if (!response.ok) {
-              const errText = await response.text();
-              throw new Error(`Sitemap Fetch Failed: ${response.status} ${response.statusText} - ${errText.substring(0, 50)}`);
-          }
-          
-          const xmlText = await response.text();
-          
-          // Regex pattern for Analysis URLs:
-          // .../stockdetails/analysis/nas-aapl/fi-a1mou2
-          // Capture Group 1: Exchange (NAS/NYS/AMX) - Optional filter if needed
-          // Capture Group 2: Ticker
-          // Capture Group 3: Secret ID
-          const urlRegex = /\/stockdetails\/analysis\/(?:NAS|NYS|AMX)-([A-Z0-9.]+)\/fi-([a-z0-9]+)/gi;
-          
-          let match;
-          while ((match = urlRegex.exec(xmlText)) !== null) {
-              const ticker = match[1].toUpperCase();
-              const id = match[2];
-              
-              if (ticker && id) {
-                  idMap[ticker] = id;
-                  totalFound++;
-              }
-          }
+          // Parallel Fetch
+          await Promise.all(targetMaps.map(async (url) => {
+              try {
+                  const subRes = await fetch(url);
+                  if(!subRes.ok) return;
+                  const subXml = await subRes.text();
+                  
+                  // Regex to capture: .../stockdetails/(exchange)-(ticker)/fi-(id)
+                  // Covers: us-nas-aapl, nas-tsla, nys-f, etc.
+                  // Pattern matches: /stockdetails/([a-z]+-)?([a-z0-9]+)-([a-z0-9.]+)/fi-([a-z0-9]+)
+                  // Simplified for robustness: Look for 'fi-' followed by ID after a ticker-like slug
+                  
+                  // 1. Try strict pattern (Exchange-Ticker)
+                  // ex: .../stockdetails/nas-aapl/fi-a1mou2
+                  const strictRegex = /\/stockdetails\/(?:[a-z]{2,3}-)?([a-z]{3})-([a-z0-9.]+)\/fi-([a-z0-9]+)/gi;
+                  
+                  let m;
+                  while ((m = strictRegex.exec(subXml)) !== null) {
+                      const exchange = m[1].toUpperCase();
+                      const ticker = m[2].toUpperCase();
+                      const secretId = m[3];
+                      
+                      // Filter for US Exchanges mostly
+                      if (['NAS', 'NYS', 'AMX'].includes(exchange) && ticker.length < 10) {
+                          idMap[ticker] = secretId;
+                          totalFound++;
+                      }
+                  }
 
-          if (totalFound === 0) {
-               // Fallback Debug: Maybe the XML format changed?
-               console.warn("No IDs found. XML Preview:", xmlText.substring(0, 200));
-               throw new Error("Parsed 0 IDs. Sitemap format may have changed.");
-          }
+              } catch (e) {
+                  console.warn(`Failed to parse map: ${url}`);
+              }
+          }));
 
           return res.status(200).json({ 
               status: 'success', 
               count: totalFound, 
               map: idMap,
-              message: `Successfully mapped ${totalFound} US tickers from Analysis Sitemap.`
+              message: `Successfully mapped ${totalFound} US tickers.`
           });
 
       } catch (e: any) {
-          console.error("ID Map Gen Error:", e);
           return res.status(500).json({ error: e.message });
       }
   }
 
-  // --- STANDARD MODE: FUNDAMENTAL DATA FETCH ---
-  if (!symbols) {
-    return res.status(400).json({ error: 'Symbols list is required' });
+  // --- MODE B: DEEP DIVE (Fetch Data by ID) ---
+  if (mode === 'get_details' && id) {
+      try {
+          // The Secret API Endpoint
+          const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${id}&wrapodata=false`;
+          
+          const apiRes = await fetch(apiUrl);
+          if (!apiRes.ok) throw new Error(`MSN API Error: ${apiRes.status}`);
+          
+          const data = await apiRes.json();
+          if (!data || data.length === 0) return res.status(404).json({ error: "No data found for ID" });
+
+          const raw = data[0]; // Assuming array response
+
+          // Normalize Data
+          const normalized = {
+              symbol: raw.symbol || symbol || "Unknown",
+              name: raw.displayName || raw.shortName,
+              price: raw.price || 0,
+              // Fundamental Data
+              peRatio: raw.averagePE || raw.peRatio,
+              eps: raw.eps,
+              roe: raw.returnOnEquity ? raw.returnOnEquity * 100 : 0, // Convert to %
+              roa: raw.returnOnAssets ? raw.returnOnAssets * 100 : 0,
+              pbr: raw.priceToBookRatio,
+              debtToEquity: raw.debtToEquityRatio,
+              marketCap: raw.marketCap,
+              // Meta
+              currency: raw.currency,
+              exchange: raw.exchangeCode,
+              source: "MSN_SECRET_API"
+          };
+
+          return res.status(200).json(normalized);
+
+      } catch (e: any) {
+          return res.status(500).json({ error: e.message });
+      }
   }
 
-  const symbolList = String(symbols).split(',');
-  const FMP_KEY = process.env.FMP_KEY || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7';
-  
-  const getVal = (v: any) => {
-    if (v === null || v === undefined || v === 'N/A') return null;
-    const num = parseFloat(v);
-    return isNaN(num) ? null : num;
-  };
-
-  const getYVal = (obj: any) => {
-      if (obj === null || obj === undefined) return null;
-      if (typeof obj === 'object' && 'raw' in obj) return obj.raw;
-      return getVal(obj);
-  };
-
-  try {
-    const aggregatedData = new Map();
-
-    // 0. Initialize Map
-    symbolList.forEach(sym => aggregatedData.set(sym, { symbol: sym, source: [], isEtf: false }));
-
-    // --- 1. FMP BULK QUOTE (Base Layer - Fast) ---
-    try {
-        const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${FMP_KEY}`;
-        const fmpRes = await fetch(fmpUrl);
-        if (fmpRes.ok) {
-            const data = await fmpRes.json();
-            if (Array.isArray(data)) {
-                data.forEach((item: any) => {
-                    const current = aggregatedData.get(item.symbol) || { symbol: item.symbol, source: [] };
-                    
-                    if (item.price) current.price = getVal(item.price);
-                    if (item.pe) current.peRatio = getVal(item.pe);
-                    if (item.eps) current.eps = getVal(item.eps);
-                    if (item.marketCap) current.marketCap = getVal(item.marketCap);
-                    
-                    current.source.push('FMP_Q');
-                    aggregatedData.set(item.symbol, current);
-                });
-            }
-        }
-    } catch (e) {
-        // FMP Fail is acceptable, proceed to Yahoo
-    }
-
-    // --- 2. YAHOO BULK (Rich Layer - ROE/PBR/PE) ---
-    try {
-        const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
-        const yahooRes = await fetch(yahooUrl, {
-            headers: { 'User-Agent': getRandomUA() }
-        });
-        
-        if (yahooRes.ok) {
-            const json = await yahooRes.json();
-            const results = json.quoteResponse?.result || [];
-            results.forEach((item: any) => {
-                const sym = item.symbol;
-                const current = aggregatedData.get(sym) || { symbol: sym, source: [] };
-
-                if (!current.price) current.price = getVal(item.regularMarketPrice);
-                
-                // PE
-                const yPe = getVal(item.trailingPE) || getVal(item.forwardPE);
-                if (yPe) current.peRatio = yPe;
-                
-                // ROE
-                if (!current.returnOnEquity) current.returnOnEquity = item.financialCurrency === 'USD' ? getVal(item.returnOnEquity) : null; 
-                
-                // PBR
-                if (!current.priceToBook) current.priceToBook = getVal(item.priceToBook);
-                
-                // Market Cap
-                if (!current.marketCap) current.marketCap = getVal(item.marketCap);
-                
-                // EPS
-                if (!current.eps) current.eps = getVal(item.epsTrailingTwelveMonths);
-                
-                // Type Check (ETF vs Equity)
-                if (item.quoteType === 'ETF' || item.quoteType === 'MUTUALFUND') {
-                    current.isEtf = true;
-                }
-                
-                // Fix ROE units (Yahoo gives 0.15 for 15%)
-                if (current.returnOnEquity && current.returnOnEquity < 1) current.returnOnEquity *= 100;
-
-                current.source.push('YHO');
-                aggregatedData.set(sym, current);
-            });
-        }
-    } catch (e) {
-        // Yahoo Bulk Fail
-    }
-
-    // --- 3. SURGICAL STRIKE: YAHOO QUOTE SUMMARY (Fill Missing Fundamentals) ---
-    // Precision targeting for items that still lack ROE/PBR but are NOT ETFs
-    const missingFundamentals = Array.from(aggregatedData.values()).filter((item: any) => 
-        !item.isEtf && (!item.returnOnEquity || !item.priceToBook || !item.peRatio)
-    );
-
-    if (missingFundamentals.length > 0) {
-        // Parallel execution for the surgical batch
-        await Promise.all(missingFundamentals.map(async (item: any) => {
-             try {
-                 // The "Surgical Strike" URL - gets deep financial data
-                 const modules = "financialData,defaultKeyStatistics,summaryDetail";
-                 const v10Url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${item.symbol}?modules=${modules}`;
-                 
-                 const v10Res = await fetch(v10Url, { headers: { 'User-Agent': getRandomUA() } });
-                 if (v10Res.ok) {
-                     const v10Json = await v10Res.json();
-                     const result = v10Json.quoteSummary?.result?.[0];
-                     
-                     if (result) {
-                         const fd = result.financialData;
-                         const ks = result.defaultKeyStatistics;
-                         const sd = result.summaryDetail;
-
-                         // PE Ratio
-                         if (!item.peRatio) {
-                             item.peRatio = getYVal(sd?.trailingPE) || getYVal(sd?.forwardPE);
-                         }
-
-                         // PBR
-                         if (!item.priceToBook) {
-                             item.priceToBook = getYVal(ks?.priceToBook) || getYVal(ks?.bookValue) ? (item.price / getYVal(ks?.bookValue)) : null;
-                         }
-
-                         // ROE
-                         if (!item.returnOnEquity) {
-                             const roeRaw = getYVal(fd?.returnOnEquity);
-                             item.returnOnEquity = roeRaw ? roeRaw * 100 : null; 
-                         }
-
-                         // Debt to Equity
-                         if (!item.debtToEquity) {
-                             item.debtToEquity = getYVal(fd?.debtToEquity);
-                         }
-                         
-                         item.source.push('SURGICAL_V10');
-                         aggregatedData.set(item.symbol, item);
-                     }
-                 }
-             } catch(e) { /* Ignore individual failure */ }
-        }));
-    }
-
-    // --- 4. DERIVATION & CLEANUP ---
-    const finalResults = Array.from(aggregatedData.values()).map((item: any) => {
-        // Derive PE if missing: Price / EPS
-        if (!item.peRatio && item.price && item.eps && item.eps > 0) {
-            item.peRatio = parseFloat((item.price / item.eps).toFixed(2));
-            item.source.push('CALC_PE');
-        }
-        
-        return {
-            symbol: item.symbol,
-            price: item.price || 0,
-            peRatio: item.peRatio || 0,
-            returnOnEquity: item.returnOnEquity || 0,
-            priceToBook: item.priceToBook || 0,
-            marketCap: item.marketCap || 0,
-            debtToEquity: item.debtToEquity || 0,
-            isEtf: item.isEtf,
-            source: item.source.join('+') || 'None'
-        };
-    });
-
-    return res.status(200).json(finalResults);
-
-  } catch (error: any) {
-      console.error("Alpha Sieve Error:", error);
-      return res.status(200).json(symbolList.map(s => ({ symbol: s, error: "Failed" }))); 
-  }
+  return res.status(400).json({ error: 'Invalid Mode. Use generate_map or get_details.' });
 }
