@@ -60,7 +60,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.3: Auto-Injection Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.5: Auto-Chain Protocol Ready.']);
   
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -72,6 +72,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Injection Progress
   const [injectionProgress, setInjectionProgress] = useState({ current: 0, total: 0 });
   const [isInjecting, setIsInjecting] = useState(false);
+  const [hasEnriched, setHasEnriched] = useState(false);
+  
+  // Auto-Chain State
+  const [readyToInject, setReadyToInject] = useState(false);
 
   // Automation Internal State
   const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'INJECTING' | 'COMMITTING' | 'DONE'>('IDLE');
@@ -99,15 +103,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart, autoStep, loading]);
 
-  // Step 2: Auto Inject Trigger (Immediately after Analysis)
+  // Step 1 -> 2: Auto Inject Trigger (Immediately after Analysis)
+  // This handles both Auto-Pilot and Manual 'Sync & AI' clicks
   useEffect(() => {
-      if (autoStep === 'ANALYZING' && !isAnalyzing && (aiProposal || aiError)) {
-          // Proceed to injection regardless of success/fail to keep pipeline moving
-          setAutoStep('INJECTING');
-          // Small delay for UI update
+      if (readyToInject && !isAnalyzing && (aiProposal || aiError)) {
+          setReadyToInject(false); // Reset flag
+          if (autoStart) setAutoStep('INJECTING');
+          
+          // Small delay for UI update before starting heavy injection
           setTimeout(() => startFundamentalInjection(), 1000);
       }
-  }, [autoStep, isAnalyzing, aiProposal, aiError]);
+  }, [readyToInject, isAnalyzing, aiProposal, aiError, autoStart]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -136,6 +142,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     setIsManual(false);
     setAiError(null);
     setAiProposal(null);
+    setHasEnriched(false); // Reset enrichment status
     setActiveAi('Initializing');
     addLog("Phase 1: Retrieving Global Universe from Stage 0...", "info");
 
@@ -172,7 +179,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
       };
 
-      // [UPDATE] Prompt optimized for Markdown output
       const prompt = `
       [Role: Senior Quantitative Market Strategist]
       Market Stats: Total ${statsSummary.totalCount}, Median Price $${statsSummary.priceDistribution.p50}, Median Vol ${statsSummary.volumeDistribution.p50}.
@@ -237,10 +243,15 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           setMinPrice(aiResult.suggestedPrice);
           setMinVolume(aiResult.suggestedVolume);
           addLog(`Strategy: [${aiResult.regime}] P>$${aiResult.suggestedPrice} V>${(aiResult.suggestedVolume/1000).toFixed(0)}k`, "ok");
+          
+          // Trigger Auto-Injection Chain
+          setReadyToInject(true);
       } else {
           setAiError("AI Offline. Using Defaults.");
           setMinPrice(2.0);
           setMinVolume(500000);
+          // Still trigger injection on failure defaults
+          setReadyToInject(true); 
       }
 
     } catch (e: any) {
@@ -302,17 +313,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       addLog(`Injection Complete. ${enrichedTickers.length} assets enriched.`, "ok");
       
       // Update local state with enriched data so manual re-filter works with new data
-      // We need to merge enrichedTickers back into rawUniverse, or just use enrichedTickers for the next step?
-      // Better to update rawUniverse in case user changes filter and re-injects.
-      // Optimization: Create a map for O(1) lookup
       const enrichmentMap = new Map(enrichedTickers.map(t => [t.symbol, t]));
       setRawUniverse(prev => prev.map(t => enrichmentMap.get(t.symbol) || t));
+      setHasEnriched(true);
 
       if (autoStart) {
           // If auto-pilot, proceed to commit immediately
+           setAutoStep('COMMITTING');
            commitPurification(enrichedTickers);
       } else {
-          // If manual, just let user know
+          // If manual, STOP here to let user adjust thresholds
+           addLog("Ready for Commit. Adjust thresholds if needed, then click 'Finalize & Commit'.", "signal");
            setLoading(false);
            setIsInjecting(false);
       }
@@ -322,7 +333,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     if (!accessToken) return;
     setLoading(true);
     
-    // Use injected list if provided, otherwise filter current rawUniverse
+    // Use injected list if provided (auto mode), otherwise filter CURRENT rawUniverse (manual mode) based on sliders
     const listToSave = finalList || rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
     
     addLog(`Phase 3: Committing ${listToSave.length} assets to Stage 1 Vault...`, "info");
@@ -336,7 +347,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "3.3.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN" },
+        manifest: { version: "3.5.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN" },
         investable_universe: listToSave
       };
 
@@ -394,7 +405,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.5</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Injecting Fundamentals: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
@@ -411,16 +422,20 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               >
                 {isAnalyzing ? 'Thinking...' : 'Sync & AI Analysis'}
               </button>
+              
+              {/* Dynamic Button: Enrich (Initial) -> Commit (After Enrichment) */}
               <button 
-                onClick={() => startFundamentalInjection()} 
+                onClick={() => hasEnriched ? commitPurification() : startFundamentalInjection()} 
                 disabled={loading || rawUniverse.length === 0}
                 className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
                     loading 
                       ? 'bg-emerald-800 text-emerald-200/50 shadow-inner scale-95 cursor-wait border-t border-black/20' 
-                      : 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 disabled:shadow-none'
+                      : hasEnriched
+                          ? 'bg-blue-600 text-white shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 animate-pulse'
+                          : 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 disabled:shadow-none'
                 }`}
               >
-                {isInjecting ? 'Injecting Data...' : 'Enrich & Commit'}
+                {isInjecting ? 'Injecting Data...' : hasEnriched ? 'Finalize & Commit' : 'Enrich Data'}
               </button>
             </div>
           </div>
@@ -499,7 +514,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       </div>
                   </div>
               ) : (
-                  <p className="text-2xl font-black text-slate-600 italic tracking-tighter">IDLE</p>
+                  <p className="text-2xl font-black text-slate-600 italic tracking-tighter">{hasEnriched ? 'DONE' : 'IDLE'}</p>
               )}
             </div>
           </div>
