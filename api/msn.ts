@@ -1,7 +1,9 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v10.0 (Restored)
-  // + "ID Mapper" Utility (Optional Mode)
+  // "The Fundamentalist" - Precision Ratio Aggregation v11.0 (MSN ID Hunter)
+  // 1. Bulk Quote: FMP/Yahoo (Base)
+  // 2. Surgical Strike: Yahoo v10 (Deep)
+  // 3. ID Hunter: Parse specific MSN Sitemaps to map Ticker -> SecretID
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -15,26 +17,17 @@ export default async function handler(req: any, res: any) {
 
   const { symbols, mode } = req.query;
 
-  // --- [NEW] UTILITY MODE: GENERATE ID MAP ---
-  // Crawls MSN Sitemaps to build Ticker -> Secret ID map
+  // --- [NEW] UTILITY MODE: GENERATE ID MAP (Targeted Sitemaps) ---
+  // Crawls specific MSN Sitemaps to build Ticker -> Secret ID map for US Equities
   if (mode === 'generate_map') {
       try {
-          const indexUrl = "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-index.xml";
-          const indexRes = await fetch(indexUrl);
-          if (!indexRes.ok) throw new Error("MSN Sitemap Index Unreachable");
-          const indexXml = await indexRes.text();
-
-          // Regex to find equity sitemaps (finance-equities-X.xml)
-          const subMapRegex = /<loc>(https:\/\/[\w.-]+\/finance\/sitemaps\/sitemap-finance-equities-\d+\.xml)<\/loc>/g;
-          const subMaps = [];
-          let match;
-          while ((match = subMapRegex.exec(indexXml)) !== null) {
-              subMaps.push(match[1]);
-          }
-
-          // Limit to first 3 maps for performance (usually covers major US stocks)
-          // To get FULL coverage, you might need to process all of them, but Vercel timeout is a risk.
-          const targetMaps = subMaps.slice(0, 3); 
+          // Explicitly target the 3 sitemaps known to contain US stocks
+          const targetMaps = [
+              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-0.xml",
+              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-1.xml",
+              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-2.xml"
+          ];
+          
           const idMap: Record<string, string> = {};
           let totalFound = 0;
 
@@ -42,14 +35,18 @@ export default async function handler(req: any, res: any) {
               try {
                   const subRes = await fetch(url);
                   const subXml = await subRes.text();
-                  // Regex: /stockdetails/financials/EXCHANGE-TICKER/fi-ID
-                  // Exchange can be NAS, NYS, AMX, OTC (though OTC might be different)
-                  const urlRegex = /\/stockdetails\/financials\/[A-Z]+-([A-Z0-9.]+)\/fi-([a-z0-9]+)/g;
+                  
+                  // Regex based on user pattern: .../financials/NAS-AAPL/fi-a1mou2
+                  // Captures Exchange (NAS/NYS/AMX), Ticker, and ID
+                  const urlRegex = /\/financials\/(NAS|NYS|AMX)-([A-Z0-9.]+)\/fi-([a-z0-9]+)/g;
+                  
                   let m;
                   while ((m = urlRegex.exec(subXml)) !== null) {
-                      const ticker = m[1];
-                      const id = m[2];
-                      if (ticker && id) {
+                      const ticker = m[2]; // Group 2 is Ticker
+                      const id = m[3];     // Group 3 is ID
+                      
+                      // Basic validation to avoid junk
+                      if (ticker && id && ticker.length < 10) {
                           idMap[ticker] = id;
                           totalFound++;
                       }
@@ -63,7 +60,7 @@ export default async function handler(req: any, res: any) {
               status: 'success', 
               count: totalFound, 
               map: idMap,
-              message: `Successfully mapped ${totalFound} tickers from top ${targetMaps.length} sitemaps.`
+              message: `Successfully mapped ${totalFound} US tickers from core sitemaps.`
           });
 
       } catch (e: any) {
