@@ -1,9 +1,7 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Holy Grail" - TradingView Scanner Proxy v9.2 (Fail-Safe Mode)
-  // Target: Reliable fetch of Top 12,000 US Assets (NYSE, NASDAQ, AMEX)
-  // Strategy: Relax filters (remove subtype) to ensure non-zero results. 
-  // Safety: Return [] on error instead of 500 to allow frontend failover.
+  // "The Holy Grail" - TradingView Scanner Proxy v9.5 (Stealth Mode)
+  // Strategy: User-Agent Rotation to bypass soft blocks.
   
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -39,6 +37,14 @@ export default async function handler(req: any, res: any) {
       "type"                          // 15
   ];
 
+  const userAgents = [
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64; rv:109.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:109.0) Gecko/20100101 Firefox/121.0',
+    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36 Edg/121.0.0.0'
+  ];
+
   const getPayload = (start: number, end: number) => ({
       "filter": [
           { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
@@ -53,10 +59,13 @@ export default async function handler(req: any, res: any) {
 
   const fetchChunk = async (payload: any, retries = 2): Promise<any> => {
       try {
+          // Rotate User Agent
+          const ua = userAgents[Math.floor(Math.random() * userAgents.length)];
+          
           const response = await fetch('https://scanner.tradingview.com/america/scan', {
             method: 'POST',
             headers: {
-                'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                'User-Agent': ua,
                 'Content-Type': 'application/json',
                 'Origin': 'https://www.tradingview.com',
                 'Referer': 'https://www.tradingview.com/',
@@ -68,7 +77,7 @@ export default async function handler(req: any, res: any) {
           if (!response.ok) {
                console.warn(`TV API Warning: ${response.status} ${response.statusText}`);
                if (retries > 0) {
-                   await new Promise(r => setTimeout(r, 1500)); 
+                   await new Promise(r => setTimeout(r, 2000)); // Longer backoff
                    return fetchChunk(payload, retries - 1);
                }
                return null;
@@ -77,7 +86,7 @@ export default async function handler(req: any, res: any) {
       } catch (e: any) {
           console.error("TV Chunk Network Error:", e.message);
           if (retries > 0) {
-              await new Promise(r => setTimeout(r, 1500));
+              await new Promise(r => setTimeout(r, 2000));
               return fetchChunk(payload, retries - 1);
           }
           return null;
@@ -86,7 +95,7 @@ export default async function handler(req: any, res: any) {
 
   try {
     let allRows: any[] = [];
-    const CHUNK_SIZE = 2000; // Reduced chunk size for stability
+    const CHUNK_SIZE = 2000; 
     let start = 0;
     let totalCount = 15000; 
 
@@ -107,7 +116,7 @@ export default async function handler(req: any, res: any) {
         }
         
         start += CHUNK_SIZE;
-        await new Promise(r => setTimeout(r, 50)); 
+        await new Promise(r => setTimeout(r, 150)); 
     }
 
     if (allRows.length === 0) {
