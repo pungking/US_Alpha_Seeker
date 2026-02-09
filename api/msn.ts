@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v11.1 (Targeted ID Hunter)
+  // "The Fundamentalist" - Precision Ratio Aggregation v11.2 (Stealth ID Hunter)
   // 1. Bulk Quote: FMP/Yahoo (Base)
   // 2. Surgical Strike: Yahoo v10 (Deep)
   // 3. ID Hunter: Parse specific "Analysis" Sitemap for direct Ticker -> SecretID mapping
@@ -17,18 +17,39 @@ export default async function handler(req: any, res: any) {
 
   const { symbols, mode } = req.query;
 
+  const getRandomUA = () => {
+    const uas = [
+        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
+        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
+    ];
+    return uas[Math.floor(Math.random() * uas.length)];
+  };
+
   // --- [NEW] UTILITY MODE: GENERATE ID MAP (Single Source Truth) ---
   // Targets the specific 'stockdetails-analysis' sitemap for maximum efficiency
   if (mode === 'generate_map') {
       try {
-          // The "Golden Source" sitemap provided by user
+          // The "Golden Source" sitemap
           const targetMap = "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/stockdetails-analysis-en-us-sitemap.xml";
           
           const idMap: Record<string, string> = {};
           let totalFound = 0;
 
-          const response = await fetch(targetMap);
-          if (!response.ok) throw new Error(`Sitemap Fetch Failed: ${response.status}`);
+          // [FIX] Add Headers to bypass 403 Forbidden on CDNs
+          const response = await fetch(targetMap, {
+              headers: {
+                  'User-Agent': getRandomUA(),
+                  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                  'Accept-Language': 'en-US,en;q=0.9',
+                  'Cache-Control': 'no-cache'
+              }
+          });
+          
+          if (!response.ok) {
+              const errText = await response.text();
+              throw new Error(`Sitemap Fetch Failed: ${response.status} ${response.statusText} - ${errText.substring(0, 50)}`);
+          }
           
           const xmlText = await response.text();
           
@@ -48,6 +69,12 @@ export default async function handler(req: any, res: any) {
                   idMap[ticker] = id;
                   totalFound++;
               }
+          }
+
+          if (totalFound === 0) {
+               // Fallback Debug: Maybe the XML format changed?
+               console.warn("No IDs found. XML Preview:", xmlText.substring(0, 200));
+               throw new Error("Parsed 0 IDs. Sitemap format may have changed.");
           }
 
           return res.status(200).json({ 
@@ -81,15 +108,6 @@ export default async function handler(req: any, res: any) {
       if (obj === null || obj === undefined) return null;
       if (typeof obj === 'object' && 'raw' in obj) return obj.raw;
       return getVal(obj);
-  };
-
-  const getRandomUA = () => {
-    const uas = [
-        'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36',
-        'Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/119.0.0.0 Safari/537.36'
-    ];
-    return uas[Math.floor(Math.random() * uas.length)];
   };
 
   try {
