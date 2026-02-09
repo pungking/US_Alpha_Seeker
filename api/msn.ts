@@ -1,7 +1,7 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - MSN Secret Protocol v3.0 (API-Based Mapping)
-  // 1. Map Builder: Extracts 'fi-IDs' from Sitemap -> Batch calls MSN API -> Maps Symbol to ID
+  // "The Fundamentalist" - MSN Secret Protocol v3.1 (Fast Regex Extraction)
+  // 1. Map Builder: Extracts 'fi-IDs' directly from Sitemap URL patterns (No external API overhead)
   // 2. Deep Dive: Uses Secret IDs to fetch rich fundamental data
   
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -17,11 +17,11 @@ export default async function handler(req: any, res: any) {
   const { symbols, mode, id, symbol } = req.query;
   const MSN_API_KEY = '0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM'; // User provided key
 
-  // --- MODE A: GENERATE ID MAP (Sitemap ID Extraction -> API Validation) ---
+  // --- MODE A: GENERATE ID MAP (Fast Regex Extraction) ---
   if (mode === 'generate_map') {
       try {
           const targetMap = "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/stockdetails-en-us-sitemap.xml";
-          console.log(`[MSN] Fetching Sitemap: ${targetMap}`);
+          console.log(`[MSN] 1. Fetching Sitemap: ${targetMap}`);
           
           const subRes = await fetch(targetMap, {
               headers: {
@@ -29,79 +29,61 @@ export default async function handler(req: any, res: any) {
               }
           });
           
-          if(!subRes.ok) throw new Error(`Sitemap fetch failed: ${subRes.status}`);
+          if(!subRes.ok) {
+              console.error(`[MSN] Sitemap Fetch Failed: ${subRes.status}`);
+              throw new Error(`Sitemap fetch failed: ${subRes.status}`);
+          }
           
           const subXml = await subRes.text();
+          console.log(`[MSN] 2. Sitemap Downloaded (${(subXml.length / 1024).toFixed(2)} KB). Parsing...`);
           
-          // 1. Extract ALL Secret IDs (fi-xxxxxx)
-          const regex = /fi-([a-zA-Z0-9]+)/g;
-          const foundIds = new Set<string>();
-          let m;
-          while ((m = regex.exec(subXml)) !== null) {
-              if(m[1]) foundIds.add(m[1]);
-          }
+          // Pattern: .../stockdetails/{slug}/fi-{id}
+          // We capture the slug and the ID.
+          // Example: /stockdetails/us-nas-aapl/fi-a1x...
+          const regex = /\/stockdetails\/([a-z0-9.-]+)\/fi-([a-z0-9]+)/gi;
           
-          const allIds = Array.from(foundIds);
-          console.log(`[MSN] Extracted ${allIds.length} Unique Secret IDs.`);
-
           const idMap: Record<string, string> = {};
-          
-          // 2. Batch Processing Configuration
-          const BATCH_SIZE = 20; // MSN API accepts comma separated IDs
-          const batches = [];
-          for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
-              batches.push(allIds.slice(i, i + BATCH_SIZE));
+          let totalFound = 0;
+          let m;
+
+          console.log("[MSN] 3. Extracting IDs...");
+
+          while ((m = regex.exec(subXml)) !== null) {
+              let slug = m[1].toLowerCase(); 
+              const secretId = m[2];
+              
+              if (!secretId) continue;
+
+              // Heuristic to extract Ticker from Slug
+              let ticker = "";
+
+              // Standard US Patterns
+              if (slug.startsWith('us-nas-')) ticker = slug.replace('us-nas-', '');
+              else if (slug.startsWith('us-nys-')) ticker = slug.replace('us-nys-', '');
+              else if (slug.startsWith('us-amx-')) ticker = slug.replace('us-amx-', '');
+              else {
+                   // Fallback: use first segment of slug (e.g. "tesla-inc" -> "tesla")
+                   // This isn't perfect but covers many cases where slug ~ name
+                   // We prioritize the structured ones above.
+                   const parts = slug.split('-');
+                   if (parts.length > 0) ticker = parts[0];
+              }
+
+              // Filter out invalid or too long tickers to keep map clean
+              if (ticker && ticker.length > 0 && ticker.length < 10) {
+                  const upperTicker = ticker.toUpperCase();
+                  idMap[upperTicker] = secretId;
+                  totalFound++;
+              }
           }
 
-          // 3. Execute API Calls (Limit concurrency to prevent timeouts/rate-limits)
-          // Note: Vercel functions have time limits. We process as many as possible safely.
-          // For 10k items, 20 per batch = 500 requests. We'll do batches of batches.
-          
-          let processedCount = 0;
-          const CONCURRENCY_LIMIT = 5; // Parallel requests
-
-          for (let i = 0; i < batches.length; i += CONCURRENCY_LIMIT) {
-              const currentBatchGroup = batches.slice(i, i + CONCURRENCY_LIMIT);
-              
-              await Promise.all(currentBatchGroup.map(async (batchIds) => {
-                  try {
-                      const idsParam = batchIds.join(',');
-                      const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${idsParam}&wrapodata=false`;
-                      
-                      const apiRes = await fetch(apiUrl);
-                      if (apiRes.ok) {
-                          const items = await apiRes.json();
-                          if (Array.isArray(items)) {
-                              items.forEach((item: any) => {
-                                  // Map Symbol -> Secret ID
-                                  // Use upper case symbol as key
-                                  if (item.symbol && item.id) {
-                                      // item.id is the secret ID (e.g. "a24kar")
-                                      // item.symbol is the ticker (e.g. "TSLA")
-                                      idMap[item.symbol.toUpperCase()] = item.id;
-                                  }
-                              });
-                          }
-                      }
-                  } catch (e) {
-                      console.warn("[MSN] Batch failed", e);
-                  }
-              }));
-              
-              processedCount += currentBatchGroup.length * BATCH_SIZE;
-              
-              // Safety: Optional delay to be nice to the API
-              await new Promise(r => setTimeout(r, 50)); 
-          }
-
-          const mappedCount = Object.keys(idMap).length;
-          console.log(`[MSN] Map Generation Complete. Successfully Mapped: ${mappedCount} Tickers.`);
+          console.log(`[MSN] 4. Extraction Complete. Mapped ${totalFound} tickers.`);
 
           return res.status(200).json({ 
               status: 'success', 
-              count: mappedCount, 
+              count: totalFound, 
               map: idMap,
-              message: `Successfully validated and mapped ${mappedCount} tickers via MSN API.`
+              message: `Successfully mapped ${totalFound} entities via Fast Regex.`
           });
 
       } catch (e: any) {
