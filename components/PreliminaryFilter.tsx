@@ -60,7 +60,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.6: One-Stop Pipeline Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.7: Live Inspection Ready.']);
+  const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // New: Live Data Logs
   
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -80,10 +81,15 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
+  const inspectorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  useEffect(() => {
+    if (inspectorRef.current) inspectorRef.current.scrollTop = inspectorRef.current.scrollHeight;
+  }, [inspectionLogs]);
 
   useEffect(() => {
     if (rawUniverse.length > 0) {
@@ -112,6 +118,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
+  };
+
+  const addInspectorLog = (msg: string, type: 'success' | 'fail' | 'info' = 'info') => {
+      setInspectionLogs(prev => [...prev, `[${type.toUpperCase()}] ${msg}`].slice(-100));
   };
 
   const sanitizeJson = (text: string) => {
@@ -258,10 +268,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   };
 
-  // [UPDATED] Robust Injection with Fallback
+  // [UPDATED] Robust Injection with Real-Time Inspector
   const startFundamentalInjection = async (shouldAutoCommit: boolean) => {
       setIsInjecting(true);
       setLoading(true);
+      setInspectionLogs([]); // Clear inspector
       
       const survivors = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
       addLog(`Injection Phase: Enriching ${survivors.length} assets with MSN/FMP Fundamentals...`, "info");
@@ -283,7 +294,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview&t=${timestamp}`);
                   if (res.ok) {
                       const data = await res.json();
-                      if (!data.error && (data.peRatio || data.returnOnEquity)) {
+                      // Only update if we actually got numbers
+                      if (!data.error && (data.peRatio || data.returnOnEquity || data.priceToBook)) {
                           enriched = {
                               ...ticker,
                               pe: data.peRatio || ticker.pe,
@@ -296,9 +308,16 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                               source: (ticker.source || '') + "+MSN"
                           };
                           fetched = true;
+                          addInspectorLog(`${ticker.symbol} | MSN: OK | PER: ${enriched.pe} | ROE: ${enriched.roe}%`, 'success');
+                      } else {
+                          addInspectorLog(`${ticker.symbol} | MSN: Empty Data`, 'fail');
                       }
+                  } else {
+                       addInspectorLog(`${ticker.symbol} | MSN: HTTP ${res.status}`, 'fail');
                   }
-              } catch (e) {}
+              } catch (e: any) {
+                   addInspectorLog(`${ticker.symbol} | MSN Error: ${e.message}`, 'fail');
+              }
 
               // 2. Try FMP Fallback (If MSN failed or returned limited data)
               if (!fetched && fmpKey) {
@@ -317,9 +336,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                    source: (ticker.source || '') + "+FMP_BK"
                                };
                                fetched = true;
+                               addInspectorLog(`${ticker.symbol} | FMP (Backup): OK | ROE: ${enriched.roe}%`, 'success');
                            }
                        }
-                   } catch(e) {}
+                   } catch(e) {
+                       addInspectorLog(`${ticker.symbol} | FMP Fail`, 'fail');
+                   }
               }
 
               return enriched;
@@ -375,7 +397,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "3.6.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN/FMP" },
+        manifest: { version: "3.7.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN/FMP" },
         investable_universe: listToSave
       };
 
@@ -391,7 +413,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       addLog(`Success: Stage 1 Complete. Data Saved.`, "ok");
       
       if (onComplete) onComplete();
-      setAutoStep('DONE');
       setAutoChainActive(false); // Reset chain
 
     } catch (e: any) {
@@ -436,7 +457,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.6</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.7</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Injecting Fundamentals: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
@@ -571,6 +592,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                  )}
                </div>
             </div>
+          )}
+          
+          {/* Live Data Inspector */}
+          {isInjecting && (
+             <div className="mt-6 p-4 rounded-2xl bg-black/40 border border-white/5 max-h-48 overflow-y-auto custom-scrollbar" ref={inspectorRef}>
+                 <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-2 sticky top-0 bg-black/80 backdrop-blur pb-2">Live Data Inspector</p>
+                 <div className="space-y-1">
+                     {inspectionLogs.map((msg, i) => {
+                         const color = msg.includes('[SUCCESS]') ? 'text-emerald-400' : msg.includes('[FAIL]') ? 'text-rose-400' : 'text-slate-400';
+                         return <div key={i} className={`text-[9px] font-mono ${color}`}>{msg}</div>
+                     })}
+                 </div>
+             </div>
           )}
         </div>
       </div>
