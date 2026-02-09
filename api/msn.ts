@@ -1,10 +1,11 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v9.0
+  // "The Fundamentalist" - Precision Ratio Aggregation v10.0
+  // Inspired by the user's MSN ID mapping concept, this acts as a 'Surgical Strike' engine.
   // Strategy: 
-  // 1. FMP Bulk Quote (Price, PE basic)
-  // 2. Yahoo Bulk Quote (Rich Data: ROE, PBR, PE)
-  // 3. Yahoo QuoteSummary v10 (Surgical Strike) -> Guarantees ROE/PBR/PE for survivors
+  // 1. FMP Bulk Quote (Base Layer - Fast)
+  // 2. Yahoo Bulk Quote (Broad Layer)
+  // 3. Surgical Strike (Precision Layer): If ROE/PBR missing, hit Yahoo quoteSummary (v10) individually.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -50,7 +51,7 @@ export default async function handler(req: any, res: any) {
     const aggregatedData = new Map();
 
     // 0. Initialize Map
-    symbolList.forEach(sym => aggregatedData.set(sym, { symbol: sym, source: [] }));
+    symbolList.forEach(sym => aggregatedData.set(sym, { symbol: sym, source: [], isEtf: false }));
 
     // --- 1. FMP BULK QUOTE (Base Layer - Fast) ---
     try {
@@ -73,7 +74,7 @@ export default async function handler(req: any, res: any) {
             }
         }
     } catch (e) {
-        console.warn("FMP Quote Failed:", e);
+        // FMP Fail is acceptable, proceed to Yahoo
     }
 
     // --- 2. YAHOO BULK (Rich Layer - ROE/PBR/PE) ---
@@ -108,6 +109,11 @@ export default async function handler(req: any, res: any) {
                 // EPS
                 if (!current.eps) current.eps = getVal(item.epsTrailingTwelveMonths);
                 
+                // Type Check (ETF vs Equity)
+                if (item.quoteType === 'ETF' || item.quoteType === 'MUTUALFUND') {
+                    current.isEtf = true;
+                }
+                
                 // Fix ROE units (Yahoo gives 0.15 for 15%)
                 if (current.returnOnEquity && current.returnOnEquity < 1) current.returnOnEquity *= 100;
 
@@ -116,18 +122,20 @@ export default async function handler(req: any, res: any) {
             });
         }
     } catch (e) {
-        console.warn("Yahoo Failed:", e);
+        // Yahoo Bulk Fail
     }
 
     // --- 3. SURGICAL STRIKE: YAHOO QUOTE SUMMARY (Fill Missing Fundamentals) ---
-    // If PE, ROE, or PBR are still missing, use the heavy Yahoo endpoint.
+    // Precision targeting for items that still lack ROE/PBR but are NOT ETFs
     const missingFundamentals = Array.from(aggregatedData.values()).filter((item: any) => 
-        !item.returnOnEquity || !item.priceToBook || !item.peRatio
+        !item.isEtf && (!item.returnOnEquity || !item.priceToBook || !item.peRatio)
     );
 
     if (missingFundamentals.length > 0) {
+        // Parallel execution for the surgical batch (limit concurrency if needed, but 10 is small)
         await Promise.all(missingFundamentals.map(async (item: any) => {
              try {
+                 // The "Surgical Strike" URL - gets deep financial data
                  const modules = "financialData,defaultKeyStatistics,summaryDetail";
                  const v10Url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${item.symbol}?modules=${modules}`;
                  
@@ -154,7 +162,7 @@ export default async function handler(req: any, res: any) {
                          // ROE
                          if (!item.returnOnEquity) {
                              const roeRaw = getYVal(fd?.returnOnEquity);
-                             item.returnOnEquity = roeRaw ? roeRaw * 100 : null; // Yahoo v10 usually returns decimal 0.15 for 15%
+                             item.returnOnEquity = roeRaw ? roeRaw * 100 : null; 
                          }
 
                          // Debt to Equity
@@ -162,7 +170,7 @@ export default async function handler(req: any, res: any) {
                              item.debtToEquity = getYVal(fd?.debtToEquity);
                          }
                          
-                         item.source.push('YHO_V10');
+                         item.source.push('SURGICAL_V10');
                          aggregatedData.set(item.symbol, item);
                      }
                  }
@@ -178,9 +186,6 @@ export default async function handler(req: any, res: any) {
             item.source.push('CALC_PE');
         }
         
-        // Derive PBR if missing: Price / (Assets - Liabs / Shares) - Hard to do without shares. 
-        // We leave it 0 if missing.
-
         return {
             symbol: item.symbol,
             price: item.price || 0,
@@ -188,7 +193,8 @@ export default async function handler(req: any, res: any) {
             returnOnEquity: item.returnOnEquity || 0,
             priceToBook: item.priceToBook || 0,
             marketCap: item.marketCap || 0,
-            debtToEquity: item.debtToEquity || 0, 
+            debtToEquity: item.debtToEquity || 0,
+            isEtf: item.isEtf,
             source: item.source.join('+') || 'None'
         };
     });
