@@ -89,11 +89,9 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// [CACHE RESET] V18.0 Upgrade: Funnel Architecture
 const CACHE_PREFIX = 'QUANT_CACHE_V18.0_FUNNEL_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
-// [HELPER] Extract raw value from Yahoo's { raw: ..., fmt: ... } object or return value directly
 const getRaw = (val: any): number => {
     if (val === null || val === undefined) return 0;
     if (typeof val === 'object' && 'raw' in val) return Number(val.raw) || 0;
@@ -101,7 +99,6 @@ const getRaw = (val: any): number => {
     return isNaN(num) ? 0 : num;
 };
 
-// [HELPER] Extract latest value from SEC XBRL facts array
 const getSecVal = (facts: any, tagName: string) => {
     if (!facts || !facts[tagName] || !facts[tagName].units || !facts[tagName].units.USD) return 0;
     const entries = facts[tagName].units.USD;
@@ -117,31 +114,6 @@ const getSecVal = (facts: any, tagName: string) => {
         return 0;
     });
     return valid[0].val || 0;
-};
-
-// [HELPER] Winsorization: Cap outliers to prevent skewing
-const winsorize = (value: number, min: number, max: number) => {
-    return Math.max(min, Math.min(value, max));
-};
-
-// [HELPER] Normalize array of values to 0-100 score
-const normalizeScores = (items: QualityTicker[], key: string, inverse: boolean = false) => {
-    const values = items.map(i => i[key]).filter(v => !isNaN(v) && isFinite(v));
-    if (values.length === 0) return;
-    const min = Math.min(...values);
-    const max = Math.max(...values);
-    const range = max - min || 1;
-
-    items.forEach(item => {
-        const val = item[key];
-        if (isNaN(val) || !isFinite(val)) {
-            item[key + 'Score'] = 0;
-            return;
-        }
-        let score = ((val - min) / range) * 100;
-        if (inverse) score = 100 - score;
-        item[key + 'Score'] = score;
-    });
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
@@ -174,18 +146,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const logRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // V18.0: Optimized Batch Sizes for Funnel
-  const TARGET_TIER2_COUNT = 500; // Deep dive candidates (Fetch Financials)
-  const FINAL_SELECTION_COUNT = 250; // Final output
+  const TARGET_TIER2_COUNT = 500; 
+  const FINAL_SELECTION_COUNT = 250; 
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Auto-scroll the live audit feed when not hovered
   useEffect(() => {
     if (listRef.current && liveAuditFeed.length > 0) {
-       listRef.current.scrollTop = 0; // Scroll to top to see newest
+       listRef.current.scrollTop = 0; 
     }
   }, [liveAuditFeed]);
 
@@ -268,16 +238,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return sector || "Other"; 
   };
 
-  const safeNum = (val: any) => {
-      if (!val) return 0;
-      if (typeof val === 'number') return val;
-      if (typeof val === 'object' && val.raw) return Number(val.raw);
-      if (typeof val === 'string' && !isNaN(Number(val))) return Number(val);
-      return 0;
-  };
-
   const fetchDeepFinancials = async (ticker: QualityTicker): Promise<DeepFinancialReport | null> => {
       // 1. Try MSN Money (High Quality Financials) - Priority
+      // [UPDATE] Using our specialized proxy endpoint for financials
       try {
           const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=financials`);
           if (res.ok) {
@@ -340,9 +303,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     let score = 0;
     try {
         if (report.source === 'MSN_FINANCIALS' && report.msnData) {
-            // MSN Logic (Simplified Mapping)
-            // Assuming MSN data structure is normalized or we just assume 7 if data exists for now
-            // In a real implementation, we would map MSN fields to F-Score logic.
+            // Placeholder: Assume MSN returns high quality data, default good score if incomplete analysis logic
             return 7; 
         }
 
@@ -405,8 +366,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const calculatePreciseZScore = (report: DeepFinancialReport, marketCap: number) => {
       try {
           if (report.source === 'MSN_FINANCIALS') {
-              // Placeholder for MSN calculation if detailed fields map correctly
-              return 3.0; // Safe default for now
+              return 3.0; // Safe default
           }
 
           let totalAssets = 0, currentAssets = 0, currentLiabs = 0, retainedEarnings = 0, ebit = 0, totalLiabs = 0, revenue = 0;
@@ -503,12 +463,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       let targets = content.investable_universe || [];
       
-      // --- TIER 1: RANKING & FILTERING (Uses Stage 1 injected data) ---
+      // --- TIER 1: RANKING & FILTERING ---
       setAnalysisPhase('RANKING_TIER1');
       setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
 
-      // Sort by basic quality (which was injected in Stage 1)
-      // Heuristic: Positive ROE + Reasonable PE + Volume + MarketCap
+      // Sort by basic quality from Stage 1
       targets.sort((a: any, b: any) => {
           const scoreA = (a.roe || 0) * 2 + (a.marketCap ? 10 : 0) - (a.pe > 50 ? 20 : 0);
           const scoreB = (b.roe || 0) * 2 + (b.marketCap ? 10 : 0) - (b.pe > 50 ? 20 : 0);
@@ -519,7 +478,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const eliteSurvivors = targets.slice(0, TARGET_TIER2_COUNT).map((t: any) => ({
           ...t,
           source: t.source || 'STAGE1_ENRICHED',
-          qualityScore: 0, // Will recalculate
+          qualityScore: 0, 
           zScore: 0, 
           fScore: 0,
           sector: t.sector || "Unclassified", 
@@ -530,7 +489,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       addLog(`Tier 1: Selected top ${eliteSurvivors.length} candidates based on injected Stage 1 fundamentals.`, "ok");
       
-      // --- TIER 2: DEEP MINING (MSN / SEC / YAHOO) ---
+      // --- TIER 2: DEEP MINING ---
       setAnalysisPhase('DEEP_MINING_TIER2');
       addLog(`Initiating Tier 2 Deep Mining (Financial Statements) for ${eliteSurvivors.length} Candidates...`, "signal");
       
@@ -1092,6 +1051,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   { id: 'finnhub', label: 'Real (Finnhub)', count: sourceStats.finnhub, color: 'text-cyan-400', border: 'border-cyan-500/30' },
                   { id: 'yahoo', label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
                   { id: 'sec', label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
+                  { id: 'msn', label: 'MSN Live', count: sourceStats.msn, color: 'text-rose-400', border: 'border-rose-500/30' },
                   { id: 'fallback', label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
                 ].map((stat, idx) => (
                     <div 
