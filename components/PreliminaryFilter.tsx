@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage, removeCitations } from '../services/intelligenceService';
+import { trackUsage } from '../services/intelligenceService';
 
 // [STAGE 1 OUTPUT STRUCTURE]
 // Enriched with Basic Fundamentals from MSN
@@ -48,7 +48,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.0: Fundamental Injection Mode Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.2: AI & Injection Protocols Loaded.']);
   
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -87,8 +87,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart, autoStep, loading]);
 
-  // Step 2: Auto Inject & Commit
+  // Step 2: Auto Inject & Commit Trigger
   useEffect(() => {
+      // Trigger if analysis finished OR if we are in auto mode and analysis had an error but we want to proceed
       if (autoStep === 'ANALYZING' && !isAnalyzing && (aiProposal || aiError)) {
           const timer = setTimeout(() => {
               setAutoStep('INJECTING');
@@ -144,7 +145,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setRawUniverse(data);
       addLog(`Matrix Synced: ${data.length} assets loaded.`, "ok");
 
-      // AI Analysis Logic...
+      // AI Analysis Logic
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
       const volumes = data.map((s: any) => s.volume).filter((v: any) => v > 0).sort((a: any, b: any) => a - b);
       
@@ -169,18 +170,48 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       `;
 
       let aiResult = null;
+      
+      // 1. Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
           const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
-          const response = await ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
-            contents: prompt,
-            config: { responseMimeType: "application/json" }
-          });
-          trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-          aiResult = sanitizeJson(response.text);
-      } catch (e: any) { /* Fallback */ }
+          if (geminiKey) {
+            const ai = new GoogleGenAI({ apiKey: geminiKey });
+            const response = await ai.models.generateContent({
+                model: 'gemini-3-flash-preview',
+                contents: prompt,
+                config: { responseMimeType: "application/json" }
+            });
+            trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+            aiResult = sanitizeJson(response.text);
+          }
+      } catch (e: any) { 
+          addLog(`Gemini Analysis Failed: ${e.message}`, "warn");
+      }
+
+      // 2. Fallback to Perplexity
+      if (!aiResult) {
+         try {
+            setActiveAi('Perplexity Sonar');
+            const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+            if (perplexityKey) {
+                const res = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
+                    body: JSON.stringify({
+                        model: 'sonar-pro', 
+                        messages: [{ role: "user", content: prompt + " Return JSON only." }]
+                    })
+                });
+                const json = await res.json();
+                if (json.choices && json.choices[0]) {
+                    aiResult = sanitizeJson(json.choices[0].message.content);
+                }
+            }
+         } catch(e) {
+             addLog(`Perplexity Fallback Failed`, "warn");
+         }
+      }
 
       if (aiResult) {
           setAiProposal(aiResult);
@@ -211,14 +242,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setInjectionProgress({ current: 0, total: survivors.length });
 
       const enrichedTickers: MasterTicker[] = [];
-      const BATCH_SIZE = 8; // Parallel requests
+      const BATCH_SIZE = 5; // Reduced from 8 to be safer
 
       for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
           const batch = survivors.slice(i, i + BATCH_SIZE);
           
           const results = await Promise.all(batch.map(async (ticker) => {
               try {
-                  // Fetch Basic Stats (Overview) from MSN
+                  // Use MSN Proxy with retry logic built-in
                   const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview`);
                   if (res.ok) {
                       const data = await res.json();
@@ -230,8 +261,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                               pbr: data.priceToBook || ticker.pb,
                               debtToEquity: data.debtToEquity || ticker.debtToEquity,
                               marketCap: data.marketCap || ticker.marketCap,
-                              // Mark source as injected
-                              source: (ticker.source || '') + "+MSN_Inject"
+                              sector: data.sector || ticker.sector,
+                              industry: data.industry || ticker.industry,
+                              source: (ticker.source || '') + "+MSN"
                           };
                       }
                   }
@@ -242,8 +274,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           enrichedTickers.push(...results);
           setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
           
-          // Rate limit protection
-          await new Promise(r => setTimeout(r, 100));
+          // Throttling: 200ms delay between batches to respect MSN rate limits
+          await new Promise(r => setTimeout(r, 200));
       }
 
       addLog(`Injection Complete. ${enrichedTickers.length} assets enriched.`, "ok");
@@ -268,7 +300,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "3.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Basic Fundamentals Injected" },
+        manifest: { version: "3.2.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN" },
         investable_universe: listToSave
       };
 
@@ -328,7 +360,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.2</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Injecting Fundamentals: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
