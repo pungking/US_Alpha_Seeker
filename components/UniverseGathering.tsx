@@ -45,7 +45,7 @@ interface MasterTicker {
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
-  const [isMapping, setIsMapping] = useState(false); // [NEW] ID Mapping State
+  const [isMapping, setIsMapping] = useState(false); // [NEW] Mapping State
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -71,7 +71,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown' | 'Mapping'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.1: Penta-Core Fusion Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.2: Penta-Core Fusion Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -181,6 +181,50 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
+  // [NEW] ID Mapping Feature
+  const handleMapIDs = async () => {
+      if (!accessToken) {
+          addLog("Authentication Required for ID Mapping.", "warn");
+          triggerAuth();
+          return;
+      }
+      if (isMapping) return;
+
+      setIsMapping(true);
+      addLog("Initializing ID Map Generator (MSN Sitemap Protocol)...", "info");
+      setStats(prev => ({ ...prev, phase: 'Mapping' }));
+
+      try {
+          // 1. Trigger API
+          addLog("Crawling MSN Sitemaps (0, 1, 2)... This may take 20-30s.", "info");
+          const res = await fetch('/api/msn?mode=generate_map');
+          if (!res.ok) throw new Error("ID Mapper API Failed");
+          
+          const data = await res.json();
+          if (data.error) throw new Error(data.error);
+
+          addLog(`Parsing Complete. Mapped ${data.count} tickers.`, "ok");
+          
+          if (data.map && data.count > 0) {
+              // 2. Upload to Drive
+              addLog("Uploading ID Map to System Folder...", "info");
+              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
+              const fileName = `MSN_ID_MAP_${new Date().toISOString().split('T')[0]}.json`;
+              
+              await uploadFile(accessToken, folderId, fileName, data.map);
+              addLog(`ID Map Saved: ${fileName}`, "ok");
+          } else {
+              addLog("No IDs found. Check sitemap structure.", "warn");
+          }
+
+      } catch (e: any) {
+          addLog(`Mapping Error: ${e.message}`, "err");
+      } finally {
+          setIsMapping(false);
+          setStats(prev => ({ ...prev, phase: 'Idle' }));
+      }
+  };
+
   const startEngine = async () => {
     if (isEngineRunning || cooldown > 0 || isAuthLoading) return;
     
@@ -197,46 +241,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     document.body.setAttribute('data-engine-running', 'true');
     runQuadFusionPipeline(accessToken);
-  };
-  
-  // [NEW] ID Mapping Feature
-  const handleMapIDs = async () => {
-      if (!accessToken) {
-          addLog("Authentication Required for ID Mapping.", "warn");
-          triggerAuth();
-          return;
-      }
-      if (isMapping) return;
-
-      setIsMapping(true);
-      addLog("Initializing ID Map Generator (MSN Sitemap Protocol)...", "info");
-      setStats(prev => ({ ...prev, phase: 'Mapping' }));
-
-      try {
-          // 1. Trigger API
-          addLog("Parsing Sitemaps... (This may take 10-20 seconds)", "info");
-          const res = await fetch('/api/msn?mode=generate_map');
-          if (!res.ok) throw new Error("ID Mapper API Failed");
-          
-          const data = await res.json();
-          addLog(`Parsing Complete. Found ${data.count} IDs.`, "ok");
-          
-          if (data.map) {
-              // 2. Upload to Drive
-              addLog("Uploading ID Map to System Folder...", "info");
-              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
-              const fileName = `MSN_ID_MAP_${new Date().toISOString().split('T')[0]}.json`;
-              
-              await uploadFile(accessToken, folderId, fileName, data.map);
-              addLog(`ID Map Saved: ${fileName}`, "ok");
-          }
-
-      } catch (e: any) {
-          addLog(`Mapping Error: ${e.message}`, "err");
-      } finally {
-          setIsMapping(false);
-          setStats(prev => ({ ...prev, phase: 'Idle' }));
-      }
   };
 
   // --- SOURCE A: TRADINGVIEW SCANNER (The Holy Grail) ---
@@ -471,7 +475,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
-                version: "6.3.1", 
+                version: "6.3.2", 
                 provider: "Quad-Failover (TV->FMP->Poly->SEC)", 
                 date: now.toISOString(), 
                 count: viableCandidates.length,
@@ -609,7 +613,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.3.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.3.2</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Penta-Core Fusion'}
@@ -621,7 +625,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       disabled={isMapping || isEngineRunning}
                       className={`text-[8px] px-2 py-0.5 rounded-md font-black border border-white/5 uppercase transition-all flex items-center gap-1 ${isMapping ? 'bg-emerald-800 text-emerald-300' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
                   >
-                      {isMapping ? 'Mapping...' : '🔑 ID Map'}
+                      {isMapping ? 'Mapping...' : '🔑 Map Secret IDs'}
                   </button>
 
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
