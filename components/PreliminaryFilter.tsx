@@ -28,6 +28,7 @@ interface MasterTicker {
   sector?: string;
   industry?: string;
   source?: string;
+  isEtf?: boolean; // New flag for ETF detection
   [key: string]: any;
 }
 
@@ -59,7 +60,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v9.0: Fundamentalist Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v10.0: Fundamentalist Protocol Ready.']);
   const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // Real-time data feed
   
   // Filter State
@@ -298,6 +299,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                    debtToEquity: item.debtToEquity || original.debtToEquity,
                                    marketCap: item.marketCap || original.marketCap,
                                    price: item.price || original.price, // Update price if fresh
+                                   isEtf: item.isEtf,
                                    source: (original.source || '') + (item.source ? `+${item.source}` : '')
                                };
                                enrichedTickers.push(enriched);
@@ -310,11 +312,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                
                                if (logParts.length > 0) {
                                   addInspectorLog(`${item.symbol}: ${logParts.join(' | ')}`, 'success');
+                               } else if (enriched.isEtf) {
+                                  addInspectorLog(`${item.symbol}: ETF/FUND [Skipped Funda]`, 'partial');
                                } else if (enriched.price > 0) {
-                                  // Check if it might be an ETF
-                                  // ETFs don't usually have PE/ROE. 
-                                  // If we see Price/Vol but no PE/ROE, assume ETF/Fund if no error.
-                                  addInspectorLog(`${item.symbol}: ETF/FUND [Price:$${enriched.price}]`, 'partial');
+                                  addInspectorLog(`${item.symbol}: PRICE ONLY [$${enriched.price}]`, 'fail');
                                } else {
                                   addInspectorLog(`${item.symbol}: FAILED`, 'fail');
                                }
@@ -374,7 +375,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "9.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected (Yahoo v10)" },
+        manifest: { version: "10.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected (Yahoo v10 + FMP)" },
         investable_universe: listToSave
       };
 
@@ -433,7 +434,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v9.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v10.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Fundamentalist: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
