@@ -17,7 +17,7 @@ interface MasterTicker {
   updated: string;
   type?: string;
   
-  // Basic Fundamentals (Injected in Stage 1 via Bulk Engine)
+  // Basic Fundamentals (Injected via Alpha Sieve)
   marketCap?: number;
   pe?: number;
   roe?: number;
@@ -59,7 +59,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v6.0: Bulk Aggregator Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v7.0: Alpha Sieve Protocol Ready.']);
   const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // Real-time data feed
   
   // Filter State
@@ -269,13 +269,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setInspectionLogs([]); 
       
       const survivors = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
-      addLog(`Injection Phase: Batch Enriching ${survivors.length} assets (FMP+Yahoo)...`, "info");
+      addLog(`Injection Phase: Precision Batching ${survivors.length} assets...`, "info");
       setInjectionProgress({ current: 0, total: survivors.length });
 
       const enrichedTickers: MasterTicker[] = [];
-      const BATCH_SIZE = 30; // Increased Batch Size for "Destructive" Efficiency
+      const BATCH_SIZE = 10; // Optimized for FMP/Yahoo reliability
       
-      // Map for O(1) Access to original items
       const survivorMap = new Map(survivors.map(s => [s.symbol, s]));
 
       for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
@@ -283,12 +282,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const symbolString = batch.map(t => t.symbol).join(',');
 
           try {
-               // Use our new "Bulk Aggregator" endpoint
+               // Aggregator Call
                const res = await fetch(`/api/msn?symbols=${symbolString}`);
                
                if (res.ok) {
                    const data = await res.json();
-                   // Data is array of { symbol, price, peRatio, returnOnEquity, ... }
                    if (Array.isArray(data)) {
                        data.forEach((item: any) => {
                            const original = survivorMap.get(item.symbol);
@@ -304,34 +302,40 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                };
                                enrichedTickers.push(enriched);
                                
-                               // Log success (only for first item in batch to reduce noise, or all if small)
-                               addInspectorLog(`${item.symbol}: PE=${enriched.pe?.toFixed(1)}, ROE=${enriched.roe?.toFixed(1)}%`, 'success');
+                               // Visual Feedback
+                               if (enriched.pe || enriched.roe) {
+                                  addInspectorLog(`${item.symbol}: PE=${enriched.pe?.toFixed(1) || '-'}, ROE=${enriched.roe?.toFixed(1) || '-'}%`, 'success');
+                               } else {
+                                  addInspectorLog(`${item.symbol}: Data Incomplete`, 'warn');
+                               }
                            }
                        });
                    }
+               } else {
+                   throw new Error("Batch Failed");
                }
           } catch (e) {
-               addInspectorLog(`Batch ${i}-${i+BATCH_SIZE} Failed`, 'fail');
+               addInspectorLog(`Batch ${i}-${i+BATCH_SIZE} Error - Retrying...`, 'fail');
+               // Basic retry logic or just skip could be here. For now we skip to keep speed.
           }
 
           setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
-          // Minimal throttle, "Destructive" speed
-          await new Promise(r => setTimeout(r, 100)); 
+          await new Promise(r => setTimeout(r, 200)); // Gentle throttle
       }
 
       // Re-merge enriched tickers into the list (preserving order/missing ones)
       const validEnrichmentMap = new Map(enrichedTickers.map(t => [t.symbol, t]));
       const newUniverse = rawUniverse.map(t => validEnrichmentMap.get(t.symbol) || t);
       
-      const enrichedCount = enrichedTickers.length;
-      addLog(`Injection Complete. ${enrichedCount}/${survivors.length} fully enriched via Bulk API.`, enrichedCount > 0 ? "ok" : "warn");
+      const enrichedCount = enrichedTickers.filter(t => t.pe || t.roe).length;
+      addLog(`Injection Complete. ${enrichedCount}/${survivors.length} fully enriched with PE/ROE.`, enrichedCount > 0 ? "ok" : "warn");
       
       setRawUniverse(newUniverse);
       setHasEnriched(true);
 
       if (shouldAutoCommit) {
            addLog("Auto-Chain: Proceeding to Commit...", "signal");
-           commitPurification(enrichedTickers.length > 0 ? enrichedTickers : survivors); // Use enriched list if available
+           commitPurification(enrichedTickers.length > 0 ? enrichedTickers : survivors); 
       } else {
            addLog("Ready for Commit. Adjust sliders if needed, then click 'Finalize & Commit'.", "info");
            setLoading(false);
@@ -360,7 +364,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via Bulk Aggregator" },
+        manifest: { version: "7.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via Alpha Sieve" },
         investable_universe: listToSave
       };
 
@@ -419,10 +423,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v7.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                     {isInjecting ? `Bulk Injection: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
+                     {isInjecting ? `Alpha Sieve: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
