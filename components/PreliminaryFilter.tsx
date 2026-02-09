@@ -59,7 +59,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v7.1: Zombie Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v8.0: Fundamentalist Protocol Ready.']);
   const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // Real-time data feed
   
   // Filter State
@@ -269,7 +269,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setInspectionLogs([]); 
       
       const survivors = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
-      addLog(`Injection Phase: Precision Batching ${survivors.length} assets...`, "info");
+      addLog(`Injection Phase: Gathering Fundamentals (FMP/Yahoo/Calculated)...`, "info");
       setInjectionProgress({ current: 0, total: survivors.length });
 
       const enrichedTickers: MasterTicker[] = [];
@@ -302,12 +302,16 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                };
                                enrichedTickers.push(enriched);
                                
-                               // [REFINED LOGIC] Partial Success is still Success
-                               if (enriched.pe || enriched.roe) {
-                                  addInspectorLog(`${item.symbol}: FULL [PE:${enriched.pe?.toFixed(1) || '-'}]`, 'success');
+                               // [ENHANCED LOGGING] Explicitly show retrieved metrics
+                               let logParts = [];
+                               if (enriched.pe) logParts.push(`PE:${enriched.pe.toFixed(1)}`);
+                               if (enriched.roe) logParts.push(`ROE:${enriched.roe.toFixed(1)}%`);
+                               if (enriched.pbr) logParts.push(`PBR:${enriched.pbr.toFixed(1)}`);
+                               
+                               if (logParts.length > 0) {
+                                  addInspectorLog(`${item.symbol}: ${logParts.join(' | ')}`, 'success');
                                } else if (enriched.price > 0) {
-                                  // Price found but no fundamentals (Likely ETF or REIT)
-                                  addInspectorLog(`${item.symbol}: BASIC [Price:$${enriched.price.toFixed(2)}]`, 'partial');
+                                  addInspectorLog(`${item.symbol}: PRICE ONLY [$${enriched.price}]`, 'partial');
                                } else {
                                   addInspectorLog(`${item.symbol}: FAILED`, 'fail');
                                }
@@ -315,7 +319,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                        });
                    }
                } else {
-                   // Even if API fails, keep original data
                    batch.forEach(b => enrichedTickers.push(b));
                    addInspectorLog(`Batch Error: Keeping Originals`, 'partial');
                }
@@ -368,7 +371,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "7.1.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Zombie Protocol Active (Chart API Fallback)" },
+        manifest: { version: "8.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected (Yahoo+FMP)" },
         investable_universe: listToSave
       };
 
@@ -427,10 +430,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v7.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v8.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                     {isInjecting ? `Alpha Sieve: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
+                     {isInjecting ? `Fundamentalist: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
