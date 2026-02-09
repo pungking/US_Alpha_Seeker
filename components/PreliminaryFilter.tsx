@@ -59,7 +59,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v8.0: Fundamentalist Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v9.0: Fundamentalist Protocol Ready.']);
   const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // Real-time data feed
   
   // Filter State
@@ -311,7 +311,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                if (logParts.length > 0) {
                                   addInspectorLog(`${item.symbol}: ${logParts.join(' | ')}`, 'success');
                                } else if (enriched.price > 0) {
-                                  addInspectorLog(`${item.symbol}: PRICE ONLY [$${enriched.price}]`, 'partial');
+                                  // Check if it might be an ETF
+                                  // ETFs don't usually have PE/ROE. 
+                                  // If we see Price/Vol but no PE/ROE, assume ETF/Fund if no error.
+                                  addInspectorLog(`${item.symbol}: ETF/FUND [Price:$${enriched.price}]`, 'partial');
                                } else {
                                   addInspectorLog(`${item.symbol}: FAILED`, 'fail');
                                }
@@ -371,7 +374,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "8.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected (Yahoo+FMP)" },
+        manifest: { version: "9.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected (Yahoo v10)" },
         investable_universe: listToSave
       };
 
@@ -430,7 +433,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v8.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v9.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Fundamentalist: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
@@ -600,7 +603,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                              // Dynamic Color for Partial Success
                              let color = 'text-amber-400';
                              if (msg.includes('FULL') || msg.includes('success')) color = 'text-emerald-400';
-                             else if (msg.includes('BASIC') || msg.includes('partial')) color = 'text-yellow-300';
+                             else if (msg.includes('ETF') || msg.includes('partial')) color = 'text-blue-300';
+                             else if (msg.includes('BASIC')) color = 'text-yellow-300';
                              else if (msg.includes('FAIL') || msg.includes('Error')) color = 'text-rose-400';
                              
                              return <div key={i} className={`${color} border-b border-white/5 pb-0.5 mb-0.5 last:border-0`}>{msg}</div>
