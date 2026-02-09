@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [STAGE 1 OUTPUT STRUCTURE]
 // Enriched with Basic Fundamentals from MSN
@@ -162,10 +162,16 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
       };
 
+      // [UPDATE] Added specific anchors (Price $1.5-$5.0, Volume 100k-1M) to stabilize AI output
       const prompt = `
       [Role: Senior Quantitative Market Strategist]
       Market Stats: Total ${statsSummary.totalCount}, Median Price $${statsSummary.priceDistribution.p50}, Median Vol ${statsSummary.volumeDistribution.p50}.
-      Determine 'Price Floor' and 'Volume Threshold' to filter for liquid candidates (keep top 20-30%).
+      
+      Determine 'Price Floor' and 'Volume Threshold' to filter for liquid candidates.
+      - Standard Anchor: Price > $2.00, Volume > 500k.
+      - Adjustment: If median volume is low, lower threshold slightly to capture emerging runners.
+      - Reasoning: Explain why in Korean (Bullet point style).
+
       Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean)" }
       `;
 
@@ -214,6 +220,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }
 
       if (aiResult) {
+          if (aiResult.reasoning) {
+              aiResult.reasoning = removeCitations(aiResult.reasoning);
+          }
           setAiProposal(aiResult);
           setMinPrice(aiResult.suggestedPrice);
           setMinVolume(aiResult.suggestedVolume);
@@ -242,14 +251,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setInjectionProgress({ current: 0, total: survivors.length });
 
       const enrichedTickers: MasterTicker[] = [];
-      const BATCH_SIZE = 5; // Reduced from 8 to be safer
+      const BATCH_SIZE = 5; // Safe batch size
 
       for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
           const batch = survivors.slice(i, i + BATCH_SIZE);
           
           const results = await Promise.all(batch.map(async (ticker) => {
               try {
-                  // Use MSN Proxy with retry logic built-in
+                  // Use MSN Proxy
                   const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview`);
                   if (res.ok) {
                       const data = await res.json();
@@ -274,7 +283,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           enrichedTickers.push(...results);
           setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
           
-          // Throttling: 200ms delay between batches to respect MSN rate limits
+          // Throttling
           await new Promise(r => setTimeout(r, 200));
       }
 
@@ -469,6 +478,23 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               )}
             </div>
           </div>
+          
+          {/* AI Reasoning Block (Restored) */}
+          {(aiProposal || aiError) && (
+            <div className={`p-6 md:p-10 rounded-[32px] border animate-in fade-in slide-in-from-top-4 duration-500 ${aiError ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
+               <div className="flex items-center justify-between mb-6">
+                  <div className="flex items-center space-x-3">
+                    <div className={`w-2 h-2 rounded-full animate-pulse ${aiError ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
+                    <h4 className={`text-[10px] font-black uppercase tracking-[0.4em] ${aiError ? 'text-red-500' : 'text-emerald-500'}`}>
+                      {aiError ? 'AI Node Error Response' : `AI Reasoning (${activeAi}) — ${aiProposal?.regime}`}
+                    </h4>
+                  </div>
+               </div>
+               <div className="prose-report text-[11px] text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
+                 {aiError || aiProposal?.reasoning}
+               </div>
+            </div>
+          )}
         </div>
       </div>
 
