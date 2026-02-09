@@ -1,9 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.2
-  // Supports:
-  // 1. 'overview': Fast, single snapshot for Stage 1 enrichment (ROE, PE, PBR).
-  // 2. 'financials': Deep historical data for Stage 2 audit (Income/Balance/Cashflow).
+  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.3
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -70,30 +67,31 @@ export default async function handler(req: any, res: any) {
       
       // Normalize Data for Frontend consistency
       if (type === 'overview') {
-          const stats = data.keyStats || {};
-          const quote = data.quote || {};
-          const company = data.company || {};
+          // Robust checking for key stats in various potential locations
+          const stats = data.keyStats || data.KeyStats || {};
+          const quote = data.quote || data.Quote || {};
+          const company = data.company || data.Company || {};
           
           const normalized = {
               symbol: targetSymbol,
               name: quote.displayName || company.name || targetSymbol,
               price: quote.last || 0,
               
-              // Robust Field Mapping (Try multiple keys as MSN sometimes varies)
-              peRatio: stats.peRatio || stats.priceToEarnings || 0,
-              returnOnEquity: stats.returnOnEquity || stats.roe || 0,
-              returnOnAssets: stats.returnOnAssets || stats.roa || 0,
-              priceToBook: stats.priceToBook || stats.pbr || 0,
-              marketCap: stats.marketCap || quote.marketCap || 0,
-              debtToEquity: stats.debtToEquity || stats.totalDebtToEquity || 0,
-              beta: stats.beta || 1,
-              dividendYield: stats.dividendYield || 0,
-              profitMargin: stats.profitMargin || 0,
-              revenueGrowth: stats.revenueGrowth || 0,
+              // Robust Field Mapping: Check camelCase and PascalCase
+              peRatio: stats.peRatio || stats.PeRatio || stats.priceToEarnings || stats.PriceToEarnings || 0,
+              returnOnEquity: stats.returnOnEquity || stats.ReturnOnEquity || stats.roe || stats.Roe || 0,
+              returnOnAssets: stats.returnOnAssets || stats.ReturnOnAssets || stats.roa || stats.Roa || 0,
+              priceToBook: stats.priceToBook || stats.PriceToBook || stats.pbr || stats.Pbr || 0,
+              marketCap: stats.marketCap || stats.MarketCap || quote.marketCap || quote.MarketCap || 0,
+              debtToEquity: stats.debtToEquity || stats.DebtToEquity || stats.totalDebtToEquity || 0,
+              beta: stats.beta || stats.Beta || 1,
+              dividendYield: stats.dividendYield || stats.DividendYield || 0,
+              profitMargin: stats.profitMargin || stats.ProfitMargin || 0,
+              revenueGrowth: stats.revenueGrowth || stats.RevenueGrowth || 0,
               
               // Meta
-              sector: company.sector || "Unclassified",
-              industry: company.industry || "Unknown"
+              sector: company.sector || company.Sector || "Unclassified",
+              industry: company.industry || company.Industry || "Unknown"
           };
           return res.status(200).json(normalized);
       }
@@ -102,7 +100,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json(data);
 
   } catch (error: any) {
-      // Return partial error object to allow frontend flow to continue
+      // Return partial error object to allow frontend flow to continue without crashing
       return res.status(200).json({ error: error.message, symbol: targetSymbol }); 
   }
 }
