@@ -258,6 +258,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
+  const getRecentBusinessDays = (days: number) => {
+    const dates = [];
+    let d = new Date();
+    let count = 0;
+    while (count < days) {
+      d.setDate(d.getDate() - 1);
+      if (d.getDay() !== 0 && d.getDay() !== 6) {
+        dates.push(d.toISOString().split('T')[0]);
+        count++;
+      }
+    }
+    return dates;
+  };
+
   const executePolygonAggs = async (): Promise<MasterTicker[]> => {
     if (!polygonKey) throw new Error("Polygon Key missing");
     addLog("Source C: Polygon Deep Discovery...", "info");
