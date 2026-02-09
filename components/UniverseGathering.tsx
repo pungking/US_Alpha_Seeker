@@ -70,7 +70,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v6.1.0: Quad-Core Fusion (TV+SEC+Poly+MSN).']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v6.2.0: Omni-Failover Architecture Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -101,7 +101,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         if (!accessToken) {
              addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
         } else {
-             addLog("AUTO-PILOT: Engaging Quad-Core Fusion...", "signal");
+             addLog("AUTO-PILOT: Engaging Data Acquisition...", "signal");
              startEngine();
         }
     }
@@ -138,7 +138,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               setAccessToken(res.access_token);
               sessionStorage.setItem('gdrive_access_token', res.access_token);
               onAuthSuccess?.(true);
-              addLog("Cloud Vault Linked. Ready to Execute Fusion.", "ok");
+              addLog("Cloud Vault Linked. Ready to Execute.", "ok");
               document.body.removeAttribute('data-engine-running'); 
             }
           },
@@ -162,9 +162,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       addLog("Source A: TradingView Deep-Scanner (PBR/Debt/Rev)...", "info");
       try {
           const res = await fetch('/api/nasdaq'); 
-          if (!res.ok) throw new Error(`TV Proxy Failed: ${res.status}`);
+          if (!res.ok) throw new Error(`TV Proxy Status: ${res.status}`);
           const data = await res.json();
-          if (!Array.isArray(data)) throw new Error("Invalid TV Data");
+          if (!Array.isArray(data) || data.length === 0) return [];
           addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
           
           return data.map((item: any) => ({
@@ -188,43 +188,24 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               source: 'TV_Scanner'
           }));
       } catch (e: any) {
-          addLog(`TV Scanner Error: ${e.message}`, "err");
+          addLog(`TV Scanner Failed: ${e.message}`, "warn");
           return [];
       }
   };
 
-  // --- SOURCE B: SEC EDGAR (Official Registry) ---
-  const executeSECRegistry = async (): Promise<MasterTicker[]> => {
-      addLog("Source B: SEC Official Registry (CIK Mapping)...", "info");
-      try {
-          const res = await fetch('/api/sec');
-          if (!res.ok) throw new Error(`SEC Proxy Failed: ${res.status}`);
-          const data = await res.json();
-          addLog(`SEC Registry: Retrieved ${data.length} official issuers.`, "ok");
-          
-          return data.map((item: any) => ({
-              symbol: item.symbol, 
-              name: item.name, 
-              price: 0, volume: 0, change: 0, 
-              updated: new Date().toISOString().split('T')[0],
-              source: 'SEC_EDGAR',
-              cik: item.cik
-          }));
-      } catch (e: any) {
-          addLog(`SEC Fetch Error: ${e.message}`, "warn");
-          return [];
-      }
-  };
-
-  // --- SOURCE C: FMP SCREENER (Backup) ---
+  // --- SOURCE B: FMP SCREENER (Backup) ---
   const executeFMPScreener = async (): Promise<MasterTicker[]> => {
       if (!fmpKey) return [];
-      addLog("Source C (Backup): FMP Screener...", "info");
+      addLog("Source B (Backup): FMP Screener...", "info");
       try {
+          // Use 'stock-list' for a lighter/faster failover if screener fails or is empty, 
+          // but stock-screener is better for filtering. We use screener first.
           const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=10000&apikey=${fmpKey}`;
           const res = await fetch(url);
-          if (!res.ok) throw new Error("FMP Failed");
+          if (!res.ok) throw new Error("FMP API Failed");
           const data = await res.json();
+          if(!Array.isArray(data) || data.length === 0) return [];
+
           addLog(`FMP Backup: Retrieved ${data.length} assets.`, "ok");
           return data.map((item: any) => ({
               symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
@@ -237,11 +218,77 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  // --- SOURCE D: MSN MONEY (Validation Ping) ---
+  // --- SOURCE C: POLYGON GROUPED (Deep Backup) ---
+  const executePolygonAggs = async (): Promise<MasterTicker[]> => {
+      if (!polygonKey) return [];
+      addLog("Source C (Backup): Polygon Grouped Daily...", "info");
+      
+      const getFormattedDate = (daysAgo: number) => {
+          const d = new Date();
+          d.setDate(d.getDate() - daysAgo);
+          if (d.getDay() === 0) d.setDate(d.getDate() - 2); // Sun -> Fri
+          else if (d.getDay() === 6) d.setDate(d.getDate() - 1); // Sat -> Fri
+          return d.toISOString().split('T')[0];
+      };
+
+      // Try today, yesterday, and 2 days ago
+      for(let i=0; i<3; i++) {
+         const date = getFormattedDate(i);
+         try {
+             const url = `https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${date}?adjusted=true&apiKey=${polygonKey}`;
+             const res = await fetch(url);
+             if (res.ok) {
+                 const json = await res.json();
+                 if (json.results && json.results.length > 0) {
+                     addLog(`Polygon: Retrieved ${json.results.length} assets from ${date}.`, "ok");
+                     return json.results.map((item: any) => ({
+                         symbol: item.T,
+                         name: item.T, // Polygon grouped doesn't have names
+                         price: item.c,
+                         volume: item.v,
+                         change: item.o ? ((item.c - item.o) / item.o) * 100 : 0,
+                         marketCap: item.c * item.v, // Crude estimate
+                         type: 'Common Stock',
+                         updated: date,
+                         source: 'Polygon_Backup'
+                     }));
+                 }
+             }
+         } catch(e) {}
+         await new Promise(r => setTimeout(r, 500));
+      }
+      addLog("Polygon Backup Failed.", "warn");
+      return [];
+  };
+
+  // --- SOURCE D: SEC EDGAR (Registry - Always Runs for CIK, can be Primary if all else fails) ---
+  const executeSECRegistry = async (): Promise<MasterTicker[]> => {
+      addLog("Source D: SEC Official Registry (CIK Mapping)...", "info");
+      try {
+          const res = await fetch('/api/sec');
+          if (!res.ok) throw new Error(`SEC Proxy Failed: ${res.status}`);
+          const data = await res.json();
+          addLog(`SEC Registry: Retrieved ${data.length} official issuers.`, "ok");
+          
+          return data.map((item: any) => ({
+              symbol: item.symbol, 
+              name: item.name, 
+              price: 0, volume: 0, change: 0, // Placeholder
+              updated: new Date().toISOString().split('T')[0],
+              source: 'SEC_EDGAR_ONLY',
+              cik: item.cik
+          }));
+      } catch (e: any) {
+          addLog(`SEC Fetch Error: ${e.message}`, "warn");
+          return [];
+      }
+  };
+
+  // --- SOURCE E: MSN MONEY (Validation Ping) ---
   const validateMSNConnection = async (samples: string[]) => {
-      addLog("Source D: MSN Money / Bing Finance (Pipeline Validation)...", "info");
+      addLog("Source E: MSN Money (Pipeline Validation)...", "info");
       let successCount = 0;
-      for (const sym of samples.slice(0, 3)) { // Check first 3 to save time
+      for (const sym of samples.slice(0, 3)) { 
           try {
               const res = await fetch(`/api/msn?symbol=${sym}&type=overview`);
               if (res.ok) successCount++;
@@ -249,34 +296,39 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
       
       if (successCount > 0) {
-          addLog(`MSN Money: Connection Verified. Deep Mining Ready.`, "ok");
+          addLog(`MSN Money: Connection Verified.`, "ok");
           return true;
       } else {
-          addLog(`MSN Money: Connection Failed. Will retry in Stage 3.`, "warn");
+          addLog(`MSN Money: Connection Failed. Will retry later.`, "warn");
           return false;
       }
   };
 
-  const fuseDatasets = (tv: MasterTicker[], sec: MasterTicker[]): MasterTicker[] => {
+  const fuseDatasets = (primaryData: MasterTicker[], secData: MasterTicker[]): MasterTicker[] => {
       const map = new Map<string, MasterTicker>();
       
       // Index SEC Data for O(1) Lookup
       const secMap = new Map<string, number>();
-      sec.forEach(s => secMap.set(s.symbol.toUpperCase(), s.cik || 0));
+      secData.forEach(s => secMap.set(s.symbol.toUpperCase(), s.cik || 0));
 
-      // Fuse: TV Data + SEC CIK
+      // Fuse: Primary Data + SEC CIK
       let matchedCount = 0;
-      tv.forEach(item => {
+      primaryData.forEach(item => {
           const cik = secMap.get(item.symbol.toUpperCase());
           if (cik) {
               item.cik = cik;
-              item.source = "TV+SEC";
+              if (!item.source?.includes("SEC")) item.source = (item.source || "Unknown") + "+SEC";
               matchedCount++;
           }
           map.set(item.symbol, item);
       });
 
-      addLog(`Fusion Result: ${tv.length} Assets. ${matchedCount} SEC Verified.`, "ok");
+      // If Primary is empty, use SEC as primary (Emergency Mode)
+      if (primaryData.length === 0 && secData.length > 0) {
+          return secData;
+      }
+
+      addLog(`Fusion Result: ${primaryData.length} Assets. ${matchedCount} SEC Verified.`, "ok");
       return Array.from(map.values());
   };
 
@@ -298,34 +350,60 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }, 1000);
 
     try {
-        let tv = await executeTVScanner();
-        
-        // [FAILOVER] If TV fails, try FMP
-        if (tv.length === 0) {
-            addLog("TV Scanner returned 0. Attempting Failover to FMP...", "warn");
-            tv = await executeFMPScreener();
-            if (tv.length === 0) {
-                throw new Error("Critical Failure: All scanners (TV & FMP) returned 0 assets.");
-            }
+        let universe: MasterTicker[] = [];
+
+        // 1. Try TV Scanner
+        universe = await executeTVScanner();
+
+        // 2. Failover to FMP
+        if (universe.length === 0) {
+            addLog("TV Scanner yielded 0. Attempting Failover to FMP...", "warn");
+            universe = await executeFMPScreener();
         }
 
+        // 3. Failover to Polygon
+        if (universe.length === 0) {
+            addLog("FMP yielded 0. Attempting Failover to Polygon...", "warn");
+            universe = await executePolygonAggs();
+        }
+
+        // Always get SEC for CIKs
         const sec = await executeSECRegistry();
+        
+        // 4. Last Resort: Use SEC List if everything else failed
+        if (universe.length === 0) {
+            addLog("All Market Data Sources Failed. Using SEC Registry as Base Universe (No Price Data).", "warn");
+            if (sec.length > 0) {
+                 universe = sec; // Just use SEC tickers
+            } else {
+                 throw new Error("Critical Failure: All data sources (TV, FMP, Poly, SEC) returned 0 assets.");
+            }
+        }
+        
         clearInterval(discoveryTimer); 
 
         // FUSE
         setStats(prev => ({ ...prev, phase: 'Fusion' }));
-        addLog("Executing Quad-Core Fusion (TV + SEC + MSN Link)...", "info");
+        addLog("Executing Quad-Core Fusion (Price + CIK Mapping)...", "info");
         
-        let masterList = fuseDatasets(tv, sec);
+        let masterList = fuseDatasets(universe, sec);
 
         // MSN VALIDATION
-        const sampleSymbols = masterList.slice(0, 5).map(s => s.symbol);
-        await validateMSNConnection(sampleSymbols);
+        if (masterList.length > 0) {
+             const sampleSymbols = masterList.slice(0, 5).map(s => s.symbol);
+             await validateMSNConnection(sampleSymbols);
+        }
 
-        // Filter valid
-        const minPrice = 0.01;
-        let viableCandidates = masterList.filter(t => t.price >= minPrice);
-        viableCandidates.sort((a, b) => b.volume - a.volume);
+        // Filter valid (Unless it's SEC only source which has 0 price)
+        let viableCandidates = masterList;
+        if (masterList.length > 0 && masterList[0].source !== 'SEC_EDGAR_ONLY') {
+            const minPrice = 0.01;
+            viableCandidates = masterList.filter(t => t.price >= minPrice);
+            viableCandidates.sort((a, b) => b.volume - a.volume);
+        } else {
+            // Sort by name for SEC-only list
+             viableCandidates.sort((a, b) => a.symbol.localeCompare(b.symbol));
+        }
         
         const newRegistry = new Map<string, MasterTicker>();
         viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
@@ -345,11 +423,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
-                version: "6.0.0", 
-                provider: "Quad_Fusion (TV+SEC+MSN)", 
+                version: "6.2.0", 
+                provider: "Omni-Failover (TV->FMP->Poly->SEC)", 
                 date: now.toISOString(), 
                 count: viableCandidates.length,
-                note: "Full Market Scan + CIK + Rich Data"
+                note: "Full Market Scan + CIK + Rich Data + Robust Failover"
             }, 
             universe: viableCandidates 
         };
@@ -483,10 +561,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.1.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.2.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Quad-Core Fusion (TV+SEC+MSN)'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Quad-Core Fusion'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
