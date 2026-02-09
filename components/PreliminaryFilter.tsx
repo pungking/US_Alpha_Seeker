@@ -59,7 +59,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v7.0: Alpha Sieve Protocol Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v7.1: Zombie Protocol Ready.']);
   const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // Real-time data feed
   
   // Filter State
@@ -118,7 +118,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
-  const addInspectorLog = (msg: string, type: 'success' | 'warn' | 'fail' = 'warn') => {
+  const addInspectorLog = (msg: string, type: 'success' | 'partial' | 'fail' = 'partial') => {
       const time = new Date().toLocaleTimeString('en-US', { hour12: false, minute: "2-digit", second: "2-digit" });
       setInspectionLogs(prev => [...prev, `[${time}] ${msg}`].slice(-200));
   };
@@ -273,7 +273,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       setInjectionProgress({ current: 0, total: survivors.length });
 
       const enrichedTickers: MasterTicker[] = [];
-      const BATCH_SIZE = 10; // Optimized for FMP/Yahoo reliability
+      const BATCH_SIZE = 10; 
       
       const survivorMap = new Map(survivors.map(s => [s.symbol, s]));
 
@@ -282,7 +282,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const symbolString = batch.map(t => t.symbol).join(',');
 
           try {
-               // Aggregator Call
                const res = await fetch(`/api/msn?symbols=${symbolString}`);
                
                if (res.ok) {
@@ -298,37 +297,42 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                    pbr: item.priceToBook || original.pb,
                                    debtToEquity: item.debtToEquity || original.debtToEquity,
                                    marketCap: item.marketCap || original.marketCap,
+                                   price: item.price || original.price, // Update price if fresh
                                    source: (original.source || '') + (item.source ? `+${item.source}` : '')
                                };
                                enrichedTickers.push(enriched);
                                
-                               // Visual Feedback
+                               // [REFINED LOGIC] Partial Success is still Success
                                if (enriched.pe || enriched.roe) {
-                                  addInspectorLog(`${item.symbol}: PE=${enriched.pe?.toFixed(1) || '-'}, ROE=${enriched.roe?.toFixed(1) || '-'}%`, 'success');
+                                  addInspectorLog(`${item.symbol}: FULL [PE:${enriched.pe?.toFixed(1) || '-'}]`, 'success');
+                               } else if (enriched.price > 0) {
+                                  // Price found but no fundamentals (Likely ETF or REIT)
+                                  addInspectorLog(`${item.symbol}: BASIC [Price:$${enriched.price.toFixed(2)}]`, 'partial');
                                } else {
-                                  addInspectorLog(`${item.symbol}: Data Incomplete`, 'warn');
+                                  addInspectorLog(`${item.symbol}: FAILED`, 'fail');
                                }
                            }
                        });
                    }
                } else {
-                   throw new Error("Batch Failed");
+                   // Even if API fails, keep original data
+                   batch.forEach(b => enrichedTickers.push(b));
+                   addInspectorLog(`Batch Error: Keeping Originals`, 'partial');
                }
           } catch (e) {
-               addInspectorLog(`Batch ${i}-${i+BATCH_SIZE} Error - Retrying...`, 'fail');
-               // Basic retry logic or just skip could be here. For now we skip to keep speed.
+               batch.forEach(b => enrichedTickers.push(b));
+               addInspectorLog(`Net Error: Keeping Originals`, 'fail');
           }
 
           setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
-          await new Promise(r => setTimeout(r, 200)); // Gentle throttle
+          await new Promise(r => setTimeout(r, 200)); 
       }
 
-      // Re-merge enriched tickers into the list (preserving order/missing ones)
       const validEnrichmentMap = new Map(enrichedTickers.map(t => [t.symbol, t]));
       const newUniverse = rawUniverse.map(t => validEnrichmentMap.get(t.symbol) || t);
       
       const enrichedCount = enrichedTickers.filter(t => t.pe || t.roe).length;
-      addLog(`Injection Complete. ${enrichedCount}/${survivors.length} fully enriched with PE/ROE.`, enrichedCount > 0 ? "ok" : "warn");
+      addLog(`Injection Complete. ${enrichedCount} Fundamental Hits. ${enrichedTickers.length} Prices Verified.`, "ok");
       
       setRawUniverse(newUniverse);
       setHasEnriched(true);
@@ -364,7 +368,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "7.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via Alpha Sieve" },
+        manifest: { version: "7.1.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Zombie Protocol Active (Chart API Fallback)" },
         investable_universe: listToSave
       };
 
@@ -423,7 +427,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v7.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v7.1</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Alpha Sieve: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
@@ -590,7 +594,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   ) : (
                       <div className="space-y-1">
                           {inspectionLogs.map((msg, i) => {
-                             const color = msg.includes('SUCCESS') || msg.includes('OK') ? 'text-emerald-400' : msg.includes('FAIL') || msg.includes('NO DATA') ? 'text-rose-400' : 'text-amber-400';
+                             // Dynamic Color for Partial Success
+                             let color = 'text-amber-400';
+                             if (msg.includes('FULL') || msg.includes('success')) color = 'text-emerald-400';
+                             else if (msg.includes('BASIC') || msg.includes('partial')) color = 'text-yellow-300';
+                             else if (msg.includes('FAIL') || msg.includes('Error')) color = 'text-rose-400';
+                             
                              return <div key={i} className={`${color} border-b border-white/5 pb-0.5 mb-0.5 last:border-0`}>{msg}</div>
                           })}
                       </div>
