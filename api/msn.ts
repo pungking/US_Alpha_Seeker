@@ -1,11 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v10.0
-  // Inspired by the user's MSN ID mapping concept, this acts as a 'Surgical Strike' engine.
-  // Strategy: 
-  // 1. FMP Bulk Quote (Base Layer - Fast)
-  // 2. Yahoo Bulk Quote (Broad Layer)
-  // 3. Surgical Strike (Precision Layer): If ROE/PBR missing, hit Yahoo quoteSummary (v10) individually.
+  // "The Fundamentalist" - Precision Ratio Aggregation v11.0 (MSN ID Hunter)
+  // 1. Bulk Quote: FMP/Yahoo (Speed)
+  // 2. Surgical Strike: Yahoo v10 (Deep Data)
+  // 3. ID Hunter: Parse MSN Sitemap to map Ticker -> SecretID (a1mou2)
+  // 4. Deep Financials: Fetch 5-year raw statements via SecretID
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,14 +16,83 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { symbols } = req.query;
+  const { type, symbol, symbols, msnId } = req.query;
+  const FMP_KEY = process.env.FMP_KEY || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7';
+  
+  // --- [NEW] MODE A: SITEMAP ID HUNTER ---
+  // Parses MSN XML sitemaps to find the secret ID for a ticker
+  if (type === 'sitemap_discovery') {
+      try {
+          // Main Index
+          const indexUrl = "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-index.xml";
+          const indexRes = await fetch(indexUrl);
+          if (!indexRes.ok) throw new Error("MSN Sitemap Index Unreachable");
+          const indexXml = await indexRes.text();
 
-  if (!symbols) {
+          // Find equity sitemaps (0, 1, 2 typically contain US stocks)
+          const subMapRegex = /<loc>(https:\/\/[\w.-]+\/finance\/sitemaps\/sitemap-finance-equities-\d+\.xml)<\/loc>/g;
+          const subMaps = [];
+          let match;
+          while ((match = subMapRegex.exec(indexXml)) !== null) {
+              subMaps.push(match[1]);
+          }
+
+          // We only parse the first 3 equity maps to save time (covers most major US stocks)
+          const targetMaps = subMaps.slice(0, 3); 
+          const idMap: Record<string, string> = {};
+          
+          // Parallel fetch of sub-sitemaps
+          await Promise.all(targetMaps.map(async (url) => {
+              try {
+                  const subRes = await fetch(url);
+                  const subXml = await subRes.text();
+                  // Regex to extract: /stockdetails/financials/EXCHANGE-TICKER/fi-ID
+                  // Targets: NAS, NYS, AMX, OTC
+                  const urlRegex = /\/stockdetails\/financials\/(?:NAS|NYS|AMX|OTC)-([A-Z0-9.]+)\/fi-([a-z0-9]+)/g;
+                  let m;
+                  while ((m = urlRegex.exec(subXml)) !== null) {
+                      const ticker = m[1];
+                      const id = m[2];
+                      if (ticker && id) {
+                          idMap[ticker] = id;
+                      }
+                  }
+              } catch (e) {
+                  console.warn(`Failed to parse sub-sitemap: ${url}`, e);
+              }
+          }));
+
+          return res.status(200).json({ count: Object.keys(idMap).length, mapping: idMap });
+
+      } catch (e: any) {
+          console.error("MSN Sitemap Error:", e);
+          return res.status(500).json({ error: e.message });
+      }
+  }
+
+  // --- [NEW] MODE B: DEEP FINANCIALS (via Secret ID) ---
+  if (type === 'financials' && msnId) {
+      try {
+          // Direct call to MSN internal API using the Secret ID
+          const apiUrl = `https://assets.msn.com/service/Finance/Equities/financialstatements?apikey=0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${msnId}&wrapodata=false`;
+          
+          const response = await fetch(apiUrl);
+          if (!response.ok) throw new Error(`MSN API Error: ${response.status}`);
+          const data = await response.json();
+          
+          // Return raw data (Frontend will parse)
+          return res.status(200).json(data);
+      } catch (e: any) {
+          return res.status(500).json({ error: e.message });
+      }
+  }
+
+  // --- EXISTING MODE: BULK QUOTE ---
+  if (!symbols && !symbol) {
     return res.status(400).json({ error: 'Symbols list is required' });
   }
 
-  const symbolList = String(symbols).split(',');
-  const FMP_KEY = process.env.FMP_KEY || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7';
+  const symbolList = String(symbols || symbol).split(',');
   
   const getVal = (v: any) => {
     if (v === null || v === undefined || v === 'N/A') return null;
@@ -55,7 +123,7 @@ export default async function handler(req: any, res: any) {
 
     // --- 1. FMP BULK QUOTE (Base Layer - Fast) ---
     try {
-        const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${FMP_KEY}`;
+        const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${symbolList.join(',')}?apikey=${FMP_KEY}`;
         const fmpRes = await fetch(fmpUrl);
         if (fmpRes.ok) {
             const data = await fmpRes.json();
@@ -77,9 +145,9 @@ export default async function handler(req: any, res: any) {
         // FMP Fail is acceptable, proceed to Yahoo
     }
 
-    // --- 2. YAHOO BULK (Rich Layer - ROE/PBR/PE) ---
+    // --- 2. YAHOO BULK (Rich Layer) ---
     try {
-        const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
+        const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbolList.join(',')}`;
         const yahooRes = await fetch(yahooUrl, {
             headers: { 'User-Agent': getRandomUA() }
         });
@@ -125,17 +193,15 @@ export default async function handler(req: any, res: any) {
         // Yahoo Bulk Fail
     }
 
-    // --- 3. SURGICAL STRIKE: YAHOO QUOTE SUMMARY (Fill Missing Fundamentals) ---
-    // Precision targeting for items that still lack ROE/PBR but are NOT ETFs
+    // --- 3. SURGICAL STRIKE: YAHOO QUOTE SUMMARY ---
+    // If PE, ROE, or PBR are still missing, use the heavy Yahoo endpoint.
     const missingFundamentals = Array.from(aggregatedData.values()).filter((item: any) => 
         !item.isEtf && (!item.returnOnEquity || !item.priceToBook || !item.peRatio)
     );
 
     if (missingFundamentals.length > 0) {
-        // Parallel execution for the surgical batch (limit concurrency if needed, but 10 is small)
         await Promise.all(missingFundamentals.map(async (item: any) => {
              try {
-                 // The "Surgical Strike" URL - gets deep financial data
                  const modules = "financialData,defaultKeyStatistics,summaryDetail";
                  const v10Url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${item.symbol}?modules=${modules}`;
                  
@@ -149,26 +215,13 @@ export default async function handler(req: any, res: any) {
                          const ks = result.defaultKeyStatistics;
                          const sd = result.summaryDetail;
 
-                         // PE Ratio
-                         if (!item.peRatio) {
-                             item.peRatio = getYVal(sd?.trailingPE) || getYVal(sd?.forwardPE);
-                         }
-
-                         // PBR
-                         if (!item.priceToBook) {
-                             item.priceToBook = getYVal(ks?.priceToBook) || getYVal(ks?.bookValue) ? (item.price / getYVal(ks?.bookValue)) : null;
-                         }
-
-                         // ROE
+                         if (!item.peRatio) item.peRatio = getYVal(sd?.trailingPE) || getYVal(sd?.forwardPE);
+                         if (!item.priceToBook) item.priceToBook = getYVal(ks?.priceToBook) || getYVal(ks?.bookValue) ? (item.price / getYVal(ks?.bookValue)) : null;
                          if (!item.returnOnEquity) {
                              const roeRaw = getYVal(fd?.returnOnEquity);
                              item.returnOnEquity = roeRaw ? roeRaw * 100 : null; 
                          }
-
-                         // Debt to Equity
-                         if (!item.debtToEquity) {
-                             item.debtToEquity = getYVal(fd?.debtToEquity);
-                         }
+                         if (!item.debtToEquity) item.debtToEquity = getYVal(fd?.debtToEquity);
                          
                          item.source.push('SURGICAL_V10');
                          aggregatedData.set(item.symbol, item);
@@ -180,7 +233,6 @@ export default async function handler(req: any, res: any) {
 
     // --- 4. DERIVATION & CLEANUP ---
     const finalResults = Array.from(aggregatedData.values()).map((item: any) => {
-        // Derive PE if missing: Price / EPS
         if (!item.peRatio && item.price && item.eps && item.eps > 0) {
             item.peRatio = parseFloat((item.price / item.eps).toFixed(2));
             item.source.push('CALC_PE');
