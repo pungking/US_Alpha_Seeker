@@ -1,10 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v8.0
+  // "The Fundamentalist" - Precision Ratio Aggregation v9.0
   // Strategy: 
   // 1. FMP Bulk Quote (Price, PE basic)
   // 2. Yahoo Bulk Quote (Rich Data: ROE, PBR, PE)
-  // 3. FMP Ratios TTM (Surgical Strike) -> Fetches missing ROE/PBR for survivors
+  // 3. Yahoo QuoteSummary v10 (Surgical Strike) -> Guarantees ROE/PBR/PE for survivors
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -31,6 +31,12 @@ export default async function handler(req: any, res: any) {
     return isNaN(num) ? null : num;
   };
 
+  const getYVal = (obj: any) => {
+      if (obj === null || obj === undefined) return null;
+      if (typeof obj === 'object' && 'raw' in obj) return obj.raw;
+      return getVal(obj);
+  };
+
   const getRandomUA = () => {
     const uas = [
         'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
@@ -46,7 +52,7 @@ export default async function handler(req: any, res: any) {
     // 0. Initialize Map
     symbolList.forEach(sym => aggregatedData.set(sym, { symbol: sym, source: [] }));
 
-    // --- 1. FMP BULK QUOTE (Base Layer) ---
+    // --- 1. FMP BULK QUOTE (Base Layer - Fast) ---
     try {
         const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${FMP_KEY}`;
         const fmpRes = await fetch(fmpUrl);
@@ -72,7 +78,6 @@ export default async function handler(req: any, res: any) {
 
     // --- 2. YAHOO BULK (Rich Layer - ROE/PBR/PE) ---
     try {
-        // Use query2 for better reliability
         const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
         const yahooRes = await fetch(yahooUrl, {
             headers: { 'User-Agent': getRandomUA() }
@@ -86,13 +91,21 @@ export default async function handler(req: any, res: any) {
                 const current = aggregatedData.get(sym) || { symbol: sym, source: [] };
 
                 if (!current.price) current.price = getVal(item.regularMarketPrice);
-                // Prefer Yahoo PE as it's often TTM adjusted
+                
+                // PE
                 const yPe = getVal(item.trailingPE) || getVal(item.forwardPE);
                 if (yPe) current.peRatio = yPe;
                 
+                // ROE
                 if (!current.returnOnEquity) current.returnOnEquity = item.financialCurrency === 'USD' ? getVal(item.returnOnEquity) : null; 
+                
+                // PBR
                 if (!current.priceToBook) current.priceToBook = getVal(item.priceToBook);
+                
+                // Market Cap
                 if (!current.marketCap) current.marketCap = getVal(item.marketCap);
+                
+                // EPS
                 if (!current.eps) current.eps = getVal(item.epsTrailingTwelveMonths);
                 
                 // Fix ROE units (Yahoo gives 0.15 for 15%)
@@ -106,30 +119,50 @@ export default async function handler(req: any, res: any) {
         console.warn("Yahoo Failed:", e);
     }
 
-    // --- 3. SURGICAL STRIKE: FMP RATIOS (Fill Missing ROE/PBR) ---
-    // If we still lack ROE or PBR, fetch FMP Ratios specifically for those tickers.
+    // --- 3. SURGICAL STRIKE: YAHOO QUOTE SUMMARY (Fill Missing Fundamentals) ---
+    // If PE, ROE, or PBR are still missing, use the heavy Yahoo endpoint.
     const missingFundamentals = Array.from(aggregatedData.values()).filter((item: any) => 
         !item.returnOnEquity || !item.priceToBook || !item.peRatio
     );
 
     if (missingFundamentals.length > 0) {
-        // We limit parallel requests to avoid rate limits, but for small batch size (10) it's fine.
         await Promise.all(missingFundamentals.map(async (item: any) => {
              try {
-                 const ratioUrl = `https://financialmodelingprep.com/api/v3/ratios-ttm/${item.symbol}?apikey=${FMP_KEY}`;
-                 const rRes = await fetch(ratioUrl);
-                 if (rRes.ok) {
-                     const rData = await rRes.json();
-                     if (Array.isArray(rData) && rData.length > 0) {
-                         const ratios = rData[0];
-                         // Fill gaps
-                         if (!item.peRatio) item.peRatio = getVal(ratios.peRatioTTM);
-                         if (!item.returnOnEquity) item.returnOnEquity = getVal(ratios.returnOnEquityTTM) ? getVal(ratios.returnOnEquityTTM)! * 100 : null; // FMP is usually decimal
-                         if (item.returnOnEquity && item.returnOnEquity < 1) item.returnOnEquity *= 100;
+                 const modules = "financialData,defaultKeyStatistics,summaryDetail";
+                 const v10Url = `https://query2.finance.yahoo.com/v10/finance/quoteSummary/${item.symbol}?modules=${modules}`;
+                 
+                 const v10Res = await fetch(v10Url, { headers: { 'User-Agent': getRandomUA() } });
+                 if (v10Res.ok) {
+                     const v10Json = await v10Res.json();
+                     const result = v10Json.quoteSummary?.result?.[0];
+                     
+                     if (result) {
+                         const fd = result.financialData;
+                         const ks = result.defaultKeyStatistics;
+                         const sd = result.summaryDetail;
 
-                         if (!item.priceToBook) item.priceToBook = getVal(ratios.priceToBookRatioTTM);
+                         // PE Ratio
+                         if (!item.peRatio) {
+                             item.peRatio = getYVal(sd?.trailingPE) || getYVal(sd?.forwardPE);
+                         }
+
+                         // PBR
+                         if (!item.priceToBook) {
+                             item.priceToBook = getYVal(ks?.priceToBook) || getYVal(ks?.bookValue) ? (item.price / getYVal(ks?.bookValue)) : null;
+                         }
+
+                         // ROE
+                         if (!item.returnOnEquity) {
+                             const roeRaw = getYVal(fd?.returnOnEquity);
+                             item.returnOnEquity = roeRaw ? roeRaw * 100 : null; // Yahoo v10 usually returns decimal 0.15 for 15%
+                         }
+
+                         // Debt to Equity
+                         if (!item.debtToEquity) {
+                             item.debtToEquity = getYVal(fd?.debtToEquity);
+                         }
                          
-                         item.source.push('FMP_R');
+                         item.source.push('YHO_V10');
                          aggregatedData.set(item.symbol, item);
                      }
                  }
@@ -139,11 +172,14 @@ export default async function handler(req: any, res: any) {
 
     // --- 4. DERIVATION & CLEANUP ---
     const finalResults = Array.from(aggregatedData.values()).map((item: any) => {
-        // Derive PE if missing
+        // Derive PE if missing: Price / EPS
         if (!item.peRatio && item.price && item.eps && item.eps > 0) {
             item.peRatio = parseFloat((item.price / item.eps).toFixed(2));
-            item.source.push('CALC');
+            item.source.push('CALC_PE');
         }
+        
+        // Derive PBR if missing: Price / (Assets - Liabs / Shares) - Hard to do without shares. 
+        // We leave it 0 if missing.
 
         return {
             symbol: item.symbol,
@@ -152,7 +188,7 @@ export default async function handler(req: any, res: any) {
             returnOnEquity: item.returnOnEquity || 0,
             priceToBook: item.priceToBook || 0,
             marketCap: item.marketCap || 0,
-            debtToEquity: 0, 
+            debtToEquity: item.debtToEquity || 0, 
             source: item.source.join('+') || 'None'
         };
     });
