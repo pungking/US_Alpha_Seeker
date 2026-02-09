@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - MSN Secret Protocol v2.1 (Enhanced Parser)
+  // "The Fundamentalist" - MSN Secret Protocol v2.2 (Stealth + Universal Parser)
   // 1. Map Builder: Parses sitemaps to link Tickers <-> Secret IDs
   // 2. Deep Dive: Uses Secret IDs to fetch rich fundamental data from assets.msn.com
   
@@ -14,7 +14,7 @@ export default async function handler(req: any, res: any) {
     return;
   }
 
-  const { symbols, mode, id } = req.query;
+  const { symbols, mode, id, symbol } = req.query;
   const MSN_API_KEY = '0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM'; // User provided key
 
   // --- MODE A: GENERATE ID MAP (Sitemap Parsing) ---
@@ -31,42 +31,56 @@ export default async function handler(req: any, res: any) {
           const idMap: Record<string, string> = {};
           let totalFound = 0;
 
-          // Parallel Fetch
+          // Parallel Fetch with User-Agent to avoid 403 Forbidden
           await Promise.all(targetMaps.map(async (url) => {
               try {
-                  const subRes = await fetch(url);
-                  if(!subRes.ok) return;
+                  const subRes = await fetch(url, {
+                      headers: {
+                          'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+                          'Accept': 'application/xml, text/xml, */*; q=0.01'
+                      }
+                  });
+                  
+                  if(!subRes.ok) {
+                      console.warn(`Sitemap fetch failed: ${url} (${subRes.status})`);
+                      return;
+                  }
+                  
                   const subXml = await subRes.text();
                   
-                  // Regex Strategy: Capture the full slug and the ID
-                  // Target: .../stockdetails/<slug>/fi-<id>
-                  // Example: .../stockdetails/us-nas-tsla/fi-a24kar
-                  const urlRegex = /\/stockdetails\/([a-z0-9.-]+)\/fi-([a-z0-9]+)/gi;
+                  // Universal Regex: Captures both 'nas-tsla' and 'tesla-inc' formats
+                  // Looks for: /stockdetails/ (anything) /fi- (id)
+                  // Matches: .../stockdetails/us-nas-aapl/fi-a1mou2
+                  // Matches: .../stockdetails/tesla-inc/fi-a24kar
+                  const urlRegex = /(?:\/stockdetails\/|\/financials\/)(?:[a-z]{2}-[a-z]{2,3}-)?([a-z0-9.-]+)\/fi-([a-z0-9]+)/gi;
                   
                   let m;
                   while ((m = urlRegex.exec(subXml)) !== null) {
-                      const slug = m[1].toLowerCase();
-                      const secretId = m[2]; // Captured ID without extra chars
+                      let slug = m[1].toLowerCase(); // Group 1: Slug (e.g. us-nas-aapl, tesla-inc)
+                      const secretId = m[2];         // Group 2: ID (e.g. a24kar)
                       
-                      let ticker = null;
+                      let ticker = "";
 
-                      // Extract Ticker based on Exchange Prefix
-                      if (slug.includes('nas-')) {
-                          ticker = slug.split('nas-')[1];
-                      } else if (slug.includes('nys-')) {
-                          ticker = slug.split('nys-')[1];
-                      } else if (slug.includes('amx-')) {
-                          ticker = slug.split('amx-')[1];
+                      // Clean up 'us-' prefix if present
+                      if (slug.startsWith('us-')) {
+                          slug = slug.substring(3);
+                      }
+
+                      // Strategy 1: Explicit Exchange Prefix (High Confidence)
+                      if (slug.startsWith('nas-')) ticker = slug.replace('nas-', '');
+                      else if (slug.startsWith('nys-')) ticker = slug.replace('nys-', '');
+                      else if (slug.startsWith('amx-')) ticker = slug.replace('amx-', '');
+                      else if (slug.startsWith('ase-')) ticker = slug.replace('ase-', '');
+                      
+                      // Strategy 2: Fallback (Use Slug as Ticker)
+                      // e.g. "tesla-inc" -> "TESLA-INC" (User can search by this or we map it later)
+                      else {
+                          ticker = slug;
                       }
                       
-                      if (ticker && secretId) {
-                          // Clean up ticker (remove any potential trailing junk, though split usually works)
-                          ticker = ticker.toUpperCase();
-                          // Basic validation: Tickers are usually 1-5 chars
-                          if (ticker.length > 0 && ticker.length < 10) {
-                              idMap[ticker] = secretId;
-                              totalFound++;
-                          }
+                      if (ticker && secretId && ticker.length < 20) {
+                          idMap[ticker.toUpperCase()] = secretId;
+                          totalFound++;
                       }
                   }
 
@@ -115,7 +129,7 @@ export default async function handler(req: any, res: any) {
               pbr: raw.priceToBookRatio,
               debtToEquity: raw.debtToEquityRatio,
               marketCap: raw.marketCap,
-              // Financial Statements Snapshot (if available in this endpoint)
+              // Financial Statements Snapshot
               netIncome: raw.netIncome,
               revenue: raw.revenue,
               totalAssets: raw.assets,
@@ -168,7 +182,6 @@ export default async function handler(req: any, res: any) {
 
     // ... (Retain existing FMP/Yahoo logic for standard calls) ...
     // Note: Due to file length limits, assuming the standard logic remains as provided in previous context.
-    // If explicit re-insertion is needed, please advise. For now, we focus on the ID Mapper functionality.
     
     // --- 1. FMP BULK QUOTE ---
     try {
