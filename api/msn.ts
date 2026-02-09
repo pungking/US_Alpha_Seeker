@@ -1,9 +1,9 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Fundamentalist" - Precision Ratio Aggregation v11.0 (MSN ID Hunter)
+  // "The Fundamentalist" - Precision Ratio Aggregation v11.1 (Targeted ID Hunter)
   // 1. Bulk Quote: FMP/Yahoo (Base)
   // 2. Surgical Strike: Yahoo v10 (Deep)
-  // 3. ID Hunter: Parse specific MSN Sitemaps to map Ticker -> SecretID
+  // 3. ID Hunter: Parse specific "Analysis" Sitemap for direct Ticker -> SecretID mapping
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -17,53 +17,48 @@ export default async function handler(req: any, res: any) {
 
   const { symbols, mode } = req.query;
 
-  // --- [NEW] UTILITY MODE: GENERATE ID MAP (Targeted Sitemaps) ---
-  // Crawls specific MSN Sitemaps to build Ticker -> Secret ID map for US Equities
+  // --- [NEW] UTILITY MODE: GENERATE ID MAP (Single Source Truth) ---
+  // Targets the specific 'stockdetails-analysis' sitemap for maximum efficiency
   if (mode === 'generate_map') {
       try {
-          // Explicitly target the 3 sitemaps known to contain US stocks
-          const targetMaps = [
-              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-0.xml",
-              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-1.xml",
-              "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/sitemap-finance-equities-2.xml"
-          ];
+          // The "Golden Source" sitemap provided by user
+          const targetMap = "https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/stockdetails-analysis-en-us-sitemap.xml";
           
           const idMap: Record<string, string> = {};
           let totalFound = 0;
 
-          await Promise.all(targetMaps.map(async (url) => {
-              try {
-                  const subRes = await fetch(url);
-                  const subXml = await subRes.text();
-                  
-                  // Regex based on user pattern: .../financials/NAS-AAPL/fi-a1mou2
-                  // Captures Exchange (NAS/NYS/AMX), Ticker, and ID
-                  const urlRegex = /\/financials\/(NAS|NYS|AMX)-([A-Z0-9.]+)\/fi-([a-z0-9]+)/g;
-                  
-                  let m;
-                  while ((m = urlRegex.exec(subXml)) !== null) {
-                      const ticker = m[2]; // Group 2 is Ticker
-                      const id = m[3];     // Group 3 is ID
-                      
-                      // Basic validation to avoid junk
-                      if (ticker && id && ticker.length < 10) {
-                          idMap[ticker] = id;
-                          totalFound++;
-                      }
-                  }
-              } catch (e) {
-                  console.warn(`Failed to parse sub-sitemap: ${url}`);
+          const response = await fetch(targetMap);
+          if (!response.ok) throw new Error(`Sitemap Fetch Failed: ${response.status}`);
+          
+          const xmlText = await response.text();
+          
+          // Regex pattern for Analysis URLs:
+          // .../stockdetails/analysis/nas-aapl/fi-a1mou2
+          // Capture Group 1: Exchange (NAS/NYS/AMX) - Optional filter if needed
+          // Capture Group 2: Ticker
+          // Capture Group 3: Secret ID
+          const urlRegex = /\/stockdetails\/analysis\/(?:NAS|NYS|AMX)-([A-Z0-9.]+)\/fi-([a-z0-9]+)/gi;
+          
+          let match;
+          while ((match = urlRegex.exec(xmlText)) !== null) {
+              const ticker = match[1].toUpperCase();
+              const id = match[2];
+              
+              if (ticker && id) {
+                  idMap[ticker] = id;
+                  totalFound++;
               }
-          }));
+          }
 
           return res.status(200).json({ 
               status: 'success', 
               count: totalFound, 
               map: idMap,
-              message: `Successfully mapped ${totalFound} US tickers from core sitemaps.`
+              message: `Successfully mapped ${totalFound} US tickers from Analysis Sitemap.`
           });
 
       } catch (e: any) {
+          console.error("ID Map Gen Error:", e);
           return res.status(500).json({ error: e.message });
       }
   }
