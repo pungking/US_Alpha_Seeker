@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.4 (US-Centric)
+  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.5 (Robust)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -19,7 +19,6 @@ export default async function handler(req: any, res: any) {
   }
 
   // FORCE US PREFIX: Most failures occur because 'AAPL' is sent instead of 'US:AAPL'
-  // Since this is "US_Alpha_Seeker", we default to US prefix if not present.
   let targetSymbol = String(symbol).toUpperCase();
   if (!targetSymbol.includes(':')) {
       targetSymbol = `US:${targetSymbol}`;
@@ -47,7 +46,10 @@ export default async function handler(req: any, res: any) {
                       'Accept': 'application/json, text/plain, */*',
                       'Accept-Language': 'en-US,en;q=0.9',
                       'Referer': 'https://www.msn.com/',
-                      'Origin': 'https://www.msn.com'
+                      'Origin': 'https://www.msn.com',
+                      'Sec-Fetch-Dest': 'empty',
+                      'Sec-Fetch-Mode': 'cors',
+                      'Sec-Fetch-Site': 'cross-site'
                   }
               });
               
@@ -63,7 +65,7 @@ export default async function handler(req: any, res: any) {
               return await response.json();
           } catch (e: any) {
               if (retries > 0) {
-                  await new Promise(r => setTimeout(r, 500)); // Cool down
+                  await new Promise(r => setTimeout(r, 1000)); // Increased cool down
                   return fetchWithRetry(url, retries - 1);
               }
               throw e;
@@ -78,6 +80,11 @@ export default async function handler(req: any, res: any) {
           const stats = data.keyStats || data.KeyStats || {};
           const quote = data.quote || data.Quote || {};
           const company = data.company || data.Company || {};
+          
+          if (!quote.last && !stats.peRatio) {
+               // If completely empty, treat as error so frontend knows to use fallback
+               return res.status(200).json({ error: "Empty Data from MSN", symbol });
+          }
           
           const normalized = {
               symbol: symbol, // Return original requested symbol
