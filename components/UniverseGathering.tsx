@@ -41,11 +41,11 @@ interface MasterTicker {
 
   source?: string;
   cik?: number; // SEC ID
-  msnId?: string; // [NEW] MSN Secret ID
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isEngineRunning, setIsEngineRunning] = useState(false);
+  const [isMapping, setIsMapping] = useState(false); // [NEW] ID Mapping State
   const [isAuthLoading, setIsAuthLoading] = useState(false);
   const [showConfig, setShowConfig] = useState(false);
   const [cooldown, setCooldown] = useState(0);
@@ -68,10 +68,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     target: 15000, 
     elapsed: 0,
     provider: 'Idle',
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
+    phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown' | 'Mapping'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.0: Penta-Core Fusion (MSN Protocol Active).']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.1: Penta-Core Fusion Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -149,16 +149,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     return dates;
   };
 
-  const startEngine = async () => {
-    if (isEngineRunning || cooldown > 0 || isAuthLoading) return;
-    
-    if (!clientId) {
-      addLog("Missing Client ID. Open ⚙ Config.", "err");
-      setShowConfig(true);
-      return;
-    }
-
-    if (!accessToken) {
+  // [NEW] Helper to trigger Auth if needed
+  const triggerAuth = () => {
       if (!googleScriptLoaded) {
           addLog("Google Scripts loading... please wait.", "warn");
           return;
@@ -187,11 +179,64 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         setShowConfig(true);
         document.body.removeAttribute('data-engine-running');
       }
+  };
+
+  const startEngine = async () => {
+    if (isEngineRunning || cooldown > 0 || isAuthLoading) return;
+    
+    if (!clientId) {
+      addLog("Missing Client ID. Open ⚙ Config.", "err");
+      setShowConfig(true);
+      return;
+    }
+
+    if (!accessToken) {
+      triggerAuth();
       return;
     }
 
     document.body.setAttribute('data-engine-running', 'true');
     runQuadFusionPipeline(accessToken);
+  };
+  
+  // [NEW] ID Mapping Feature
+  const handleMapIDs = async () => {
+      if (!accessToken) {
+          addLog("Authentication Required for ID Mapping.", "warn");
+          triggerAuth();
+          return;
+      }
+      if (isMapping) return;
+
+      setIsMapping(true);
+      addLog("Initializing ID Map Generator (MSN Sitemap Protocol)...", "info");
+      setStats(prev => ({ ...prev, phase: 'Mapping' }));
+
+      try {
+          // 1. Trigger API
+          addLog("Parsing Sitemaps... (This may take 10-20 seconds)", "info");
+          const res = await fetch('/api/msn?mode=generate_map');
+          if (!res.ok) throw new Error("ID Mapper API Failed");
+          
+          const data = await res.json();
+          addLog(`Parsing Complete. Found ${data.count} IDs.`, "ok");
+          
+          if (data.map) {
+              // 2. Upload to Drive
+              addLog("Uploading ID Map to System Folder...", "info");
+              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
+              const fileName = `MSN_ID_MAP_${new Date().toISOString().split('T')[0]}.json`;
+              
+              await uploadFile(accessToken, folderId, fileName, data.map);
+              addLog(`ID Map Saved: ${fileName}`, "ok");
+          }
+
+      } catch (e: any) {
+          addLog(`Mapping Error: ${e.message}`, "err");
+      } finally {
+          setIsMapping(false);
+          setStats(prev => ({ ...prev, phase: 'Idle' }));
+      }
   };
 
   // --- SOURCE A: TRADINGVIEW SCANNER (The Holy Grail) ---
@@ -318,61 +363,34 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  // --- SOURCE E: MSN ID HUNTER (New) ---
-  const executeMSNSitemap = async (): Promise<Record<string, string>> => {
-      addLog("Source E: MSN ID Hunter (Sitemap Protocol)...", "info");
-      try {
-          const res = await fetch('/api/msn?type=sitemap_discovery');
-          if (!res.ok) throw new Error(`MSN Sitemap Error: ${res.status}`);
-          const data = await res.json();
-          addLog(`MSN Hunter: Discovered ${data.count} secret IDs.`, "ok");
-          return data.mapping || {};
-      } catch (e: any) {
-          addLog(`MSN Hunter Failed: ${e.message}`, "warn");
-          return {};
-      }
-  };
-
-  const fuseDatasets = (primaryData: MasterTicker[], secData: MasterTicker[], msnMap: Record<string, string>): MasterTicker[] => {
+  const fuseDatasets = (primaryData: MasterTicker[], secData: MasterTicker[]): MasterTicker[] => {
       const map = new Map<string, MasterTicker>();
       
       const secMap = new Map<string, number>();
       secData.forEach(s => secMap.set(s.symbol.toUpperCase(), s.cik || 0));
 
       let matchedSEC = 0;
-      let matchedMSN = 0;
 
       primaryData.forEach(item => {
           const sym = item.symbol.toUpperCase();
           const cik = secMap.get(sym);
-          const msnId = msnMap[sym];
 
           if (cik) {
               item.cik = cik;
               matchedSEC++;
           }
-          if (msnId) {
-              item.msnId = msnId;
-              matchedMSN++;
-          }
           
-          if (cik && msnId) item.source = (item.source || "Unknown") + "+SEC+MSN";
-          else if (cik) item.source = (item.source || "Unknown") + "+SEC";
-          else if (msnId) item.source = (item.source || "Unknown") + "+MSN";
+          if (cik) item.source = (item.source || "Unknown") + "+SEC";
 
           map.set(item.symbol, item);
       });
 
       // Emergency Mode
       if (primaryData.length === 0 && secData.length > 0) {
-          return secData.map(item => {
-               const msnId = msnMap[item.symbol.toUpperCase()];
-               if(msnId) item.msnId = msnId;
-               return item;
-          });
+          return secData;
       }
 
-      addLog(`Fusion Result: ${primaryData.length} Assets. (SEC: ${matchedSEC}, MSN: ${matchedMSN})`, "ok");
+      addLog(`Fusion Result: ${primaryData.length} Assets. (SEC Matched: ${matchedSEC})`, "ok");
       return Array.from(map.values());
   };
 
@@ -394,12 +412,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     try {
         // Parallel Fetch of Data Sources
-        const [tvData, fmpData, polyData, secData, msnData] = await Promise.allSettled([
+        const [tvData, fmpData, polyData, secData] = await Promise.allSettled([
             executeTVScanner(),
             executeFMPScreener(),
             executePolygonAggs(),
-            executeSECRegistry(),
-            executeMSNSitemap() // NEW Source
+            executeSECRegistry()
         ]);
 
         clearInterval(discoveryTimer); 
@@ -408,7 +425,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fmp = fmpData.status === 'fulfilled' ? fmpData.value : [];
         const poly = polyData.status === 'fulfilled' ? polyData.value : [];
         const sec = secData.status === 'fulfilled' ? secData.value : [];
-        const msnMap = msnData.status === 'fulfilled' ? msnData.value : {};
 
         let universe: MasterTicker[] = tv;
         if (universe.length === 0) universe = fmp;
@@ -419,15 +435,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         }
         
         if (universe.length === 0) {
-             addLog("Market Data Failed. Using SEC+MSN Registry (No Price).", "warn");
+             addLog("Market Data Failed. Using SEC Registry (No Price).", "warn");
              universe = sec;
         }
 
         // FUSE
         setStats(prev => ({ ...prev, phase: 'Fusion' }));
-        addLog("Executing Penta-Core Fusion (Price + CIK + SecretID)...", "info");
+        addLog("Executing Quad-Core Fusion (Price + CIK)...", "info");
         
-        let masterList = fuseDatasets(universe, sec, msnMap);
+        let masterList = fuseDatasets(universe, sec);
 
         // Filter valid
         let viableCandidates = masterList;
@@ -443,7 +459,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
         setRegistry(newRegistry); 
         
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Penta_Fusion" }));
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Quad_Fusion" }));
         addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
 
         // COMMIT
@@ -455,11 +471,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
-                version: "6.3.0", 
-                provider: "Penta-Failover (TV->FMP->Poly->SEC->MSN)", 
+                version: "6.3.1", 
+                provider: "Quad-Failover (TV->FMP->Poly->SEC)", 
                 date: now.toISOString(), 
                 count: viableCandidates.length,
-                note: "Full Market Scan + CIK + MSN_IDs + Rich Data"
+                note: "Full Market Scan + CIK + Rich Data"
             }, 
             universe: viableCandidates 
         };
@@ -593,11 +609,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.3.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.3.1</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
                     {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Penta-Core Fusion'}
                   </span>
+                  
+                  {/* [NEW] ID Mapping Button */}
+                  <button 
+                      onClick={handleMapIDs} 
+                      disabled={isMapping || isEngineRunning}
+                      className={`text-[8px] px-2 py-0.5 rounded-md font-black border border-white/5 uppercase transition-all flex items-center gap-1 ${isMapping ? 'bg-emerald-800 text-emerald-300' : 'bg-slate-800 text-slate-400 hover:bg-slate-700'}`}
+                  >
+                      {isMapping ? 'Mapping...' : '🔑 ID Map'}
+                  </button>
+
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
@@ -629,6 +655,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
            <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
+              {/* [NEW] Mapping Indicator */}
+              {isMapping && <span className="text-[8px] text-emerald-400 font-bold animate-pulse uppercase tracking-widest">Sitemap Spider Active</span>}
             </div>
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
