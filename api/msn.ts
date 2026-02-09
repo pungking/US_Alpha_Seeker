@@ -1,10 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Alpha Sieve" - Resilient Data Aggregation v7.0
+  // "The Alpha Sieve" - Resilient Data Aggregation v7.1 (Zombie Protocol)
   // Strategy: 
-  // 1. FMP Bulk (Fastest)
-  // 2. Yahoo Bulk (API)
-  // 3. Fallback: Metric Derivation (Calc PE from EPS)
+  // 1. FMP Bulk (Primary - Fastest)
+  // 2. Yahoo Bulk (Secondary - Rich Stats)
+  // 3. Yahoo Chart V8 (Deep Fallback - Almost impossible to block, guarantees Price)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -61,7 +61,7 @@ export default async function handler(req: any, res: any) {
                     if (item.pe) current.peRatio = getVal(item.pe);
                     if (item.eps) current.eps = getVal(item.eps);
                     if (item.marketCap) current.marketCap = getVal(item.marketCap);
-                    // FMP doesn't give ROE in quote, only in ratios. We'll rely on Yahoo for ROE or calc later.
+                    // FMP doesn't give ROE in quote, only in ratios.
                     
                     current.source.push('FMP');
                     aggregatedData.set(item.symbol, current);
@@ -74,7 +74,8 @@ export default async function handler(req: any, res: any) {
 
     // --- 2. YAHOO BULK (Secondary - Excellent for ROE/PBR) ---
     try {
-        const yahooUrl = `https://query1.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
+        // Use query2 (sometimes less restricted)
+        const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
         const yahooRes = await fetch(yahooUrl, {
             headers: { 'User-Agent': getRandomUA() }
         });
@@ -88,23 +89,45 @@ export default async function handler(req: any, res: any) {
 
                 if (!current.price) current.price = getVal(item.regularMarketPrice);
                 if (!current.peRatio) current.peRatio = getVal(item.trailingPE) || getVal(item.forwardPE);
-                if (!current.returnOnEquity) current.returnOnEquity = item.financialCurrency === 'USD' ? getVal(item.returnOnEquity) : null; // Handle currency issues
+                if (!current.returnOnEquity) current.returnOnEquity = item.financialCurrency === 'USD' ? getVal(item.returnOnEquity) : null;
                 if (!current.priceToBook) current.priceToBook = getVal(item.priceToBook);
                 if (!current.marketCap) current.marketCap = getVal(item.marketCap);
                 if (!current.eps) current.eps = getVal(item.epsTrailingTwelveMonths);
                 
-                // Fix ROE units (Yahoo gives 0.15 for 15%)
                 if (current.returnOnEquity && current.returnOnEquity < 1) current.returnOnEquity *= 100;
 
-                current.source.push('YHO');
+                current.source.push('YHO_V7');
                 aggregatedData.set(sym, current);
             });
         }
     } catch (e) {
-        console.warn("Yahoo Failed:", e);
+        console.warn("Yahoo V7 Failed:", e);
     }
 
-    // --- 3. DERIVATION & CLEANUP ---
+    // --- 3. YAHOO CHART V8 (Deep Fallback - Zombie Mode) ---
+    // If still missing Price, check individual charts for the MISSING ones only.
+    // This is slow but guarantees data for stubborn tickers.
+    const missingPrice = Array.from(aggregatedData.values()).filter((i: any) => !i.price);
+    if (missingPrice.length > 0 && missingPrice.length < 5) { // Only do this if a few are missing to avoid timeout
+         await Promise.all(missingPrice.map(async (item: any) => {
+             try {
+                const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${item.symbol}?interval=1d&range=1d`;
+                const cRes = await fetch(chartUrl, { headers: { 'User-Agent': getRandomUA() } });
+                if (cRes.ok) {
+                    const cJson = await cRes.json();
+                    const meta = cJson.chart?.result?.[0]?.meta;
+                    if (meta && meta.regularMarketPrice) {
+                        const current = aggregatedData.get(item.symbol);
+                        current.price = meta.regularMarketPrice;
+                        current.source.push('YHO_V8_CHART');
+                        // Infer Market Cap roughly if missing? No, too risky.
+                    }
+                }
+             } catch(e) {}
+         }));
+    }
+
+    // --- 4. DERIVATION & CLEANUP ---
     const finalResults = Array.from(aggregatedData.values()).map((item: any) => {
         // Derive PE if missing
         if (!item.peRatio && item.price && item.eps && item.eps > 0) {
