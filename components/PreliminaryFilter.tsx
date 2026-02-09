@@ -1,6 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
@@ -42,13 +44,23 @@ interface Props {
   onComplete?: () => void;
 }
 
+// Markdown Styles
+const MarkdownComponents: any = {
+  p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[11px]" {...props} />,
+  ul: (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+  li: (props: any) => <li className="text-slate-300 text-[11px]" {...props} />,
+  strong: (props: any) => <strong className="text-emerald-400 font-bold" {...props} />,
+  h1: (props: any) => <h1 className="text-sm font-bold text-white mb-2" {...props} />,
+  h2: (props: any) => <h2 className="text-xs font-bold text-white mb-1" {...props} />,
+};
+
 const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [loading, setLoading] = useState(false);
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.2: AI & Injection Protocols Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.3: Auto-Injection Protocol Ready.']);
   
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -87,15 +99,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart, autoStep, loading]);
 
-  // Step 2: Auto Inject & Commit Trigger
+  // Step 2: Auto Inject Trigger (Immediately after Analysis)
   useEffect(() => {
-      // Trigger if analysis finished OR if we are in auto mode and analysis had an error but we want to proceed
       if (autoStep === 'ANALYZING' && !isAnalyzing && (aiProposal || aiError)) {
-          const timer = setTimeout(() => {
-              setAutoStep('INJECTING');
-              startFundamentalInjection();
-          }, 2000);
-          return () => clearTimeout(timer);
+          // Proceed to injection regardless of success/fail to keep pipeline moving
+          setAutoStep('INJECTING');
+          // Small delay for UI update
+          setTimeout(() => startFundamentalInjection(), 1000);
       }
   }, [autoStep, isAnalyzing, aiProposal, aiError]);
 
@@ -162,7 +172,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         }
       };
 
-      // [UPDATE] Added specific anchors (Price $1.5-$5.0, Volume 100k-1M) to stabilize AI output
+      // [UPDATE] Prompt optimized for Markdown output
       const prompt = `
       [Role: Senior Quantitative Market Strategist]
       Market Stats: Total ${statsSummary.totalCount}, Median Price $${statsSummary.priceDistribution.p50}, Median Vol ${statsSummary.volumeDistribution.p50}.
@@ -170,9 +180,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       Determine 'Price Floor' and 'Volume Threshold' to filter for liquid candidates.
       - Standard Anchor: Price > $2.00, Volume > 500k.
       - Adjustment: If median volume is low, lower threshold slightly to capture emerging runners.
-      - Reasoning: Explain why in Korean (Bullet point style).
+      - Reasoning: Explain why in Korean using **Markdown** bullet points. Keep it concise.
 
-      Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean)" }
+      Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Markdown)" }
       `;
 
       let aiResult = null;
@@ -252,17 +262,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const enrichedTickers: MasterTicker[] = [];
       const BATCH_SIZE = 5; // Safe batch size
+      const timestamp = new Date().getTime(); // Anti-cache
 
       for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
           const batch = survivors.slice(i, i + BATCH_SIZE);
           
           const results = await Promise.all(batch.map(async (ticker) => {
               try {
-                  // Use MSN Proxy
-                  const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview`);
+                  // Use MSN Proxy with timestamp to bust cache
+                  const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview&t=${timestamp}`);
                   if (res.ok) {
                       const data = await res.json();
                       if (!data.error) {
+                          // Merge MSN Data
                           return {
                               ...ticker,
                               pe: data.peRatio || ticker.pe,
@@ -270,8 +282,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                               pbr: data.priceToBook || ticker.pb,
                               debtToEquity: data.debtToEquity || ticker.debtToEquity,
                               marketCap: data.marketCap || ticker.marketCap,
-                              sector: data.sector || ticker.sector,
-                              industry: data.industry || ticker.industry,
+                              sector: data.sector !== "Unclassified" ? data.sector : ticker.sector,
+                              industry: data.industry !== "Unknown" ? data.industry : ticker.industry,
                               source: (ticker.source || '') + "+MSN"
                           };
                       }
@@ -283,19 +295,34 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           enrichedTickers.push(...results);
           setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
           
-          // Throttling
-          await new Promise(r => setTimeout(r, 200));
+          // Throttling to be safe with MSN
+          await new Promise(r => setTimeout(r, 250));
       }
 
       addLog(`Injection Complete. ${enrichedTickers.length} assets enriched.`, "ok");
-      commitPurification(enrichedTickers);
+      
+      // Update local state with enriched data so manual re-filter works with new data
+      // We need to merge enrichedTickers back into rawUniverse, or just use enrichedTickers for the next step?
+      // Better to update rawUniverse in case user changes filter and re-injects.
+      // Optimization: Create a map for O(1) lookup
+      const enrichmentMap = new Map(enrichedTickers.map(t => [t.symbol, t]));
+      setRawUniverse(prev => prev.map(t => enrichmentMap.get(t.symbol) || t));
+
+      if (autoStart) {
+          // If auto-pilot, proceed to commit immediately
+           commitPurification(enrichedTickers);
+      } else {
+          // If manual, just let user know
+           setLoading(false);
+           setIsInjecting(false);
+      }
   };
 
   const commitPurification = async (finalList?: MasterTicker[]) => {
     if (!accessToken) return;
     setLoading(true);
     
-    // Use injected list if available, otherwise filter raw
+    // Use injected list if provided, otherwise filter current rawUniverse
     const listToSave = finalList || rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
     
     addLog(`Phase 3: Committing ${listToSave.length} assets to Stage 1 Vault...`, "info");
@@ -309,7 +336,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "3.2.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN" },
+        manifest: { version: "3.3.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN" },
         investable_universe: listToSave
       };
 
@@ -324,10 +351,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       addLog(`Success: Stage 1 Complete. Data Saved.`, "ok");
       
-      if (autoStep !== 'DONE') {
-          setAutoStep('DONE');
-          if (onComplete) onComplete();
-      }
+      if (onComplete) onComplete();
+      setAutoStep('DONE');
 
     } catch (e: any) {
       addLog(`Vault Error: ${e.message}`, "err");
@@ -369,7 +394,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.3</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isInjecting ? `Injecting Fundamentals: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
@@ -479,7 +504,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             </div>
           </div>
           
-          {/* AI Reasoning Block (Restored) */}
+          {/* AI Reasoning Block (Markdown Supported) */}
           {(aiProposal || aiError) && (
             <div className={`p-6 md:p-10 rounded-[32px] border animate-in fade-in slide-in-from-top-4 duration-500 ${aiError ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
                <div className="flex items-center justify-between mb-6">
@@ -490,8 +515,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                     </h4>
                   </div>
                </div>
-               <div className="prose-report text-[11px] text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
-                 {aiError || aiProposal?.reasoning}
+               <div className="prose-report text-xs text-slate-300 leading-relaxed font-medium">
+                 {aiError ? (
+                     <span className="font-mono text-rose-400">{aiError}</span>
+                 ) : (
+                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                        {aiProposal?.reasoning || ""}
+                     </ReactMarkdown>
+                 )}
                </div>
             </div>
           )}
