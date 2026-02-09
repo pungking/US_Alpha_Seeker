@@ -74,7 +74,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown' | 'Mapping'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.3: MSN Protocol v2.0 Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.3: MSN Protocol v2.1 Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -180,9 +180,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               await uploadFile(accessToken, folderId, fileName, data.map);
               addLog(`ID Map Saved: ${fileName}`, "ok");
               
-              // 3. Test Probe (Pick first available ID)
-              const sampleTicker = Object.keys(data.map)[0];
+              // 3. Test Probe (Pick TSLA or first available ID)
+              const sampleTicker = data.map['TSLA'] ? 'TSLA' : Object.keys(data.map)[0];
               const sampleId = data.map[sampleTicker];
+              
               if (sampleTicker && sampleId) {
                   addLog(`🧪 Running Test Probe on ${sampleTicker} (${sampleId})...`, "info");
                   const probeRes = await fetch(`/api/msn?mode=get_details&id=${sampleId}&symbol=${sampleTicker}`);
@@ -214,25 +215,233 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   
   // ... (Existing execute functions for TV, FMP, Polygon, SEC kept same) ...
   const executeTVScanner = async (): Promise<MasterTicker[]> => {
-      // Placeholder for existing logic to save space in XML
-      // In real file, keep existing TV logic
-      return []; 
+      addLog("Source A: TradingView Omni-Scanner (Rich Data)...", "info");
+      const res = await fetch('/api/nasdaq'); 
+      if (!res.ok) throw new Error(`TV Proxy Failed: ${res.status}`);
+      const data = await res.json();
+      if (!Array.isArray(data)) throw new Error("Invalid TV Data");
+      addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
+      return data.map((item: any) => ({
+          symbol: item.symbol, name: item.name, price: item.price, volume: item.volume, 
+          change: item.change, marketCap: item.marketCap, sector: item.sector || "Unclassified", 
+          industry: item.industry || "Unknown", pe: item.pe, roe: item.roe, eps: item.eps,
+          type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'TV_Scanner'
+      }));
+  };
+
+  const executeFMPScreener = async (): Promise<MasterTicker[]> => {
+      if (!fmpKey) {
+          addLog("FMP Key missing. Skipping FMP Source.", "warn");
+          return [];
+      }
+      addLog("Source B: FMP Screener (Metadata Backup)...", "info");
+      try {
+          const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=100&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=30000&apikey=${fmpKey}`;
+          const res = await fetch(url);
+          if (res.status === 429) throw new Error("FMP_LIMIT_HIT");
+          if (!res.ok) throw new Error(`FMP Status ${res.status}`);
+          
+          const data = await res.json();
+          addLog(`FMP Screener: Retrieved ${data.length} assets.`, "ok");
+          return data.map((item: any) => ({
+              symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
+              change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry,
+              type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'FMP_Screener'
+          }));
+      } catch (e: any) {
+          if (e.message === "FMP_LIMIT_HIT") {
+              addLog("FMP Daily Limit Reached. Skipping.", "warn");
+          } else {
+              addLog(`FMP Error: ${e.message}`, "warn");
+          }
+          return [];
+      }
+  };
+
+  const executePolygonAggs = async (): Promise<MasterTicker[]> => {
+    if (!polygonKey) throw new Error("Polygon Key missing");
+    addLog("Source C: Polygon Deep Discovery...", "info");
+    
+    let polyResults: any[] = [];
+    let success = false;
+    let foundDate = '';
+    
+    const targetDates = getRecentBusinessDays(6); 
+    
+    for (const targetDate of targetDates) {
+        try {
+            const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
+            
+            if (polyRes.status === 429) { 
+                addLog("Polygon Rate Limit. Retrying...", "warn");
+                await new Promise(r => setTimeout(r, 15000)); 
+                continue; 
+            }
+            
+            if (polyRes.ok) {
+                const data = await polyRes.json();
+                if (data.results && data.results.length > 5000) { 
+                    polyResults = data.results; 
+                    foundDate = targetDate;
+                    addLog(`Polygon: Data Acquired! (${polyResults.length} tickers on ${targetDate}).`, "ok");
+                    success = true;
+                    break; 
+                }
+            }
+        } catch (e) { }
+        await new Promise(r => setTimeout(r, 300));
+    }
+    
+    if (!success) addLog("Polygon failed or limit reached.", "warn");
+
+    return polyResults.map((p: any) => ({
+        symbol: p.T, name: p.T, type: 'Common Stock', price: p.c, volume: p.v,
+        change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
+        updated: foundDate, source: 'Polygon_Aggs'
+    }));
   };
   
-  // Simplified placeholders for brevity in this response
-  // Assuming previous logic is preserved
-  const executeFMPScreener = async () => [];
-  const executePolygonAggs = async () => [];
-  const executeSECRegistry = async () => [];
-  
-  const fuseDatasets = (p: any[], s: any[]) => p; // Placeholder
+  const executeSECRegistry = async (): Promise<MasterTicker[]> => {
+      addLog("Source D: SEC Official Registry...", "info");
+      try {
+          const res = await fetch('/api/sec');
+          if (!res.ok) throw new Error(`SEC Proxy Failed: ${res.status}`);
+          const data = await res.json();
+          addLog(`SEC Registry: Retrieved ${data.length} official issuers.`, "ok");
+          return data.map((item: any) => ({
+              symbol: item.symbol, name: item.name, price: 0, volume: 0, change: 0, 
+              updated: new Date().toISOString().split('T')[0], source: 'SEC_EDGAR_ONLY', cik: item.cik
+          }));
+      } catch (e: any) {
+          addLog(`SEC Fetch Error: ${e.message}`, "warn");
+          return [];
+      }
+  };
+
+  const fuseDatasets = (tv: MasterTicker[], fmp: MasterTicker[], poly: MasterTicker[], sec: MasterTicker[]): MasterTicker[] => {
+      const map = new Map<string, MasterTicker>();
+      const secMap = new Map<string, number>();
+      sec.forEach(s => secMap.set(s.symbol.toUpperCase(), s.cik || 0));
+
+      const merge = (list: MasterTicker[]) => {
+          list.forEach(item => {
+             const s = item.symbol.toUpperCase();
+             const existing = map.get(s);
+             if(existing) {
+                 map.set(s, { ...existing, ...item, source: existing.source + '+' + item.source });
+             } else {
+                 map.set(s, item);
+             }
+          });
+      };
+
+      merge(tv);
+      merge(fmp);
+      merge(poly);
+      
+      let matchedSEC = 0;
+      map.forEach((val, key) => {
+          const cik = secMap.get(key);
+          if (cik) {
+              val.cik = cik;
+              matchedSEC++;
+          }
+      });
+
+      addLog(`Fusion Result: ${map.size} Unique Assets. (SEC Matched: ${matchedSEC})`, "ok");
+      return Array.from(map.values());
+  };
 
   const runQuadFusionPipeline = async (token: string) => {
-      // Keep existing pipeline logic
-      setIsEngineRunning(true);
-      // ... pipeline logic ...
+    setIsEngineRunning(true);
+    const startTime = Date.now();
+    setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0 }));
+    
+    const discoveryTimer = setInterval(() => {
+        setStats(prev => ({ 
+            ...prev, 
+            found: prev.found + Math.floor(Math.random() * 500) 
+        }));
+    }, 200);
+
+    timerRef.current = window.setInterval(() => {
+      setStats(prev => ({ ...prev, elapsed: Math.floor((Date.now() - startTime) / 1000) }));
+    }, 1000);
+
+    try {
+        const [tvData, fmpData, polyData, secData] = await Promise.allSettled([
+            executeTVScanner(),
+            executeFMPScreener(),
+            executePolygonAggs(),
+            executeSECRegistry()
+        ]);
+
+        clearInterval(discoveryTimer); 
+
+        const tv = tvData.status === 'fulfilled' ? tvData.value : [];
+        const fmp = fmpData.status === 'fulfilled' ? fmpData.value : [];
+        const poly = polyData.status === 'fulfilled' ? polyData.value : [];
+        const sec = secData.status === 'fulfilled' ? secData.value : [];
+
+        let masterList = fuseDatasets(tv, fmp, poly, sec);
+
+        // Filter valid
+        let viableCandidates = masterList;
+        if (masterList.length > 0) {
+            const minPrice = 0.01;
+            viableCandidates = masterList.filter(t => t.price >= minPrice);
+            viableCandidates.sort((a, b) => b.volume - a.volume);
+        }
+        
+        const newRegistry = new Map<string, MasterTicker>();
+        viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
+        setRegistry(newRegistry); 
+        
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Quad_Fusion" }));
+        addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
+
+        // COMMIT
+        setStats(prev => ({ ...prev, phase: 'Commit' }));
+        const now = new Date();
+        const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+        const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+        
+        const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
+        const payload = { 
+            manifest: { 
+                version: "6.3.3", 
+                provider: "Quad-Failover (TV->FMP->Poly->SEC)", 
+                date: now.toISOString(), 
+                count: viableCandidates.length,
+                note: "Full Market Scan + CIK + Rich Data"
+            }, 
+            universe: viableCandidates 
+        };
+
+        const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
+        if (folderId) {
+            await uploadFile(token, folderId, fileName, payload);
+            setStats(prev => ({ ...prev, synced: viableCandidates.length, phase: 'Finalized' }));
+            addLog(`System: Cloud Vault Sync Complete.`, "ok");
+            if (onComplete) onComplete(); 
+        }
+
+    } catch (e: any) {
+      clearInterval(discoveryTimer);
+      if (e.message.includes("Auth Expired") || e.message.includes("401") || e.message.includes("403")) {
+          sessionStorage.removeItem('gdrive_access_token');
+          setAccessToken(null);
+          onAuthSuccess?.(false);
+          addLog("Session Expired. Please re-connect Vault.", "warn");
+      } else {
+          addLog(`Fatal Error: ${e.message}`, "err");
+      }
+      setStats(prev => ({ ...prev, phase: 'Idle' }));
+    } finally {
+      if (timerRef.current) clearInterval(timerRef.current);
       setIsEngineRunning(false);
       document.body.removeAttribute('data-engine-running');
+    }
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -242,16 +451,25 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       headers: { 'Authorization': `Bearer ${token}` }
     });
     
-    if (res.status === 401 || res.status === 403) throw new Error("GDrive Auth Expired");
+    if (res.status === 401 || res.status === 403) {
+         throw new Error("GDrive Auth Expired. Please refresh page/re-login.");
+    }
+
     if (res.ok) {
         const data = await res.json();
         if (data.files?.length > 0) return data.files[0].id;
     }
+
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name: name, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
     });
+    
+    if (!create.ok) {
+        throw new Error(`Folder Creation Failed: ${create.status}`);
+    }
+
     const createData = await create.json();
     return createData.id;
   };
@@ -261,9 +479,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     const form = new FormData();
     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    
+    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
     });
+    
+    if (!res.ok) {
+        throw new Error(`Upload Failed: ${res.status}`);
+    }
+
+    return res.json();
   };
 
   const searchResult = useMemo(() => {
@@ -280,7 +505,39 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-       {/* Config Modal Omitted for Brevity */}
+       {showConfig && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+          <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
+            <div className="flex justify-between items-center">
+              <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
+              <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+            <div className="space-y-2">
+              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
+              <input 
+                type="text" 
+                value={clientId}
+                onChange={(e) => setClientId(e.target.value)}
+                className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none"
+                placeholder="Enter GDrive Client ID"
+              />
+            </div>
+            <button 
+              onClick={() => {
+                localStorage.setItem('gdrive_client_id', clientId);
+                setShowConfig(false);
+                addLog("Infrastructure Persisted Successfully.", "ok");
+              }}
+              className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all"
+            >
+              Apply Changes
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
@@ -293,7 +550,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.3.3</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'MSN Protocol v2.0'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'MSN Protocol v2.1'}
                   </span>
                   
                   {/* ID Mapping Button */}
@@ -306,6 +563,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   </button>
 
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
+                  {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
               </div>
             </div>
@@ -314,13 +572,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               disabled={isEngineRunning || cooldown > 0 || isAuthLoading}
               className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
                   isEngineRunning || cooldown > 0 || isAuthLoading
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
+                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed shadow-none scale-95 border border-white/5 shadow-inner opacity-75' 
                     : !accessToken 
-                        ? 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 animate-pulse' 
-                        : 'bg-blue-600 text-white shadow-xl'
+                        ? 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20' // Login State
+                        : 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' // Execute State
               }`}
             >
-              {isEngineRunning ? 'Fusing Universe...' : !accessToken ? 'Connect Cloud Vault' : 'Execute Penta Fusion'}
+              {isEngineRunning 
+                ? 'Fusing Universe...' 
+                : cooldown > 0 
+                    ? `Wait ${cooldown}s` 
+                    : isAuthLoading
+                        ? 'Connecting...'
+                        : !accessToken 
+                            ? 'Connect Cloud Vault' 
+                            : 'Execute Penta Fusion'}
             </button>
           </div>
           
@@ -353,7 +619,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
            )}
 
            <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
-             {/* Search UI kept same */}
+            <div className="flex items-center justify-between mb-4">
+              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
+              {/* [NEW] Mapping Indicator */}
+              {isMapping && <span className="text-[8px] text-emerald-400 font-bold animate-pulse uppercase tracking-widest">Sitemap Spider Active</span>}
+            </div>
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
                   <input 
@@ -363,11 +633,48 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                     value={searchTerm}
                     onChange={(e) => setSearchTerm(e.target.value)}
                   />
-                  {/* ... Result Panel ... */}
+                  <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
+                    {searchResult ? (
+                      <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
+                        <span className="truncate">{searchResult.name || searchResult.symbol}</span>
+                        <div className="flex items-center gap-3">
+                            <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
+                            <button 
+                                onClick={handleSetTarget}
+                                className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg active:scale-95 active:bg-rose-700 active:shadow-inner"
+                            >
+                                Set Audit Target
+                            </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
+                    )}
+                  </div>
                 </div>
             </div>
           </div>
-          {/* Stats Grid Kept Same */}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+            {[
+              { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
+              { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400' },
+              { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
+              { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
+            ].map((s, i) => (
+              <div key={i} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
+                <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
+                <p className={`text-lg md:text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
+              </div>
+            ))}
+          </div>
+          
+           <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
+            <div 
+              className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600 animate-pulse' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`}
+              style={{ width: stats.phase === 'Finalized' ? '100%' : cooldown > 0 ? `${(cooldown/60)*100}%` : `${Math.min(100, (stats.found / (stats.target || 1)) * 100)}%` }}
+            ></div>
+          </div>
         </div>
       </div>
 
