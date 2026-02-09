@@ -1,8 +1,8 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Holy Grail" - TradingView Scanner Proxy v9.0 (America Endpoint Restore)
+  // "The Holy Grail" - TradingView Scanner Proxy v9.1 (Resilient Mode)
   // Target: Reliable fetch of Top 12,000 US Assets (NYSE, NASDAQ, AMEX)
-  // Strategy: Use 'america/scan' endpoint which is native for US stocks, reducing filter complexity.
+  // Strategy: Relax filters (remove subtype) to ensure non-zero results.
   
   res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
   res.setHeader('Pragma', 'no-cache');
@@ -38,16 +38,15 @@ export default async function handler(req: any, res: any) {
       "type"                          // 15
   ];
 
-  // Strategy: Request 'america' scanner directly.
-  // This implicitly filters for US stocks without needing explicit country filters.
+  // Strategy: Request 'america' scanner directly with minimal filters.
+  // Removing 'subtype' filter often fixes empty results.
   const getPayload = (start: number, end: number) => ({
       "filter": [
           { "left": "type", "operation": "in_range", "right": ["stock", "dr", "fund"] },
-          { "left": "subtype", "operation": "in_range", "right": ["common", "etf", "adr", "reit"] },
+          // Removed subtype filter to be safer
           { "left": "exchange", "operation": "in_range", "right": ["AMEX", "NASDAQ", "NYSE"] } 
       ],
       "options": { "lang": "en" },
-      // "symbols" field is sometimes required to be present even if empty
       "symbols": { "query": { "types": [] } },
       "columns": standardColumns,
       "sort": { "sortBy": "market_cap_basic", "sortOrder": "desc" },
@@ -59,11 +58,11 @@ export default async function handler(req: any, res: any) {
           const response = await fetch('https://scanner.tradingview.com/america/scan', {
             method: 'POST',
             headers: {
-                // Use a standard, modern User-Agent to avoid bot detection
                 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
                 'Content-Type': 'application/json',
                 'Origin': 'https://www.tradingview.com',
-                'Referer': 'https://www.tradingview.com/'
+                'Referer': 'https://www.tradingview.com/',
+                'Accept': 'application/json, text/plain, */*'
             },
             body: JSON.stringify(payload)
           });
@@ -71,7 +70,7 @@ export default async function handler(req: any, res: any) {
           if (!response.ok) {
                console.warn(`TV API Warning: ${response.status} ${response.statusText}`);
                if (retries > 0) {
-                   await new Promise(r => setTimeout(r, 1500)); // Cool down
+                   await new Promise(r => setTimeout(r, 2000)); // Increased cool down
                    return fetchChunk(payload, retries - 1);
                }
                return null;
@@ -80,7 +79,7 @@ export default async function handler(req: any, res: any) {
       } catch (e: any) {
           console.error("TV Chunk Network Error:", e.message);
           if (retries > 0) {
-              await new Promise(r => setTimeout(r, 1500));
+              await new Promise(r => setTimeout(r, 2000));
               return fetchChunk(payload, retries - 1);
           }
           return null;
@@ -89,18 +88,16 @@ export default async function handler(req: any, res: any) {
 
   try {
     let allRows: any[] = [];
-    const CHUNK_SIZE = 4000; // Increased chunk size for fewer requests
+    const CHUNK_SIZE = 5000; // Increased chunk size
     let start = 0;
     
-    // Target: Top 12,000 assets by Market Cap.
-    // This covers virtually 100% of the relevant investable universe.
-    // Fetching more usually yields illiquid penny stocks/OTC which clog the pipeline.
-    let totalCount = 12000; 
+    // Target: Top 15,000 assets to cover decent liquidity
+    let totalCount = 15000; 
 
-    console.log(`TV Scanner (v9.0): Starting America Scan for ${totalCount} assets...`);
+    console.log(`TV Scanner (v9.1): Starting Resilient America Scan...`);
 
     while (start < totalCount) {
-        if (start >= 12000) break; // Hard safety limit for Serverless Timeout
+        if (start >= 15000) break; // Hard safety limit
 
         const end = Math.min(start + CHUNK_SIZE, totalCount);
         const payload = getPayload(start, end);
@@ -109,36 +106,30 @@ export default async function handler(req: any, res: any) {
         
         if (chunk && chunk.data && chunk.data.length > 0) {
             allRows = allRows.concat(chunk.data);
-            // Dynamic total count adjustment, but cap at 12k to be safe
             const apiTotal = chunk.totalCount || 0;
-            totalCount = Math.min(apiTotal, 12000); 
+            totalCount = Math.min(apiTotal, 15000); 
             
-            console.log(`TV Scanner: Fetched [${start}-${end}]. Rows: ${chunk.data.length}. Total collected: ${allRows.length}`);
+            console.log(`TV Scanner: Fetched [${start}-${end}]. Rows: ${chunk.data.length}. Total: ${allRows.length}`);
         } else {
-            console.warn(`TV Scanner: Chunk [${start}-${end}] returned empty or failed.`);
-            // Try one fallback with looser filters if the first chunk fails entirely?
-            // For now, break to return what we have.
+            console.warn(`TV Scanner: Chunk [${start}-${end}] returned empty. Stopping.`);
             break;
         }
         
         start += CHUNK_SIZE;
-        // Minimal delay
-        await new Promise(r => setTimeout(r, 200)); 
+        await new Promise(r => setTimeout(r, 100)); 
     }
 
     if (allRows.length === 0) {
-        // [CRITICAL] Do NOT return fake data. Throw error to let the frontend know.
-        console.error("TV Scanner: Zero assets returned. Check filters/headers.");
-        throw new Error("TradingView API returned 0 assets (America Endpoint). Possible IP Block.");
+        console.error("TV Scanner: Zero assets returned after all retries.");
+        throw new Error("TradingView API returned 0 assets (America Endpoint).");
     }
 
-    // Map raw array to schema
     const normalized = allRows.map((r: any) => {
         const d = r.d; // data array
         const val = (v: any) => (v === null || v === undefined) ? 0 : v;
 
         return {
-            symbol: r.s.split(':')[1] || r.s, // Remove "NASDAQ:" prefix
+            symbol: r.s.split(':')[1] || r.s, 
             name: d[0] || "",
             price: val(d[1]),
             volume: val(d[2]),
