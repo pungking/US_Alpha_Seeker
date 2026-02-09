@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.3
+  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.4 (US-Centric)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -18,7 +18,13 @@ export default async function handler(req: any, res: any) {
     return res.status(400).json({ error: 'Symbol is required' });
   }
 
-  const targetSymbol = String(symbol).toUpperCase();
+  // FORCE US PREFIX: Most failures occur because 'AAPL' is sent instead of 'US:AAPL'
+  // Since this is "US_Alpha_Seeker", we default to US prefix if not present.
+  let targetSymbol = String(symbol).toUpperCase();
+  if (!targetSymbol.includes(':')) {
+      targetSymbol = `US:${targetSymbol}`;
+  }
+
   const timestamp = new Date().getTime();
 
   // Endpoints
@@ -46,9 +52,10 @@ export default async function handler(req: any, res: any) {
               });
               
               if (!response.ok) {
-                   if (response.status === 404 && !url.includes("US:")) {
-                       // Auto-fix symbol format for MSN (e.g., AAPL -> US:AAPL)
-                       const newUrl = url.replace(`securities/${targetSymbol}`, `securities/US:${targetSymbol}`);
+                   // If US: fails, try without prefix as fallback (rare edge case)
+                   if (response.status === 404 && url.includes("US:")) {
+                       const noPrefixSymbol = targetSymbol.replace("US:", "");
+                       const newUrl = url.replace(targetSymbol, noPrefixSymbol);
                        return fetchWithRetry(newUrl, retries - 1);
                    }
                    throw new Error(`MSN ${response.status}`);
@@ -73,8 +80,8 @@ export default async function handler(req: any, res: any) {
           const company = data.company || data.Company || {};
           
           const normalized = {
-              symbol: targetSymbol,
-              name: quote.displayName || company.name || targetSymbol,
+              symbol: symbol, // Return original requested symbol
+              name: quote.displayName || company.name || symbol,
               price: quote.last || 0,
               
               // Robust Field Mapping: Check camelCase and PascalCase
@@ -101,6 +108,6 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
       // Return partial error object to allow frontend flow to continue without crashing
-      return res.status(200).json({ error: error.message, symbol: targetSymbol }); 
+      return res.status(200).json({ error: error.message, symbol: symbol }); 
   }
 }
