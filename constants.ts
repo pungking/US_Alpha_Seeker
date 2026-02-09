@@ -102,7 +102,8 @@ export const GOOGLE_DRIVE_TARGET = {
   stage5SubFolder: 'Stage5_ICT_Data',
   stage6SubFolder: 'Stage6_Alpha_Final',
   reportSubFolder: 'Report',
-  reportsArchiveFolder: 'Stage2_Financial_Reports' // [NEW] Financial Statements Dump
+  reportsArchiveFolder: 'Stage2_Financial_Reports',
+  systemMapSubFolder: 'System_Identity_Maps' // [NEW] For ID Mapping Files
 };
 
 export const STAGES_FLOW = [
