@@ -59,7 +59,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v4.0: MSN Live Injection Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v4.5: Peregrine Protocol Loaded.']);
   const [inspectionLogs, setInspectionLogs] = useState<string[]>([]); // Real-time data feed
   
   // Filter State
@@ -264,18 +264,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   };
 
-  // [UPDATED] Injection using new MSN Overview endpoint
   const startFundamentalInjection = async (shouldAutoCommit: boolean) => {
       setIsInjecting(true);
       setLoading(true);
       setInspectionLogs([]); 
       
       const survivors = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
-      addLog(`Injection Phase: Enriching ${survivors.length} assets via MSN Live...`, "info");
+      addLog(`Injection Phase: Enriching ${survivors.length} assets via MSN (Peregrine) & Yahoo...`, "info");
       setInjectionProgress({ current: 0, total: survivors.length });
 
       const enrichedTickers: MasterTicker[] = [];
-      const BATCH_SIZE = 5; 
+      const BATCH_SIZE = 3; // Reduced batch size for stability with double-request pattern
       const timestamp = new Date().getTime(); 
 
       for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
@@ -285,14 +284,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               let enriched = { ...ticker };
               let fetched = false;
 
-              // 1. MSN Overview (Primary)
+              // 1. MSN Peregrine (Primary - Deep Hook)
               try {
-                  // Call our new internal proxy with type=overview
                   const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview&t=${timestamp}`);
                   
                   if (res.ok) {
                       const data = await res.json();
-                      // Check if valid data returned (not error object)
                       if (!data.error && (data.peRatio || data.returnOnEquity || data.priceToBook)) {
                           enriched = {
                               ...ticker,
@@ -306,12 +303,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                               source: (ticker.source || '') + "+MSN"
                           };
                           fetched = true;
-                          addInspectorLog(`${ticker.symbol} [MSN]: PE=${enriched.pe}, ROE=${enriched.roe}%`, 'success');
+                          addInspectorLog(`${ticker.symbol}: PE=${enriched.pe}, ROE=${enriched.roe}% (MSN)`, 'success');
                       }
                   }
               } catch (e) {}
 
-              // 2. Yahoo Fallback
+              // 2. Yahoo Fallback (Robust)
               if (!fetched) {
                   try {
                        const yRes = await fetch(`/api/yahoo?symbols=${ticker.symbol}`);
@@ -330,7 +327,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                                        source: (ticker.source || '') + "+YHO"
                                    };
                                    fetched = true;
-                                   addInspectorLog(`${ticker.symbol} [YHO]: PE=${enriched.pe?.toFixed(1)}, ROE=${enriched.roe?.toFixed(1)}%`, 'success');
+                                   addInspectorLog(`${ticker.symbol}: PE=${enriched.pe?.toFixed(1)}, ROE=${enriched.roe?.toFixed(1)}% (YHO)`, 'success');
                                }
                            }
                        }
@@ -346,10 +343,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
           enrichedTickers.push(...results);
           setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
-          await new Promise(r => setTimeout(r, 200)); 
+          // Slightly increased throttle to respect search API limits
+          await new Promise(r => setTimeout(r, 400)); 
       }
 
-      const validEnrichment = enrichedTickers.filter(t => t.source?.includes("MSN") || t.source?.includes("YHO") || t.source?.includes("FMP")).length;
+      const validEnrichment = enrichedTickers.filter(t => t.source?.includes("MSN") || t.source?.includes("YHO")).length;
       addLog(`Injection Complete. ${validEnrichment}/${survivors.length} fully enriched.`, validEnrichment > 0 ? "ok" : "warn");
       
       const enrichmentMap = new Map(enrichedTickers.map(t => [t.symbol, t]));
@@ -389,7 +387,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "4.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via MSN/Yahoo" },
+        manifest: { version: "4.5.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Fundamentals Injected via Peregrine/Yahoo" },
         investable_universe: listToSave
       };
 
@@ -448,10 +446,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v4.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v4.5</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                     {isInjecting ? `MSN Live Injection: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
+                     {isInjecting ? `Peregrine Injection: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
