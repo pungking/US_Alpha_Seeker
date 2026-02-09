@@ -1,6 +1,9 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.1
+  // "The Hidden Gem" - MSN Money / Bing Finance Proxy v2.2
+  // Supports:
+  // 1. 'overview': Fast, single snapshot for Stage 1 enrichment (ROE, PE, PBR).
+  // 2. 'financials': Deep historical data for Stage 2 audit (Income/Balance/Cashflow).
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -76,7 +79,7 @@ export default async function handler(req: any, res: any) {
               name: quote.displayName || company.name || targetSymbol,
               price: quote.last || 0,
               
-              // Robust Field Mapping (Case insensitive fallback mostly handled by data source, but explicit here)
+              // Robust Field Mapping (Try multiple keys as MSN sometimes varies)
               peRatio: stats.peRatio || stats.priceToEarnings || 0,
               returnOnEquity: stats.returnOnEquity || stats.roe || 0,
               returnOnAssets: stats.returnOnAssets || stats.roa || 0,
@@ -99,7 +102,7 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json(data);
 
   } catch (error: any) {
-      // console.warn(`MSN Proxy Fail [${symbol}]:`, error.message);
-      return res.status(200).json({ error: error.message, symbol }); 
+      // Return partial error object to allow frontend flow to continue
+      return res.status(200).json({ error: error.message, symbol: targetSymbol }); 
   }
 }
