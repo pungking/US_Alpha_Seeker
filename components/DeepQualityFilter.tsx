@@ -23,6 +23,7 @@ interface DeepFinancialReport {
   };
   secData?: any; 
   xbrl?: any; // [NEW] Raw XBRL Facts
+  msnData?: any; // [NEW] MSN Raw Data
 }
 
 interface QualityTicker {
@@ -89,7 +90,7 @@ interface Props {
 }
 
 // [CACHE RESET] V17.2 Upgrade: Deep Mining & Sector Neutrality
-const CACHE_PREFIX = 'QUANT_CACHE_V17.2_DEEP_'; 
+const CACHE_PREFIX = 'QUANT_CACHE_V17.3_MSN_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
 // [HELPER] Extract raw value from Yahoo's { raw: ..., fmt: ... } object or return value directly
@@ -152,7 +153,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [reportProgress, setReportProgress] = useState({ current: 0, total: 0, skipped: 0, archived: 0 }); 
   
   const [liveAuditFeed, setLiveAuditFeed] = useState<AuditPacket[]>([]);
-  const [sourceStats, setSourceStats] = useState({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, fallback: 0 });
+  const [sourceStats, setSourceStats] = useState({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, msn: 0, fallback: 0 });
   const [filterSource, setFilterSource] = useState<string | null>(null);
 
   const [activeStream, setActiveStream] = useState<string>('IDLE');
@@ -166,17 +167,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [aiStatus, setAiStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
   const [aiAnalysis, setAiAnalysis] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v17.2: Deep Mining & Sector Neutrality Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Quant_Node v17.3: MSN Money Data-Healing Protocol Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   
   const logRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // V17.2: Optimized Batch Sizes
+  // V17.3: Optimized Batch Sizes for Deep Scan
   const BATCH_SIZE_TIER1 = 100; // Fast scan for Stage 1 data
-  const TARGET_TIER2_COUNT = 500; // Deep dive candidates
-  const FINAL_SELECTION_COUNT = 250; // Final output
+  const TARGET_TIER2_COUNT = 300; // Deep dive candidates (Increased for better healing)
+  const FINAL_SELECTION_COUNT = 150; // Final output
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -216,7 +217,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging V17.2 Deep Quality Protocol...", "signal");
+        addLog("AUTO-PILOT: Engaging V17.3 Deep Quality Protocol...", "signal");
         executeDeepQualityScan();
     }
   }, [autoStart]);
@@ -231,7 +232,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     switch(analysisPhase) {
         case 'TRIPLE_EXCEL_SCAN': return `Tier 1 Scan (Internal): ${progress.current}/${progress.total}`;
         case 'RANKING': return 'Triple Excel Ranking...';
-        case 'DEEP_MINING': return `Tier 2 Deep Mining (5-Year Financials): ${enrichProgress.current}/${enrichProgress.total}`;
+        case 'DEEP_MINING': return `Tier 2 Deep Mining (MSN/SEC): ${enrichProgress.current}/${enrichProgress.total}`;
         case 'SECTOR_NEUTRAL': return 'Calculating Sector Neutral Scores...';
         case 'FINAL_FILTER': return `Final Selection (Top ${FINAL_SELECTION_COUNT})...`;
         case 'AI_AUDIT': return 'AI Risk Audit...';
@@ -282,7 +283,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const fetchDeepFinancials = async (ticker: QualityTicker): Promise<DeepFinancialReport | null> => {
-      // Prioritize SEC XBRL if CIK is available (from Stage 0)
+      // 1. Try MSN Money (High Quality, No Key)
+      try {
+          const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview`);
+          if (res.ok) {
+              const data = await res.json();
+              if (data && data.keyStats) {
+                   // Adapt MSN data to our structure
+                   return {
+                       source: 'MSN_MONEY',
+                       annual: { income: [], balance: [], cashflow: [] },
+                       quarterly: { income: [], balance: [], cashflow: [] },
+                       msnData: data
+                   };
+              }
+          }
+      } catch(e) {}
+
+      // 2. Prioritize SEC XBRL if CIK is available
       if (ticker.cik) {
           try {
               const res = await fetch(`/api/sec?action=facts&cik=${ticker.cik}`);
@@ -299,8 +317,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               }
           } catch(e) {}
       }
+
+      // 3. Fallback to Yahoo
       try {
-          // Fallback to Yahoo (proxy) - Requests extensive modules for 5-year history
           const modules = "financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory,earningsTrend";
           const res = await fetch(`/api/yahoo?symbols=${ticker.symbol}&modules=${modules}`);
           if (res.ok) {
@@ -323,11 +342,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const calculatePiotroskiFScore = (report: DeepFinancialReport): number => {
     let score = 0;
     try {
+        if (report.source === 'MSN_MONEY' && report.msnData) {
+            // MSN simplified F-Score calc
+            const stats = report.msnData.keyStats;
+            if (stats.returnOnEquity > 0) score += 2;
+            if (stats.returnOnAssets > 0) score += 2;
+            if (stats.profitMargin > 5) score += 2;
+            if (stats.revenueGrowth > 0) score += 1;
+            if (stats.debtToEquity < 100) score += 1;
+            return Math.min(9, score); // Cap at 9
+        }
+
         const inc = report.annual.income;
         const bal = report.annual.balance;
         const cf = report.annual.cashflow;
         
-        if (inc.length < 2 || bal.length < 2 || cf.length < 1) return 5; // Neutral default
+        if (inc.length < 2 || bal.length < 2 || cf.length < 1) return 5; 
 
         // Data Helpers
         const getVal = (arr: any[], idx: number, key: string) => getRaw(arr[idx]?.[key]);
@@ -357,7 +387,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const prevCurrentRatio = getVal(bal, 1, 'totalCurrentAssets') / (getVal(bal, 1, 'totalCurrentLiabilities') || 1);
         if (currentRatio > prevCurrentRatio) score++;
         
-        score++; // Share dilution check omitted (assume positive)
+        score++; 
 
         // 3. Operating Efficiency
         const grossProfit = getVal(inc, 0, 'grossProfit');
@@ -381,6 +411,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const calculatePreciseZScore = (report: DeepFinancialReport, marketCap: number) => {
       try {
+          if (report.source === 'MSN_MONEY' && report.msnData) {
+              // MSN Proxy Z-Score
+              const stats = report.msnData.keyStats;
+              let z = 1.0;
+              if (stats.totalDebtToEquity < 50) z += 1.5;
+              if (stats.currentRatio > 1.5) z += 0.5;
+              if (stats.returnOnAssets > 5) z += 1.0;
+              if (stats.profitMargin > 10) z += 0.5;
+              return z;
+          }
+
           let totalAssets = 0, currentAssets = 0, currentLiabs = 0, retainedEarnings = 0, ebit = 0, totalLiabs = 0, revenue = 0;
           if (report.source === 'SEC_XBRL' && report.xbrl) {
               const facts = report.xbrl;
@@ -458,7 +499,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setAnalysisPhase('INIT');
     setProcessedData([]);
     setLiveAuditFeed([]);
-    setSourceStats({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, fallback: 0 });
+    setSourceStats({ rapid: 0, yahoo: 0, finnhub: 0, sec: 0, msn: 0, fallback: 0 });
     startTimeRef.current = Date.now();
     
     try {
@@ -477,13 +518,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       targets.sort((a: any, b: any) => (b.marketCap || 0) - (a.marketCap || 0));
       
       // [DATA HEALING: Volume-Priority Mode]
-      // Check if primary fundamentals are missing (Source: Polygon)
       const isPolygonSource = targets[0]?.source?.includes("Polygon") || false;
       const hasFundamentals = targets.some((t: any) => t.roe !== undefined || t.pe !== undefined);
       
       if (!hasFundamentals || isPolygonSource) {
           addLog("⚠️ Source Data lacks Fundamentals (Polygon/SEC). Switching to Volume-Priority Mode.", "warn");
-          // Re-sort by Liquidty (Price * Volume) to ensure we fetch data for most important stocks first
           targets.sort((a: any, b: any) => ((b.price * b.volume) || 0) - ((a.price * a.volume) || 0));
       }
 
@@ -493,8 +532,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const scannedTickers: QualityTicker[] = [];
       let currentIndex = 0;
 
-      // --- TIER 1: TRIPLE EXCEL SCAN (INTERNAL - Fast) ---
-      // Uses enriched data from Stage 0 (TV Scanner)
+      // --- TIER 1: TRIPLE EXCEL SCAN ---
       while (currentIndex < targets.length) {
           const batch = targets.slice(currentIndex, currentIndex + BATCH_SIZE_TIER1);
           
@@ -503,16 +541,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               const pe = Math.max(0.1, safeNum(t.pe));
               const rawRoe = safeNum(t.roe); 
               
-              // 1. Winsorization
               const winsorizedRoe = winsorize(rawRoe, -0.5, 0.4);
-              
-              // 2. Profitability Density
               const profitDensity = winsorizedRoe / pe;
-
-              // 3. Earnings Yield
               const eps = safeNum(t.eps);
               const earningsYield = eps / price;
-              
               const pbr = safeNum(t.pb) || safeNum(t.pbr) || 0;
               const debt = safeNum(t.debtToEquity) || 0;
 
@@ -526,7 +558,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   profitDensity: profitDensity,
                   earningsYield: earningsYield,
                   source: t.source || 'STAGE1_OPTIMIZED',
-                  qualityScore: 0, // Placeholder
+                  qualityScore: 0, 
                   zScore: 0, 
                   fScore: 0,
                   sector: t.sector || "Unclassified", 
@@ -561,18 +593,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           });
           scannedTickers.sort((a, b) => b.qualityScore - a.qualityScore);
       } else {
-          // If no fundamentals, we just rely on MarketCap/Volume sorting from earlier
-          // We set a placeholder qualityScore based on rank to keep the pipeline consistent
-          addLog(`Data Gap Detected. Prioritizing Top ${TARGET_TIER2_COUNT} Liquid Assets for Deep Mining.`, "info");
+          addLog(`Data Gap Detected. Prioritizing Top ${TARGET_TIER2_COUNT} Liquid Assets for Deep Mining (Data Healing).`, "info");
           scannedTickers.forEach((t, idx) => {
-               // Fake score to maintain sort order
                t.qualityScore = 100 - (idx / scannedTickers.length) * 100;
           });
       }
 
       let eliteSurvivors = scannedTickers.slice(0, TARGET_TIER2_COUNT);
       
-      // --- TIER 2: DEEP MINING (EXTERNAL API) ---
+      // --- TIER 2: DEEP MINING (MSN + SEC) ---
       setAnalysisPhase('DEEP_MINING');
       addLog(`Initiating Tier 2 Deep Mining for Top ${eliteSurvivors.length} Candidates...`, "signal");
       
@@ -586,39 +615,44 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const ticker = eliteSurvivors[i];
           let status: 'OK' | 'WARN' | 'FAIL' = 'OK';
           
-          // REAL API CALL HAPPENS HERE
-          // This will fetch fundamental data even if Stage 0 missed it
+          // FETCH DEEP DATA
           const report = await fetchDeepFinancials(ticker);
           
-          if (report && (report.xbrl || report.annual.balance.length > 0)) {
+          if (report) {
+               // [DATA HEALING] Populate missing fields using MSN or SEC data
+               if (report.source === 'MSN_MONEY' && report.msnData && report.msnData.keyStats) {
+                   const stats = report.msnData.keyStats;
+                   if (!ticker.roe) ticker.roe = stats.returnOnEquity || 0;
+                   if (!ticker.per) ticker.per = stats.peRatio || 0;
+                   if (!ticker.pbr) ticker.pbr = stats.priceToBook || 0;
+                   if (!ticker.debtToEquity) ticker.debtToEquity = stats.totalDebtToEquity || 0;
+                   if (ticker.sector === "Unclassified" && report.msnData.sector) ticker.sector = report.msnData.sector;
+                   
+                   setSourceStats(prev => ({...prev, msn: prev.msn + 1}));
+               }
+               else if (report.source === 'SEC_XBRL' || report.source === 'YAHOO_V10') {
+                    if (!ticker.roe && report.annual.income.length > 0 && report.annual.balance.length > 0) {
+                        const netInc = getRaw(report.annual.income[0].netIncome);
+                        const equity = getRaw(report.annual.balance[0].totalStockholderEquity);
+                        if (equity) ticker.roe = (netInc / equity) * 100;
+                    }
+                    if (!ticker.per && ticker.eps && ticker.price) {
+                        ticker.per = ticker.price / ticker.eps;
+                    }
+                    if (report.source === 'SEC_XBRL') setSourceStats(prev => ({...prev, sec: prev.sec + 1}));
+                    else setSourceStats(prev => ({...prev, yahoo: prev.yahoo + 1}));
+               }
+
                // 1. Z-Score
                const zScore = calculatePreciseZScore(report, ticker.marketCap);
                
                // 2. F-Score (Piotroski)
                const fScore = calculatePiotroskiFScore(report);
 
-               // [DATA HEALING] Populate missing fields from the deep report
-               if (!ticker.roe && report.annual.income.length > 0 && report.annual.balance.length > 0) {
-                   const netInc = getRaw(report.annual.income[0].netIncome);
-                   const equity = getRaw(report.annual.balance[0].totalStockholderEquity);
-                   if (equity) ticker.roe = (netInc / equity) * 100;
-               }
-               if (!ticker.per && ticker.eps && ticker.price) {
-                   ticker.per = ticker.price / ticker.eps;
-               }
-
                ticker.zScore = Number(zScore.toFixed(2));
                ticker.fScore = fScore;
                ticker.financialReport = report;
                ticker.source = `TIER2_${report.source}`;
-               
-               if (report.source === 'SEC_XBRL') {
-                   setSourceStats(prev => ({...prev, sec: prev.sec + 1}));
-               } else if (report.source === 'YAHOO_V10') {
-                   setSourceStats(prev => ({...prev, yahoo: prev.yahoo + 1}));
-               } else {
-                   setSourceStats(prev => ({...prev, rapid: prev.rapid + 1}));
-               }
 
                if (reportsFolderId) {
                    await uploadSingleReport(reportsFolderId, ticker);
@@ -704,7 +738,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           t.qualityScore = Number(((t.qualityScore * 0.3) + (fScoreNorm * 0.2) + (zScoreNorm * 0.2) + (t.sectorRelativeVal * 0.3)).toFixed(2));
       });
 
-      // Cut to Top 250
+      // Cut to Top 150
       setAnalysisPhase('FINAL_FILTER');
       finalCandidates.sort((a, b) => b.qualityScore - a.qualityScore);
       const finalElite = finalCandidates.slice(0, FINAL_SELECTION_COUNT);
@@ -723,11 +757,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const payload = {
             manifest: { 
-                version: "17.2.0", 
-                strategy: "V17.2_Deep_Sector_Neutral_Alpha", 
+                version: "17.3.0", 
+                strategy: "V17.3_MSN_Deep_Healing", 
                 timestamp: new Date().toISOString(), 
-                engine: "Use_Everything",
-                description: "Tier 1: Triple Excel -> Tier 2: F-Score/Z-Score/Relative Value (5-Year Deep Dive)"
+                engine: "Use_Everything_With_MSN",
+                description: "Tier 1: Triple Excel -> Tier 2: MSN/SEC Data Healing -> F-Score/Z-Score"
             },
             elite_universe: finalElite 
           };
@@ -940,7 +974,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v17.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v17.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex flex-wrap items-center gap-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
@@ -985,7 +1019,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     </div>
 
                     <div className="flex justify-between items-center mb-6">
-                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Execution Pipeline (V17.2)</p>
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Execution Pipeline (V17.3)</p>
                     </div>
 
                     {/* Stage 1: Tier 1 Scan */}
@@ -1002,7 +1036,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     {/* Stage 2: Tier 2 Deep Mining */}
                     <div className="mb-3">
                          <div className="flex justify-between items-center mb-1">
-                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_MINING' || analysisPhase === 'SECTOR_NEUTRAL' ? 'text-white' : 'text-slate-500'}`}>2. Tier 2 Deep Mining (API)</span>
+                            <span className={`text-[8px] font-bold uppercase tracking-widest ${analysisPhase === 'DEEP_MINING' || analysisPhase === 'SECTOR_NEUTRAL' ? 'text-white' : 'text-slate-500'}`}>2. Tier 2 Deep Mining (MSN/SEC)</span>
                              <span className="text-[8px] font-mono text-slate-400">{enrichProgress.current} / {enrichProgress.total}</span>
                         </div>
                          <div className="h-1.5 bg-slate-800 rounded-full overflow-hidden">
@@ -1117,8 +1151,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                              <div>
                                                  <div className="flex items-center gap-1.5">
                                                      <p className="text-xs font-black text-white group-hover:text-blue-400 transition-colors">{item.symbol}</p>
-                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('SEC') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
-                                                         {item.source.includes('SEC') ? 'SEC' : 'EST'}
+                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('SEC') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : item.source.includes('MSN') ? 'bg-indigo-500/20 text-indigo-500 border-indigo-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
+                                                         {item.source.includes('SEC') ? 'SEC' : item.source.includes('MSN') ? 'MSN' : 'EST'}
                                                      </span>
                                                  </div>
                                                  <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
@@ -1157,6 +1191,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 {[
                   { id: 'fmp', label: 'Real (FMP)', count: sourceStats.rapid, color: 'text-emerald-400', border: 'border-emerald-500/30' },
                   { id: 'finnhub', label: 'Real (Finnhub)', count: sourceStats.finnhub, color: 'text-cyan-400', border: 'border-cyan-500/30' },
+                  { id: 'msn', label: 'MSN (Proxy)', count: sourceStats.msn, color: 'text-fuchsia-400', border: 'border-fuchsia-500/30' },
                   { id: 'yahoo', label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
                   { id: 'sec', label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
                   { id: 'fallback', label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
