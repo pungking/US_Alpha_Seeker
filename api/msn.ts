@@ -1,10 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Alpha Sieve" - Resilient Data Aggregation v7.1 (Zombie Protocol)
+  // "The Fundamentalist" - Precision Ratio Aggregation v8.0
   // Strategy: 
-  // 1. FMP Bulk (Primary - Fastest)
-  // 2. Yahoo Bulk (Secondary - Rich Stats)
-  // 3. Yahoo Chart V8 (Deep Fallback - Almost impossible to block, guarantees Price)
+  // 1. FMP Bulk Quote (Price, PE basic)
+  // 2. Yahoo Bulk Quote (Rich Data: ROE, PBR, PE)
+  // 3. FMP Ratios TTM (Surgical Strike) -> Fetches missing ROE/PBR for survivors
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -25,7 +25,6 @@ export default async function handler(req: any, res: any) {
   const symbolList = String(symbols).split(',');
   const FMP_KEY = process.env.FMP_KEY || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7';
   
-  // Safe number parser
   const getVal = (v: any) => {
     if (v === null || v === undefined || v === 'N/A') return null;
     const num = parseFloat(v);
@@ -44,10 +43,10 @@ export default async function handler(req: any, res: any) {
   try {
     const aggregatedData = new Map();
 
-    // Init map
+    // 0. Initialize Map
     symbolList.forEach(sym => aggregatedData.set(sym, { symbol: sym, source: [] }));
 
-    // --- 1. FMP BULK (Primary) ---
+    // --- 1. FMP BULK QUOTE (Base Layer) ---
     try {
         const fmpUrl = `https://financialmodelingprep.com/api/v3/quote/${symbols}?apikey=${FMP_KEY}`;
         const fmpRes = await fetch(fmpUrl);
@@ -61,20 +60,19 @@ export default async function handler(req: any, res: any) {
                     if (item.pe) current.peRatio = getVal(item.pe);
                     if (item.eps) current.eps = getVal(item.eps);
                     if (item.marketCap) current.marketCap = getVal(item.marketCap);
-                    // FMP doesn't give ROE in quote, only in ratios.
                     
-                    current.source.push('FMP');
+                    current.source.push('FMP_Q');
                     aggregatedData.set(item.symbol, current);
                 });
             }
         }
     } catch (e) {
-        console.warn("FMP Failed:", e);
+        console.warn("FMP Quote Failed:", e);
     }
 
-    // --- 2. YAHOO BULK (Secondary - Excellent for ROE/PBR) ---
+    // --- 2. YAHOO BULK (Rich Layer - ROE/PBR/PE) ---
     try {
-        // Use query2 (sometimes less restricted)
+        // Use query2 for better reliability
         const yahooUrl = `https://query2.finance.yahoo.com/v7/finance/quote?symbols=${symbols}`;
         const yahooRes = await fetch(yahooUrl, {
             headers: { 'User-Agent': getRandomUA() }
@@ -88,43 +86,55 @@ export default async function handler(req: any, res: any) {
                 const current = aggregatedData.get(sym) || { symbol: sym, source: [] };
 
                 if (!current.price) current.price = getVal(item.regularMarketPrice);
-                if (!current.peRatio) current.peRatio = getVal(item.trailingPE) || getVal(item.forwardPE);
-                if (!current.returnOnEquity) current.returnOnEquity = item.financialCurrency === 'USD' ? getVal(item.returnOnEquity) : null;
+                // Prefer Yahoo PE as it's often TTM adjusted
+                const yPe = getVal(item.trailingPE) || getVal(item.forwardPE);
+                if (yPe) current.peRatio = yPe;
+                
+                if (!current.returnOnEquity) current.returnOnEquity = item.financialCurrency === 'USD' ? getVal(item.returnOnEquity) : null; 
                 if (!current.priceToBook) current.priceToBook = getVal(item.priceToBook);
                 if (!current.marketCap) current.marketCap = getVal(item.marketCap);
                 if (!current.eps) current.eps = getVal(item.epsTrailingTwelveMonths);
                 
+                // Fix ROE units (Yahoo gives 0.15 for 15%)
                 if (current.returnOnEquity && current.returnOnEquity < 1) current.returnOnEquity *= 100;
 
-                current.source.push('YHO_V7');
+                current.source.push('YHO');
                 aggregatedData.set(sym, current);
             });
         }
     } catch (e) {
-        console.warn("Yahoo V7 Failed:", e);
+        console.warn("Yahoo Failed:", e);
     }
 
-    // --- 3. YAHOO CHART V8 (Deep Fallback - Zombie Mode) ---
-    // If still missing Price, check individual charts for the MISSING ones only.
-    // This is slow but guarantees data for stubborn tickers.
-    const missingPrice = Array.from(aggregatedData.values()).filter((i: any) => !i.price);
-    if (missingPrice.length > 0 && missingPrice.length < 5) { // Only do this if a few are missing to avoid timeout
-         await Promise.all(missingPrice.map(async (item: any) => {
+    // --- 3. SURGICAL STRIKE: FMP RATIOS (Fill Missing ROE/PBR) ---
+    // If we still lack ROE or PBR, fetch FMP Ratios specifically for those tickers.
+    const missingFundamentals = Array.from(aggregatedData.values()).filter((item: any) => 
+        !item.returnOnEquity || !item.priceToBook || !item.peRatio
+    );
+
+    if (missingFundamentals.length > 0) {
+        // We limit parallel requests to avoid rate limits, but for small batch size (10) it's fine.
+        await Promise.all(missingFundamentals.map(async (item: any) => {
              try {
-                const chartUrl = `https://query1.finance.yahoo.com/v8/finance/chart/${item.symbol}?interval=1d&range=1d`;
-                const cRes = await fetch(chartUrl, { headers: { 'User-Agent': getRandomUA() } });
-                if (cRes.ok) {
-                    const cJson = await cRes.json();
-                    const meta = cJson.chart?.result?.[0]?.meta;
-                    if (meta && meta.regularMarketPrice) {
-                        const current = aggregatedData.get(item.symbol);
-                        current.price = meta.regularMarketPrice;
-                        current.source.push('YHO_V8_CHART');
-                        // Infer Market Cap roughly if missing? No, too risky.
-                    }
-                }
-             } catch(e) {}
-         }));
+                 const ratioUrl = `https://financialmodelingprep.com/api/v3/ratios-ttm/${item.symbol}?apikey=${FMP_KEY}`;
+                 const rRes = await fetch(ratioUrl);
+                 if (rRes.ok) {
+                     const rData = await rRes.json();
+                     if (Array.isArray(rData) && rData.length > 0) {
+                         const ratios = rData[0];
+                         // Fill gaps
+                         if (!item.peRatio) item.peRatio = getVal(ratios.peRatioTTM);
+                         if (!item.returnOnEquity) item.returnOnEquity = getVal(ratios.returnOnEquityTTM) ? getVal(ratios.returnOnEquityTTM)! * 100 : null; // FMP is usually decimal
+                         if (item.returnOnEquity && item.returnOnEquity < 1) item.returnOnEquity *= 100;
+
+                         if (!item.priceToBook) item.priceToBook = getVal(ratios.priceToBookRatioTTM);
+                         
+                         item.source.push('FMP_R');
+                         aggregatedData.set(item.symbol, item);
+                     }
+                 }
+             } catch(e) { /* Ignore individual failure */ }
+        }));
     }
 
     // --- 4. DERIVATION & CLEANUP ---
@@ -132,10 +142,9 @@ export default async function handler(req: any, res: any) {
         // Derive PE if missing
         if (!item.peRatio && item.price && item.eps && item.eps > 0) {
             item.peRatio = parseFloat((item.price / item.eps).toFixed(2));
-            item.source.push('CALC_PE');
+            item.source.push('CALC');
         }
 
-        // Clean up output
         return {
             symbol: item.symbol,
             price: item.price || 0,
@@ -143,7 +152,7 @@ export default async function handler(req: any, res: any) {
             returnOnEquity: item.returnOnEquity || 0,
             priceToBook: item.priceToBook || 0,
             marketCap: item.marketCap || 0,
-            debtToEquity: 0, // Hard to get in bulk without deep dive
+            debtToEquity: 0, 
             source: item.source.join('+') || 'None'
         };
     });
@@ -152,6 +161,6 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
       console.error("Alpha Sieve Error:", error);
-      return res.status(200).json(symbolList.map(s => ({ symbol: s, error: "Failed" }))); // Soft fail
+      return res.status(200).json(symbolList.map(s => ({ symbol: s, error: "Failed" }))); 
   }
 }
