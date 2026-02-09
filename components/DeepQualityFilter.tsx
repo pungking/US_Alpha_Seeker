@@ -22,8 +22,8 @@ interface DeepFinancialReport {
     cashflow: any[];
   };
   secData?: any; 
-  xbrl?: any;
-  msnData?: any; 
+  xbrl?: any; 
+  msnData?: any; // [NEW] MSN Raw Data
 }
 
 interface QualityTicker {
@@ -34,23 +34,23 @@ interface QualityTicker {
   marketValue: number;
   
   // V17.0 Metrics
-  eps: number;          
-  earningsYield: number;
-  profitDensity: number;
+  eps: number;          // Earnings Per Share
+  earningsYield: number;// EPS / Price
+  profitDensity: number;// ROE / PE
   
-  // Advanced Metrics
+  // Advanced Metrics (Calculated or Retrieved)
   zScore: number;       
   fScore: number;       
-  sectorRelativeVal: number;
+  sectorRelativeVal: number; // Sector Neutral Value
   
   // 3-Factor Scores (0-100)
   profitabilityScore: number; 
   stabilityScore: number;     
   growthScore: number;        
-  qualityScore: number;       
-  validityScore: number;      
+  qualityScore: number;       // Final Weighted Alpha Score
+  validityScore: number;      // Data Confidence (0-100)
 
-  // Raw Data
+  // Raw Data (Snapshot)
   per: number;
   roe: number;
   debtToEquity: number;
@@ -64,21 +64,23 @@ interface QualityTicker {
   theme: string; 
   lastUpdate: string;
   source: string;
-  cik?: number; 
+  cik?: number; // SEC CIK 
 
-  // [DATA PRESERVATION]
+  // [DATA PRESERVATION] Store raw financial report (Deep Ledger)
   financialReport?: DeepFinancialReport; 
+
   [key: string]: any;
 }
 
+// [NEW] Audit Packet for Visualization (Dual Stage Support)
 interface AuditPacket {
   symbol: string;
-  stage: 'TIER1' | 'TIER2'; 
-  data1: number; 
-  data2: number; 
+  stage: 'TIER1' | 'TIER2'; // Scan vs Deep Dive
+  data1: number; // T1: ROE, T2: Z-Score
+  data2: number; // T1: PE, T2: F-Score
   source: string;
   timestamp: string;
-  status: 'OK' | 'WARN' | 'FAIL'; 
+  status: 'OK' | 'WARN' | 'FAIL'; // Visual Indicator
 }
 
 interface Props {
@@ -87,9 +89,11 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
+// [CACHE RESET] V18.0 Upgrade: Funnel Architecture
 const CACHE_PREFIX = 'QUANT_CACHE_V18.0_FUNNEL_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
+// [HELPER] Extract raw value from Yahoo's { raw: ..., fmt: ... } object or return value directly
 const getRaw = (val: any): number => {
     if (val === null || val === undefined) return 0;
     if (typeof val === 'object' && 'raw' in val) return Number(val.raw) || 0;
@@ -97,18 +101,30 @@ const getRaw = (val: any): number => {
     return isNaN(num) ? 0 : num;
 };
 
+// [HELPER] Extract latest value from SEC XBRL facts array
 const getSecVal = (facts: any, tagName: string) => {
     if (!facts || !facts[tagName] || !facts[tagName].units || !facts[tagName].units.USD) return 0;
     const entries = facts[tagName].units.USD;
     const currentYear = new Date().getFullYear();
-    const valid = entries.filter((e: any) => parseInt(e.end.substring(0, 4)) >= currentYear - 2);
+    const valid = entries.filter((e: any) => {
+        const year = parseInt(e.end.substring(0, 4));
+        return year >= currentYear - 2; 
+    });
     if (valid.length === 0) return 0;
-    valid.sort((a: any, b: any) => a.end > b.end ? -1 : 1);
+    valid.sort((a: any, b: any) => {
+        if (a.end > b.end) return -1;
+        if (a.end < b.end) return 1;
+        return 0;
+    });
     return valid[0].val || 0;
 };
 
-const winsorize = (value: number, min: number, max: number) => Math.max(min, Math.min(value, max));
+// [HELPER] Winsorization: Cap outliers to prevent skewing
+const winsorize = (value: number, min: number, max: number) => {
+    return Math.max(min, Math.min(value, max));
+};
 
+// [HELPER] Normalize array of values to 0-100 score
 const normalizeScores = (items: QualityTicker[], key: string, inverse: boolean = false) => {
     const values = items.map(i => i[key]).filter(v => !isNaN(v) && isFinite(v));
     if (values.length === 0) return;
@@ -143,7 +159,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [activeStream, setActiveStream] = useState<string>('IDLE');
   
   const [selectedTheme, setSelectedTheme] = useState<string | null>(null);
-  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'RANKING_TIER1' | 'DEEP_MINING_TIER2' | 'SECTOR_NEUTRAL' | 'FINAL_FILTER' | 'AI_AUDIT' | 'COMPLETE'>('INIT');
+  const [analysisPhase, setAnalysisPhase] = useState<'INIT' | 'RANKING_TIER1' | 'DEEP_MINING_TIER2' | 'SECTOR_NEUTRAL' | 'FINAL_FILTER' | 'REPORT_DUMP' | 'AI_AUDIT' | 'COMPLETE'>('INIT');
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -154,20 +170,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [logs, setLogs] = useState<string[]>(['> Quant_Node v18.0: 500-250 Funnel Architecture Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  
   const logRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
 
-  // [FUNNEL CONSTANTS]
+  // V18.0: Optimized Batch Sizes for Funnel
   const TARGET_TIER2_COUNT = 500; // Deep dive candidates (Fetch Financials)
-  const FINAL_SELECTION_COUNT = 250; // Final output for Stage 3
+  const FINAL_SELECTION_COUNT = 250; // Final output
   
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // Auto-scroll the live audit feed when not hovered
   useEffect(() => {
     if (listRef.current && liveAuditFeed.length > 0) {
-       listRef.current.scrollTop = 0; 
+       listRef.current.scrollTop = 0; // Scroll to top to see newest
     }
   }, [liveAuditFeed]);
 
@@ -178,16 +196,19 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
         let etaSec = 0;
+        
         if (analysisPhase === 'DEEP_MINING_TIER2' && enrichProgress.current > 0 && enrichProgress.total > 0) {
-            const rate = enrichProgress.current / (elapsedSec || 1);
+            const enrichElapsed = elapsedSec; 
+            const rate = enrichProgress.current / (enrichElapsed || 1);
             const remaining = enrichProgress.total - enrichProgress.current;
             etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
         }
+
         setTimeStats({ elapsed: elapsedSec, eta: etaSec });
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [loading, enrichProgress, analysisPhase]);
+  }, [loading, progress, enrichProgress, analysisPhase]);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -276,7 +297,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
       } catch(e) {}
 
-      // 2. Fallback: SEC XBRL if CIK exists
+      // 2. Prioritize SEC XBRL if CIK is available
       if (ticker.cik) {
           try {
               const res = await fetch(`/api/sec?action=facts&cik=${ticker.cik}`);
@@ -294,9 +315,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           } catch(e) {}
       }
 
-      // 3. Fallback: Yahoo
+      // 3. Fallback to Yahoo
       try {
-          const modules = "financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory";
+          const modules = "financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory,earningsTrend";
           const res = await fetch(`/api/yahoo?symbols=${ticker.symbol}&modules=${modules}`);
           if (res.ok) {
               const data = await res.json();
@@ -331,6 +352,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         
         if (inc.length < 2 || bal.length < 2 || cf.length < 1) return 5; 
 
+        // Data Helpers
         const getVal = (arr: any[], idx: number, key: string) => getRaw(arr[idx]?.[key]);
         
         // 1. Profitability
@@ -346,6 +368,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const prevNetIncome = getVal(inc, 1, 'netIncome');
         const prevRoa = prevAssets ? prevNetIncome / prevAssets : 0;
         if (roa > prevRoa) score++;
+        
         if (cfo > netIncome) score++;
 
         // 2. Leverage/Liquidity
@@ -357,7 +380,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         const prevCurrentRatio = getVal(bal, 1, 'totalCurrentAssets') / (getVal(bal, 1, 'totalCurrentLiabilities') || 1);
         if (currentRatio > prevCurrentRatio) score++;
         
-        score++; 
+        score++; // Share dilution check omitted (assume positive)
 
         // 3. Operating Efficiency
         const grossProfit = getVal(inc, 0, 'grossProfit');
@@ -381,7 +404,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const calculatePreciseZScore = (report: DeepFinancialReport, marketCap: number) => {
       try {
-          if (report.source === 'MSN_FINANCIALS') return 3.0; // Placeholder
+          if (report.source === 'MSN_FINANCIALS') {
+              // Placeholder for MSN calculation if detailed fields map correctly
+              return 3.0; // Safe default for now
+          }
 
           let totalAssets = 0, currentAssets = 0, currentLiabs = 0, retainedEarnings = 0, ebit = 0, totalLiabs = 0, revenue = 0;
           if (report.source === 'SEC_XBRL' && report.xbrl) {
@@ -464,7 +490,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     startTimeRef.current = Date.now();
     
     try {
-      // 1. Load Stage 1 Data (Now includes injected fundamentals)
       const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -477,18 +502,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }).then(r => r.json());
 
       let targets = content.investable_universe || [];
-      // Initial Sort by basic quality (which was injected in Stage 1)
-      // High Quality = Positive ROE + Reasonable PE + Volume
+      
+      // --- TIER 1: RANKING & FILTERING (Uses Stage 1 injected data) ---
+      setAnalysisPhase('RANKING_TIER1');
+      setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
+
+      // Sort by basic quality (which was injected in Stage 1)
+      // Heuristic: Positive ROE + Reasonable PE + Volume + MarketCap
       targets.sort((a: any, b: any) => {
           const scoreA = (a.roe || 0) * 2 + (a.marketCap ? 10 : 0) - (a.pe > 50 ? 20 : 0);
           const scoreB = (b.roe || 0) * 2 + (b.marketCap ? 10 : 0) - (b.pe > 50 ? 20 : 0);
           return scoreB - scoreA;
       });
 
-      // --- TIER 1: RANKING & FILTERING (Top 500) ---
-      setAnalysisPhase('RANKING_TIER1');
-      setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
-      
+      // Select Top 500
       const eliteSurvivors = targets.slice(0, TARGET_TIER2_COUNT).map((t: any) => ({
           ...t,
           source: t.source || 'STAGE1_ENRICHED',
@@ -503,7 +530,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       addLog(`Tier 1: Selected top ${eliteSurvivors.length} candidates based on injected Stage 1 fundamentals.`, "ok");
       
-      // --- TIER 2: DEEP MINING (MSN FINANCIALS) ---
+      // --- TIER 2: DEEP MINING (MSN / SEC / YAHOO) ---
       setAnalysisPhase('DEEP_MINING_TIER2');
       addLog(`Initiating Tier 2 Deep Mining (Financial Statements) for ${eliteSurvivors.length} Candidates...`, "signal");
       
@@ -517,12 +544,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const ticker = eliteSurvivors[i];
           let status: 'OK' | 'WARN' | 'FAIL' = 'OK';
           
-          // FETCH DEEP FINANCIALS
+          // REAL API CALL HAPPENS HERE (Only 500 calls)
           const report = await fetchDeepFinancials(ticker);
           
           if (report) {
-               // 1. Z-Score & F-Score with Deep Data
+               // 1. Z-Score
                const zScore = calculatePreciseZScore(report, ticker.marketCap || 0);
+               
+               // 2. F-Score (Piotroski)
                const fScore = calculatePiotroskiFScore(report);
 
                ticker.zScore = Number(zScore.toFixed(2));
@@ -541,7 +570,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                
                finalCandidates.push(ticker);
           } else {
-              // Fallback: Use injected data for rough score
+              // Fallback Logic
               let approxZ = 1.6; 
               if ((ticker.debtToEquity || 0) < 0.5) approxZ += 1.0;
               if ((ticker.currentRatio || 1.5) > 2.0) approxZ += 0.5;
@@ -558,6 +587,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               finalCandidates.push(ticker);
           }
           
+           // Live Audit Feed
            const auditData: AuditPacket = {
                symbol: ticker.symbol,
                stage: 'TIER2',
@@ -572,8 +602,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           setEnrichProgress({ current: i + 1, total: eliteSurvivors.length });
           setReportProgress(prev => ({ ...prev, current: i + 1, archived: archiveCount }));
           
-          // Throttling for safety
-          await new Promise(r => setTimeout(r, 250));
+          await new Promise(r => setTimeout(r, 250)); // Throttle
       }
 
       // --- SECTOR NEUTRALITY & FINAL FILTER ---
@@ -612,6 +641,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           // Initial Quality from Stage 1 + Deep Scores
           const baseQual = ((t.roe || 0) * 0.5) + ((100 - (t.debtToEquity || 50)) * 0.3);
           
+          // Re-calculate Final Quality Score
           t.qualityScore = Number(((baseQual * 0.3) + (fScoreNorm * 0.2) + (zScoreNorm * 0.2) + (t.sectorRelativeVal * 0.3)).toFixed(2));
       });
 
@@ -624,6 +654,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setAnalysisPhase('AI_AUDIT');
       await analyzeUniverseHealth(finalElite);
       
+      // Final Save
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
       if (folderId) {
           const now = new Date();
@@ -691,12 +722,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         }));
   }, [processedData]);
 
+  // Drill Down Logic
   const themeDetails = useMemo(() => {
       if (!selectedTheme) return [];
       const stocks = processedData.filter(t => t.theme === selectedTheme);
       return stocks.sort((a, b) => b.qualityScore - a.qualityScore);
   }, [selectedTheme, processedData]);
 
+  // Filtered Audit Feed based on selected source
   const filteredAuditFeed = useMemo(() => {
       if (!filterSource) return liveAuditFeed;
       return liveAuditFeed.filter(item => item.source.toLowerCase().includes(filterSource.toLowerCase()));
@@ -734,6 +767,18 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     );
   };
 
+  const getPhaseStyle = (phase: string) => {
+      const phases = ['RANKING_TIER1', 'DEEP_MINING_TIER2', 'SECTOR_NEUTRAL', 'FINAL_FILTER', 'AI_AUDIT', 'COMPLETE'];
+      const currentIdx = phases.indexOf(analysisPhase);
+      const targetIdx = phases.indexOf(phase);
+      
+      if (analysisPhase === 'COMPLETE') return 'text-emerald-400 font-bold';
+      if (analysisPhase === 'INIT') return 'text-slate-600';
+      if (currentIdx === targetIdx) return 'text-blue-400 animate-pulse font-black scale-105';
+      if (currentIdx > targetIdx) return 'text-slate-400';
+      return 'text-slate-700';
+  };
+
   const analyzeUniverseHealth = async (tickers: QualityTicker[]) => {
     setAiStatus('ANALYZING');
     setAiAnalysis("📡 Gemini 3.0: Institutional Portfolio Audit in progress...");
@@ -748,6 +793,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     const avgScore = (tickers.reduce((sum, t) => sum + t.qualityScore, 0) / totalCount).toFixed(1);
     const avgZ = (tickers.reduce((sum, t) => sum + t.zScore, 0) / totalCount).toFixed(2);
     
+    // Dominant Themes
     const themeCounts: Record<string, number> = {};
     tickers.forEach(t => themeCounts[t.theme] = (themeCounts[t.theme] || 0) + 1);
     const topThemes = Object.entries(themeCounts).sort((a,b) => b[1]-a[1]).slice(0, 3).map(x => x[0]).join(", ");
@@ -926,4 +972,194 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                         <p className={`text-[9px] font-black uppercase tracking-widest ${aiStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>Portfolio Risk Auditor (AI)</p>
                      </div>
                      <div className="prose-report text-xs text-slate-300 leading-relaxed font-medium">
-                        {aiAnalysis ? <
+                        {aiAnalysis ? <ReactMarkdown remarkPlugins={[remarkGfm]}>{aiAnalysis}</ReactMarkdown> : <span className="italic opacity-50">Awaiting portfolio aggregation...</span>}
+                     </div>
+                     {aiStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
+                  </div>
+              </div>
+
+              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative overflow-hidden">
+                 <div className="absolute top-6 left-6 z-10 w-full pr-12">
+                    <p className="text-[9px] font-black text-slate-300 uppercase tracking-widest mb-1 shadow-black drop-shadow-md">Market Theme Dominance</p>
+                    <p className="text-[8px] text-slate-500 uppercase font-mono">Based on Elite Selection</p>
+                 </div>
+                 <div className="flex-1 w-full h-full mt-14"> 
+                     {processedData.length > 0 ? (
+                        <ResponsiveContainer width="100%" height="100%">
+                            <Treemap
+                                data={themeData}
+                                dataKey="size"
+                                aspectRatio={4 / 3}
+                                stroke="#0f172a"
+                                content={<CustomizedContent />}
+                            >
+                                <RechartsTooltip 
+                                    content={({ active, payload }) => {
+                                        if (active && payload && payload.length) {
+                                            return (
+                                                <div className="bg-slate-900 border border-slate-700 p-2 rounded shadow-lg">
+                                                    <p className="text-xs font-bold text-white">{payload[0].payload.name}</p>
+                                                    <p className="text-[10px] text-blue-400">Assets: {payload[0].value}</p>
+                                                    <p className="text-[8px] text-slate-500 mt-1">Click to inspect sector</p>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    }}
+                                />
+                            </Treemap>
+                        </ResponsiveContainer>
+                     ) : (
+                         <div className="flex flex-col items-center justify-center h-full opacity-20 text-center">
+                             <div className="w-10 h-10 border-2 border-slate-600 rounded-full flex items-center justify-center mb-3">
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 6a2 2 0 012-2h2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" /></svg>
+                             </div>
+                             <p className="text-[9px] font-black uppercase tracking-[0.2em]">Ready to Visualize Themes</p>
+                         </div>
+                     )}
+                 </div>
+                 
+                 {selectedTheme && (
+                     <div className="absolute inset-0 z-20 bg-slate-900/95 backdrop-blur-md flex flex-col p-6 animate-in fade-in zoom-in-95 duration-200">
+                         <div className="flex justify-between items-center mb-4 border-b border-white/10 pb-4">
+                             <div>
+                                 <h4 className="text-lg font-black text-white italic tracking-tighter uppercase">{selectedTheme}</h4>
+                                 <p className="text-[10px] text-slate-400">Elite Assets Ranked by Quality</p>
+                             </div>
+                             {/* [FIXED] Explicit BACK button */}
+                             <button onClick={() => setSelectedTheme(null)} className="px-3 py-1.5 rounded-lg bg-slate-800 text-white text-[9px] font-black uppercase border border-slate-600 hover:bg-slate-700 transition-colors flex items-center gap-2">
+                                 ← BACK TO MAP
+                             </button>
+                         </div>
+                         <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
+                             {themeDetails.length > 0 ? themeDetails.map((item, idx) => {
+                                 const globalRank = processedData.findIndex(p => p.symbol === item.symbol) + 1;
+                                 return (
+                                     <div 
+                                        key={item.symbol} 
+                                        onClick={() => {
+                                            onStockSelected?.(item);
+                                        }}
+                                        className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:border-blue-500/50 transition-colors cursor-pointer active:scale-95 group"
+                                     >
+                                         <div className="flex items-center gap-3">
+                                             <div className="flex flex-col items-center justify-center w-8 h-8 bg-black/40 rounded-lg border border-white/5">
+                                                 <span className="text-[8px] text-slate-500 uppercase">Rank</span>
+                                                 <span className="text-[10px] font-black text-blue-400">#{globalRank}</span>
+                                             </div>
+                                             <div>
+                                                 <div className="flex items-center gap-1.5">
+                                                     <p className="text-xs font-black text-white group-hover:text-blue-400 transition-colors">{item.symbol}</p>
+                                                     <span className={`text-[6px] px-1 rounded border font-bold uppercase ${item.source.includes('SEC') ? 'bg-emerald-500/20 text-emerald-500 border-emerald-500/30' : 'bg-amber-500/20 text-amber-500 border-amber-500/30'}`}>
+                                                         {item.source.includes('SEC') ? 'SEC' : 'EST'}
+                                                     </span>
+                                                 </div>
+                                                 <p className="text-[9px] text-slate-400 truncate w-24">{item.name}</p>
+                                             </div>
+                                         </div>
+                                         <div className="text-right">
+                                             <div className="flex items-center justify-end gap-2">
+                                                 <span className="text-[10px] font-mono text-emerald-400 font-bold">${item.price?.toFixed(2)}</span>
+                                             </div>
+                                             <div className="flex items-center gap-2 mt-1">
+                                                 <span className="text-[8px] bg-slate-800 px-1.5 py-0.5 rounded text-slate-300">Z: {item.zScore}</span>
+                                                 <span className="text-[8px] bg-blue-900/40 px-1.5 py-0.5 rounded text-blue-300 border border-blue-500/20">Score: {item.qualityScore}</span>
+                                             </div>
+                                         </div>
+                                     </div>
+                                 );
+                             }) : <div className="text-center text-xs text-slate-500 mt-10">No data available</div>}
+                         </div>
+                     </div>
+                 )}
+              </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="xl:col-span-1 space-y-6">
+        {/* [NEW] Live Audit Dashboard */}
+        <div className="glass-panel p-6 rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-purple-600 flex flex-col shadow-2xl relative overflow-hidden min-h-[300px]">
+           <div className="flex items-center justify-between mb-4 px-2">
+              <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Live Audit Stream</h3>
+              <span className="text-[8px] font-mono text-purple-400 animate-pulse">{loading ? 'SCANNING...' : 'WAITING'}</span>
+           </div>
+
+           {/* Source Stats */}
+           <div className="flex gap-2 mb-4 overflow-x-auto no-scrollbar">
+                {[
+                  { id: 'fmp', label: 'Real (FMP)', count: sourceStats.rapid, color: 'text-emerald-400', border: 'border-emerald-500/30' },
+                  { id: 'finnhub', label: 'Real (Finnhub)', count: sourceStats.finnhub, color: 'text-cyan-400', border: 'border-cyan-500/30' },
+                  { id: 'yahoo', label: 'Real (Yahoo)', count: sourceStats.yahoo, color: 'text-blue-400', border: 'border-blue-500/30' },
+                  { id: 'sec', label: 'SEC (XBRL)', count: sourceStats.sec, color: 'text-indigo-400', border: 'border-indigo-500/30' },
+                  { id: 'fallback', label: 'Fallback', count: sourceStats.fallback, color: 'text-amber-400', border: 'border-amber-500/30' }
+                ].map((stat, idx) => (
+                    <div 
+                        key={idx} 
+                        onClick={() => setFilterSource(filterSource === stat.id ? null : stat.id)}
+                        className={`flex flex-col px-3 py-1.5 rounded-lg bg-black/40 border cursor-pointer hover:bg-white/5 transition-colors min-w-[70px] ${stat.border} ${filterSource === stat.id ? 'bg-white/10 ring-1 ring-white/30' : ''}`}
+                    >
+                        <span className="text-[7px] text-slate-500 uppercase font-bold whitespace-nowrap">{stat.label}</span>
+                        <span className={`text-[12px] font-mono font-black ${stat.color}`}>{stat.count}</span>
+                    </div>
+                ))}
+           </div>
+
+           {/* Ticker Tape List */}
+           <div ref={listRef} className="flex-1 overflow-y-auto custom-scrollbar space-y-2 relative max-h-[400px]">
+               {filteredAuditFeed.length > 0 ? filteredAuditFeed.map((item, idx) => (
+                   <div key={`${item.symbol}-${idx}`} className="flex justify-between items-center p-2 rounded-lg bg-white/5 border border-white/5 text-[9px] font-mono animate-in fade-in slide-in-from-right-2 hover:bg-white/10 transition-colors">
+                       <div className="flex items-center gap-2">
+                           <span className="text-white font-bold w-10">{item.symbol}</span>
+                           <span className={`px-1.5 py-0.5 rounded text-[6px] font-black uppercase tracking-wider ${
+                               item.stage === 'TIER2' ? 'bg-indigo-500/20 text-indigo-400 border border-indigo-500/30' : 'bg-blue-500/20 text-blue-400 border border-blue-500/30'
+                           }`}>
+                               {item.stage === 'TIER2' ? 'DEEP' : 'SCAN'}
+                           </span>
+                       </div>
+                       <div className="flex items-center gap-3">
+                           {item.stage === 'TIER1' ? (
+                               <div className="flex gap-3 text-slate-400">
+                                   <span>ROE: <span className={item.data1 > 15 ? 'text-emerald-400' : 'text-slate-400'}>{item.data1.toFixed(1)}%</span></span>
+                                   <span>PE: {item.data2.toFixed(1)}</span>
+                               </div>
+                           ) : (
+                               <div className="flex gap-3 text-slate-400">
+                                   <span>Z: <span className={item.data1 > 2.99 ? 'text-emerald-400' : item.data1 < 1.8 ? 'text-rose-400' : 'text-amber-400'}>{item.data1.toFixed(2)}</span></span>
+                                   <span>F: <span className={item.data2 >= 7 ? 'text-blue-400' : 'text-slate-400'}>{item.data2}</span></span>
+                               </div>
+                           )}
+                           <span className={`text-[6px] uppercase opacity-50 w-8 text-right ${item.status === 'WARN' ? 'text-amber-500' : 'text-slate-600'}`}>
+                               {item.status === 'WARN' ? '⚠' : item.source.split('_')[1] || 'SRC'}
+                           </span>
+                       </div>
+                   </div>
+               )) : (
+                   <div className="absolute inset-0 flex items-center justify-center opacity-20">
+                       <p className="text-[9px] font-black uppercase tracking-widest text-slate-500">
+                           {filterSource ? `No ${filterSource} data` : "No Active Data Stream"}
+                       </p>
+                   </div>
+               )}
+           </div>
+        </div>
+
+        <div className="glass-panel h-[300px] lg:h-[400px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between mb-8 px-2">
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Logs</h3>
+            <button onClick={clearStageCache} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 border border-slate-700">Clear Cache</button>
+          </div>
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
+            {logs.map((l, i) => (
+              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
+                {l}
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+};
+
+export default DeepQualityFilter;
