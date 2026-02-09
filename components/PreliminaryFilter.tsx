@@ -5,7 +5,8 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 
-// [DATA PRESERVATION] Extended Interface to match Stage 0's rich output
+// [STAGE 1 OUTPUT STRUCTURE]
+// Enriched with Basic Fundamentals from MSN
 interface MasterTicker {
   symbol: string;
   name?: string;
@@ -15,18 +16,17 @@ interface MasterTicker {
   updated: string;
   type?: string;
   
-  // Accumulated Data from Stage 0 (Fusion)
+  // Basic Fundamentals (Injected in Stage 1)
   marketCap?: number;
+  pe?: number;
+  roe?: number;
+  pbr?: number;
+  debtToEquity?: number;
+  
+  // Meta
   sector?: string;
   industry?: string;
-  pe?: number;
-  eps?: number;
-  roe?: number;
-  debtToEquity?: number;
-  pb?: number;
   source?: string;
-  
-  // Allow for future data accumulation without breaking types
   [key: string]: any;
 }
 
@@ -48,7 +48,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [activeAi, setActiveAi] = useState<string>('Standby'); 
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v2.3.0: Data Preservation Mode Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v3.0: Fundamental Injection Mode Ready.']);
   
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -57,9 +57,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiProposal, setAiProposal] = useState<AiProposal | null>(null);
   const [aiError, setAiError] = useState<string | null>(null);
   
+  // Injection Progress
+  const [injectionProgress, setInjectionProgress] = useState({ current: 0, total: 0 });
+  const [isInjecting, setIsInjecting] = useState(false);
+
   // Automation Internal State
-  const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'COMMITTING' | 'DONE'>('IDLE');
-  const [performAutoCommit, setPerformAutoCommit] = useState(false); // [NEW] Trigger for auto-commit
+  const [autoStep, setAutoStep] = useState<'IDLE' | 'ANALYZING' | 'INJECTING' | 'COMMITTING' | 'DONE'>('IDLE');
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -84,24 +87,20 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   }, [autoStart, autoStep, loading]);
 
-  // Step 2: Auto Commit after Analysis (Modified to work for both Auto and Manual Trigger)
+  // Step 2: Auto Inject & Commit
   useEffect(() => {
-      if (performAutoCommit && !loading && !isAnalyzing && (aiProposal || aiError)) {
-          // Wait briefly for state to settle then commit
+      if (autoStep === 'ANALYZING' && !isAnalyzing && (aiProposal || aiError)) {
           const timer = setTimeout(() => {
-              if (autoStart && autoStep === 'ANALYZING') {
-                  setAutoStep('COMMITTING');
-              }
-              commitPurification();
-              setPerformAutoCommit(false); // Reset trigger
+              setAutoStep('INJECTING');
+              startFundamentalInjection();
           }, 2000);
           return () => clearTimeout(timer);
       }
-  }, [performAutoCommit, loading, isAnalyzing, aiProposal, aiError, autoStart, autoStep]);
+  }, [autoStep, isAnalyzing, aiProposal, aiError]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
+    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
   const sanitizeJson = (text: string) => {
@@ -123,12 +122,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
     setLoading(true);
     setIsAnalyzing(true);
-    setPerformAutoCommit(true); // [NEW] Enable auto-commit after this analysis finishes
     setIsManual(false);
     setAiError(null);
     setAiProposal(null);
     setActiveAi('Initializing');
-    addLog("Phase 1: Retrieving Global Universe Matrix from Stage 0...", "info");
+    addLog("Phase 1: Retrieving Global Universe from Stage 0...", "info");
 
     try {
       const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
@@ -144,7 +142,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       const data = content.universe || [];
       setRawUniverse(data);
-      addLog(`Matrix Synced: ${data.length} assets with Full Data Fidelity.`, "ok");
+      addLog(`Matrix Synced: ${data.length} assets loaded.`, "ok");
 
       // AI Analysis Logic...
       const prices = data.map((s: any) => s.price).filter((p: any) => p > 0).sort((a: any, b: any) => a - b);
@@ -154,41 +152,23 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         date: new Date().toLocaleDateString(),
         totalCount: data.length,
         priceDistribution: {
-            min: prices[0] || 0,
             p25: prices[Math.floor(prices.length * 0.25)] || 0,
             p50: prices[Math.floor(prices.length * 0.50)] || 0,
-            p75: prices[Math.floor(prices.length * 0.75)] || 0,
         },
         volumeDistribution: {
             p25: volumes[Math.floor(volumes.length * 0.25)] || 0,
             p50: volumes[Math.floor(volumes.length * 0.50)] || 0,
-            p80: volumes[Math.floor(volumes.length * 0.80)] || 0,
-        },
-        pennyStocksCount: data.filter((s:any) => s.price < 1).length
+        }
       };
 
       const prompt = `
       [Role: Senior Quantitative Market Strategist]
-      Current Date: ${statsSummary.date}
-      Market Stats (US Equities):
-      - Total Assets: ${statsSummary.totalCount}
-      - Price Dist: P25=$${statsSummary.priceDistribution.p25}, Median=$${statsSummary.priceDistribution.p50}, P75=$${statsSummary.priceDistribution.p75}
-      - Volume Dist: P25=${statsSummary.volumeDistribution.p25}, Median=${statsSummary.volumeDistribution.p50}, P80=${statsSummary.volumeDistribution.p80}
-      - Penny Stocks (<$1): ${statsSummary.pennyStocksCount}
-
-      [Task]
-      Determine optimal 'Price Floor' and 'Volume Threshold' to filter out junk/illiquid assets while keeping high-potential runners.
-      - Typically Price Floor is between $1.5 and $5.0.
-      - Typically Volume Threshold is between 100,000 and 1,000,000.
-      - Use the provided distribution stats to justify your choice.
-
-      Return ONLY JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean)" }
+      Market Stats: Total ${statsSummary.totalCount}, Median Price $${statsSummary.priceDistribution.p50}, Median Vol ${statsSummary.volumeDistribution.p50}.
+      Determine 'Price Floor' and 'Volume Threshold' to filter for liquid candidates (keep top 20-30%).
+      Return JSON: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean)" }
       `;
 
       let aiResult = null;
-      let usedProvider = '';
-
-      // Try Gemini
       try {
           setActiveAi('Gemini 3 Pro');
           const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
@@ -198,51 +178,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             contents: prompt,
             config: { responseMimeType: "application/json" }
           });
-          
-          // Track Usage
           trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-          
           aiResult = sanitizeJson(response.text);
-          usedProvider = 'Gemini 3 Pro';
-      } catch (e: any) { /* Fallback handled below */ }
-
-      // Try Perplexity if Gemini failed
-      if (!aiResult) {
-          try {
-              setActiveAi('Sonar Pro (Fallback)');
-              const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-              const pRes = await fetch('https://api.perplexity.ai/chat/completions', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
-                  body: JSON.stringify({
-                      model: 'sonar-pro', 
-                      messages: [{ role: "user", content: prompt + " Return JSON only." }]
-                  })
-              });
-              const pJson = await pRes.json();
-              
-              // Track Usage
-              if (pJson.usage) trackUsage(ApiProvider.PERPLEXITY, pJson.usage.total_tokens || 0);
-              
-              aiResult = sanitizeJson(pJson.choices?.[0]?.message?.content);
-              usedProvider = 'Perplexity Sonar';
-          } catch (e: any) {}
-      }
+      } catch (e: any) { /* Fallback */ }
 
       if (aiResult) {
-          if (aiResult.reasoning) {
-              aiResult.reasoning = removeCitations(aiResult.reasoning);
-          }
           setAiProposal(aiResult);
           setMinPrice(aiResult.suggestedPrice);
           setMinVolume(aiResult.suggestedVolume);
-          addLog(`Strategy Generated by ${usedProvider}: [${aiResult.regime}]`, "ok");
-          setActiveAi(usedProvider);
+          addLog(`Strategy: [${aiResult.regime}] P>$${aiResult.suggestedPrice} V>${(aiResult.suggestedVolume/1000).toFixed(0)}k`, "ok");
       } else {
-          setAiError("AI Nodes Unresponsive. Default filters applied.");
+          setAiError("AI Offline. Using Defaults.");
           setMinPrice(2.0);
           setMinVolume(500000);
-          setActiveAi('Default Logic');
       }
 
     } catch (e: any) {
@@ -254,40 +202,65 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     }
   };
 
-  const handleManualChange = (type: 'price' | 'volume', val: number) => {
-    setIsManual(true);
-    if (type === 'price') setMinPrice(val);
-    else setMinVolume(val);
+  const startFundamentalInjection = async () => {
+      setIsInjecting(true);
+      setLoading(true);
+      
+      const survivors = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
+      addLog(`Injection Phase: Enriching ${survivors.length} assets with MSN Fundamentals...`, "info");
+      setInjectionProgress({ current: 0, total: survivors.length });
+
+      const enrichedTickers: MasterTicker[] = [];
+      const BATCH_SIZE = 8; // Parallel requests
+
+      for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
+          const batch = survivors.slice(i, i + BATCH_SIZE);
+          
+          const results = await Promise.all(batch.map(async (ticker) => {
+              try {
+                  // Fetch Basic Stats (Overview) from MSN
+                  const res = await fetch(`/api/msn?symbol=${ticker.symbol}&type=overview`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (!data.error) {
+                          return {
+                              ...ticker,
+                              pe: data.peRatio || ticker.pe,
+                              roe: data.returnOnEquity || ticker.roe,
+                              pbr: data.priceToBook || ticker.pb,
+                              debtToEquity: data.debtToEquity || ticker.debtToEquity,
+                              marketCap: data.marketCap || ticker.marketCap,
+                              // Mark source as injected
+                              source: (ticker.source || '') + "+MSN_Inject"
+                          };
+                      }
+                  }
+              } catch (e) {}
+              return ticker; // Return original if fail
+          }));
+
+          enrichedTickers.push(...results);
+          setInjectionProgress({ current: Math.min(i + BATCH_SIZE, survivors.length), total: survivors.length });
+          
+          // Rate limit protection
+          await new Promise(r => setTimeout(r, 100));
+      }
+
+      addLog(`Injection Complete. ${enrichedTickers.length} assets enriched.`, "ok");
+      commitPurification(enrichedTickers);
   };
 
-  const resetToAi = () => {
-    if (aiProposal) {
-      setMinPrice(aiProposal.suggestedPrice);
-      setMinVolume(aiProposal.suggestedVolume);
-      setIsManual(false);
-      addLog("Reverted to AI Baseline.", "info");
-    }
-  };
-
-  const commitPurification = async () => {
-    if (!accessToken || rawUniverse.length === 0) {
-        if (autoStart && autoStep === 'COMMITTING') {
-             console.warn("Commit delayed: Data not ready");
-             return; 
-        }
-        return;
-    }
-    
+  const commitPurification = async (finalList?: MasterTicker[]) => {
+    if (!accessToken) return;
     setLoading(true);
-    addLog(`Phase 2: Purifying Universe... (P: $${minPrice}, V: ${minVolume})`, "info");
+    
+    // Use injected list if available, otherwise filter raw
+    const listToSave = finalList || rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
+    
+    addLog(`Phase 3: Committing ${listToSave.length} assets to Stage 1 Vault...`, "info");
 
     try {
-      // Filter logic: Preserves the entire object structure from Stage 0
-      const filtered = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
-      
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
-      
-      // [KST TIMESTAMP LOGIC]
       const now = new Date();
       const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
       const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
@@ -295,8 +268,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "2.3.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString() },
-        investable_universe: filtered // Contains full rich data
+        manifest: { version: "3.0.0", regime: aiProposal?.regime || "Manual", filters: { minPrice, minVolume }, timestamp: new Date().toISOString(), note: "Basic Fundamentals Injected" },
+        investable_universe: listToSave
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -308,9 +281,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Purification Success: ${filtered.length} assets committed (Data Intact).`, "ok");
+      addLog(`Success: Stage 1 Complete. Data Saved.`, "ok");
       
-      if (autoStart) {
+      if (autoStep !== 'DONE') {
           setAutoStep('DONE');
           if (onComplete) onComplete();
       }
@@ -319,6 +292,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       addLog(`Vault Error: ${e.message}`, "err");
     } finally {
       setLoading(false);
+      setIsInjecting(false);
     }
   };
 
@@ -336,27 +310,29 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     return create.id;
   };
 
+  const handleManualChange = (type: 'price' | 'volume', val: number) => {
+    setIsManual(true);
+    if (type === 'price') setMinPrice(val);
+    else setMinVolume(val);
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-emerald-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
+          {/* Header */}
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing || isInjecting ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v2.3.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v3.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                     {isAnalyzing ? `Analyzing via ${activeAi}...` : activeAi !== 'Standby' ? `Active Brain: ${activeAi}` : 'System Standby'}
+                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isInjecting ? 'border-blue-500/20 bg-blue-500/10 text-blue-400' : isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
+                     {isInjecting ? `Injecting Fundamentals: ${injectionProgress.current}/${injectionProgress.total}` : isAnalyzing ? `Analyzing via ${activeAi}...` : 'System Standby'}
                    </span>
-                   {aiError && (
-                     <span className="text-[8px] font-black px-2 py-0.5 rounded border border-red-500/20 bg-red-500/10 text-red-400 uppercase tracking-widest">
-                       AI_OFFLINE
-                     </span>
-                   )}
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
@@ -370,7 +346,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 {isAnalyzing ? 'Thinking...' : 'Sync & AI Analysis'}
               </button>
               <button 
-                onClick={commitPurification} 
+                onClick={() => startFundamentalInjection()} 
                 disabled={loading || rawUniverse.length === 0}
                 className={`flex-1 lg:flex-none px-8 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
                     loading 
@@ -378,7 +354,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       : 'bg-emerald-600 text-white shadow-xl shadow-emerald-900/20 hover:scale-105 active:scale-95 disabled:opacity-50 disabled:scale-100 disabled:shadow-none'
                 }`}
               >
-                {loading ? 'Processing...' : 'Commit Filter'}
+                {isInjecting ? 'Injecting Data...' : 'Enrich & Commit'}
               </button>
             </div>
           </div>
@@ -404,12 +380,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   onChange={(e) => handleManualChange('price', parseFloat(e.target.value))}
                   className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" 
                 />
-                {aiProposal && (
-                   <div className="absolute -top-1 w-0.5 h-4 bg-emerald-500/40 pointer-events-none transition-all duration-700"
-                     style={{ left: `${((aiProposal.suggestedPrice - 1) / 9) * 100}%` }}>
-                     <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[6px] font-black text-emerald-500/40 uppercase whitespace-nowrap">AI_REC</span>
-                   </div>
-                )}
               </div>
             </div>
 
@@ -433,12 +403,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   onChange={(e) => handleManualChange('volume', parseInt(e.target.value))}
                   className="w-full h-1 bg-slate-800 rounded-lg appearance-none cursor-pointer accent-emerald-500" 
                 />
-                {aiProposal && (
-                   <div className="absolute -top-1 w-0.5 h-4 bg-emerald-500/40 pointer-events-none transition-all duration-700"
-                     style={{ left: `${((aiProposal.suggestedVolume - 50000) / 1950000) * 100}%` }}>
-                     <span className="absolute -top-6 left-1/2 -translate-x-1/2 text-[6px] font-black text-emerald-500/40 uppercase whitespace-nowrap">AI_REC</span>
-                   </div>
-                )}
               </div>
             </div>
           </div>
@@ -450,37 +414,29 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <span className="text-4xl md:text-6xl font-black text-white italic tracking-tighter">{filteredCount.toLocaleString()}</span>
                 <div className="flex flex-col">
                    <span className="text-slate-500 text-[10px] uppercase font-bold tracking-widest italic">Purified Assets</span>
-                   <span className="text-emerald-500/40 text-[8px] font-mono mt-1">Sieving {rawUniverse.length.toLocaleString()} Initial Tickers</span>
+                   <span className="text-emerald-500/40 text-[8px] font-mono mt-1">Ready for Fundamental Injection</span>
                 </div>
               </div>
-              {isManual && (
-                <button onClick={resetToAi} className="absolute top-6 right-6 md:top-8 md:right-8 text-[7px] font-black text-amber-500 border border-amber-500/20 px-3 py-1.5 rounded-full bg-amber-500/5 hover:bg-amber-500 hover:text-white transition-all uppercase tracking-widest">
-                  Reset to AI Baseline
-                </button>
+            </div>
+            
+            {/* Injection Progress Bar */}
+            <div className="bg-black/20 p-6 md:p-10 rounded-3xl border border-white/5 flex flex-col justify-center items-center">
+              <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4 italic">Injection Status</p>
+              {isInjecting ? (
+                  <div className="w-full">
+                      <div className="flex justify-between text-[10px] font-mono text-blue-400 mb-2">
+                          <span>Progress</span>
+                          <span>{Math.round((injectionProgress.current / (injectionProgress.total || 1)) * 100)}%</span>
+                      </div>
+                      <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
+                          <div className="h-full bg-blue-500 transition-all duration-300" style={{ width: `${(injectionProgress.current / (injectionProgress.total || 1)) * 100}%` }}></div>
+                      </div>
+                  </div>
+              ) : (
+                  <p className="text-2xl font-black text-slate-600 italic tracking-tighter">IDLE</p>
               )}
             </div>
-            <div className="bg-black/20 p-6 md:p-10 rounded-3xl border border-white/5 flex flex-col justify-center items-center">
-              <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-4 italic">Liquidity Purge</p>
-              <p className="text-3xl md:text-4xl font-black text-rose-500/80 italic tracking-tighter">-{((rawUniverse.length - filteredCount) / (rawUniverse.length || 1) * 100).toFixed(1)}%</p>
-              <p className="text-[8px] text-slate-600 uppercase mt-4 font-bold tracking-widest">{rawUniverse.length - filteredCount} Assets Excluded</p>
-            </div>
           </div>
-
-          {(aiProposal || aiError) && (
-            <div className={`p-6 md:p-10 rounded-[32px] border animate-in fade-in slide-in-from-top-4 duration-500 ${aiError ? 'bg-red-500/5 border-red-500/20' : 'bg-emerald-500/5 border-emerald-500/20'}`}>
-               <div className="flex items-center justify-between mb-6">
-                  <div className="flex items-center space-x-3">
-                    <div className={`w-2 h-2 rounded-full animate-pulse ${aiError ? 'bg-red-500' : 'bg-emerald-500'}`}></div>
-                    <h4 className={`text-[10px] font-black uppercase tracking-[0.4em] ${aiError ? 'text-red-500' : 'text-emerald-500'}`}>
-                      {aiError ? 'AI Node Error Response' : `AI Reasoning (${activeAi}) — ${aiProposal?.regime}`}
-                    </h4>
-                  </div>
-               </div>
-               <div className="prose-report text-[11px] text-slate-400 leading-relaxed italic uppercase font-mono tracking-tighter">
-                 {aiError || aiProposal?.reasoning}
-               </div>
-            </div>
-          )}
         </div>
       </div>
 
