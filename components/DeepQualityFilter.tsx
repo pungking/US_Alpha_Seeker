@@ -92,30 +92,12 @@ interface Props {
 const CACHE_PREFIX = 'QUANT_CACHE_V17.2_DEEP_'; 
 const THEME_COLORS = ['#10B981', '#3B82F6', '#6366F1', '#8B5CF6', '#EC4899', '#F59E0B', '#EF4444', '#06B6D4'];
 
-const getDailyCacheKey = (symbol: string) => {
-    const today = new Date().toISOString().split('T')[0];
-    return `${CACHE_PREFIX}${symbol}_${today}`;
-};
-
 // [HELPER] Extract raw value from Yahoo's { raw: ..., fmt: ... } object or return value directly
 const getRaw = (val: any): number => {
     if (val === null || val === undefined) return 0;
     if (typeof val === 'object' && 'raw' in val) return Number(val.raw) || 0;
     const num = Number(val);
     return isNaN(num) ? 0 : num;
-};
-
-// [HELPER] Robust Value Extractor for Polygon/FMP
-const getPolyVal = (obj: any, keys: string[]) => {
-    if (!obj) return 0;
-    for (const k of keys) {
-        if (obj[k] !== undefined && obj[k] !== null) {
-            if (typeof obj[k] === 'object' && 'value' in obj[k]) return Number(obj[k].value) || 0;
-            if (typeof obj[k] === 'number') return obj[k];
-            if (typeof obj[k] === 'string' && !isNaN(Number(obj[k]))) return Number(obj[k]);
-        }
-    }
-    return 0;
 };
 
 // [HELPER] Extract latest value from SEC XBRL facts array
@@ -187,9 +169,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [logs, setLogs] = useState<string[]>(['> Quant_Node v17.2: Deep Mining & Sector Neutrality Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const rapidKey = API_CONFIGS.find(c => c.provider === ApiProvider.RAPID_API)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
@@ -300,17 +279,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (typeof val === 'object' && val.raw) return Number(val.raw);
       if (typeof val === 'string' && !isNaN(Number(val))) return Number(val);
       return 0;
-  };
-
-  const ensureFolder = async (token: string, name: string) => {
-    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
   };
 
   const fetchDeepFinancials = async (ticker: QualityTicker): Promise<DeepFinancialReport | null> => {
@@ -446,6 +414,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       } catch (e) { return 0; }
   };
 
+  const ensureFolder = async (token: string, name: string) => {
+    const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json());
+    if (res.files?.length > 0) return res.files[0].id;
+    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      method: 'POST',
+      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+    }).then(r => r.json());
+    return create.id;
+  };
+
   const uploadSingleReport = async (folderId: string, ticker: QualityTicker) => {
       if (!accessToken) return;
       const fileName = `${ticker.symbol}_DEEP_LEDGER.json`;
@@ -493,6 +475,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       let targets = content.investable_universe || [];
       targets.sort((a: any, b: any) => (b.marketCap || 0) - (a.marketCap || 0));
+      
+      // [DATA HEALING: Volume-Priority Mode]
+      // Check if primary fundamentals are missing (Source: Polygon)
+      const isPolygonSource = targets[0]?.source?.includes("Polygon") || false;
+      const hasFundamentals = targets.some((t: any) => t.roe !== undefined || t.pe !== undefined);
+      
+      if (!hasFundamentals || isPolygonSource) {
+          addLog("⚠️ Source Data lacks Fundamentals (Polygon/SEC). Switching to Volume-Priority Mode.", "warn");
+          // Re-sort by Liquidty (Price * Volume) to ensure we fetch data for most important stocks first
+          targets.sort((a: any, b: any) => ((b.price * b.volume) || 0) - ((a.price * a.volume) || 0));
+      }
 
       setProgress({ current: 0, total: targets.length, cacheHits: 0, filteredOut: 0 });
       setAnalysisPhase('TRIPLE_EXCEL_SCAN');
@@ -520,23 +513,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               const eps = safeNum(t.eps);
               const earningsYield = eps / price;
               
-              // [NEW] Use rich data from Stage 0
               const pbr = safeNum(t.pb) || safeNum(t.pbr) || 0;
               const debt = safeNum(t.debtToEquity) || 0;
-
-              // Live Audit Feed (Tier 1 Metrics) - Only add some to avoid flooding UI thread
-              if (Math.random() > 0.9) {
-                   const auditData: AuditPacket = {
-                      symbol: t.symbol,
-                      stage: 'TIER1',
-                      data1: rawRoe * 100, // ROE
-                      data2: pe, // PE
-                      source: 'STAGE1_DATA',
-                      timestamp: new Date().toLocaleTimeString(),
-                      status: 'OK'
-                  };
-                  setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 100)); // Keep last 100
-              }
 
               return {
                   ...t,
@@ -547,8 +525,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   eps: eps,
                   profitDensity: profitDensity,
                   earningsYield: earningsYield,
-                  source: 'STAGE1_OPTIMIZED',
-                  qualityScore: 0, 
+                  source: t.source || 'STAGE1_OPTIMIZED',
+                  qualityScore: 0, // Placeholder
                   zScore: 0, 
                   fScore: 0,
                   sector: t.sector || "Unclassified", 
@@ -567,26 +545,36 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       // --- RANKING PHASE ---
       setAnalysisPhase('RANKING');
-      addLog(`Tier 1 Scanned: ${scannedTickers.length} assets. Calculating Triple Excel Ranks...`, "info");
       
-      normalizeScores(scannedTickers, 'profitDensity');
-      normalizeScores(scannedTickers, 'earningsYield');
-      normalizeScores(scannedTickers, 'marketCap'); 
+      if (hasFundamentals && !isPolygonSource) {
+          addLog(`Tier 1 Scanned: ${scannedTickers.length} assets. Calculating Triple Excel Ranks...`, "info");
+          normalizeScores(scannedTickers, 'profitDensity');
+          normalizeScores(scannedTickers, 'earningsYield');
+          normalizeScores(scannedTickers, 'marketCap'); 
 
-      scannedTickers.forEach(t => {
-          const score = (t['profitDensityScore'] * 0.4) + (t['earningsYieldScore'] * 0.4) + (t['marketCapScore'] * 0.2);
-          t.qualityScore = Number(score.toFixed(2));
-          t.profitabilityScore = Number(t['profitDensityScore'].toFixed(2));
-          t.growthScore = Number(t['earningsYieldScore'].toFixed(2)); 
-          t.stabilityScore = Number(t['marketCapScore'].toFixed(2));
-      });
+          scannedTickers.forEach(t => {
+              const score = (t['profitDensityScore'] * 0.4) + (t['earningsYieldScore'] * 0.4) + (t['marketCapScore'] * 0.2);
+              t.qualityScore = Number(score.toFixed(2));
+              t.profitabilityScore = Number(t['profitDensityScore'].toFixed(2));
+              t.growthScore = Number(t['earningsYieldScore'].toFixed(2)); 
+              t.stabilityScore = Number(t['marketCapScore'].toFixed(2));
+          });
+          scannedTickers.sort((a, b) => b.qualityScore - a.qualityScore);
+      } else {
+          // If no fundamentals, we just rely on MarketCap/Volume sorting from earlier
+          // We set a placeholder qualityScore based on rank to keep the pipeline consistent
+          addLog(`Data Gap Detected. Prioritizing Top ${TARGET_TIER2_COUNT} Liquid Assets for Deep Mining.`, "info");
+          scannedTickers.forEach((t, idx) => {
+               // Fake score to maintain sort order
+               t.qualityScore = 100 - (idx / scannedTickers.length) * 100;
+          });
+      }
 
-      scannedTickers.sort((a, b) => b.qualityScore - a.qualityScore);
       let eliteSurvivors = scannedTickers.slice(0, TARGET_TIER2_COUNT);
       
       // --- TIER 2: DEEP MINING (EXTERNAL API) ---
       setAnalysisPhase('DEEP_MINING');
-      addLog(`Initiating Tier 2 Deep Mining for Top ${eliteSurvivors.length} Elite Candidates...`, "signal");
+      addLog(`Initiating Tier 2 Deep Mining for Top ${eliteSurvivors.length} Candidates...`, "signal");
       
       const reportsFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportsArchiveFolder);
       const finalCandidates: QualityTicker[] = [];
@@ -599,7 +587,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let status: 'OK' | 'WARN' | 'FAIL' = 'OK';
           
           // REAL API CALL HAPPENS HERE
-          // CIK should be available from Stage 0 if SEC was used
+          // This will fetch fundamental data even if Stage 0 missed it
           const report = await fetchDeepFinancials(ticker);
           
           if (report && (report.xbrl || report.annual.balance.length > 0)) {
@@ -608,6 +596,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                
                // 2. F-Score (Piotroski)
                const fScore = calculatePiotroskiFScore(report);
+
+               // [DATA HEALING] Populate missing fields from the deep report
+               if (!ticker.roe && report.annual.income.length > 0 && report.annual.balance.length > 0) {
+                   const netInc = getRaw(report.annual.income[0].netIncome);
+                   const equity = getRaw(report.annual.balance[0].totalStockholderEquity);
+                   if (equity) ticker.roe = (netInc / equity) * 100;
+               }
+               if (!ticker.per && ticker.eps && ticker.price) {
+                   ticker.per = ticker.price / ticker.eps;
+               }
 
                ticker.zScore = Number(zScore.toFixed(2));
                ticker.fScore = fScore;
@@ -629,34 +627,29 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                
                finalCandidates.push(ticker);
           } else {
-              // If Deep Scan fails, use Snapshot Data from Stage 0 (Rich TV Data) as Strong Fallback
-              
-              // Approx Z-Score based on Debt/Equity (Inverse relation) & Current Ratio (if avail)
+              // Fallback Logic
               const debt = ticker.debtToEquity || 0;
               const currentR = ticker.currentRatio || 1.5;
-              // Z-Score approximation formula: 1.2(Working Cap) + ...
-              // Simply: Low Debt & High Current Ratio = Safe
-              let approxZ = 1.6; // Base safety
+              let approxZ = 1.6; 
               if (debt < 0.5) approxZ += 1.0;
               if (currentR > 2.0) approxZ += 0.5;
-              if (ticker.marketCap > 10000000000) approxZ += 0.5; // Large cap bonus
+              if (ticker.marketCap > 10000000000) approxZ += 0.5; 
               
-              // Approx F-Score based on ROE (Profitability) & PBR
               let approxF = 4;
-              if (ticker.roe > 0) approxF += 2; // Profitable
-              if (ticker.pbr < 3) approxF += 1; // Good value
-              if (ticker.change > 0) approxF += 1; // Momentum
+              if (ticker.roe > 0) approxF += 2; 
+              if (ticker.pbr < 3) approxF += 1;
+              if (ticker.change > 0) approxF += 1;
 
               ticker.zScore = Number(approxZ.toFixed(2)); 
               ticker.fScore = approxF;
-              ticker.source = 'TIER2_SNAPSHOT_FUSION'; // Upgraded source
+              ticker.source = 'TIER2_SNAPSHOT_FUSION'; 
               
-              status = 'OK'; // It's valid data now
+              status = 'OK';
               setSourceStats(prev => ({...prev, fallback: prev.fallback + 1}));
               finalCandidates.push(ticker);
           }
           
-           // Live Audit Feed (Tier 2 Metrics) - Ensure EVERY item is logged for visibility
+           // Live Audit Feed
            const auditData: AuditPacket = {
                symbol: ticker.symbol,
                stage: 'TIER2',
@@ -666,12 +659,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                timestamp: new Date().toLocaleTimeString(),
                status: status
            };
-           setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 100)); // Increased buffer
+           setLiveAuditFeed(prev => [auditData, ...prev].slice(0, 100)); 
 
           setEnrichProgress({ current: i + 1, total: eliteSurvivors.length });
           setReportProgress(prev => ({ ...prev, current: i + 1, archived: archiveCount }));
           
-          // Throttling for Tier 2
           await new Promise(r => setTimeout(r, 200));
       }
 
@@ -679,7 +671,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setAnalysisPhase('SECTOR_NEUTRAL');
       addLog("Calculating Sector Neutral Value Scores...", "info");
       
-      // Calculate Sector Medians (PE/PB)
       const sectorStats: Record<string, { peSum: number, pbSum: number, count: number }> = {};
       finalCandidates.forEach(t => {
           if(!sectorStats[t.sector]) sectorStats[t.sector] = { peSum: 0, pbSum: 0, count: 0 };
@@ -696,7 +687,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           };
       });
 
-      // Assign Relative Scores
       finalCandidates.forEach(t => {
           const med = sectorMedians[t.sector];
           let relScore = 50;
@@ -707,11 +697,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
           t.sectorRelativeVal = Number(relScore.toFixed(2));
           
-          // Final Composite V17.2 Score
-          // Quality(Tier1) 30% + F-Score 20% + Z-Score 20% + RelativeVal 30%
           const fScoreNorm = (t.fScore / 9) * 100;
           const zScoreNorm = Math.min(100, Math.max(0, (t.zScore / 5) * 100));
           
+          // Re-calculate Final Quality Score using enriched data
           t.qualityScore = Number(((t.qualityScore * 0.3) + (fScoreNorm * 0.2) + (zScoreNorm * 0.2) + (t.sectorRelativeVal * 0.3)).toFixed(2));
       });
 
