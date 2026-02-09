@@ -41,6 +41,7 @@ interface MasterTicker {
 
   source?: string;
   cik?: number; // SEC ID
+  msnId?: string; // [NEW] MSN Secret ID
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
@@ -70,7 +71,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
   });
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v6.2.0: Omni-Failover Architecture Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Engine v6.3.0: Penta-Core Fusion (MSN Protocol Active).']);
   const logRef = useRef<HTMLDivElement>(null);
   const timerRef = useRef<number | null>(null);
 
@@ -101,7 +102,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         if (!accessToken) {
              addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
         } else {
-             addLog("AUTO-PILOT: Engaging Data Acquisition...", "signal");
+             addLog("AUTO-PILOT: Engaging Penta-Fusion Sequence...", "signal");
              startEngine();
         }
     }
@@ -110,6 +111,42 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
+  };
+
+  const getRecentBusinessDays = (count: number = 6): string[] => {
+    const dates: string[] = [];
+    const now = new Date();
+    
+    const nyOptions: Intl.DateTimeFormatOptions = {
+        timeZone: "America/New_York",
+        year: 'numeric',
+        month: 'numeric', 
+        day: 'numeric'
+    };
+    const nyFormatter = new Intl.DateTimeFormat('en-US', nyOptions);
+    const parts = nyFormatter.formatToParts(now);
+    
+    const part = (type: string) => parts.find(p => p.type === type)?.value;
+    const year = parseInt(part('year')!);
+    const month = parseInt(part('month')!) - 1; 
+    const day = parseInt(part('day')!);
+
+    let cursorDate = new Date(year, month, day);
+
+    let attempts = 0;
+    while (dates.length < count && attempts < 15) {
+        const dayOfWeek = cursorDate.getDay(); 
+        
+        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+            const y = cursorDate.getFullYear();
+            const m = String(cursorDate.getMonth() + 1).padStart(2, '0');
+            const d = String(cursorDate.getDate()).padStart(2, '0');
+            dates.push(`${y}-${m}-${d}`);
+        }
+        cursorDate.setDate(cursorDate.getDate() - 1);
+        attempts++;
+    }
+    return dates;
   };
 
   const startEngine = async () => {
@@ -162,7 +199,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       addLog("Source A: TradingView Deep-Scanner (PBR/Debt/Rev)...", "info");
       try {
           const res = await fetch('/api/nasdaq'); 
-          if (!res.ok) throw new Error(`TV Proxy Status: ${res.status}`);
+          if (!res.ok) throw new Error(`TV Proxy Failed: ${res.status}`);
           const data = await res.json();
           if (!Array.isArray(data) || data.length === 0) return [];
           addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
@@ -198,8 +235,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       if (!fmpKey) return [];
       addLog("Source B (Backup): FMP Screener...", "info");
       try {
-          // Use 'stock-list' for a lighter/faster failover if screener fails or is empty, 
-          // but stock-screener is better for filtering. We use screener first.
           const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=10000&apikey=${fmpKey}`;
           const res = await fetch(url);
           if (!res.ok) throw new Error("FMP API Failed");
@@ -226,12 +261,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const getFormattedDate = (daysAgo: number) => {
           const d = new Date();
           d.setDate(d.getDate() - daysAgo);
-          if (d.getDay() === 0) d.setDate(d.getDate() - 2); // Sun -> Fri
-          else if (d.getDay() === 6) d.setDate(d.getDate() - 1); // Sat -> Fri
+          if (d.getDay() === 0) d.setDate(d.getDate() - 2); 
+          else if (d.getDay() === 6) d.setDate(d.getDate() - 1); 
           return d.toISOString().split('T')[0];
       };
 
-      // Try today, yesterday, and 2 days ago
       for(let i=0; i<3; i++) {
          const date = getFormattedDate(i);
          try {
@@ -243,11 +277,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                      addLog(`Polygon: Retrieved ${json.results.length} assets from ${date}.`, "ok");
                      return json.results.map((item: any) => ({
                          symbol: item.T,
-                         name: item.T, // Polygon grouped doesn't have names
+                         name: item.T, 
                          price: item.c,
                          volume: item.v,
                          change: item.o ? ((item.c - item.o) / item.o) * 100 : 0,
-                         marketCap: item.c * item.v, // Crude estimate
+                         marketCap: item.c * item.v,
                          type: 'Common Stock',
                          updated: date,
                          source: 'Polygon_Backup'
@@ -261,7 +295,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return [];
   };
 
-  // --- SOURCE D: SEC EDGAR (Registry - Always Runs for CIK, can be Primary if all else fails) ---
+  // --- SOURCE D: SEC EDGAR (Registry) ---
   const executeSECRegistry = async (): Promise<MasterTicker[]> => {
       addLog("Source D: SEC Official Registry (CIK Mapping)...", "info");
       try {
@@ -273,7 +307,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           return data.map((item: any) => ({
               symbol: item.symbol, 
               name: item.name, 
-              price: 0, volume: 0, change: 0, // Placeholder
+              price: 0, volume: 0, change: 0, 
               updated: new Date().toISOString().split('T')[0],
               source: 'SEC_EDGAR_ONLY',
               cik: item.cik
@@ -284,51 +318,61 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  // --- SOURCE E: MSN MONEY (Validation Ping) ---
-  const validateMSNConnection = async (samples: string[]) => {
-      addLog("Source E: MSN Money (Pipeline Validation)...", "info");
-      let successCount = 0;
-      for (const sym of samples.slice(0, 3)) { 
-          try {
-              const res = await fetch(`/api/msn?symbol=${sym}&type=overview`);
-              if (res.ok) successCount++;
-          } catch(e) {}
-      }
-      
-      if (successCount > 0) {
-          addLog(`MSN Money: Connection Verified.`, "ok");
-          return true;
-      } else {
-          addLog(`MSN Money: Connection Failed. Will retry later.`, "warn");
-          return false;
+  // --- SOURCE E: MSN ID HUNTER (New) ---
+  const executeMSNSitemap = async (): Promise<Record<string, string>> => {
+      addLog("Source E: MSN ID Hunter (Sitemap Protocol)...", "info");
+      try {
+          const res = await fetch('/api/msn?type=sitemap_discovery');
+          if (!res.ok) throw new Error(`MSN Sitemap Error: ${res.status}`);
+          const data = await res.json();
+          addLog(`MSN Hunter: Discovered ${data.count} secret IDs.`, "ok");
+          return data.mapping || {};
+      } catch (e: any) {
+          addLog(`MSN Hunter Failed: ${e.message}`, "warn");
+          return {};
       }
   };
 
-  const fuseDatasets = (primaryData: MasterTicker[], secData: MasterTicker[]): MasterTicker[] => {
+  const fuseDatasets = (primaryData: MasterTicker[], secData: MasterTicker[], msnMap: Record<string, string>): MasterTicker[] => {
       const map = new Map<string, MasterTicker>();
       
-      // Index SEC Data for O(1) Lookup
       const secMap = new Map<string, number>();
       secData.forEach(s => secMap.set(s.symbol.toUpperCase(), s.cik || 0));
 
-      // Fuse: Primary Data + SEC CIK
-      let matchedCount = 0;
+      let matchedSEC = 0;
+      let matchedMSN = 0;
+
       primaryData.forEach(item => {
-          const cik = secMap.get(item.symbol.toUpperCase());
+          const sym = item.symbol.toUpperCase();
+          const cik = secMap.get(sym);
+          const msnId = msnMap[sym];
+
           if (cik) {
               item.cik = cik;
-              if (!item.source?.includes("SEC")) item.source = (item.source || "Unknown") + "+SEC";
-              matchedCount++;
+              matchedSEC++;
           }
+          if (msnId) {
+              item.msnId = msnId;
+              matchedMSN++;
+          }
+          
+          if (cik && msnId) item.source = (item.source || "Unknown") + "+SEC+MSN";
+          else if (cik) item.source = (item.source || "Unknown") + "+SEC";
+          else if (msnId) item.source = (item.source || "Unknown") + "+MSN";
+
           map.set(item.symbol, item);
       });
 
-      // If Primary is empty, use SEC as primary (Emergency Mode)
+      // Emergency Mode
       if (primaryData.length === 0 && secData.length > 0) {
-          return secData;
+          return secData.map(item => {
+               const msnId = msnMap[item.symbol.toUpperCase()];
+               if(msnId) item.msnId = msnId;
+               return item;
+          });
       }
 
-      addLog(`Fusion Result: ${primaryData.length} Assets. ${matchedCount} SEC Verified.`, "ok");
+      addLog(`Fusion Result: ${primaryData.length} Assets. (SEC: ${matchedSEC}, MSN: ${matchedMSN})`, "ok");
       return Array.from(map.values());
   };
 
@@ -337,7 +381,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     const startTime = Date.now();
     setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0 }));
     
-    // Fake progress for visual feedback
     const discoveryTimer = setInterval(() => {
         setStats(prev => ({ 
             ...prev, 
@@ -350,58 +393,49 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }, 1000);
 
     try {
-        let universe: MasterTicker[] = [];
+        // Parallel Fetch of Data Sources
+        const [tvData, fmpData, polyData, secData, msnData] = await Promise.allSettled([
+            executeTVScanner(),
+            executeFMPScreener(),
+            executePolygonAggs(),
+            executeSECRegistry(),
+            executeMSNSitemap() // NEW Source
+        ]);
 
-        // 1. Try TV Scanner
-        universe = await executeTVScanner();
-
-        // 2. Failover to FMP
-        if (universe.length === 0) {
-            addLog("TV Scanner yielded 0. Attempting Failover to FMP...", "warn");
-            universe = await executeFMPScreener();
-        }
-
-        // 3. Failover to Polygon
-        if (universe.length === 0) {
-            addLog("FMP yielded 0. Attempting Failover to Polygon...", "warn");
-            universe = await executePolygonAggs();
-        }
-
-        // Always get SEC for CIKs
-        const sec = await executeSECRegistry();
-        
-        // 4. Last Resort: Use SEC List if everything else failed
-        if (universe.length === 0) {
-            addLog("All Market Data Sources Failed. Using SEC Registry as Base Universe (No Price Data).", "warn");
-            if (sec.length > 0) {
-                 universe = sec; // Just use SEC tickers
-            } else {
-                 throw new Error("Critical Failure: All data sources (TV, FMP, Poly, SEC) returned 0 assets.");
-            }
-        }
-        
         clearInterval(discoveryTimer); 
+
+        const tv = tvData.status === 'fulfilled' ? tvData.value : [];
+        const fmp = fmpData.status === 'fulfilled' ? fmpData.value : [];
+        const poly = polyData.status === 'fulfilled' ? polyData.value : [];
+        const sec = secData.status === 'fulfilled' ? secData.value : [];
+        const msnMap = msnData.status === 'fulfilled' ? msnData.value : {};
+
+        let universe: MasterTicker[] = tv;
+        if (universe.length === 0) universe = fmp;
+        if (universe.length === 0) universe = poly;
+        
+        if (universe.length === 0 && sec.length === 0) {
+             throw new Error("Critical Failure: All 4 Market Data Sources failed.");
+        }
+        
+        if (universe.length === 0) {
+             addLog("Market Data Failed. Using SEC+MSN Registry (No Price).", "warn");
+             universe = sec;
+        }
 
         // FUSE
         setStats(prev => ({ ...prev, phase: 'Fusion' }));
-        addLog("Executing Quad-Core Fusion (Price + CIK Mapping)...", "info");
+        addLog("Executing Penta-Core Fusion (Price + CIK + SecretID)...", "info");
         
-        let masterList = fuseDatasets(universe, sec);
+        let masterList = fuseDatasets(universe, sec, msnMap);
 
-        // MSN VALIDATION
-        if (masterList.length > 0) {
-             const sampleSymbols = masterList.slice(0, 5).map(s => s.symbol);
-             await validateMSNConnection(sampleSymbols);
-        }
-
-        // Filter valid (Unless it's SEC only source which has 0 price)
+        // Filter valid
         let viableCandidates = masterList;
         if (masterList.length > 0 && masterList[0].source !== 'SEC_EDGAR_ONLY') {
             const minPrice = 0.01;
             viableCandidates = masterList.filter(t => t.price >= minPrice);
             viableCandidates.sort((a, b) => b.volume - a.volume);
         } else {
-            // Sort by name for SEC-only list
              viableCandidates.sort((a, b) => a.symbol.localeCompare(b.symbol));
         }
         
@@ -409,13 +443,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
         setRegistry(newRegistry); 
         
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Quad_Fusion" }));
+        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Penta_Fusion" }));
         addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
 
         // COMMIT
         setStats(prev => ({ ...prev, phase: 'Commit' }));
-        
-        // [KST TIMESTAMP LOGIC]
         const now = new Date();
         const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
         const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
@@ -423,11 +455,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
         const payload = { 
             manifest: { 
-                version: "6.2.0", 
-                provider: "Omni-Failover (TV->FMP->Poly->SEC)", 
+                version: "6.3.0", 
+                provider: "Penta-Failover (TV->FMP->Poly->SEC->MSN)", 
                 date: now.toISOString(), 
                 count: viableCandidates.length,
-                note: "Full Market Scan + CIK + Rich Data + Robust Failover"
+                note: "Full Market Scan + CIK + MSN_IDs + Rich Data"
             }, 
             universe: viableCandidates 
         };
@@ -561,10 +593,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v6.3.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                   <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Quad-Core Fusion'}
+                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Penta-Core Fusion'}
                   </span>
                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
@@ -590,7 +622,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                         ? 'Connecting...'
                         : !accessToken 
                             ? 'Connect Cloud Vault' 
-                            : 'Execute Quad Fusion'}
+                            : 'Execute Penta Fusion'}
             </button>
           </div>
           
