@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.6.0: ID Map Priority Protocol.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.0: High-Velocity Resolution Mode.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -121,6 +121,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               });
               
               const mapData = await fileRes.json();
+              addLog("Parsing ID Map data...", "info");
               
               // Handle both Array (List of IDs) and Object (Symbol->ID map) formats
               if (Array.isArray(mapData)) {
@@ -141,50 +142,71 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       return null;
   };
 
-  // Strategy: Resolve MSN IDs to Real Data
+  // Strategy: Resolve MSN IDs to Real Data (Optimized Parallel Batching)
   const resolveMsnAssets = async (ids: string[]) => {
       addLog(`Resolving ${ids.length} MSN IDs to Assets...`, "info");
       
       const resolvedAssets: any[] = [];
-      const BATCH_SIZE = 40; // Increased batch size for efficiency
+      const BATCH_SIZE = 30; // Max IDs per URL
+      const CONCURRENCY = 5; // Number of parallel requests
       
       setProgress(prev => ({ ...prev, target: ids.length }));
 
-      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
-          const batch = ids.slice(i, i + BATCH_SIZE);
-          const idString = batch.join(',');
+      // Split into chunks of chunks
+      for (let i = 0; i < ids.length; i += (BATCH_SIZE * CONCURRENCY)) {
+          const promises = [];
           
-          try {
-             const res = await fetch(`/api/msn?mode=resolve_batch_by_ids&ids=${idString}`);
-             if (res.ok) {
-                 const data = await res.json();
-                 if (Array.isArray(data)) {
-                     const mapped = data.map((item: any) => ({
-                        symbol: item.symbol,
-                        name: item.name,
-                        price: item.price,
-                        volume: item.volume,
-                        change: item.change,
-                        marketCap: item.marketCap,
-                        sector: "Unknown", // Metadata enrichment happens in later stages
-                        type: item.type,
-                        updated: new Date().toISOString().split('T')[0],
-                        msnId: item.id,
-                        // Preliminary Fundamentals if available
-                        pe: item.pe,
-                        roe: item.roe,
-                        pbr: item.pbr
-                     }));
-                     resolvedAssets.push(...mapped);
-                 }
-             }
-          } catch (e) {
-             console.warn("MSN Batch Error", e);
+          // Create concurrent batches
+          for (let j = 0; j < CONCURRENCY; j++) {
+              const startIdx = i + (j * BATCH_SIZE);
+              if (startIdx >= ids.length) break;
+              
+              const batchIds = ids.slice(startIdx, startIdx + BATCH_SIZE);
+              const idString = batchIds.join(',');
+              
+              promises.push(
+                  fetch(`/api/msn?mode=resolve_batch_by_ids&ids=${idString}`)
+                    .then(res => res.ok ? res.json() : [])
+                    .catch(err => {
+                        console.warn("Batch failed", err);
+                        return [];
+                    })
+              );
+          }
+
+          // Await parallel requests
+          const results = await Promise.all(promises);
+          
+          // Process results
+          for (const batchResult of results) {
+              if (Array.isArray(batchResult)) {
+                   const mapped = batchResult.map((item: any) => ({
+                      symbol: item.symbol,
+                      name: item.name,
+                      price: item.price,
+                      volume: item.volume,
+                      change: item.change,
+                      marketCap: item.marketCap,
+                      sector: "Unknown", 
+                      type: item.type,
+                      updated: new Date().toISOString().split('T')[0],
+                      msnId: item.id,
+                      pe: item.pe,
+                      roe: item.roe,
+                      pbr: item.pbr
+                   }));
+                   resolvedAssets.push(...mapped);
+              }
           }
           
-          setProgress(prev => ({ ...prev, found: resolvedAssets.length }));
+          const currentCount = resolvedAssets.length;
+          setProgress(prev => ({ ...prev, found: currentCount }));
           
-          // Throttling
+          if (i > 0 && i % 2000 < (BATCH_SIZE * CONCURRENCY)) {
+              addLog(`Progress: ${i} / ${ids.length} IDs processed... (${currentCount} found)`, "info");
+          }
+          
+          // Small delay to prevent complete rate limiting
           await new Promise(r => setTimeout(r, 200));
       }
       
@@ -228,16 +250,21 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           if (rawIds && rawIds.length > 0) {
               // Filter out headers or invalid IDs
-              const validIds = rawIds.filter(id => id !== "MSN_Money_Secret_ID" && /^[a-z0-9]+$/i.test(id) && id.length > 2);
+              const validIds = rawIds.filter(id => id && id !== "MSN_Money_Secret_ID" && !id.includes(" ") && id.length > 2);
               
-              addLog(`ID Map Loaded. Valid IDs: ${validIds.length}. Engaging Resolver...`, "ok");
+              // Dedup
+              const uniqueIds = Array.from(new Set(validIds));
+
+              addLog(`ID Map Loaded. Unique Valid IDs: ${uniqueIds.length}. Engaging Fast Resolver...`, "ok");
               
-              if (validIds.length > 0) {
-                  assets = await resolveMsnAssets(validIds);
+              if (uniqueIds.length > 0) {
+                  assets = await resolveMsnAssets(uniqueIds);
                   if (assets.length > 0) {
                       providerName = 'MSN_Secret_Map';
                   }
               }
+          } else {
+             addLog("Map file empty or invalid.", "warn");
           }
 
           // Priority 2: FMP Fallback (if MSN failed or empty)
@@ -259,15 +286,15 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.6.0.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.0.json`;
           
           const payload = {
               manifest: { 
-                  version: "2.6.0", 
+                  version: "2.7.0", 
                   provider: providerName, 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Prioritized Ticker_ID_Mapping_Final.json"
+                  note: "High-Velocity MSN Resolution"
               },
               universe: assets
           };
@@ -340,7 +367,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
