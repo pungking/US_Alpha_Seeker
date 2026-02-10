@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.2: Deep Search Matrix Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.3: Path-Aware Search Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -82,68 +82,109 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       }
   };
 
-  // Helper to load existing map from Drive with Deep Search
+  // Helper to load existing map from Drive with Folder Awareness
   const loadMapFromDrive = async (token: string) => {
       try {
-          addLog("Initiating Drive Deep Search...", "info");
+          // STRATEGY 1: Targeted Path Search (US_Alpha_Seeker > System_Identity_Maps > File)
+          addLog("Strategy 1: Locating 'System_Identity_Maps' folder...", "info");
           
-          // Search Strategies: Exact -> Contains -> Legacy
-          const searchPatterns = [
-              "name = 'Ticker_ID_Mapping_Final.json' and trashed = false",
-              "name contains 'Ticker_ID_Mapping_Final' and trashed = false",
-              "name contains 'Ticker_ID_Mapping' and trashed = false",
-              "name = 'MSN_Money_Secret_ID.json' and trashed = false"
-          ];
+          const folderName = GOOGLE_DRIVE_TARGET.systemMapSubFolder || 'System_Identity_Maps';
+          const folderQ = encodeURIComponent(`name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
+          
+          const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${folderQ}`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          let folderId = null;
+          if (folderRes.ok) {
+              const folderData = await folderRes.json();
+              if (folderData.files && folderData.files.length > 0) {
+                  folderId = folderData.files[0].id;
+                  addLog(`✅ Folder Found: ${folderName} (ID: ...${folderId.slice(-6)})`, "ok");
+              }
+          }
 
-          for (const qString of searchPatterns) {
-              const q = encodeURIComponent(qString);
-              
-              const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,size,createdTime)&orderBy=createdTime desc&pageSize=5`, {
+          let fileId = null;
+          
+          if (folderId) {
+              // Look specifically inside the found folder
+              const fileQ = encodeURIComponent(`name = 'Ticker_ID_Mapping_Final.json' and '${folderId}' in parents and trashed = false`);
+              const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${fileQ}`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const fileData = await fileRes.json();
+              if (fileData.files && fileData.files.length > 0) {
+                  fileId = fileData.files[0].id;
+                  addLog(`✅ Target File Located inside folder.`, "ok");
+              }
+          }
+
+          // STRATEGY 2: Global Search (Fallback)
+          if (!fileId) {
+              addLog("Strategy 2: Global Drive Search (Fallback)...", "warn");
+              const globalQ = encodeURIComponent(`name = 'Ticker_ID_Mapping_Final.json' and trashed = false`);
+              const globalRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${globalQ}`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const globalData = await globalRes.json();
+              if (globalData.files && globalData.files.length > 0) {
+                  fileId = globalData.files[0].id;
+                  addLog(`✅ Target File Located globally.`, "ok");
+              }
+          }
+
+          // STRATEGY 3: Legacy/Backup Filenames
+          if (!fileId) {
+             const backupQueries = [
+                 "name contains 'Ticker_ID_Mapping' and trashed = false",
+                 "name = 'MSN_Money_Secret_ID.json' and trashed = false"
+             ];
+             for(const bQ of backupQueries) {
+                 const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(bQ)}`, {
+                     headers: { 'Authorization': `Bearer ${token}` }
+                 });
+                 const data = await res.json();
+                 if (data.files && data.files.length > 0) {
+                     fileId = data.files[0].id;
+                     addLog(`⚠️ Found backup file: ${data.files[0].name}`, "warn");
+                     break;
+                 }
+             }
+          }
+
+          if (fileId) {
+              addLog("Downloading & Parsing Map Data...", "info");
+              const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
                   headers: { 'Authorization': `Bearer ${token}` }
               });
               
-              if (listRes.ok) {
-                  const listData = await listRes.json();
-                  if (listData.files && listData.files.length > 0) {
-                      const file = listData.files[0];
-                      addLog(`✅ FILE DETECTED: ${file.name} (ID: ...${file.id.slice(-6)})`, "ok");
-                      
-                      addLog("Downloading content stream...", "info");
-                      const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                          headers: { 'Authorization': `Bearer ${token}` }
-                      });
-                      
-                      if(!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`);
-                      
-                      const mapData = await fileRes.json();
-                      let ids: string[] = [];
+              if (!contentRes.ok) throw new Error(`Download Failed: ${contentRes.status}`);
+              
+              const mapData = await contentRes.json();
+              let ids: string[] = [];
 
-                      if (Array.isArray(mapData)) {
-                           ids = mapData;
-                           addLog(`Format: Array detected.`, "info");
-                      } else if (typeof mapData === 'object' && mapData !== null) {
-                           // Handle {"SYMBOL": "ID"} format
-                           ids = Object.values(mapData) as string[];
-                           // Deduplicate
-                           ids = Array.from(new Set(ids));
-                           addLog(`Format: Key-Value Map detected.`, "info");
-                      }
-                      
-                      // Filter invalid IDs
-                      ids = ids.filter(id => id && typeof id === 'string' && id.length > 2 && !id.includes(" "));
-
-                      if(ids.length > 0) {
-                          addLog(`Parsed ${ids.length} unique valid IDs.`, "ok");
-                          return ids;
-                      } else {
-                          addLog("Warning: File parsed but contained 0 valid IDs.", "warn");
-                      }
-                  }
+              if (Array.isArray(mapData)) {
+                   ids = mapData;
+                   addLog(`Format: Array (${ids.length} entries)`, "info");
+              } else if (typeof mapData === 'object' && mapData !== null) {
+                   ids = Object.values(mapData) as string[];
+                   // Deduplicate
+                   ids = Array.from(new Set(ids));
+                   addLog(`Format: Key-Value Map (${ids.length} entries)`, "info");
               }
+              
+              // Validation
+              ids = ids.filter(id => id && typeof id === 'string' && id.length > 2 && !id.includes(" "));
+              
+              if(ids.length > 0) {
+                  return ids;
+              } else {
+                  addLog("File parsed but contained 0 valid IDs.", "err");
+              }
+          } else {
+              addLog("❌ Critical: Ticker_ID_Mapping_Final.json NOT FOUND in Drive.", "err");
           }
-          
-          addLog("❌ Drive Search exhausted. 'Ticker_ID_Mapping_Final.json' not found.", "err");
-          
+
       } catch (e: any) {
           console.error(e);
           addLog(`Drive Access Error: ${e.message}`, "err");
@@ -288,11 +329,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.2.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.3.json`;
           
           const payload = {
               manifest: { 
-                  version: "2.7.2", 
+                  version: "2.7.3", 
                   provider: providerName, 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -369,7 +410,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.3</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
