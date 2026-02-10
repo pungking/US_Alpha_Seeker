@@ -169,31 +169,54 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       setIsMapping(true);
       setTestResult(null); 
-      addLog("🕷️ Initializing Direct Symbol-to-ID Resolution...", "info");
+      addLog("🕷️ Engaging 'Trinity' Protocol (Sitemap -> ID -> API)...", "info");
       setStats(prev => ({ ...prev, phase: 'Mapping' }));
 
       try {
-          const symbols = Array.from(registry.keys());
-          const totalSymbols = symbols.length;
-          const batchSize = 40; // Safe batch size for URL length
+          // 1. Harvest IDs from Sitemap
+          addLog("Harvesting Secret IDs from MSN Sitemap...", "info");
+          const sitemapRes = await fetch('/api/msn?mode=fetch_sitemap_ids');
+          if (!sitemapRes.ok) throw new Error("Sitemap Harvest Failed");
+          
+          const sitemapData = await sitemapRes.json();
+          const allIds = sitemapData.ids || [];
+          addLog(`Harvested ${allIds.length} Secret IDs. Initiating Resolution...`, "ok");
+
+          // 2. Resolve in Batches
+          const batchSize = 20; // Conservative batch size
+          const totalIds = allIds.length;
           const newRegistry = new Map(registry);
           let mappedCount = 0;
+          let scannedCount = 0;
 
-          addLog(`Targeting ${totalSymbols} assets. Batch size: ${batchSize}.`, "info");
+          // Limit total scan to avoid Vercel timeouts if array is huge.
+          // Prioritize IDs that are likely to be relevant? No, just scan.
+          // Note: In a real "all stocks" scenario, we might want to iterate *all*.
+          // For now, let's iterate the first 5000 IDs as a proof of concept/safety limit, 
+          // or iterate until we hit a timeout risk.
+          const SAFETY_LIMIT = 6000; 
+          const idsToProcess = allIds.slice(0, SAFETY_LIMIT);
 
-          for (let i = 0; i < totalSymbols; i += batchSize) {
-              const batch = symbols.slice(i, i + batchSize);
-              const symbolString = batch.join(',');
+          for (let i = 0; i < idsToProcess.length; i += batchSize) {
+              const batchIds = idsToProcess.slice(i, i + batchSize);
+              const idString = batchIds.join(',');
               
               try {
-                  const res = await fetch(`/api/msn?mode=resolve_ids&symbols=${symbolString}`);
+                  const res = await fetch(`/api/msn?mode=resolve_batch_by_ids&ids=${idString}`);
                   if (res.ok) {
-                      const idMap = await res.json();
-                      Object.entries(idMap).forEach(([sym, id]) => {
-                          const ticker = newRegistry.get(sym);
-                          if (ticker) {
-                              ticker.msnId = id as string;
-                              mappedCount++;
+                      const resolvedItems = await res.json();
+                      
+                      resolvedItems.forEach((item: any) => {
+                          // item = { id: 'afu4h7', symbol: 'TSLA', ... }
+                          // Match to our registry by Symbol
+                          if (item.symbol) {
+                              const symbol = item.symbol.toUpperCase();
+                              const existingTicker = newRegistry.get(symbol);
+                              
+                              if (existingTicker) {
+                                  existingTicker.msnId = item.id;
+                                  mappedCount++;
+                              }
                           }
                       });
                   }
@@ -201,31 +224,33 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   console.warn("Batch failed", e);
               }
               
-              // Progress feedback every 5 batches (200 symbols)
-              if (i % 200 === 0 && i > 0) {
-                  addLog(`Mapping Progress: ${mappedCount} IDs resolved...`, "info");
+              scannedCount += batchIds.length;
+              if (scannedCount % 500 === 0) {
+                  addLog(`Progress: Scanned ${scannedCount}/${idsToProcess.length} IDs. Mapped ${mappedCount} symbols.`, "info");
               }
               
-              // Light throttle to be polite
-              await new Promise(r => setTimeout(r, 50));
+              // Throttle slightly
+              await new Promise(r => setTimeout(r, 100));
           }
 
           setRegistry(newRegistry);
           setStats(prev => ({ ...prev, found: newRegistry.size })); 
-          addLog(`Resolution Complete. Mapped ${mappedCount}/${totalSymbols} Secret IDs.`, "ok");
+          addLog(`Trinity Sequence Complete. Mapped ${mappedCount} Secret IDs.`, "ok");
+          if (allIds.length > SAFETY_LIMIT) {
+              addLog(`Note: Scanned first ${SAFETY_LIMIT} IDs. Run again to scan more if needed (Future Feature).`, "warn");
+          }
 
-          // 3. Upload to Drive (Optional Backup)
-          // We save the IDs embedded in the universe file later, but saving a map is good practice
+          // 3. Upload Map Backup
           const idMapExport: Record<string, string> = {};
           newRegistry.forEach((v, k) => { if(v.msnId) idMapExport[k] = v.msnId; });
           
           const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
-          const fileName = `MSN_ID_MAP_DIRECT_${new Date().toISOString().split('T')[0]}.json`;
+          const fileName = `MSN_TRINITY_MAP_${new Date().toISOString().split('T')[0]}.json`;
           
           await uploadFile(accessToken, folderId, fileName, idMapExport);
-          addLog(`ID Map Backup Saved: ${fileName}`, "ok");
+          addLog(`Trinity Map Backup Saved: ${fileName}`, "ok");
           
-          // 4. Test Probe
+          // 4. Test Probe (TSLA)
           const sampleTicker = 'TSLA';
           const sampleItem = newRegistry.get(sampleTicker);
           
@@ -239,8 +264,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               } else {
                   addLog(`Test Probe Failed: ${probeRes.status}`, "warn");
               }
-          } else {
-               addLog(`Test Probe Skipped: ${sampleTicker} ID not found.`, "warn");
           }
 
       } catch (e: any) {
