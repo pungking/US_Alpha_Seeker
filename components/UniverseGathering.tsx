@@ -147,11 +147,33 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  // Helper to normalize strings for comparison (remove spaces, dots, inc, corp, etc)
-  const normalizeForMatch = (str: string) => {
-      return str.toLowerCase()
-          .replace(/inc\.?|corp\.?|corporation|company|limited|ltd\.?/g, '')
-          .replace(/[^a-z0-9]/g, '');
+  // Helper to load existing map from Drive
+  const loadMapFromDrive = async (token: string) => {
+      try {
+          const q = encodeURIComponent("name contains 'MSN_TRINITY_MAP_' and trashed = false");
+          const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          
+          if (!listRes.ok) return null;
+          
+          const listData = await listRes.json();
+          if (listData.files && listData.files.length > 0) {
+              const fileId = listData.files[0].id;
+              const fileName = listData.files[0].name;
+              addLog(`Found existing ID Map: ${fileName}. Downloading...`, "info");
+              
+              const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+              });
+              const mapData = await fileRes.json();
+              // mapData is { symbol: id }, we return the IDs list
+              return Object.values(mapData) as string[];
+          }
+      } catch (e) {
+          console.warn("Failed to load map from drive", e);
+      }
+      return null;
   };
 
   const handleMapIDs = async () => {
@@ -168,31 +190,39 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       setStats(prev => ({ ...prev, phase: 'Mapping' }));
 
       try {
-          // 1. Harvest IDs from Sitemap
-          addLog("Harvesting Secret IDs from MSN Sitemap...", "info");
-          const sitemapRes = await fetch('/api/msn?mode=fetch_sitemap_ids');
-          if (!sitemapRes.ok) throw new Error("Sitemap Harvest Failed (Network Block)");
+          let allIds: string[] = [];
           
-          const sitemapData = await sitemapRes.json();
-          // [FAILOVER CHECK]
-          if(sitemapData.warning) {
-              addLog(sitemapData.warning, "warn");
+          // 1. Try Loading from Drive First (Cache Priority)
+          const cachedIds = await loadMapFromDrive(accessToken);
+          
+          if (cachedIds && cachedIds.length > 0) {
+              addLog(`Loaded ${cachedIds.length} IDs from Vault. Skipping Sitemap Harvest.`, "ok");
+              allIds = cachedIds;
+          } else {
+              // 2. Harvest IDs from Sitemap (Fallback)
+              addLog("No ID Map found in Vault. Harvesting Secret IDs from MSN Sitemap...", "info");
+              const sitemapRes = await fetch('/api/msn?mode=fetch_sitemap_ids');
+              if (!sitemapRes.ok) throw new Error("Sitemap Harvest Failed (Network Block or API Error)");
+              
+              const sitemapData = await sitemapRes.json();
+              if(sitemapData.error) throw new Error(sitemapData.error);
+              
+              if (!sitemapData || !sitemapData.ids) {
+                  throw new Error("Sitemap Harvest returned empty structure.");
+              }
+              
+              allIds = sitemapData.ids || [];
+              addLog(`Harvested ${allIds.length} IDs from Sitemap.`, "ok");
           }
 
-          if (!sitemapData || !sitemapData.ids) {
-              throw new Error("Sitemap Harvest returned empty structure.");
-          }
-
-          const allIds = sitemapData.ids || [];
-          
           if (allIds.length === 0) {
-               addLog("Harvested 0 IDs. Check Sitemap URL validity.", "warn");
-               return; // Stop here if no IDs
+               addLog("No IDs available to resolve.", "warn");
+               return; 
           }
 
-          addLog(`Harvested ${allIds.length} IDs. Initiating Resolution...`, "ok");
+          addLog(`Initiating Batch Resolution for ${allIds.length} items...`, "info");
 
-          // 2. Resolve in Batches
+          // 3. Resolve in Batches
           const batchSize = 50; 
           // Explicitly type newRegistry to preserve MasterTicker type
           const newRegistry = new Map<string, MasterTicker>(registry); 
@@ -273,7 +303,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           setStats(prev => ({ ...prev, found: newRegistry.size })); 
           addLog(`Trinity Sequence Complete. Total Universe: ${newRegistry.size}.`, "ok");
 
-          // 3. Upload Map Backup
+          // 4. Upload Map Backup (Always update cache)
           const idMapExport: Record<string, string> = {};
           newRegistry.forEach((v, k) => { if(v.msnId) idMapExport[k] = v.msnId; });
           
@@ -300,7 +330,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               addLog(`Rich Master Universe Saved: ${universeFile}`, "ok");
           }
 
-          // 4. Test Probe (TSLA)
+          // 5. Test Probe (TSLA)
           const sampleTicker = 'TSLA';
           const sampleItem = newRegistry.get(sampleTicker);
           
