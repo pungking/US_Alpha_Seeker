@@ -162,12 +162,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
       if (isMapping) return;
 
-      // [CRITICAL FIX] Removed the "registry.size === 0" check.
-      // The Trinity strategy allows building the universe FROM the Sitemap IDs.
-      
       setIsMapping(true);
       setTestResult(null); 
-      addLog("🕷️ Engaging 'Trinity' Protocol (Full Market Scan)...", "info");
+      addLog("🕷️ Engaging 'Trinity' Protocol (Full Market Scan + Fundamental Injection)...", "info");
       setStats(prev => ({ ...prev, phase: 'Mapping' }));
 
       try {
@@ -200,7 +197,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       const resolvedItems = await res.json();
                       
                       resolvedItems.forEach((item: any) => {
-                          // item = { id, symbol, name, price, change, volume, ... }
+                          // item = { id, symbol, name, price, change, volume, pe, roe, pbr, marketCap }
                           if (item.symbol) {
                               const symbol = item.symbol.toUpperCase();
                               const existingTicker = newRegistry.get(symbol);
@@ -208,9 +205,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                               if (existingTicker) {
                                   // Update existing
                                   existingTicker.msnId = item.id;
-                                  // Update price/vol if available
                                   if (item.price) existingTicker.price = item.price;
                                   if (item.volume) existingTicker.volume = item.volume;
+                                  // Inject Fundamentals
+                                  if (item.pe) existingTicker.pe = item.pe;
+                                  if (item.roe) existingTicker.roe = item.roe;
+                                  if (item.pbr) existingTicker.pb = item.pbr;
+                                  if (item.marketCap) existingTicker.marketCap = item.marketCap;
+                                  
                                   mappedCount++;
                               } else {
                                   // [NEW] Discovery Mode: Create new ticker from MSN data
@@ -220,10 +222,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                       price: item.price || 0,
                                       volume: item.volume || 0,
                                       change: item.change || 0,
+                                      marketCap: item.marketCap || 0,
                                       type: item.type || 'Common Stock',
                                       updated: new Date().toISOString().split('T')[0],
                                       source: 'MSN_Trinity_Discovery',
-                                      msnId: item.id
+                                      msnId: item.id,
+                                      // Fundamentals
+                                      pe: item.pe,
+                                      roe: item.roe,
+                                      pb: item.pbr
                                   });
                                   discoveredCount++;
                               }
@@ -237,7 +244,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               scannedCount += batchIds.length;
               if (scannedCount % 500 === 0 || scannedCount === idsToProcess.length) {
                   addLog(`Progress: Scanned ${scannedCount}/${idsToProcess.length} IDs. Mapped: ${mappedCount}, Discovered: ${discoveredCount}`, "info");
-                  // Update UI periodically
                   setStats(prev => ({ ...prev, found: newRegistry.size })); 
               }
               
@@ -248,8 +254,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           setStats(prev => ({ ...prev, found: newRegistry.size })); 
           addLog(`Trinity Sequence Complete. Total Universe: ${newRegistry.size}.`, "ok");
 
-          // 3. Upload Map Backup (Now includes the full discovered universe)
-          // We'll save the ID map specifically, but also consider saving the whole universe if it was a discovery run.
+          // 3. Upload Map Backup
           const idMapExport: Record<string, string> = {};
           newRegistry.forEach((v, k) => { if(v.msnId) idMapExport[k] = v.msnId; });
           
@@ -258,21 +263,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           await uploadFile(accessToken, folderId, fileName, idMapExport);
           addLog(`Trinity Map Backup Saved: ${fileName}`, "ok");
           
-          // If we discovered a lot, save a new Master Universe
+          // Save Full Universe if Discovered items > 0
           if (discoveredCount > 0) {
               const universeFile = `STAGE0_MASTER_UNIVERSE_TRINITY_${new Date().toISOString().replace(/:/g,'-')}.json`;
               const payload = {
                   manifest: { 
-                    version: "Trinity_v1", 
+                    version: "Trinity_v1.1", 
                     provider: "MSN_Sitemap_Discovery", 
                     date: new Date().toISOString(), 
-                    count: newRegistry.size 
+                    count: newRegistry.size,
+                    note: "Fundamentals Injected (PE/ROE/PBR)"
                   },
                   universe: Array.from(newRegistry.values())
               };
               const targetFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.targetSubFolder);
               await uploadFile(accessToken, targetFolderId, universeFile, payload);
-              addLog(`New Master Universe Saved: ${universeFile}`, "ok");
+              addLog(`Rich Master Universe Saved: ${universeFile}`, "ok");
           }
 
           // 4. Test Probe (TSLA)
