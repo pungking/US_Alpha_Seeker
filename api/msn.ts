@@ -1,10 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Trinity" - MSN Secret Protocol v5.1
+  // "The Trinity" - MSN Secret Protocol v5.2
   // Strategy:
   // 1. Scrape ALL "fi-ids" from Sitemap (Source of Truth for Existence).
-  // 2. Query Equities API with IDs -> Get Symbol + Market Data (Source of Truth for Identity & Price).
-  // 3. Map perfectly or Discover new assets.
+  // 2. Query Equities API with IDs -> Get Symbol + Market Data + Fundamentals.
+  // 3. Map perfectly or Discover new assets with rich initial data.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -45,7 +45,7 @@ export default async function handler(req: any, res: any) {
       }
   }
 
-  // --- MODE 2: RESOLVE BATCH (ID -> Symbol + Rich Data) ---
+  // --- MODE 2: RESOLVE BATCH (ID -> Symbol + Rich Data + Fundamentals) ---
   if (mode === 'resolve_batch_by_ids' && ids) {
       try {
           const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`;
@@ -64,11 +64,16 @@ export default async function handler(req: any, res: any) {
                           symbol: item.symbol,   // Ticker
                           name: item.displayName || item.shortName,
                           type: item.instrumentType,
-                          // [NEW] Market Data Injection
+                          // Market Data
                           price: item.price || 0,
                           change: item.priceChangePercent || 0,
                           volume: item.volume || 0,
-                          currency: item.currency
+                          currency: item.currency,
+                          // [NEW] Fundamentals Injection
+                          pe: item.averagePE || item.peRatio || 0,
+                          roe: item.returnOnEquity ? item.returnOnEquity * 100 : 0, // Convert to %
+                          pbr: item.priceToBookRatio || 0,
+                          marketCap: item.marketCap || 0
                       });
                   }
               });
