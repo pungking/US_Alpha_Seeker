@@ -1,10 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Trinity" - MSN Secret Protocol v5.0
+  // "The Trinity" - MSN Secret Protocol v5.1
   // Strategy:
   // 1. Scrape ALL "fi-ids" from Sitemap (Source of Truth for Existence).
-  // 2. Query Equities API with IDs -> Get Symbol (Source of Truth for Identity).
-  // 3. Map perfectly.
+  // 2. Query Equities API with IDs -> Get Symbol + Market Data (Source of Truth for Identity & Price).
+  // 3. Map perfectly or Discover new assets.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -37,7 +37,6 @@ export default async function handler(req: any, res: any) {
           }
 
           const idList = Array.from(ids);
-          // Return the raw list of IDs
           return res.status(200).json({ count: idList.length, ids: idList });
 
       } catch (e: any) {
@@ -46,10 +45,9 @@ export default async function handler(req: any, res: any) {
       }
   }
 
-  // --- MODE 2: RESOLVE BATCH (ID -> Symbol + Data) ---
+  // --- MODE 2: RESOLVE BATCH (ID -> Symbol + Rich Data) ---
   if (mode === 'resolve_batch_by_ids' && ids) {
       try {
-          // User provided API URL structure
           const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`;
           
           const apiRes = await fetch(apiUrl);
@@ -60,13 +58,17 @@ export default async function handler(req: any, res: any) {
 
           if (data && Array.isArray(data)) {
               data.forEach((item: any) => {
-                  // We need Symbol (to link to our DB) and InstrumentId (to confirm)
                   if (item.symbol && item.instrumentId) {
                       mapping.push({
-                          id: item.instrumentId, // The Secret ID (e.g. afu4h7)
-                          symbol: item.symbol,   // The Ticker (e.g. TSLA)
+                          id: item.instrumentId, // Secret ID
+                          symbol: item.symbol,   // Ticker
                           name: item.displayName || item.shortName,
-                          type: item.instrumentType
+                          type: item.instrumentType,
+                          // [NEW] Market Data Injection
+                          price: item.price || 0,
+                          change: item.priceChangePercent || 0,
+                          volume: item.volume || 0,
+                          currency: item.currency
                       });
                   }
               });
@@ -97,7 +99,6 @@ export default async function handler(req: any, res: any) {
               symbol: raw.symbol,
               name: raw.displayName || raw.shortName,
               price: raw.price || 0,
-              // Fundamental Data
               peRatio: raw.averagePE || raw.peRatio,
               eps: raw.eps,
               roe: raw.returnOnEquity ? raw.returnOnEquity * 100 : 0, 
@@ -105,12 +106,10 @@ export default async function handler(req: any, res: any) {
               pbr: raw.priceToBookRatio,
               debtToEquity: raw.debtToEquityRatio,
               marketCap: raw.marketCap,
-              // Financial Statements Snapshot
               netIncome: raw.netIncome,
               revenue: raw.revenue,
               totalAssets: raw.assets,
               totalLiabilities: raw.liabilities,
-              // Meta
               currency: raw.currency,
               exchange: raw.exchangeCode,
               source: "MSN_TRINITY_API"
