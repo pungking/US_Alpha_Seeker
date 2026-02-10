@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.5.0: Secret ID Protocol Priority.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.6.0: ID Map Priority Protocol.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -85,15 +85,24 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   // Helper to load existing map from Drive
   const loadMapFromDrive = async (token: string) => {
       try {
-          // Priority 1: User's Manual Backup File (MSN_Money_Secret_ID.json)
-          let q = encodeURIComponent("name = 'MSN_Money_Secret_ID.json' and trashed = false");
+          // Priority 1: User's Manual Backup File (Ticker_ID_Mapping_Final.json)
+          let q = encodeURIComponent("name = 'Ticker_ID_Mapping_Final.json' and trashed = false");
           let listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
               headers: { 'Authorization': `Bearer ${token}` }
           });
           
           let listData = await listRes.json();
 
-          // Priority 2: System Auto-Backup (MSN_TRINITY_MAP_*) if manual file not found
+          // Priority 2: Previous Manual Backup (MSN_Money_Secret_ID.json)
+          if (!listData.files || listData.files.length === 0) {
+              q = encodeURIComponent("name = 'MSN_Money_Secret_ID.json' and trashed = false");
+              listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+                  headers: { 'Authorization': `Bearer ${token}` }
+              });
+              listData = await listRes.json();
+          }
+
+          // Priority 3: System Auto-Backup (MSN_TRINITY_MAP_*)
           if (!listData.files || listData.files.length === 0) {
               q = encodeURIComponent("name contains 'MSN_TRINITY_MAP_' and trashed = false");
               listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -122,6 +131,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                    addLog(`Loaded ${ids.length} IDs from map.`, "ok");
                    return ids;
               }
+          } else {
+             addLog("No ID Map files found in Drive.", "warn");
           }
       } catch (e: any) {
           console.warn("Failed to load map from drive", e);
@@ -135,7 +146,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       addLog(`Resolving ${ids.length} MSN IDs to Assets...`, "info");
       
       const resolvedAssets: any[] = [];
-      const BATCH_SIZE = 20; // Safe batch size
+      const BATCH_SIZE = 40; // Increased batch size for efficiency
       
       setProgress(prev => ({ ...prev, target: ids.length }));
 
@@ -174,7 +185,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, found: resolvedAssets.length }));
           
           // Throttling
-          await new Promise(r => setTimeout(r, 250));
+          await new Promise(r => setTimeout(r, 200));
       }
       
       return resolvedAssets;
@@ -248,15 +259,15 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.5.0.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v2.6.0.json`;
           
           const payload = {
               manifest: { 
-                  version: "2.5.0", 
+                  version: "2.6.0", 
                   provider: providerName, 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Prioritized MSN Secret ID Resolution"
+                  note: "Prioritized Ticker_ID_Mapping_Final.json"
               },
               universe: assets
           };
@@ -329,7 +340,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.5.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.6.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
