@@ -174,6 +174,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           if (!sitemapRes.ok) throw new Error("Sitemap Harvest Failed (Network Block)");
           
           const sitemapData = await sitemapRes.json();
+          // [FAILOVER CHECK]
+          if(sitemapData.warning) {
+              addLog(sitemapData.warning, "warn");
+          }
+
           if (!sitemapData || !sitemapData.ids) {
               throw new Error("Sitemap Harvest returned empty structure.");
           }
@@ -185,7 +190,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                return; // Stop here if no IDs
           }
 
-          addLog(`Harvested ${allIds.length} Secret IDs. Initiating Resolution...`, "ok");
+          addLog(`Harvested ${allIds.length} IDs. Initiating Resolution...`, "ok");
 
           // 2. Resolve in Batches
           const batchSize = 50; 
@@ -259,8 +264,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   setStats(prev => ({ ...prev, found: newRegistry.size })); 
               }
               
-              // [RATE LIMIT] Increased delay to 300ms to be safer
-              await new Promise(r => setTimeout(r, 300));
+              // [RATE LIMIT] Increased delay to 500ms to be safer
+              await new Promise(r => setTimeout(r, 500));
           }
 
           setRegistry(newRegistry);
