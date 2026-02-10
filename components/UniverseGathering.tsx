@@ -194,7 +194,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
           // 2. Resolve in Batches
           const batchSize = 50; 
-          const newRegistry = new Map(registry); // Copy existing, but we will add to it
+          // Explicitly type newRegistry to preserve MasterTicker type
+          const newRegistry = new Map<string, MasterTicker>(registry); 
           let mappedCount = 0;
           let scannedCount = 0;
           let discoveredCount = 0;
