@@ -169,7 +169,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       setIsMapping(true);
       setTestResult(null); 
-      addLog("🕷️ Engaging 'Trinity' Protocol (Sitemap -> ID -> API)...", "info");
+      addLog("🕷️ Engaging 'Trinity' Protocol (Full Market Scan)...", "info");
       setStats(prev => ({ ...prev, phase: 'Mapping' }));
 
       try {
@@ -183,19 +183,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           addLog(`Harvested ${allIds.length} Secret IDs. Initiating Resolution...`, "ok");
 
           // 2. Resolve in Batches
-          const batchSize = 20; // Conservative batch size
-          const totalIds = allIds.length;
+          const batchSize = 50; // Increased Batch Size for efficiency
           const newRegistry = new Map(registry);
           let mappedCount = 0;
           let scannedCount = 0;
 
-          // Limit total scan to avoid Vercel timeouts if array is huge.
-          // Prioritize IDs that are likely to be relevant? No, just scan.
-          // Note: In a real "all stocks" scenario, we might want to iterate *all*.
-          // For now, let's iterate the first 5000 IDs as a proof of concept/safety limit, 
-          // or iterate until we hit a timeout risk.
-          const SAFETY_LIMIT = 6000; 
-          const idsToProcess = allIds.slice(0, SAFETY_LIMIT);
+          // [UNLEASHED] Process ALL IDs found in the sitemap
+          const idsToProcess = allIds; 
 
           for (let i = 0; i < idsToProcess.length; i += batchSize) {
               const batchIds = idsToProcess.slice(i, i + batchSize);
@@ -215,6 +209,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                               
                               if (existingTicker) {
                                   existingTicker.msnId = item.id;
+                                  // Can also enrich data here if needed (e.g., name, type)
                                   mappedCount++;
                               }
                           }
@@ -225,20 +220,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               }
               
               scannedCount += batchIds.length;
-              if (scannedCount % 500 === 0) {
+              if (scannedCount % 500 === 0 || scannedCount === idsToProcess.length) {
                   addLog(`Progress: Scanned ${scannedCount}/${idsToProcess.length} IDs. Mapped ${mappedCount} symbols.`, "info");
               }
               
-              // Throttle slightly
-              await new Promise(r => setTimeout(r, 100));
+              // Throttle slightly to be polite to the proxy
+              await new Promise(r => setTimeout(r, 80));
           }
 
           setRegistry(newRegistry);
           setStats(prev => ({ ...prev, found: newRegistry.size })); 
           addLog(`Trinity Sequence Complete. Mapped ${mappedCount} Secret IDs.`, "ok");
-          if (allIds.length > SAFETY_LIMIT) {
-              addLog(`Note: Scanned first ${SAFETY_LIMIT} IDs. Run again to scan more if needed (Future Feature).`, "warn");
-          }
 
           // 3. Upload Map Backup
           const idMapExport: Record<string, string> = {};
