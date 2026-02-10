@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.4: Stealth Batch Mode Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v3.0.0: Colab-Link Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -42,7 +42,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
-            addLog("AUTO-PILOT: Engaging Secret ID Recovery...", "signal");
+            addLog("AUTO-PILOT: Engaging Data Retrieval Sequence...", "signal");
             startGathering(accessToken);
         } else {
             addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
@@ -80,6 +80,45 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           addLog(`Auth Error: ${e.message}`, "err");
           setShowConfig(true);
       }
+  };
+
+  // Helper to find and load the Colab-generated file
+  const loadColabData = async (token: string) => {
+      try {
+          addLog("Strategy 0: Searching for Colab-Injected Data...", "info");
+          
+          // Search for file uploaded by Python script
+          const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE_COLAB' and trashed = false`);
+          const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+
+          if (res.ok) {
+              const data = await res.json();
+              if (data.files && data.files.length > 0) {
+                  const file = data.files[0];
+                  addLog(`✅ COLAB INJECTION DETECTED: ${file.name}`, "ok");
+                  
+                  const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+                      headers: { 'Authorization': `Bearer ${token}` }
+                  });
+                  
+                  if (!contentRes.ok) throw new Error("Download failed");
+                  
+                  const json = await contentRes.json();
+                  const universe = json.universe || json; // Handle wrapped or raw array
+                  
+                  if (Array.isArray(universe) && universe.length > 0) {
+                      addLog(`Loaded ${universe.length} assets from Colab Pipeline.`, "ok");
+                      return universe;
+                  }
+              }
+          }
+          addLog("Colab data not found. Falling back to internal engine.", "warn");
+      } catch (e: any) {
+          addLog(`Colab Load Error: ${e.message}`, "warn");
+      }
+      return null;
   };
 
   // Helper to load existing map from Drive with Folder Awareness
@@ -133,25 +172,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               }
           }
 
-          // STRATEGY 3: Legacy/Backup Filenames
-          if (!fileId) {
-             const backupQueries = [
-                 "name contains 'Ticker_ID_Mapping' and trashed = false",
-                 "name = 'MSN_Money_Secret_ID.json' and trashed = false"
-             ];
-             for(const bQ of backupQueries) {
-                 const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(bQ)}`, {
-                     headers: { 'Authorization': `Bearer ${token}` }
-                 });
-                 const data = await res.json();
-                 if (data.files && data.files.length > 0) {
-                     fileId = data.files[0].id;
-                     addLog(`⚠️ Found backup file: ${data.files[0].name}`, "warn");
-                     break;
-                 }
-             }
-          }
-
           if (fileId) {
               addLog("Downloading & Parsing Map Data...", "info");
               const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
@@ -193,7 +213,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   };
 
   // Strategy: Resolve MSN IDs to Real Data (Stealth Mode)
-  // v2.7.4: Reduced batch size and concurrency to prevent silent blocking
   const resolveMsnAssets = async (ids: string[]) => {
       addLog(`Resolving ${ids.length} IDs (Stealth Mode)...`, "info");
       
@@ -300,33 +319,40 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       let providerName = 'None';
 
       try {
-          // Priority 1: MSN Secret ID Map
-          const uniqueIds = await loadMapFromDrive(token);
-          
-          if (uniqueIds && uniqueIds.length > 0) {
-              addLog(`Engaging Stealth Resolver for ${uniqueIds.length} IDs...`, "ok");
-              assets = await resolveMsnAssets(uniqueIds);
+          // Priority 0: Check for Colab Injection
+          assets = await loadColabData(token) || [];
+          if (assets.length > 0) {
+              providerName = 'Google_Colab_Pipe';
+              addLog("Using Colab-Injected Data. Skipping Scraper.", "ok");
+          } else {
+              // Priority 1: MSN Secret ID Map
+              const uniqueIds = await loadMapFromDrive(token);
               
-              if (assets.length > 0) {
-                  providerName = 'MSN_Secret_Map';
-                  addLog(`Resolution Complete. ${assets.length} valid assets found.`, "ok");
-              } else {
-                  addLog("Resolution yielded 0 assets. IDs might be stale/blocked.", "warn");
+              if (uniqueIds && uniqueIds.length > 0) {
+                  addLog(`Engaging Stealth Resolver for ${uniqueIds.length} IDs...`, "ok");
+                  assets = await resolveMsnAssets(uniqueIds);
+                  
+                  if (assets.length > 0) {
+                      providerName = 'MSN_Secret_Map';
+                      addLog(`Resolution Complete. ${assets.length} valid assets found.`, "ok");
+                  } else {
+                      addLog("Resolution yielded 0 assets. IDs might be stale/blocked.", "warn");
+                  }
+              }
+
+              // Priority 2: FMP Fallback
+              if (assets.length === 0) {
+                  addLog("Primary Source Empty. Attempting FMP fallback...", "warn");
+                  try {
+                      assets = await fetchFmpScreener();
+                      providerName = 'FMP (Backup)';
+                  } catch (e: any) {
+                      addLog(`FMP Backup Failed: ${e.message}`, "err");
+                  }
               }
           }
 
-          // Priority 2: FMP Fallback (if MSN failed or empty)
-          if (assets.length === 0) {
-              addLog("Primary Source Empty. Attempting FMP fallback...", "warn");
-              try {
-                  assets = await fetchFmpScreener();
-                  providerName = 'FMP (Backup)';
-              } catch (e: any) {
-                  addLog(`FMP Backup Failed: ${e.message}`, "err");
-              }
-          }
-
-          if (assets.length === 0) throw new Error("Zero Assets Found from all sources. Check Drive file & API Keys.");
+          if (assets.length === 0) throw new Error("Zero Assets Found from all sources. Run Colab Script or Check API Keys.");
 
           setProgress(prev => ({ ...prev, found: assets.length, provider: providerName, phase: 'Mapping' }));
 
@@ -334,15 +360,15 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.4.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v3.0.0.json`;
           
           const payload = {
               manifest: { 
-                  version: "2.7.4", 
+                  version: "3.0.0", 
                   provider: providerName, 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Multi-Vector MSN Resolution"
+                  note: "Hybrid Architecture (Colab + Web)"
               },
               universe: assets
           };
@@ -415,9 +441,9 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.4</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.0.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Colab_Link_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
@@ -429,7 +455,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                 disabled={isGathering}
                 className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isGathering ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : accessToken ? 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' : 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20'}`}
             >
-                {isGathering ? 'Resolving Universe...' : accessToken ? 'Execute Data Fusion' : 'Connect Cloud Vault'}
+                {isGathering ? 'Acquiring Universe...' : accessToken ? 'Execute Data Fusion' : 'Connect Cloud Vault'}
             </button>
           </div>
 
