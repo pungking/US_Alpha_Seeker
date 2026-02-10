@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.0: High-Velocity Resolution Mode.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.2: Deep Search Matrix Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -82,62 +82,71 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       }
   };
 
-  // Helper to load existing map from Drive
+  // Helper to load existing map from Drive with Deep Search
   const loadMapFromDrive = async (token: string) => {
       try {
-          // Priority 1: User's Manual Backup File (Ticker_ID_Mapping_Final.json)
-          let q = encodeURIComponent("name = 'Ticker_ID_Mapping_Final.json' and trashed = false");
-          let listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-          });
+          addLog("Initiating Drive Deep Search...", "info");
           
-          let listData = await listRes.json();
+          // Search Strategies: Exact -> Contains -> Legacy
+          const searchPatterns = [
+              "name = 'Ticker_ID_Mapping_Final.json' and trashed = false",
+              "name contains 'Ticker_ID_Mapping_Final' and trashed = false",
+              "name contains 'Ticker_ID_Mapping' and trashed = false",
+              "name = 'MSN_Money_Secret_ID.json' and trashed = false"
+          ];
 
-          // Priority 2: Previous Manual Backup (MSN_Money_Secret_ID.json)
-          if (!listData.files || listData.files.length === 0) {
-              q = encodeURIComponent("name = 'MSN_Money_Secret_ID.json' and trashed = false");
-              listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          for (const qString of searchPatterns) {
+              const q = encodeURIComponent(qString);
+              
+              const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&fields=files(id,name,size,createdTime)&orderBy=createdTime desc&pageSize=5`, {
                   headers: { 'Authorization': `Bearer ${token}` }
               });
-              listData = await listRes.json();
-          }
+              
+              if (listRes.ok) {
+                  const listData = await listRes.json();
+                  if (listData.files && listData.files.length > 0) {
+                      const file = listData.files[0];
+                      addLog(`✅ FILE DETECTED: ${file.name} (ID: ...${file.id.slice(-6)})`, "ok");
+                      
+                      addLog("Downloading content stream...", "info");
+                      const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+                          headers: { 'Authorization': `Bearer ${token}` }
+                      });
+                      
+                      if(!fileRes.ok) throw new Error(`Download failed: ${fileRes.status}`);
+                      
+                      const mapData = await fileRes.json();
+                      let ids: string[] = [];
 
-          // Priority 3: System Auto-Backup (MSN_TRINITY_MAP_*)
-          if (!listData.files || listData.files.length === 0) {
-              q = encodeURIComponent("name contains 'MSN_TRINITY_MAP_' and trashed = false");
-              listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-              });
-              listData = await listRes.json();
-          }
-          
-          if (listData.files && listData.files.length > 0) {
-              const fileId = listData.files[0].id;
-              const fileName = listData.files[0].name;
-              addLog(`Found ID Map: ${fileName}. Loading...`, "info");
-              
-              const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-              });
-              
-              const mapData = await fileRes.json();
-              addLog("Parsing ID Map data...", "info");
-              
-              // Handle both Array (List of IDs) and Object (Symbol->ID map) formats
-              if (Array.isArray(mapData)) {
-                   addLog(`Loaded ${mapData.length} IDs from list.`, "ok");
-                   return mapData as string[];
-              } else if (typeof mapData === 'object' && mapData !== null) {
-                   const ids = Object.values(mapData) as string[];
-                   addLog(`Loaded ${ids.length} IDs from map.`, "ok");
-                   return ids;
+                      if (Array.isArray(mapData)) {
+                           ids = mapData;
+                           addLog(`Format: Array detected.`, "info");
+                      } else if (typeof mapData === 'object' && mapData !== null) {
+                           // Handle {"SYMBOL": "ID"} format
+                           ids = Object.values(mapData) as string[];
+                           // Deduplicate
+                           ids = Array.from(new Set(ids));
+                           addLog(`Format: Key-Value Map detected.`, "info");
+                      }
+                      
+                      // Filter invalid IDs
+                      ids = ids.filter(id => id && typeof id === 'string' && id.length > 2 && !id.includes(" "));
+
+                      if(ids.length > 0) {
+                          addLog(`Parsed ${ids.length} unique valid IDs.`, "ok");
+                          return ids;
+                      } else {
+                          addLog("Warning: File parsed but contained 0 valid IDs.", "warn");
+                      }
+                  }
               }
-          } else {
-             addLog("No ID Map files found in Drive.", "warn");
           }
+          
+          addLog("❌ Drive Search exhausted. 'Ticker_ID_Mapping_Final.json' not found.", "err");
+          
       } catch (e: any) {
-          console.warn("Failed to load map from drive", e);
-          addLog(`Drive Load Error: ${e.message}`, "warn");
+          console.error(e);
+          addLog(`Drive Access Error: ${e.message}`, "err");
       }
       return null;
   };
@@ -147,12 +156,12 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       addLog(`Resolving ${ids.length} MSN IDs to Assets...`, "info");
       
       const resolvedAssets: any[] = [];
-      const BATCH_SIZE = 30; // Max IDs per URL
-      const CONCURRENCY = 5; // Number of parallel requests
+      const BATCH_SIZE = 40; // IDs per request
+      const CONCURRENCY = 4; // Parallel requests
       
       setProgress(prev => ({ ...prev, target: ids.length }));
 
-      // Split into chunks of chunks
+      // Split into chunks for parallel processing
       for (let i = 0; i < ids.length; i += (BATCH_SIZE * CONCURRENCY)) {
           const promises = [];
           
@@ -203,11 +212,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, found: currentCount }));
           
           if (i > 0 && i % 2000 < (BATCH_SIZE * CONCURRENCY)) {
-              addLog(`Progress: ${i} / ${ids.length} IDs processed... (${currentCount} found)`, "info");
+              addLog(`Progress: ${Math.min(i + (BATCH_SIZE*CONCURRENCY), ids.length)} / ${ids.length} IDs scanned...`, "info");
           }
           
-          // Small delay to prevent complete rate limiting
-          await new Promise(r => setTimeout(r, 200));
+          // Throttle slightly
+          await new Promise(r => setTimeout(r, 150));
       }
       
       return resolvedAssets;
@@ -246,30 +255,23 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
 
       try {
           // Priority 1: MSN Secret ID Map
-          const rawIds = await loadMapFromDrive(token);
+          const uniqueIds = await loadMapFromDrive(token);
           
-          if (rawIds && rawIds.length > 0) {
-              // Filter out headers or invalid IDs
-              const validIds = rawIds.filter(id => id && id !== "MSN_Money_Secret_ID" && !id.includes(" ") && id.length > 2);
+          if (uniqueIds && uniqueIds.length > 0) {
+              addLog(`Engaging High-Velocity Resolver for ${uniqueIds.length} IDs...`, "ok");
+              assets = await resolveMsnAssets(uniqueIds);
               
-              // Dedup
-              const uniqueIds = Array.from(new Set(validIds));
-
-              addLog(`ID Map Loaded. Unique Valid IDs: ${uniqueIds.length}. Engaging Fast Resolver...`, "ok");
-              
-              if (uniqueIds.length > 0) {
-                  assets = await resolveMsnAssets(uniqueIds);
-                  if (assets.length > 0) {
-                      providerName = 'MSN_Secret_Map';
-                  }
+              if (assets.length > 0) {
+                  providerName = 'MSN_Secret_Map';
+                  addLog(`Resolution Complete. ${assets.length} valid assets found.`, "ok");
+              } else {
+                  addLog("Resolution yielded 0 assets. IDs might be stale.", "warn");
               }
-          } else {
-             addLog("Map file empty or invalid.", "warn");
           }
 
           // Priority 2: FMP Fallback (if MSN failed or empty)
           if (assets.length === 0) {
-              addLog("MSN Map returned no assets. Attempting FMP fallback...", "warn");
+              addLog("Primary Source Empty. Attempting FMP fallback...", "warn");
               try {
                   assets = await fetchFmpScreener();
                   providerName = 'FMP (Backup)';
@@ -278,7 +280,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               }
           }
 
-          if (assets.length === 0) throw new Error("Zero Assets Found from all sources.");
+          if (assets.length === 0) throw new Error("Zero Assets Found from all sources. Please check Drive file.");
 
           setProgress(prev => ({ ...prev, found: assets.length, provider: providerName, phase: 'Mapping' }));
 
@@ -286,15 +288,15 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.0.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.2.json`;
           
           const payload = {
               manifest: { 
-                  version: "2.7.0", 
+                  version: "2.7.2", 
                   provider: providerName, 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "High-Velocity MSN Resolution"
+                  note: "Multi-Vector MSN Resolution"
               },
               universe: assets
           };
@@ -367,7 +369,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.2</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
