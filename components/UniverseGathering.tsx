@@ -147,6 +147,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
+  // Helper to normalize strings for comparison (remove spaces, dots, inc, corp, etc)
+  const normalizeForMatch = (str: string) => {
+      return str.toLowerCase()
+          .replace(/inc\.?|corp\.?|corporation|company|limited|ltd\.?/g, '')
+          .replace(/[^a-z0-9]/g, '');
+  };
+
   const handleMapIDs = async () => {
       if (!accessToken) {
           addLog("Authentication Required for ID Mapping.", "warn");
@@ -155,47 +162,85 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
       if (isMapping) return;
 
+      if (registry.size === 0) {
+          addLog("No Universe found. Run Penta Fusion first.", "err");
+          return;
+      }
+
       setIsMapping(true);
-      setTestResult(null); // Reset Test
-      addLog("🕷️ Initializing MSN Sitemap Spider...", "info");
+      setTestResult(null); 
+      addLog("🕷️ Initializing Direct Symbol-to-ID Resolution...", "info");
       setStats(prev => ({ ...prev, phase: 'Mapping' }));
 
       try {
-          // 1. Trigger API
-          addLog("Crawling MSN Sitemaps... This may take 20-30s.", "info");
-          const res = await fetch('/api/msn?mode=generate_map');
-          if (!res.ok) throw new Error("ID Mapper API Failed");
-          
-          const data = await res.json();
-          if (data.error) throw new Error(data.error);
+          const symbols = Array.from(registry.keys());
+          const totalSymbols = symbols.length;
+          const batchSize = 40; // Safe batch size for URL length
+          const newRegistry = new Map(registry);
+          let mappedCount = 0;
 
-          addLog(`Parsing Complete. Mapped ${data.count} tickers.`, "ok");
-          
-          if (data.map && data.count > 0) {
-              // 2. Upload to Drive
-              addLog("Uploading ID Map to System Folder...", "info");
-              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
-              const fileName = `MSN_ID_MAP_${new Date().toISOString().split('T')[0]}.json`;
+          addLog(`Targeting ${totalSymbols} assets. Batch size: ${batchSize}.`, "info");
+
+          for (let i = 0; i < totalSymbols; i += batchSize) {
+              const batch = symbols.slice(i, i + batchSize);
+              const symbolString = batch.join(',');
               
-              await uploadFile(accessToken, folderId, fileName, data.map);
-              addLog(`ID Map Saved: ${fileName}`, "ok");
-              
-              // 3. Test Probe (Pick TSLA or first available ID)
-              const sampleTicker = data.map['TSLA'] ? 'TSLA' : Object.keys(data.map)[0];
-              const sampleId = data.map[sampleTicker];
-              
-              if (sampleTicker && sampleId) {
-                  addLog(`🧪 Running Test Probe on ${sampleTicker} (${sampleId})...`, "info");
-                  const probeRes = await fetch(`/api/msn?mode=get_details&id=${sampleId}&symbol=${sampleTicker}`);
-                  if (probeRes.ok) {
-                      const probeData = await probeRes.json();
-                      setTestResult(probeData);
-                      addLog(`Test Probe Success: ${sampleTicker} PE=${probeData.peRatio}, ROE=${probeData.roe.toFixed(1)}%`, "ok");
+              try {
+                  const res = await fetch(`/api/msn?mode=resolve_ids&symbols=${symbolString}`);
+                  if (res.ok) {
+                      const idMap = await res.json();
+                      Object.entries(idMap).forEach(([sym, id]) => {
+                          const ticker = newRegistry.get(sym);
+                          if (ticker) {
+                              ticker.msnId = id as string;
+                              mappedCount++;
+                          }
+                      });
                   }
+              } catch (e) {
+                  console.warn("Batch failed", e);
               }
               
+              // Progress feedback every 5 batches (200 symbols)
+              if (i % 200 === 0 && i > 0) {
+                  addLog(`Mapping Progress: ${mappedCount} IDs resolved...`, "info");
+              }
+              
+              // Light throttle to be polite
+              await new Promise(r => setTimeout(r, 50));
+          }
+
+          setRegistry(newRegistry);
+          setStats(prev => ({ ...prev, found: newRegistry.size })); 
+          addLog(`Resolution Complete. Mapped ${mappedCount}/${totalSymbols} Secret IDs.`, "ok");
+
+          // 3. Upload to Drive (Optional Backup)
+          // We save the IDs embedded in the universe file later, but saving a map is good practice
+          const idMapExport: Record<string, string> = {};
+          newRegistry.forEach((v, k) => { if(v.msnId) idMapExport[k] = v.msnId; });
+          
+          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
+          const fileName = `MSN_ID_MAP_DIRECT_${new Date().toISOString().split('T')[0]}.json`;
+          
+          await uploadFile(accessToken, folderId, fileName, idMapExport);
+          addLog(`ID Map Backup Saved: ${fileName}`, "ok");
+          
+          // 4. Test Probe
+          const sampleTicker = 'TSLA';
+          const sampleItem = newRegistry.get(sampleTicker);
+          
+          if (sampleItem && sampleItem.msnId) {
+              addLog(`🧪 Running Test Probe on ${sampleTicker} (${sampleItem.msnId})...`, "info");
+              const probeRes = await fetch(`/api/msn?mode=get_details&id=${sampleItem.msnId}&symbol=${sampleTicker}`);
+              if (probeRes.ok) {
+                  const probeData = await probeRes.json();
+                  setTestResult(probeData);
+                  addLog(`Test Probe Success: ${sampleTicker} PE=${probeData.peRatio}, ROE=${probeData.roe.toFixed(1)}%`, "ok");
+              } else {
+                  addLog(`Test Probe Failed: ${probeRes.status}`, "warn");
+              }
           } else {
-              addLog("No IDs found. Check sitemap structure.", "warn");
+               addLog(`Test Probe Skipped: ${sampleTicker} ID not found.`, "warn");
           }
 
       } catch (e: any) {
@@ -213,7 +258,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     runQuadFusionPipeline(accessToken);
   };
   
-  // ... (Existing execute functions for TV, FMP, Polygon, SEC kept same) ...
   const executeTVScanner = async (): Promise<MasterTicker[]> => {
       addLog("Source A: TradingView Omni-Scanner (Rich Data)...", "info");
       const res = await fetch('/api/nasdaq'); 
@@ -636,7 +680,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             <div className="flex items-center justify-between mb-4">
               <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
               {/* [NEW] Mapping Indicator */}
-              {isMapping && <span className="text-[8px] text-emerald-400 font-bold animate-pulse uppercase tracking-widest">Sitemap Spider Active</span>}
+              {isMapping && <span className="text-[8px] text-emerald-400 font-bold animate-pulse uppercase tracking-widest">Mapping in Progress...</span>}
             </div>
             <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
