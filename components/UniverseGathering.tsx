@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.3: Path-Aware Search Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.7.4: Stealth Batch Mode Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -192,21 +192,20 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       return null;
   };
 
-  // Strategy: Resolve MSN IDs to Real Data (Optimized Parallel Batching)
+  // Strategy: Resolve MSN IDs to Real Data (Stealth Mode)
+  // v2.7.4: Reduced batch size and concurrency to prevent silent blocking
   const resolveMsnAssets = async (ids: string[]) => {
-      addLog(`Resolving ${ids.length} MSN IDs to Assets...`, "info");
+      addLog(`Resolving ${ids.length} IDs (Stealth Mode)...`, "info");
       
       const resolvedAssets: any[] = [];
-      const BATCH_SIZE = 40; // IDs per request
-      const CONCURRENCY = 4; // Parallel requests
+      const BATCH_SIZE = 15; // Reduced from 40 for stability
+      const CONCURRENCY = 2; // Reduced from 4 to avoid IP flag
       
       setProgress(prev => ({ ...prev, target: ids.length }));
 
-      // Split into chunks for parallel processing
       for (let i = 0; i < ids.length; i += (BATCH_SIZE * CONCURRENCY)) {
           const promises = [];
           
-          // Create concurrent batches
           for (let j = 0; j < CONCURRENCY; j++) {
               const startIdx = i + (j * BATCH_SIZE);
               if (startIdx >= ids.length) break;
@@ -224,10 +223,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               );
           }
 
-          // Await parallel requests
           const results = await Promise.all(promises);
           
-          // Process results
           for (const batchResult of results) {
               if (Array.isArray(batchResult)) {
                    const mapped = batchResult.map((item: any) => ({
@@ -252,12 +249,12 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           const currentCount = resolvedAssets.length;
           setProgress(prev => ({ ...prev, found: currentCount }));
           
-          if (i > 0 && i % 2000 < (BATCH_SIZE * CONCURRENCY)) {
-              addLog(`Progress: ${Math.min(i + (BATCH_SIZE*CONCURRENCY), ids.length)} / ${ids.length} IDs scanned...`, "info");
+          if (i > 0 && i % 500 < (BATCH_SIZE * CONCURRENCY)) {
+              addLog(`Progress: ${Math.min(i + (BATCH_SIZE*CONCURRENCY), ids.length)} / ${ids.length} IDs scanned... (${currentCount} found)`, "info");
           }
           
-          // Throttle slightly
-          await new Promise(r => setTimeout(r, 150));
+          // Increased throttle delay
+          await new Promise(r => setTimeout(r, 250));
       }
       
       return resolvedAssets;
@@ -265,13 +262,21 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   
   // Strategy: FMP Fallback
   const fetchFmpScreener = async () => {
-      if (!fmpKey) throw new Error("FMP Key missing");
+      if (!fmpKey) throw new Error("FMP Key missing in config");
       addLog("Strategy B: FMP Bulk Screener (Fallback)...", "info");
-      const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=12000&apikey=${fmpKey}`;
+      
+      // Use 'etf=false' to get common stocks
+      const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&isEtf=false&exchange=NASDAQ,NYSE,AMEX&limit=10000&apikey=${fmpKey}`;
+      
       const res = await fetch(url);
-      if (!res.ok) throw new Error(`FMP Status ${res.status}`);
+      if (!res.ok) {
+          const errText = await res.text();
+          throw new Error(`FMP Status ${res.status}: ${errText.slice(0, 100)}`);
+      }
+      
       const data = await res.json();
       if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
+      
       addLog(`FMP: Retrieved ${data.length} assets.`, "ok");
       return data.map((item: any) => ({
           symbol: item.symbol,
@@ -299,14 +304,14 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           const uniqueIds = await loadMapFromDrive(token);
           
           if (uniqueIds && uniqueIds.length > 0) {
-              addLog(`Engaging High-Velocity Resolver for ${uniqueIds.length} IDs...`, "ok");
+              addLog(`Engaging Stealth Resolver for ${uniqueIds.length} IDs...`, "ok");
               assets = await resolveMsnAssets(uniqueIds);
               
               if (assets.length > 0) {
                   providerName = 'MSN_Secret_Map';
                   addLog(`Resolution Complete. ${assets.length} valid assets found.`, "ok");
               } else {
-                  addLog("Resolution yielded 0 assets. IDs might be stale.", "warn");
+                  addLog("Resolution yielded 0 assets. IDs might be stale/blocked.", "warn");
               }
           }
 
@@ -316,12 +321,12 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               try {
                   assets = await fetchFmpScreener();
                   providerName = 'FMP (Backup)';
-              } catch (e) {
-                  addLog("FMP Backup Failed.", "err");
+              } catch (e: any) {
+                  addLog(`FMP Backup Failed: ${e.message}`, "err");
               }
           }
 
-          if (assets.length === 0) throw new Error("Zero Assets Found from all sources. Please check Drive file.");
+          if (assets.length === 0) throw new Error("Zero Assets Found from all sources. Check Drive file & API Keys.");
 
           setProgress(prev => ({ ...prev, found: assets.length, provider: providerName, phase: 'Mapping' }));
 
@@ -329,11 +334,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.3.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v2.7.4.json`;
           
           const payload = {
               manifest: { 
-                  version: "2.7.3", 
+                  version: "2.7.4", 
                   provider: providerName, 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -410,7 +415,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.7.4</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
