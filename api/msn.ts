@@ -1,10 +1,12 @@
 
+import crypto from 'crypto';
+
 export default async function handler(req: any, res: any) {
-  // "The Trinity" - MSN Secret Protocol v6.1 (Dual-Core)
+  // "The Trinity" - MSN Secret Protocol v7.0 (Dynamic UUID)
   // Strategy:
-  // 1. Masquerade as legitimate browser traffic with full Sec-CH headers.
-  // 2. Dual Endpoint Failover: Try assets.msn.com -> Fail -> Try finance.services.appex.bing.com
-  // 3. FAILOVER: If Sitemap is blocked, inject "Emergency Seed List".
+  // 1. Generate FRESH activityId (UUID v4) for EVERY request to look like a new user session.
+  // 2. No hardcoded seeds - Full market scan or nothing.
+  // 3. Masquerade headers.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -19,27 +21,11 @@ export default async function handler(req: any, res: any) {
   const { mode, id, ids } = req.query;
   const MSN_API_KEY = '0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM';
 
-  // --- EMERGENCY SEEDS (Major US Tech & ETFs) ---
-  const FALLBACK_IDS = [
-      "a1x7t", // AAPL
-      "a3ee6", // MSFT
-      "a1ofp", // GOOGL
-      "a1w92", // AMZN
-      "a27x3", // TSLA
-      "a1qj5", // NVDA
-      "a1r0g", // META
-      "a1n01", // NFLX
-      "a1v1d", // AMD
-      "a25t0", // INTC
-      "a1z1x", // QQQ
-      "a1y1d", // SPY
-      "a3m1p", // JPM
-      "a1x1t"  // V
-  ];
+  // --- Dynamic Identity Generation ---
+  const generateActivityId = () => crypto.randomUUID();
 
   // --- Stealth Headers ---
   const getHeaders = (referer = 'https://www.msn.com/') => {
-      // Rotate User Agents slightly to appear organic
       const agents = [
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
         "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
@@ -106,11 +92,8 @@ export default async function handler(req: any, res: any) {
           }
 
           if (!success) {
-              return res.status(200).json({ 
-                  count: FALLBACK_IDS.length, 
-                  ids: FALLBACK_IDS, 
-                  warning: "Sitemap access restricted. Using emergency seed list." 
-              });
+              // NO FALLBACK - Fail hard if sitemap is unreachable
+              return res.status(500).json({ error: "Sitemap Harvest Failed. IP likely blocked." });
           }
           
           const regex = /fi-([a-z0-9]+)/gi;
@@ -123,32 +106,27 @@ export default async function handler(req: any, res: any) {
           const idList = Array.from(idsSet);
           
           if (idList.length === 0) {
-             return res.status(200).json({ 
-                 count: FALLBACK_IDS.length, 
-                 ids: FALLBACK_IDS, 
-                 warning: "Sitemap parsed 0 IDs. Using seed list." 
-             });
+             return res.status(500).json({ error: "Parsed 0 IDs from Sitemap." });
           }
 
           return res.status(200).json({ count: idList.length, ids: idList });
 
       } catch (e: any) {
           console.error("Sitemap Harvest Error:", e);
-           return res.status(200).json({ 
-               count: FALLBACK_IDS.length, 
-               ids: FALLBACK_IDS, 
-               warning: "Harvest crashed. Using seed list." 
-           });
+          return res.status(500).json({ error: e.message });
       }
   }
 
-  // --- MODE 2: RESOLVE BATCH (Dual Endpoint Strategy) ---
+  // --- MODE 2: RESOLVE BATCH (Dual Endpoint Strategy + Fresh ActivityID) ---
   if (mode === 'resolve_batch_by_ids' && ids) {
+      // Generate a FRESH ID for every batch request
+      const freshActivityId = generateActivityId();
+      
       const endpoints = [
           // Primary: Assets API
-          `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`,
-          // Secondary: Bing Finance API (Often less restrictive)
-          `https://finance.services.appex.bing.com/Market.svc/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`
+          `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=${freshActivityId}&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`,
+          // Secondary: Bing Finance API
+          `https://finance.services.appex.bing.com/Market.svc/Equities?apikey=${MSN_API_KEY}&activityId=${freshActivityId}&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`
       ];
 
       for (const apiUrl of endpoints) {
@@ -190,10 +168,12 @@ export default async function handler(req: any, res: any) {
       return res.status(200).json([]); // Return empty to prevent crash
   }
 
-  // --- MODE 3: DEEP DIVE (Single Asset) ---
+  // --- MODE 3: DEEP DIVE (Single Asset + Fresh ActivityID) ---
   if (mode === 'get_details' && id) {
+      const freshActivityId = generateActivityId();
+      
       // Use the secondary endpoint primarily for single details as it's often faster
-      const apiUrl = `https://finance.services.appex.bing.com/Market.svc/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${id}&wrapodata=false`;
+      const apiUrl = `https://finance.services.appex.bing.com/Market.svc/Equities?apikey=${MSN_API_KEY}&activityId=${freshActivityId}&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${id}&wrapodata=false`;
       
       try {
           const apiRes = await fetchWithBackoff(apiUrl, 2, 300);
