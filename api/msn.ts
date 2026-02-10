@@ -2,10 +2,10 @@
 import crypto from 'crypto';
 
 export default async function handler(req: any, res: any) {
-  // "The Trinity" - MSN Secret Protocol v7.0 (Dynamic UUID)
+  // "The Trinity" - MSN Secret Protocol v7.1 (Static Asset Priority)
   // Strategy:
   // 1. Generate FRESH activityId (UUID v4) for EVERY request to look like a new user session.
-  // 2. No hardcoded seeds - Full market scan or nothing.
+  // 2. Prioritize STATIC sitemap assets (less bot protection) over dynamic endpoints.
   // 3. Masquerade headers.
   
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -70,9 +70,11 @@ export default async function handler(req: any, res: any) {
   // --- MODE 1: HARVEST IDs from Sitemap ---
   if (mode === 'fetch_sitemap_ids') {
       try {
+          // Prioritize the static asset URL as it's less likely to be gated
           const sitemapUrls = [
-              'https://www.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml',
-              'https://assets.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml'
+              'https://www.msn.com/staticsb/statics/latest/0/finance/sitemaps/stockdetails-en-us-sitemap.xml',
+              'https://assets.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml',
+              'https://www.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml'
           ];
 
           let text = "";
@@ -92,7 +94,6 @@ export default async function handler(req: any, res: any) {
           }
 
           if (!success) {
-              // NO FALLBACK - Fail hard if sitemap is unreachable
               return res.status(500).json({ error: "Sitemap Harvest Failed. IP likely blocked." });
           }
           
