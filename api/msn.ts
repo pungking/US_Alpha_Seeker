@@ -1,6 +1,6 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Trinity" - MSN Secret Protocol v5.2
+  // "The Trinity" - MSN Secret Protocol v5.3
   // Strategy:
   // 1. Scrape ALL "fi-ids" from Sitemap (Source of Truth for Existence).
   // 2. Query Equities API with IDs -> Get Symbol + Market Data + Fundamentals.
@@ -23,12 +23,24 @@ export default async function handler(req: any, res: any) {
   if (mode === 'fetch_sitemap_ids') {
       try {
           const sitemapUrl = 'https://www.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml';
-          const response = await fetch(sitemapUrl);
-          if (!response.ok) throw new Error(`Sitemap Fetch Failed: ${response.status}`);
+          
+          // [FIX] Add User-Agent to bypass soft blocks (403/429)
+          const response = await fetch(sitemapUrl, {
+              headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+                  'Accept': 'text/xml,application/xml,application/xhtml+xml,text/html;q=0.9,text/plain;q=0.8,*/*;q=0.5',
+                  'Accept-Language': 'en-US,en;q=0.9',
+                  'Cache-Control': 'no-cache'
+              }
+          });
+          
+          if (!response.ok) throw new Error(`Sitemap Fetch Failed: ${response.status} ${response.statusText}`);
           
           const text = await response.text();
-          // Regex to find all "fi-xxxxxx" patterns
-          const regex = /fi-([a-z0-9]+)/g;
+          
+          // Regex to find "fi-xxxxxx" patterns. 
+          // Case insensitive. Capture the ID part.
+          const regex = /fi-([a-z0-9]+)/gi;
           const ids = new Set<string>();
           let match;
           
@@ -37,6 +49,13 @@ export default async function handler(req: any, res: any) {
           }
 
           const idList = Array.from(ids);
+          
+          if (idList.length === 0) {
+             console.warn("No IDs found in sitemap text. Length:", text.length);
+             // If sitemap parsing fails completely, fallback to a small manual list to prove connectivity?
+             // No, better to fail and let user know or retry.
+          }
+
           return res.status(200).json({ count: idList.length, ids: idList });
 
       } catch (e: any) {
@@ -48,9 +67,15 @@ export default async function handler(req: any, res: any) {
   // --- MODE 2: RESOLVE BATCH (ID -> Symbol + Rich Data + Fundamentals) ---
   if (mode === 'resolve_batch_by_ids' && ids) {
       try {
+          // [FIX] Add Headers here too just in case
           const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`;
           
-          const apiRes = await fetch(apiUrl);
+          const apiRes = await fetch(apiUrl, {
+              headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+              }
+          });
+          
           if (!apiRes.ok) throw new Error(`MSN API Error: ${apiRes.status}`);
           
           const data = await apiRes.json();
@@ -73,6 +98,7 @@ export default async function handler(req: any, res: any) {
                           pe: item.averagePE || item.peRatio || 0,
                           roe: item.returnOnEquity ? item.returnOnEquity * 100 : 0, // Convert to %
                           pbr: item.priceToBookRatio || 0,
+                          debtToEquity: item.debtToEquityRatio || 0, // Added Debt/Eq
                           marketCap: item.marketCap || 0
                       });
                   }
@@ -92,7 +118,12 @@ export default async function handler(req: any, res: any) {
       try {
           const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${id}&wrapodata=false`;
           
-          const apiRes = await fetch(apiUrl);
+          const apiRes = await fetch(apiUrl, {
+               headers: {
+                  'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36'
+              }
+          });
+          
           if (!apiRes.ok) throw new Error(`MSN API Error: ${apiRes.status}`);
           
           const data = await apiRes.json();
