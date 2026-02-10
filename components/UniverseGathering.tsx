@@ -14,8 +14,8 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.4.0: Adaptive Multi-Provider Protocol Online.']);
-  const [progress, setProgress] = useState({ found: 0, synced: 0, target: 10000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v2.5.0: Secret ID Protocol Priority.']);
+  const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
   
@@ -24,9 +24,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const twelveDataKey = API_CONFIGS.find(c => c.provider === ApiProvider.TWELVE_DATA)?.key;
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -45,7 +42,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
-            addLog("AUTO-PILOT: Engaging Universe Gathering Sequence...", "signal");
+            addLog("AUTO-PILOT: Engaging Secret ID Recovery...", "signal");
             startGathering(accessToken);
         } else {
             addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
@@ -74,7 +71,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                   if (tokenResponse.access_token) {
                       sessionStorage.setItem('gdrive_access_token', tokenResponse.access_token);
                       onAuthSuccess(true);
-                      addLog("Cloud Vault Linked. Ready to Execute Fusion.", "ok");
+                      addLog("Cloud Vault Linked. Ready to Execute.", "ok");
                   }
               },
           });
@@ -132,11 +129,61 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       }
       return null;
   };
+
+  // Strategy: Resolve MSN IDs to Real Data
+  const resolveMsnAssets = async (ids: string[]) => {
+      addLog(`Resolving ${ids.length} MSN IDs to Assets...`, "info");
+      
+      const resolvedAssets: any[] = [];
+      const BATCH_SIZE = 20; // Safe batch size
+      
+      setProgress(prev => ({ ...prev, target: ids.length }));
+
+      for (let i = 0; i < ids.length; i += BATCH_SIZE) {
+          const batch = ids.slice(i, i + BATCH_SIZE);
+          const idString = batch.join(',');
+          
+          try {
+             const res = await fetch(`/api/msn?mode=resolve_batch_by_ids&ids=${idString}`);
+             if (res.ok) {
+                 const data = await res.json();
+                 if (Array.isArray(data)) {
+                     const mapped = data.map((item: any) => ({
+                        symbol: item.symbol,
+                        name: item.name,
+                        price: item.price,
+                        volume: item.volume,
+                        change: item.change,
+                        marketCap: item.marketCap,
+                        sector: "Unknown", // Metadata enrichment happens in later stages
+                        type: item.type,
+                        updated: new Date().toISOString().split('T')[0],
+                        msnId: item.id,
+                        // Preliminary Fundamentals if available
+                        pe: item.pe,
+                        roe: item.roe,
+                        pbr: item.pbr
+                     }));
+                     resolvedAssets.push(...mapped);
+                 }
+             }
+          } catch (e) {
+             console.warn("MSN Batch Error", e);
+          }
+          
+          setProgress(prev => ({ ...prev, found: resolvedAssets.length }));
+          
+          // Throttling
+          await new Promise(r => setTimeout(r, 250));
+      }
+      
+      return resolvedAssets;
+  };
   
-  // Strategies
+  // Strategy: FMP Fallback
   const fetchFmpScreener = async () => {
       if (!fmpKey) throw new Error("FMP Key missing");
-      addLog("Strategy A: FMP Bulk Screener (Primary)...", "info");
+      addLog("Strategy B: FMP Bulk Screener (Fallback)...", "info");
       const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&exchange=NASDAQ,NYSE,AMEX&limit=12000&apikey=${fmpKey}`;
       const res = await fetch(url);
       if (!res.ok) throw new Error(`FMP Status ${res.status}`);
@@ -159,39 +206,58 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const startGathering = async (token: string) => {
       setIsGathering(true);
       startTimeRef.current = Date.now();
-      setProgress({ found: 0, synced: 0, target: 10000, elapsed: 0, provider: 'Idle', phase: 'Discovery' });
+      setProgress({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Discovery' });
       
       let assets: any[] = [];
       let providerName = 'None';
 
       try {
-          // Attempt Strategy A
-          try {
-              assets = await fetchFmpScreener();
-              providerName = 'FMP (Primary)';
-          } catch (e) {
-              // Fallback would go here if implemented fully
-              throw new Error("Primary Provider Failed.");
+          // Priority 1: MSN Secret ID Map
+          const rawIds = await loadMapFromDrive(token);
+          
+          if (rawIds && rawIds.length > 0) {
+              // Filter out headers or invalid IDs
+              const validIds = rawIds.filter(id => id !== "MSN_Money_Secret_ID" && /^[a-z0-9]+$/i.test(id) && id.length > 2);
+              
+              addLog(`ID Map Loaded. Valid IDs: ${validIds.length}. Engaging Resolver...`, "ok");
+              
+              if (validIds.length > 0) {
+                  assets = await resolveMsnAssets(validIds);
+                  if (assets.length > 0) {
+                      providerName = 'MSN_Secret_Map';
+                  }
+              }
           }
 
-          if (assets.length === 0) throw new Error("Zero Assets Found.");
+          // Priority 2: FMP Fallback (if MSN failed or empty)
+          if (assets.length === 0) {
+              addLog("MSN Map returned no assets. Attempting FMP fallback...", "warn");
+              try {
+                  assets = await fetchFmpScreener();
+                  providerName = 'FMP (Backup)';
+              } catch (e) {
+                  addLog("FMP Backup Failed.", "err");
+              }
+          }
+
+          if (assets.length === 0) throw new Error("Zero Assets Found from all sources.");
 
           setProgress(prev => ({ ...prev, found: assets.length, provider: providerName, phase: 'Mapping' }));
-
-          // Attempt to load ID map (optional enhancement)
-          const ids = await loadMapFromDrive(token);
-          if (ids) {
-              // Logic to merge or use IDs could go here, currently just logging
-          }
 
           addLog(`Phase 3: Committing ${assets.length} assets to Vault...`, "info");
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v2.4.0.json`;
+          const fileName = `STAGE0_MASTER_UNIVERSE_v2.5.0.json`;
           
           const payload = {
-              manifest: { version: "2.4.0", provider: providerName, date: new Date().toISOString(), count: assets.length },
+              manifest: { 
+                  version: "2.5.0", 
+                  provider: providerName, 
+                  date: new Date().toISOString(), 
+                  count: assets.length,
+                  note: "Prioritized MSN Secret ID Resolution"
+              },
               universe: assets
           };
 
@@ -263,9 +329,9 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.4.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v2.5.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Multi-Provider_Ready</span>
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Secret_ID_Protocol</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
@@ -277,7 +343,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                 disabled={isGathering}
                 className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isGathering ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : accessToken ? 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' : 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20'}`}
             >
-                {isGathering ? 'Acquiring Universe...' : accessToken ? 'Execute Data Fusion' : 'Connect Cloud Vault'}
+                {isGathering ? 'Resolving Universe...' : accessToken ? 'Execute Data Fusion' : 'Connect Cloud Vault'}
             </button>
           </div>
 
