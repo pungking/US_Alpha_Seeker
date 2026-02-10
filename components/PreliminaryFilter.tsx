@@ -276,7 +276,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const enrichedTickers: MasterTicker[] = [];
       const BATCH_SIZE = 10; 
       
-      const survivorMap = new Map(survivors.map(s => [s.symbol, s]));
+      // Explicitly type survivorMap to avoid 'unknown' type errors when using .get()
+      const survivorMap = new Map<string, MasterTicker>(survivors.map(s => [s.symbol, s]));
 
       for (let i = 0; i < survivors.length; i += BATCH_SIZE) {
           const batch = survivors.slice(i, i + BATCH_SIZE);
