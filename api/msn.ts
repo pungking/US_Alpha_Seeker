@@ -1,10 +1,10 @@
 
 export default async function handler(req: any, res: any) {
-  // "The Trinity" - MSN Secret Protocol v6.0 (Titan Grade)
+  // "The Trinity" - MSN Secret Protocol v6.1 (Dual-Core)
   // Strategy:
   // 1. Masquerade as legitimate browser traffic with full Sec-CH headers.
-  // 2. Exponential Backoff + Randomized Jitter.
-  // 3. FAILOVER: If Sitemap is blocked, inject "Emergency Seed List" to ensure functionality.
+  // 2. Dual Endpoint Failover: Try assets.msn.com -> Fail -> Try finance.services.appex.bing.com
+  // 3. FAILOVER: If Sitemap is blocked, inject "Emergency Seed List".
   
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -20,7 +20,6 @@ export default async function handler(req: any, res: any) {
   const MSN_API_KEY = '0QfOX3Vn51YCzitbLaRkTTBadtWpgTN8NZLW0C1SEM';
 
   // --- EMERGENCY SEEDS (Major US Tech & ETFs) ---
-  // Used if Sitemap scraping is completely blocked by Cloudflare/Akamai
   const FALLBACK_IDS = [
       "a1x7t", // AAPL
       "a3ee6", // MSFT
@@ -38,17 +37,16 @@ export default async function handler(req: any, res: any) {
       "a1x1t"  // V
   ];
 
-  // --- Stealth Headers Rotation ---
-  const USER_AGENTS = [
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36',
-      'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/123.0.0.0 Safari/537.36'
-  ];
-
+  // --- Stealth Headers ---
   const getHeaders = (referer = 'https://www.msn.com/') => {
-      const ua = USER_AGENTS[Math.floor(Math.random() * USER_AGENTS.length)];
+      // Rotate User Agents slightly to appear organic
+      const agents = [
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Edge/122.0.0.0 Safari/537.36"
+      ];
       return {
-          'User-Agent': ua,
+          'User-Agent': agents[Math.floor(Math.random() * agents.length)],
           'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,image/apng,*/*;q=0.8,application/signed-exchange;v=b3;q=0.7',
           'Accept-Language': 'en-US,en;q=0.9',
           'Accept-Encoding': 'gzip, deflate, br',
@@ -59,15 +57,11 @@ export default async function handler(req: any, res: any) {
           'Sec-Fetch-Mode': 'navigate',
           'Sec-Fetch-Site': 'same-origin',
           'Sec-Fetch-User': '?1',
-          'Upgrade-Insecure-Requests': '1',
-          'Sec-Ch-Ua': '"Google Chrome";v="123", "Not:A-Brand";v="8", "Chromium";v="123"',
-          'Sec-Ch-Ua-Mobile': '?0',
-          'Sec-Ch-Ua-Platform': '"Windows"'
+          'Upgrade-Insecure-Requests': '1'
       };
   };
 
-  // --- Helper: Fetch with Exponential Backoff & Jitter ---
-  const fetchWithBackoff = async (url: string, retries = 3, baseDelay = 1000): Promise<Response> => {
+  const fetchWithBackoff = async (url: string, retries = 2, baseDelay = 800): Promise<Response> => {
       try {
           const response = await fetch(url, { headers: getHeaders() });
           if (!response.ok) {
@@ -79,10 +73,7 @@ export default async function handler(req: any, res: any) {
           return response;
       } catch (e: any) {
           if (retries > 0) {
-              // Add Jitter (Randomness) to delay
-              const jitter = Math.random() * 500;
-              const delay = baseDelay * 1.5 + jitter;
-              console.log(`[Proxy] Retrying ${url}... (${retries} left) in ${delay.toFixed(0)}ms`);
+              const delay = baseDelay * 1.5 + Math.random() * 200;
               await new Promise(r => setTimeout(r, delay));
               return fetchWithBackoff(url, retries - 1, delay);
           }
@@ -93,10 +84,8 @@ export default async function handler(req: any, res: any) {
   // --- MODE 1: HARVEST IDs from Sitemap ---
   if (mode === 'fetch_sitemap_ids') {
       try {
-          // Primary and Fallback URLs
           const sitemapUrls = [
               'https://www.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml',
-              'https://www.msn.com/en-us/money/sitemap_index.xml', 
               'https://assets.msn.com/en-us/money/stockdetails/stockdetails-en-us-sitemap.xml'
           ];
 
@@ -117,10 +106,6 @@ export default async function handler(req: any, res: any) {
           }
 
           if (!success) {
-              // [FAILOVER PROTOCOL]
-              // If Scraping fails, DO NOT CRASH. Return the Seed List.
-              // This allows the app to demonstrate functionality even if blocked.
-              console.warn("Sitemap Blocked. Activating Failover Protocol.");
               return res.status(200).json({ 
                   count: FALLBACK_IDS.length, 
                   ids: FALLBACK_IDS, 
@@ -128,19 +113,16 @@ export default async function handler(req: any, res: any) {
               });
           }
           
-          // Regex to find "fi-xxxxxx" patterns. 
           const regex = /fi-([a-z0-9]+)/gi;
-          const ids = new Set<string>();
+          const idsSet = new Set<string>();
           let match;
-          
           while ((match = regex.exec(text)) !== null) {
-              if(match[1]) ids.add(match[1]);
+              if(match[1]) idsSet.add(match[1]);
           }
 
-          const idList = Array.from(ids);
+          const idList = Array.from(idsSet);
           
           if (idList.length === 0) {
-             // Fallback if regex fails but fetch succeeded (weird format?)
              return res.status(200).json({ 
                  count: FALLBACK_IDS.length, 
                  ids: FALLBACK_IDS, 
@@ -152,7 +134,6 @@ export default async function handler(req: any, res: any) {
 
       } catch (e: any) {
           console.error("Sitemap Harvest Error:", e);
-          // Ultimate fallback
            return res.status(200).json({ 
                count: FALLBACK_IDS.length, 
                ids: FALLBACK_IDS, 
@@ -161,62 +142,66 @@ export default async function handler(req: any, res: any) {
       }
   }
 
-  // --- MODE 2: RESOLVE BATCH (ID -> Symbol + Rich Data + Fundamentals) ---
+  // --- MODE 2: RESOLVE BATCH (Dual Endpoint Strategy) ---
   if (mode === 'resolve_batch_by_ids' && ids) {
-      try {
-          const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`;
-          
-          // Use backoff for batch resolution too
-          const apiRes = await fetchWithBackoff(apiUrl, 2, 500);
-          
-          const data = await apiRes.json();
-          const mapping: any[] = [];
+      const endpoints = [
+          // Primary: Assets API
+          `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`,
+          // Secondary: Bing Finance API (Often less restrictive)
+          `https://finance.services.appex.bing.com/Market.svc/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${ids}&wrapodata=false`
+      ];
 
-          if (data && Array.isArray(data)) {
-              data.forEach((item: any) => {
-                  if (item.symbol && item.instrumentId) {
-                      mapping.push({
-                          id: item.instrumentId, // Secret ID
-                          symbol: item.symbol,   // Ticker
-                          name: item.displayName || item.shortName,
-                          type: item.instrumentType,
-                          // Market Data
-                          price: item.price || 0,
-                          change: item.priceChangePercent || 0,
-                          volume: item.volume || 0,
-                          currency: item.currency,
-                          // [NEW] Fundamentals Injection
-                          pe: item.averagePE || item.peRatio || 0,
-                          roe: item.returnOnEquity ? item.returnOnEquity * 100 : 0, // Convert to %
-                          pbr: item.priceToBookRatio || 0,
-                          debtToEquity: item.debtToEquityRatio || 0, // Added Debt/Eq
-                          marketCap: item.marketCap || 0
-                      });
-                  }
-              });
+      for (const apiUrl of endpoints) {
+          try {
+              const apiRes = await fetchWithBackoff(apiUrl, 1, 300); // Low retry, fail fast to next endpoint
+              const data = await apiRes.json();
+              
+              if (Array.isArray(data) && data.length > 0) {
+                  const mapping: any[] = [];
+                  data.forEach((item: any) => {
+                      if (item.symbol && item.instrumentId) {
+                          mapping.push({
+                              id: item.instrumentId,
+                              symbol: item.symbol,
+                              name: item.displayName || item.shortName,
+                              type: item.instrumentType,
+                              price: item.price || 0,
+                              change: item.priceChangePercent || 0,
+                              volume: item.volume || 0,
+                              currency: item.currency,
+                              pe: item.averagePE || item.peRatio || 0,
+                              roe: item.returnOnEquity ? item.returnOnEquity * 100 : 0,
+                              pbr: item.priceToBookRatio || 0,
+                              debtToEquity: item.debtToEquityRatio || 0,
+                              marketCap: item.marketCap || 0
+                          });
+                      }
+                  });
+                  return res.status(200).json(mapping); // Success!
+              }
+          } catch (e) {
+              console.warn(`Endpoint failed: ${apiUrl.split('?')[0]}`, e);
+              // Continue to next endpoint
           }
-          
-          return res.status(200).json(mapping);
-
-      } catch (e: any) {
-          console.error("Batch Resolve Error:", e.message);
-          // Return empty array instead of 500 to keep the loop going on frontend
-          return res.status(200).json([]);
       }
+
+      // If all failed
+      console.error("All batch resolve endpoints failed for IDs:", ids.substring(0, 20) + "...");
+      return res.status(200).json([]); // Return empty to prevent crash
   }
 
-  // --- MODE 3: DEEP DIVE (Single Asset Details) ---
+  // --- MODE 3: DEEP DIVE (Single Asset) ---
   if (mode === 'get_details' && id) {
+      // Use the secondary endpoint primarily for single details as it's often faster
+      const apiUrl = `https://finance.services.appex.bing.com/Market.svc/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${id}&wrapodata=false`;
+      
       try {
-          const apiUrl = `https://assets.msn.com/service/Finance/Equities?apikey=${MSN_API_KEY}&activityId=6989d7cd-b38e-4edc-a952-7633e6cc0169&ocid=finance-utils-peregrine&cm=en-us&it=web&scn=ANON&ids=${id}&wrapodata=false`;
-          
           const apiRes = await fetchWithBackoff(apiUrl, 2, 300);
           const data = await apiRes.json();
           
           if (!data || data.length === 0) return res.status(404).json({ error: "No data found for ID" });
 
           const raw = data[0]; 
-
           const normalized = {
               symbol: raw.symbol,
               name: raw.displayName || raw.shortName,
@@ -234,7 +219,7 @@ export default async function handler(req: any, res: any) {
               totalLiabilities: raw.liabilities,
               currency: raw.currency,
               exchange: raw.exchangeCode,
-              source: "MSN_TRINITY_API"
+              source: "MSN_BING_API"
           };
 
           return res.status(200).json(normalized);
