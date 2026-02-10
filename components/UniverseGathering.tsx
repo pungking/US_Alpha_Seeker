@@ -171,10 +171,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           // 1. Harvest IDs from Sitemap
           addLog("Harvesting Secret IDs from MSN Sitemap...", "info");
           const sitemapRes = await fetch('/api/msn?mode=fetch_sitemap_ids');
-          if (!sitemapRes.ok) throw new Error("Sitemap Harvest Failed");
+          if (!sitemapRes.ok) throw new Error("Sitemap Harvest Failed (Network Block)");
           
           const sitemapData = await sitemapRes.json();
+          if (!sitemapData || !sitemapData.ids) {
+              throw new Error("Sitemap Harvest returned empty structure.");
+          }
+
           const allIds = sitemapData.ids || [];
+          
+          if (allIds.length === 0) {
+               addLog("Harvested 0 IDs. Check Sitemap URL validity.", "warn");
+               return; // Stop here if no IDs
+          }
+
           addLog(`Harvested ${allIds.length} Secret IDs. Initiating Resolution...`, "ok");
 
           // 2. Resolve in Batches
@@ -236,9 +246,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                               }
                           }
                       });
+                  } else {
+                      console.warn(`Batch failed: ${res.status}`);
                   }
               } catch (e) {
-                  console.warn("Batch failed", e);
+                  console.warn("Batch network error", e);
               }
               
               scannedCount += batchIds.length;
@@ -247,7 +259,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   setStats(prev => ({ ...prev, found: newRegistry.size })); 
               }
               
-              await new Promise(r => setTimeout(r, 80));
+              // [RATE LIMIT] Increased delay to 300ms to be safer
+              await new Promise(r => setTimeout(r, 300));
           }
 
           setRegistry(newRegistry);
