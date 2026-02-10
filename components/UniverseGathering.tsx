@@ -88,6 +88,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           addLog("Strategy 0: Searching for Colab-Injected Data...", "info");
           
           // Search for file uploaded by Python script
+          // We look for 'STAGE0_MASTER_UNIVERSE_COLAB' in the name
           const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE_COLAB' and trashed = false`);
           const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
               headers: { 'Authorization': `Bearer ${token}` }
