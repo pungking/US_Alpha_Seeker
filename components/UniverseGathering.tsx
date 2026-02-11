@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.2.0: Engine Mount Protocol Standby.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.4.0: Heartbeat Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -71,6 +71,13 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
       setLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-50));
+  };
+
+  const handleSetTarget = () => {
+      if (searchResult && onStockSelected) {
+          onStockSelected(searchResult);
+          addLog(`Target Locked: ${searchResult.symbol}. Integrity Audit Ready.`, "ok");
+      }
   };
 
   const handleAuth = () => {
@@ -204,10 +211,10 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
                   if (!val) return;
                   
-                  // Handle nested 'basic' structure from Financial_Data_5Y_Split
+                  // Handle nested 'basic' structure (Updated for new Heart data)
                   const root = val.basic || val;
-                  const company = root.company || {};
-                  const analysis = root.analysis || {};
+                  const company = root.company || val.company || {};
+                  const analysis = root.analysis || val.analysis || {};
                   const metrics = analysis.keyMetrics || {};
                   
                   const symbol = root.symbol || key;
@@ -217,7 +224,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                           symbol: symbol,
                           name: company.name || root.name || root.shortName || key,
                           
-                          pe: Number(metrics.pe || metrics.averagePE || root.pe || root.trailingPE || 0),
+                          // Expanded mapping for peRatio from new data
+                          pe: Number(metrics.pe || metrics.averagePE || root.pe || root.trailingPE || root.peRatio || 0),
                           roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
                           debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
                           
@@ -266,11 +274,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.2.0", 
+                  version: "6.4.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Engine Mounted from Financial_Data_5Y_Split (Deep Map)"
+                  note: "Engine Mounted from Financial_Data_5Y_Split (Heartbeat V2)"
               },
               universe: assets
           };
@@ -355,7 +363,13 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                     </div>
                     <div className="space-y-2">
                         <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
-                        <input type="text" value={gdriveClientId} onChange={(e) => setGdriveClientId(e.target.value)} className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none" placeholder="Enter GDrive Client ID" />
+                        <input 
+                            type="text" 
+                            value={gdriveClientId} 
+                            onChange={(e) => setGdriveClientId(e.target.value)} 
+                            className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none" 
+                            placeholder="Enter GDrive Client ID" 
+                        />
                         <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
                     </div>
                     <button onClick={() => { localStorage.setItem('gdrive_client_id', gdriveClientId); setShowConfig(false); addLog("Infrastructure Persisted Successfully.", "ok"); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all">Apply Changes</button>
@@ -410,7 +424,14 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                                     <p className="text-[10px] font-black text-white">{searchResult.name}</p>
                                     <p className="text-[8px] font-mono text-emerald-400">P: {searchResult.price || 'N/A'} | PE: {searchResult.pe || 'N/A'}</p>
                                 </div>
-                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">FOUND</span>
+                                <div className="flex items-center gap-2">
+                                     <button 
+                                        onClick={handleSetTarget}
+                                        className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
+                                    >
+                                        Set Target
+                                    </button>
+                                </div>
                             </div>
                         ) : (
                             <span className="text-[10px] font-black italic uppercase tracking-widest text-slate-600">{searchQuery ? 'Searching...' : 'Awaiting Input...'}</span>
