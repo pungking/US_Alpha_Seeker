@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.5.0: Heartbeat Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.6.0: Heartbeat Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -216,23 +216,43 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                   const company = root.company || val.company || {};
                   const analysis = root.analysis || val.analysis || {};
                   const metrics = analysis.keyMetrics || {};
+                  const companyMetrics = analysis.companyMetrics || {};
                   
-                  const symbol = root.symbol || key;
+                  // 1. Symbol Extraction: Priority to explicit symbol in company data
+                  const symbol = company.symbol || root.symbol || key;
 
                   if (symbol) {
                       results.push({
                           symbol: symbol,
                           name: company.name || root.name || root.shortName || key,
                           
-                          // Expanded mapping for peRatio from new data
-                          pe: Number(metrics.pe || metrics.averagePE || root.pe || root.trailingPE || root.peRatio || 0),
+                          // 2. PE Extraction: Deep dive into metrics and root
+                          pe: Number(
+                              metrics.pe || 
+                              metrics.averagePE || 
+                              metrics.forwardPriceToEPS || 
+                              companyMetrics.peRatio || 
+                              root.pe || 
+                              root.trailingPE || 
+                              root.peRatio || 
+                              0
+                          ),
+                          
                           roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
                           debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
                           
-                          price: Number(root.price || metrics.price || root.regularMarketPrice || 0),
+                          // 3. Price Extraction: Check root first, then metrics
+                          price: Number(
+                            root.price || 
+                            root.currentPrice || 
+                            metrics.latestPrice || 
+                            root.regularMarketPrice || 
+                            0
+                          ),
+                          
                           volume: Number(root.volume || root.regularMarketVolume || 0),
                           change: Number(root.change || root.regularMarketChangePercent || 0),
-                          marketCap: Number(root.marketCap || metrics.marketCap || 0),
+                          marketCap: Number(root.marketCap || metrics.marketCap || companyMetrics.marketCap || 0),
                           
                           sector: company.sector || root.sector || 'Unknown',
                           industry: company.industry || root.industry || 'Unknown',
@@ -275,7 +295,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.5.0", 
+                  version: "6.6.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
