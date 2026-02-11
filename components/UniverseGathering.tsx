@@ -14,8 +14,8 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v3.0.0: Colab-Link Protocol Active.']);
-  const [progress, setProgress] = useState({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Idle' });
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.0.0: Engine Mount Protocol Standby.']);
+  const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
   
@@ -23,7 +23,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const startTimeRef = useRef<number>(0);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -42,7 +41,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
-            addLog("AUTO-PILOT: Engaging Data Retrieval Sequence...", "signal");
+            addLog("AUTO-PILOT: Engaging Engine Ignition Sequence...", "signal");
             startGathering(accessToken);
         } else {
             addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
@@ -71,7 +70,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                   if (tokenResponse.access_token) {
                       sessionStorage.setItem('gdrive_access_token', tokenResponse.access_token);
                       onAuthSuccess(true);
-                      addLog("Cloud Vault Linked. Ready to Execute.", "ok");
+                      addLog("Cloud Vault Linked. Engine Key Verified.", "ok");
                   }
               },
           });
@@ -82,302 +81,154 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       }
   };
 
-  // Helper to find and load the Colab-generated file
-  const loadColabData = async (token: string) => {
-      try {
-          addLog("Strategy 0: Searching for Colab-Injected Data...", "info");
-          
-          // Search for file uploaded by Python script
-          // We look for 'STAGE0_MASTER_UNIVERSE_COLAB' in the name
-          const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE_COLAB' and trashed = false`);
-          const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-          });
-
-          if (res.ok) {
-              const data = await res.json();
-              if (data.files && data.files.length > 0) {
-                  const file = data.files[0];
-                  addLog(`✅ COLAB INJECTION DETECTED: ${file.name}`, "ok");
-                  
-                  const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
-                      headers: { 'Authorization': `Bearer ${token}` }
-                  });
-                  
-                  if (!contentRes.ok) throw new Error("Download failed");
-                  
-                  const json = await contentRes.json();
-                  const universe = json.universe || json; // Handle wrapped or raw array
-                  
-                  if (Array.isArray(universe) && universe.length > 0) {
-                      addLog(`Loaded ${universe.length} assets from Colab Pipeline.`, "ok");
-                      return universe;
-                  }
-              }
-          }
-          addLog("Colab data not found. Falling back to internal engine.", "warn");
-      } catch (e: any) {
-          addLog(`Colab Load Error: ${e.message}`, "warn");
-      }
-      return null;
+  // Helper to format timestamp for filename: YYYY-MM-DD_HH-mm-ss
+  const getFormattedTimestamp = () => {
+      const now = new Date();
+      const year = now.getFullYear();
+      const month = String(now.getMonth() + 1).padStart(2, '0');
+      const day = String(now.getDate()).padStart(2, '0');
+      const hours = String(now.getHours()).padStart(2, '0');
+      const minutes = String(now.getMinutes()).padStart(2, '0');
+      const seconds = String(now.getSeconds()).padStart(2, '0');
+      return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
   };
 
-  // Helper to load existing map from Drive with Folder Awareness
-  const loadMapFromDrive = async (token: string) => {
-      try {
-          // STRATEGY 1: Targeted Path Search (US_Alpha_Seeker > System_Identity_Maps > File)
-          addLog("Strategy 1: Locating 'System_Identity_Maps' folder...", "info");
-          
-          const folderName = GOOGLE_DRIVE_TARGET.systemMapSubFolder || 'System_Identity_Maps';
-          const folderQ = encodeURIComponent(`name = '${folderName}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false`);
-          
-          const folderRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${folderQ}`, {
-              headers: { 'Authorization': `Bearer ${token}` }
-          });
-          
-          let folderId = null;
-          if (folderRes.ok) {
-              const folderData = await folderRes.json();
-              if (folderData.files && folderData.files.length > 0) {
-                  folderId = folderData.files[0].id;
-                  addLog(`✅ Folder Found: ${folderName} (ID: ...${folderId.slice(-6)})`, "ok");
-              }
-          }
+  // The New Core: Mounts the split A-Z files
+  const mountFinancialEngine = async (token: string) => {
+      addLog("Initializing V12 Engine Mounting Protocol...", "info");
+      
+      // 1. Locate the 'System_Identity_Maps' folder
+      const systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
+      if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found.`);
 
-          let fileId = null;
+      // 2. Locate the 'Financial_Data_5Y_Split' folder inside it
+      const financialDataFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDataFolder, systemMapFolderId);
+      if (!financialDataFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDataFolder}' not found inside Maps.`);
+
+      addLog("Engine Core Located. Injecting Data Cylinders...", "ok");
+
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+      alphabet.push("ETC"); // Handle ETC_stocks.json
+      
+      const cylinders = alphabet;
+      setProgress(prev => ({ ...prev, target: cylinders.length }));
+
+      const masterUniverse: any[] = [];
+
+      for (let i = 0; i < cylinders.length; i++) {
+          const char = cylinders[i];
+          const fileName = `${char}_stocks.json`;
           
-          if (folderId) {
-              // Look specifically inside the found folder
-              const fileQ = encodeURIComponent(`name = 'Ticker_ID_Mapping_Final.json' and '${folderId}' in parents and trashed = false`);
-              const fileRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${fileQ}`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-              });
-              const fileData = await fileRes.json();
-              if (fileData.files && fileData.files.length > 0) {
-                  fileId = fileData.files[0].id;
-                  addLog(`✅ Target File Located inside folder.`, "ok");
-              }
-          }
-
-          // STRATEGY 2: Global Search (Fallback)
-          if (!fileId) {
-              addLog("Strategy 2: Global Drive Search (Fallback)...", "warn");
-              const globalQ = encodeURIComponent(`name = 'Ticker_ID_Mapping_Final.json' and trashed = false`);
-              const globalRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${globalQ}`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-              });
-              const globalData = await globalRes.json();
-              if (globalData.files && globalData.files.length > 0) {
-                  fileId = globalData.files[0].id;
-                  addLog(`✅ Target File Located globally.`, "ok");
-              }
-          }
-
-          if (fileId) {
-              addLog("Downloading & Parsing Map Data...", "info");
-              const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-                  headers: { 'Authorization': `Bearer ${token}` }
-              });
+          try {
+              // Find specific file
+              const fileId = await findFileId(token, fileName, financialDataFolderId);
               
-              if (!contentRes.ok) throw new Error(`Download Failed: ${contentRes.status}`);
-              
-              const mapData = await contentRes.json();
-              let ids: string[] = [];
-
-              if (Array.isArray(mapData)) {
-                   ids = mapData;
-                   addLog(`Format: Array (${ids.length} entries)`, "info");
-              } else if (typeof mapData === 'object' && mapData !== null) {
-                   ids = Object.values(mapData) as string[];
-                   // Deduplicate
-                   ids = Array.from(new Set(ids));
-                   addLog(`Format: Key-Value Map (${ids.length} entries)`, "info");
-              }
-              
-              // Validation
-              ids = ids.filter(id => id && typeof id === 'string' && id.length > 2 && !id.includes(" "));
-              
-              if(ids.length > 0) {
-                  return ids;
+              if (fileId) {
+                  addLog(`Mounting Cylinder ${char}...`, "info");
+                  const content = await downloadFile(token, fileId);
+                  
+                  // Convert Map/Object to Array of lightweight objects
+                  // We only need basic info for Stage 1. Detailed info stays in the split files.
+                  const stocks = processCylinderData(content);
+                  masterUniverse.push(...stocks);
+                  
+                  setProgress(prev => ({ ...prev, found: masterUniverse.length, synced: i + 1 }));
               } else {
-                  addLog("File parsed but contained 0 valid IDs.", "err");
+                  addLog(`Cylinder ${char} Misfire: File not found.`, "warn");
               }
-          } else {
-              addLog("❌ Critical: Ticker_ID_Mapping_Final.json NOT FOUND in Drive.", "err");
+          } catch (e: any) {
+              addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
           }
-
-      } catch (e: any) {
-          console.error(e);
-          addLog(`Drive Access Error: ${e.message}`, "err");
+          
+          // Small throttle to prevent UI freeze and API rate limits
+          await new Promise(r => setTimeout(r, 100));
       }
-      return null;
+      
+      return masterUniverse;
   };
 
-  // Strategy: Resolve MSN IDs to Real Data (Stealth Mode)
-  const resolveMsnAssets = async (ids: string[]) => {
-      addLog(`Resolving ${ids.length} IDs (Stealth Mode)...`, "info");
+  const processCylinderData = (jsonContent: any): any[] => {
+      const results: any[] = [];
       
-      const resolvedAssets: any[] = [];
-      const BATCH_SIZE = 15; // Reduced from 40 for stability
-      const CONCURRENCY = 2; // Reduced from 4 to avoid IP flag
-      
-      setProgress(prev => ({ ...prev, target: ids.length }));
-
-      for (let i = 0; i < ids.length; i += (BATCH_SIZE * CONCURRENCY)) {
-          const promises = [];
-          
-          for (let j = 0; j < CONCURRENCY; j++) {
-              const startIdx = i + (j * BATCH_SIZE);
-              if (startIdx >= ids.length) break;
-              
-              const batchIds = ids.slice(startIdx, startIdx + BATCH_SIZE);
-              const idString = batchIds.join(',');
-              
-              promises.push(
-                  fetch(`/api/msn?mode=resolve_batch_by_ids&ids=${idString}`)
-                    .then(res => res.ok ? res.json() : [])
-                    .catch(err => {
-                        console.warn("Batch failed", err);
-                        return [];
-                    })
-              );
-          }
-
-          const results = await Promise.all(promises);
-          
-          for (const batchResult of results) {
-              if (Array.isArray(batchResult)) {
-                   const mapped = batchResult.map((item: any) => ({
-                      symbol: item.symbol,
-                      name: item.name,
-                      price: item.price,
-                      volume: item.volume,
-                      change: item.change,
-                      marketCap: item.marketCap,
-                      sector: "Unknown", 
-                      type: item.type,
-                      updated: new Date().toISOString().split('T')[0],
-                      msnId: item.id,
-                      pe: item.pe,
-                      roe: item.roe,
-                      pbr: item.pbr
-                   }));
-                   resolvedAssets.push(...mapped);
-              }
-          }
-          
-          const currentCount = resolvedAssets.length;
-          setProgress(prev => ({ ...prev, found: currentCount }));
-          
-          if (i > 0 && i % 500 < (BATCH_SIZE * CONCURRENCY)) {
-              addLog(`Progress: ${Math.min(i + (BATCH_SIZE*CONCURRENCY), ids.length)} / ${ids.length} IDs scanned... (${currentCount} found)`, "info");
-          }
-          
-          // Increased throttle delay
-          await new Promise(r => setTimeout(r, 250));
+      // Handle array format (if user saved as array)
+      if (Array.isArray(jsonContent)) {
+          return jsonContent.map(item => ({
+              symbol: item.symbol,
+              name: item.name || item.symbol,
+              price: Number(item.price) || 0,
+              volume: Number(item.volume) || 0,
+              change: Number(item.change) || 0,
+              marketCap: Number(item.marketCap) || 0,
+              sector: item.sector || 'Unknown',
+              industry: item.industry || 'Unknown',
+              // Keep minimal necessary data for Stage 1 filtering
+              pe: item.pe,
+              roe: item.roe,
+              debtToEquity: item.debtToEquity,
+              updated: new Date().toISOString()
+          }));
       }
-      
-      return resolvedAssets;
-  };
-  
-  // Strategy: FMP Fallback
-  const fetchFmpScreener = async () => {
-      if (!fmpKey) throw new Error("FMP Key missing in config");
-      addLog("Strategy B: FMP Bulk Screener (Fallback)...", "info");
-      
-      // Use 'etf=false' to get common stocks
-      const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=1000&isEtf=false&exchange=NASDAQ,NYSE,AMEX&limit=10000&apikey=${fmpKey}`;
-      
-      const res = await fetch(url);
-      if (!res.ok) {
-          const errText = await res.text();
-          throw new Error(`FMP Status ${res.status}: ${errText.slice(0, 100)}`);
+
+      // Handle Object Map format (Ticker Key -> Data Value) - Likely format
+      if (typeof jsonContent === 'object' && jsonContent !== null) {
+          Object.entries(jsonContent).forEach(([ticker, data]: [string, any]) => {
+              results.push({
+                  symbol: ticker,
+                  name: data.name || data.shortName || ticker,
+                  price: Number(data.price || data.regularMarketPrice || 0),
+                  volume: Number(data.volume || data.regularMarketVolume || 0),
+                  change: Number(data.change || data.regularMarketChangePercent || 0),
+                  marketCap: Number(data.marketCap || data.marketCap || 0),
+                  sector: data.sector || 'Unknown',
+                  industry: data.industry || 'Unknown',
+                  pe: data.pe || data.trailingPE,
+                  roe: data.roe || data.returnOnEquity,
+                  debtToEquity: data.debtToEquity || data.debtToEquity,
+                  updated: new Date().toISOString()
+              });
+          });
       }
-      
-      const data = await res.json();
-      if (!Array.isArray(data)) throw new Error("Invalid FMP Data Format");
-      
-      addLog(`FMP: Retrieved ${data.length} assets.`, "ok");
-      return data.map((item: any) => ({
-          symbol: item.symbol,
-          name: item.companyName,
-          price: item.price,
-          volume: item.volume,
-          change: item.changesPercentage || 0,
-          marketCap: item.marketCap,
-          sector: item.sector,
-          type: 'Common Stock',
-          updated: new Date().toISOString().split('T')[0]
-      }));
+
+      return results;
   };
 
   const startGathering = async (token: string) => {
       setIsGathering(true);
       startTimeRef.current = Date.now();
-      setProgress({ found: 0, synced: 0, target: 8000, elapsed: 0, provider: 'Idle', phase: 'Discovery' });
+      setProgress({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Google_Drive_Engine', phase: 'Discovery' });
       
-      let assets: any[] = [];
-      let providerName = 'None';
-
       try {
-          // Priority 0: Check for Colab Injection
-          assets = await loadColabData(token) || [];
-          if (assets.length > 0) {
-              providerName = 'Google_Colab_Pipe';
-              addLog("Using Colab-Injected Data. Skipping Scraper.", "ok");
-          } else {
-              // Priority 1: MSN Secret ID Map
-              const uniqueIds = await loadMapFromDrive(token);
-              
-              if (uniqueIds && uniqueIds.length > 0) {
-                  addLog(`Engaging Stealth Resolver for ${uniqueIds.length} IDs...`, "ok");
-                  assets = await resolveMsnAssets(uniqueIds);
-                  
-                  if (assets.length > 0) {
-                      providerName = 'MSN_Secret_Map';
-                      addLog(`Resolution Complete. ${assets.length} valid assets found.`, "ok");
-                  } else {
-                      addLog("Resolution yielded 0 assets. IDs might be stale/blocked.", "warn");
-                  }
-              }
+          // 1. Mount Engine (Load Split Files)
+          const assets = await mountFinancialEngine(token);
 
-              // Priority 2: FMP Fallback
-              if (assets.length === 0) {
-                  addLog("Primary Source Empty. Attempting FMP fallback...", "warn");
-                  try {
-                      assets = await fetchFmpScreener();
-                      providerName = 'FMP (Backup)';
-                  } catch (e: any) {
-                      addLog(`FMP Backup Failed: ${e.message}`, "err");
-                  }
-              }
-          }
+          if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
 
-          if (assets.length === 0) throw new Error("Zero Assets Found from all sources. Run Colab Script or Check API Keys.");
+          setProgress(prev => ({ ...prev, found: assets.length, phase: 'Mapping' }));
+          addLog(`Engine Ignition Successful. ${assets.length} HP Generated.`, "ok");
 
-          setProgress(prev => ({ ...prev, found: assets.length, provider: providerName, phase: 'Mapping' }));
-
-          addLog(`Phase 3: Committing ${assets.length} assets to Vault...`, "info");
+          // 2. Save Master Index
+          addLog(`Phase 2: Recording Telemetry to Stage 0...`, "info");
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const fileName = `STAGE0_MASTER_UNIVERSE_v3.0.0.json`;
+          const timestamp = getFormattedTimestamp();
+          const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
           
           const payload = {
               manifest: { 
-                  version: "3.0.0", 
-                  provider: providerName, 
+                  version: "5.0.0", 
+                  provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Hybrid Architecture (Colab + Web)"
+                  note: "Engine Mounted from Financial_Data_5Y_Split"
               },
               universe: assets
           };
 
           await uploadFile(token, folderId, fileName, payload);
 
-          setProgress(prev => ({ ...prev, synced: assets.length, phase: 'Finalized' }));
-          addLog(`System: Cloud Vault Sync Complete via ${providerName}.`, "ok");
+          setProgress(prev => ({ ...prev, phase: 'Finalized' }));
+          addLog(`System: Ready for Launch. Saved ${fileName}`, "ok");
           
           if (onComplete) onComplete();
 
@@ -388,6 +239,34 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           setIsGathering(false);
           startTimeRef.current = 0;
       }
+  };
+
+  // --- Drive Utilities ---
+
+  const findFolder = async (token: string, name: string, parentId = 'root') => {
+      const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
+  };
+
+  const findFileId = async (token: string, name: string, parentId: string) => {
+      const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
+  };
+
+  const downloadFile = async (token: string, fileId: string) => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error(`Download failed for ${fileId}`);
+      return await res.json();
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -442,9 +321,9 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.0.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v5.0.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Colab_Link_Protocol</span>
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Drive_Engine_Mount</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
@@ -456,20 +335,20 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                 disabled={isGathering}
                 className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isGathering ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : accessToken ? 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' : 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20'}`}
             >
-                {isGathering ? 'Acquiring Universe...' : accessToken ? 'Execute Data Fusion' : 'Connect Cloud Vault'}
+                {isGathering ? 'Mounting Cylinders...' : accessToken ? 'Ignite V12 Engine' : 'Connect Cloud Vault'}
             </button>
           </div>
 
           <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
              <div className="flex items-center justify-between mb-4">
                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-                 <div className="flex items-center gap-2"><span className="text-[8px] text-slate-500 uppercase">Mode: Active_Equity_Mapping</span></div>
+                 <div className="flex items-center gap-2"><span className="text-[8px] text-slate-500 uppercase">Mode: Engine_Check</span></div>
              </div>
              <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
                     <input type="text" placeholder="Verify Ticker (e.g. AAPL, TSLA)" className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase" />
                     <div className="flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all bg-slate-900 border-white/5 text-slate-600">
-                        <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
+                        <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Ignition...</span>
                     </div>
                 </div>
              </div>
@@ -477,10 +356,10 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
                {[
-                 { label: 'Equities Found', val: progress.found.toLocaleString(), color: 'text-white' },
-                 { label: 'Active Provider', val: progress.provider, color: 'text-indigo-400' },
+                 { label: 'Cylinders (Files)', val: `${progress.synced}/27`, color: 'text-white' },
+                 { label: 'Horsepower (Assets)', val: progress.found.toLocaleString(), color: 'text-indigo-400' },
                  { label: 'Cycle Time', val: `${progress.elapsed}s`, color: 'text-slate-400' },
-                 { label: 'Pipeline Phase', val: progress.phase, color: 'text-blue-400' }
+                 { label: 'Engine Status', val: progress.phase, color: 'text-blue-400' }
                ].map((item, idx) => (
                    <div key={idx} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
                        <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{item.label}</p>
@@ -492,7 +371,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
               <div 
                 className="h-full rounded-xl transition-all duration-700 bg-gradient-to-r from-blue-700 to-indigo-500" 
-                style={{ width: `${Math.min(100, (progress.found / progress.target) * 100)}%` }}
+                style={{ width: `${Math.min(100, (progress.synced / progress.target) * 100)}%` }}
               ></div>
           </div>
 
@@ -502,7 +381,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       <div className="xl:col-span-1">
         <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Engine_Telemetry</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
