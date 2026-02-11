@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.0.0: Engine Mount Protocol Standby.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.1.0: Engine Mount Protocol Standby.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -98,7 +98,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       addLog("Initializing V12 Engine Mounting Protocol...", "info");
       
       // 1. Locate the 'System_Identity_Maps' folder
-      // FIX: Look inside the specific rootFolderId first (US_Alpha_Seeker), then try 'root' if failed.
       let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       
       if (!systemMapFolderId) {
@@ -159,38 +158,56 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       
       // Handle array format (if user saved as array)
       if (Array.isArray(jsonContent)) {
-          return jsonContent.map(item => ({
-              symbol: item.symbol,
-              name: item.name || item.symbol,
-              price: Number(item.price) || 0,
-              volume: Number(item.volume) || 0,
-              change: Number(item.change) || 0,
-              marketCap: Number(item.marketCap) || 0,
-              sector: item.sector || 'Unknown',
-              industry: item.industry || 'Unknown',
-              // Keep minimal necessary data for Stage 1 filtering
-              pe: item.pe,
-              roe: item.roe,
-              debtToEquity: item.debtToEquity,
-              updated: new Date().toISOString()
-          }));
+          return jsonContent.map(item => {
+              // Check if item has 'basic' nesting (Array of objects with basic)
+              const root = item.basic || item;
+              return {
+                  symbol: root.symbol,
+                  name: root.name || root.company?.name || root.symbol,
+                  price: Number(root.price) || 0,
+                  volume: Number(root.volume) || 0,
+                  change: Number(root.change) || 0,
+                  marketCap: Number(root.marketCap) || 0,
+                  sector: root.sector || root.company?.sector || 'Unknown',
+                  industry: root.industry || root.company?.industry || 'Unknown',
+                  pe: root.pe,
+                  roe: root.roe,
+                  debtToEquity: root.debtToEquity,
+                  updated: new Date().toISOString()
+              };
+          });
       }
 
-      // Handle Object Map format (Ticker Key -> Data Value) - Likely format
+      // Handle Object Map format (Ticker Key -> Data Value)
       if (typeof jsonContent === 'object' && jsonContent !== null) {
-          Object.entries(jsonContent).forEach(([ticker, data]: [string, any]) => {
+          Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
+              // [CRITICAL FIX] Handle nested 'basic' structure from Financial_Data_5Y_Split
+              // Structure: { "SLUG-NAME": { "basic": { "symbol": "DIS", "company": {...}, "analysis": { ... } } } }
+              const root = val.basic || val;
+              const company = root.company || {};
+              const analysis = root.analysis || {};
+              const metrics = analysis.keyMetrics || {};
+
               results.push({
-                  symbol: ticker,
-                  name: data.name || data.shortName || ticker,
-                  price: Number(data.price || data.regularMarketPrice || 0),
-                  volume: Number(data.volume || data.regularMarketVolume || 0),
-                  change: Number(data.change || data.regularMarketChangePercent || 0),
-                  marketCap: Number(data.marketCap || data.marketCap || 0),
-                  sector: data.sector || 'Unknown',
-                  industry: data.industry || 'Unknown',
-                  pe: data.pe || data.trailingPE,
-                  roe: data.roe || data.returnOnEquity,
-                  debtToEquity: data.debtToEquity || data.debtToEquity,
+                  // Prioritize symbol inside basic, fall back to key
+                  symbol: root.symbol || key, 
+                  name: company.name || root.name || root.shortName || key,
+                  
+                  // Fundamentals are usually in 'analysis.keyMetrics' for this dataset
+                  pe: Number(metrics.pe || metrics.averagePE || root.pe || root.trailingPE || 0),
+                  roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
+                  debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
+                  
+                  // Price might be missing in fundamental data, defaulting to 0 is okay for Stage 0 (Source of Truth)
+                  // Stage 1 will fill live price.
+                  price: Number(root.price || metrics.price || root.regularMarketPrice || 0),
+                  volume: Number(root.volume || root.regularMarketVolume || 0),
+                  change: Number(root.change || root.regularMarketChangePercent || 0),
+                  marketCap: Number(root.marketCap || metrics.marketCap || 0),
+                  
+                  sector: company.sector || root.sector || 'Unknown',
+                  industry: company.industry || root.industry || 'Unknown',
+                  
                   updated: new Date().toISOString()
               });
           });
@@ -223,11 +240,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "5.0.0", 
+                  version: "6.1.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Engine Mounted from Financial_Data_5Y_Split"
+                  note: "Engine Mounted from Financial_Data_5Y_Split (Deep Map)"
               },
               universe: assets
           };
