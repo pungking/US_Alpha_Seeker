@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.4.0: Heartbeat Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.5.0: Heartbeat Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -237,7 +237,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                           sector: company.sector || root.sector || 'Unknown',
                           industry: company.industry || root.industry || 'Unknown',
                           
-                          updated: new Date().toISOString()
+                          // Use 'last_updated' from the root value object if available
+                          updated: val.last_updated || new Date().toISOString()
                       });
                   }
               });
@@ -274,7 +275,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.4.0", 
+                  version: "6.5.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
