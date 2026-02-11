@@ -98,8 +98,15 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       addLog("Initializing V12 Engine Mounting Protocol...", "info");
       
       // 1. Locate the 'System_Identity_Maps' folder
-      const systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder);
-      if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found.`);
+      // FIX: Look inside the specific rootFolderId first (US_Alpha_Seeker), then try 'root' if failed.
+      let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      
+      if (!systemMapFolderId) {
+          addLog(`'${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not in Project Root. Scanning Drive Root...`, "warn");
+          systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+      }
+
+      if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found in Drive.`);
 
       // 2. Locate the 'Financial_Data_5Y_Split' folder inside it
       const financialDataFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDataFolder, systemMapFolderId);
