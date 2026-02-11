@@ -103,7 +103,8 @@ export const GOOGLE_DRIVE_TARGET = {
   stage6SubFolder: 'Stage6_Alpha_Final',
   reportSubFolder: 'Report',
   reportsArchiveFolder: 'Stage2_Financial_Reports',
-  systemMapSubFolder: 'System_Identity_Maps' // [NEW] For ID Mapping Files
+  systemMapSubFolder: 'System_Identity_Maps',
+  financialDataFolder: 'Financial_Data_5Y_Split' // [NEW] The Engine Heart Folder
 };
 
 export const STAGES_FLOW = [
