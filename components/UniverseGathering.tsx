@@ -14,10 +14,15 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.1.0: Engine Mount Protocol Standby.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.2.0: Engine Mount Protocol Standby.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
+  
+  // Real-time Search State
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResult, setSearchResult] = useState<any | null>(null);
+  const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, any>>(new Map());
   
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
@@ -48,6 +53,20 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
         }
     }
   }, [autoStart, isActive]);
+
+  // Search Effect
+  useEffect(() => {
+    if (!searchQuery) {
+        setSearchResult(null);
+        return;
+    }
+    const query = searchQuery.trim().toUpperCase();
+    if (gatheredRegistry.has(query)) {
+        setSearchResult(gatheredRegistry.get(query));
+    } else {
+        setSearchResult(null);
+    }
+  }, [searchQuery, gatheredRegistry]);
 
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -81,7 +100,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       }
   };
 
-  // Helper to format timestamp for filename: YYYY-MM-DD_HH-mm-ss
   const getFormattedTimestamp = () => {
       const now = new Date();
       const year = now.getFullYear();
@@ -93,7 +111,6 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
   };
 
-  // The New Core: Mounts the split A-Z files
   const mountFinancialEngine = async (token: string) => {
       addLog("Initializing V12 Engine Mounting Protocol...", "info");
       
@@ -114,30 +131,35 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       addLog("Engine Core Located. Injecting Data Cylinders...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-      alphabet.push("ETC"); // Handle ETC_stocks.json
+      alphabet.push("ETC"); 
       
       const cylinders = alphabet;
       setProgress(prev => ({ ...prev, target: cylinders.length }));
 
       const masterUniverse: any[] = [];
+      const tempRegistry = new Map<string, any>();
 
       for (let i = 0; i < cylinders.length; i++) {
           const char = cylinders[i];
           const fileName = `${char}_stocks.json`;
           
           try {
-              // Find specific file
               const fileId = await findFileId(token, fileName, financialDataFolderId);
               
               if (fileId) {
-                  addLog(`Mounting Cylinder ${char}...`, "info");
                   const content = await downloadFile(token, fileId);
                   
-                  // Convert Map/Object to Array of lightweight objects
-                  // We only need basic info for Stage 1. Detailed info stays in the split files.
                   const stocks = processCylinderData(content);
-                  masterUniverse.push(...stocks);
+                  const count = stocks.length;
                   
+                  // Update Master Array and Registry
+                  masterUniverse.push(...stocks);
+                  stocks.forEach(s => tempRegistry.set(s.symbol, s));
+
+                  // Batch update UI registry for search
+                  setGatheredRegistry(new Map(tempRegistry));
+
+                  addLog(`Cylinder ${char}: Mounted ${count} assets.`, "info");
                   setProgress(prev => ({ ...prev, found: masterUniverse.length, synced: i + 1 }));
               } else {
                   addLog(`Cylinder ${char} Misfire: File not found.`, "warn");
@@ -146,8 +168,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
               addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
           }
           
-          // Small throttle to prevent UI freeze and API rate limits
-          await new Promise(r => setTimeout(r, 100));
+          await new Promise(r => setTimeout(r, 50));
       }
       
       return masterUniverse;
@@ -156,61 +177,65 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const processCylinderData = (jsonContent: any): any[] => {
       const results: any[] = [];
       
-      // Handle array format (if user saved as array)
-      if (Array.isArray(jsonContent)) {
-          return jsonContent.map(item => {
-              // Check if item has 'basic' nesting (Array of objects with basic)
-              const root = item.basic || item;
-              return {
-                  symbol: root.symbol,
-                  name: root.name || root.company?.name || root.symbol,
-                  price: Number(root.price) || 0,
-                  volume: Number(root.volume) || 0,
-                  change: Number(root.change) || 0,
-                  marketCap: Number(root.marketCap) || 0,
-                  sector: root.sector || root.company?.sector || 'Unknown',
-                  industry: root.industry || root.company?.industry || 'Unknown',
-                  pe: root.pe,
-                  roe: root.roe,
-                  debtToEquity: root.debtToEquity,
-                  updated: new Date().toISOString()
-              };
-          });
-      }
+      try {
+          // Handle array format (if user saved as array)
+          if (Array.isArray(jsonContent)) {
+              return jsonContent.map(item => {
+                  const root = item.basic || item;
+                  return {
+                      symbol: root.symbol,
+                      name: root.name || root.company?.name || root.symbol,
+                      price: Number(root.price) || 0,
+                      volume: Number(root.volume) || 0,
+                      change: Number(root.change) || 0,
+                      marketCap: Number(root.marketCap) || 0,
+                      sector: root.sector || root.company?.sector || 'Unknown',
+                      industry: root.industry || root.company?.industry || 'Unknown',
+                      pe: root.pe,
+                      roe: root.roe,
+                      debtToEquity: root.debtToEquity,
+                      updated: new Date().toISOString()
+                  };
+              }).filter(item => item.symbol); // Basic filter for valid objects
+          }
 
-      // Handle Object Map format (Ticker Key -> Data Value)
-      if (typeof jsonContent === 'object' && jsonContent !== null) {
-          Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
-              // [CRITICAL FIX] Handle nested 'basic' structure from Financial_Data_5Y_Split
-              // Structure: { "SLUG-NAME": { "basic": { "symbol": "DIS", "company": {...}, "analysis": { ... } } } }
-              const root = val.basic || val;
-              const company = root.company || {};
-              const analysis = root.analysis || {};
-              const metrics = analysis.keyMetrics || {};
+          // Handle Object Map format (Ticker Key -> Data Value)
+          if (typeof jsonContent === 'object' && jsonContent !== null) {
+              Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
+                  if (!val) return;
+                  
+                  // Handle nested 'basic' structure from Financial_Data_5Y_Split
+                  const root = val.basic || val;
+                  const company = root.company || {};
+                  const analysis = root.analysis || {};
+                  const metrics = analysis.keyMetrics || {};
+                  
+                  const symbol = root.symbol || key;
 
-              results.push({
-                  // Prioritize symbol inside basic, fall back to key
-                  symbol: root.symbol || key, 
-                  name: company.name || root.name || root.shortName || key,
-                  
-                  // Fundamentals are usually in 'analysis.keyMetrics' for this dataset
-                  pe: Number(metrics.pe || metrics.averagePE || root.pe || root.trailingPE || 0),
-                  roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
-                  debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
-                  
-                  // Price might be missing in fundamental data, defaulting to 0 is okay for Stage 0 (Source of Truth)
-                  // Stage 1 will fill live price.
-                  price: Number(root.price || metrics.price || root.regularMarketPrice || 0),
-                  volume: Number(root.volume || root.regularMarketVolume || 0),
-                  change: Number(root.change || root.regularMarketChangePercent || 0),
-                  marketCap: Number(root.marketCap || metrics.marketCap || 0),
-                  
-                  sector: company.sector || root.sector || 'Unknown',
-                  industry: company.industry || root.industry || 'Unknown',
-                  
-                  updated: new Date().toISOString()
+                  if (symbol) {
+                      results.push({
+                          symbol: symbol,
+                          name: company.name || root.name || root.shortName || key,
+                          
+                          pe: Number(metrics.pe || metrics.averagePE || root.pe || root.trailingPE || 0),
+                          roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
+                          debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
+                          
+                          price: Number(root.price || metrics.price || root.regularMarketPrice || 0),
+                          volume: Number(root.volume || root.regularMarketVolume || 0),
+                          change: Number(root.change || root.regularMarketChangePercent || 0),
+                          marketCap: Number(root.marketCap || metrics.marketCap || 0),
+                          
+                          sector: company.sector || root.sector || 'Unknown',
+                          industry: company.industry || root.industry || 'Unknown',
+                          
+                          updated: new Date().toISOString()
+                      });
+                  }
               });
-          });
+          }
+      } catch (e) {
+          console.error("Error processing cylinder data chunk", e);
       }
 
       return results;
@@ -220,6 +245,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       setIsGathering(true);
       startTimeRef.current = Date.now();
       setProgress({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Google_Drive_Engine', phase: 'Discovery' });
+      setGatheredRegistry(new Map()); // Reset Search Registry
       
       try {
           // 1. Mount Engine (Load Split Files)
@@ -240,7 +266,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.1.0", 
+                  version: "6.2.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -366,13 +392,29 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
              <div className="flex items-center justify-between mb-4">
                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-                 <div className="flex items-center gap-2"><span className="text-[8px] text-slate-500 uppercase">Mode: Engine_Check</span></div>
+                 <div className="flex items-center gap-2"><span className="text-[8px] text-slate-500 uppercase">Mode: Real-Time_Audit</span></div>
              </div>
              <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
-                    <input type="text" placeholder="Verify Ticker (e.g. AAPL, TSLA)" className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase" />
-                    <div className="flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all bg-slate-900 border-white/5 text-slate-600">
-                        <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Ignition...</span>
+                    <input 
+                        type="text" 
+                        placeholder="Verify Ticker (e.g. AAPL, DIS)" 
+                        className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                    <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-white/5'}`}>
+                        {searchResult ? (
+                            <div className="flex justify-between items-center w-full">
+                                <div>
+                                    <p className="text-[10px] font-black text-white">{searchResult.name}</p>
+                                    <p className="text-[8px] font-mono text-emerald-400">P: {searchResult.price || 'N/A'} | PE: {searchResult.pe || 'N/A'}</p>
+                                </div>
+                                <span className="text-[9px] font-black text-slate-500 uppercase tracking-widest">FOUND</span>
+                            </div>
+                        ) : (
+                            <span className="text-[10px] font-black italic uppercase tracking-widest text-slate-600">{searchQuery ? 'Searching...' : 'Awaiting Input...'}</span>
+                        )}
                     </div>
                 </div>
              </div>
