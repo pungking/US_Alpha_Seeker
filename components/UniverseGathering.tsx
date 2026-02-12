@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.1: Daily Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.2: Live Validator Link Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -54,15 +54,50 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
     }
   }, [autoStart, isActive]);
 
-  // Search Effect
+  // Search Effect with Live Data Injection
   useEffect(() => {
     if (!searchQuery) {
         setSearchResult(null);
         return;
     }
     const query = searchQuery.trim().toUpperCase();
+    
+    // 1. First, try to find in loaded static registry
     if (gatheredRegistry.has(query)) {
-        setSearchResult(gatheredRegistry.get(query));
+        const staticData = gatheredRegistry.get(query);
+        setSearchResult(staticData);
+
+        // 2. [NEW] Fetch Live Market Data to augment static snapshot (Fixes 0% change issue)
+        const fetchLiveQuote = async () => {
+            try {
+                const res = await fetch(`/api/yahoo?symbols=${staticData.symbol}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    if (data && data.length > 0) {
+                        const live = data[0];
+                        setSearchResult((prev: any) => {
+                            if (prev && prev.symbol === staticData.symbol) {
+                                return {
+                                    ...prev,
+                                    price: live.price || prev.price,
+                                    change: live.change || 0, // Injects real-time change
+                                    prevClose: live.prevClose || prev.prevClose,
+                                    pe: live.trailingPE || prev.pe,
+                                    marketCap: live.marketCap || prev.marketCap
+                                };
+                            }
+                            return prev;
+                        });
+                    }
+                }
+            } catch (e) {
+                // Silent fail, keep static data
+            }
+        };
+
+        // Debounce slightly to avoid spamming if typing fast, but for single match valid check is ok
+        fetchLiveQuote();
+
     } else {
         setSearchResult(null);
     }
@@ -312,7 +347,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.9.1", 
+                  version: "6.9.2", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
