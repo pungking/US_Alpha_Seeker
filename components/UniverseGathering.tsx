@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.0: Daily Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.1: Daily Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -199,7 +199,9 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                       marketCap: Number(root.marketCap) || 0,
                       sector: root.sector || root.company?.sector || 'Unknown',
                       industry: root.industry || root.company?.industry || 'Unknown',
-                      pe: root.pe,
+                      pe: root.pe || root.per, // Look for per too
+                      pbr: root.pbr || root.priceToBook, // Look for pbr too
+                      psr: root.psr || root.priceToSales, // Look for psr too
                       roe: root.roe,
                       debtToEquity: root.debtToEquity,
                       updated: new Date().toISOString()
@@ -246,14 +248,15 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                           symbol: symbol,
                           name: company.name || root.name || root.shortName || key,
                           
-                          // Expanded Metrics
-                          pe: Number(metrics.pe || metrics.averagePE || metrics.forwardPriceToEPS || companyMetrics.peRatio || root.pe || root.trailingPE || root.peRatio || 0),
+                          // Expanded Metrics - Updated to catch per, pbr, psr keys from daily JSON
+                          pe: Number(metrics.pe || metrics.averagePE || metrics.forwardPriceToEPS || companyMetrics.peRatio || root.pe || root.per || root.trailingPE || root.peRatio || 0),
                           roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
-                          pbr: Number(metrics.priceToBookRatio || companyMetrics.priceToBookRatio || root.priceToBook || 0),
-                          psr: Number(metrics.priceToSalesRatio || companyMetrics.priceToSalesRatio || root.priceToSales || 0),
+                          pbr: Number(metrics.priceToBookRatio || companyMetrics.priceToBookRatio || root.priceToBook || root.pbr || 0),
+                          psr: Number(metrics.priceToSalesRatio || companyMetrics.priceToSalesRatio || root.priceToSales || root.psr || 0),
                           debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
                           eps: Number(metrics.eps || metrics.earningsPerShare || root.eps || root.earningsPerShare || 0),
                           beta: Number(metrics.beta || root.beta || 0),
+                          dividendYield: Number(metrics.dividendYield || root.dividendYield || 0),
                           
                           price: price,
                           prevClose: prevClose,
@@ -309,7 +312,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.8.0", 
+                  version: "6.9.1", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
