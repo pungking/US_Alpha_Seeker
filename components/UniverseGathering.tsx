@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.8.0: Daily Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.0: Daily Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -252,6 +252,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                           pbr: Number(metrics.priceToBookRatio || companyMetrics.priceToBookRatio || root.priceToBook || 0),
                           psr: Number(metrics.priceToSalesRatio || companyMetrics.priceToSalesRatio || root.priceToSales || 0),
                           debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
+                          eps: Number(metrics.eps || metrics.earningsPerShare || root.eps || root.earningsPerShare || 0),
+                          beta: Number(metrics.beta || root.beta || 0),
                           
                           price: price,
                           prevClose: prevClose,
@@ -468,14 +470,22 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                                     </div>
                                 </div>
                                 
-                                <div className="grid grid-cols-3 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 mb-4">
+                                <div className="grid grid-cols-4 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 mb-4">
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">전일종가</span>
                                         <span className="text-xs font-mono text-slate-300 font-bold">${searchResult.prevClose ? searchResult.prevClose.toFixed(2) : 'N/A'}</span>
                                     </div>
                                     <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">시가총액</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{formatMarketCap(searchResult.marketCap)}</span>
+                                    </div>
+                                    <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PER</span>
                                         <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.pe ? searchResult.pe.toFixed(1) + 'x' : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">EPS</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">${searchResult.eps ? searchResult.eps.toFixed(2) : 'N/A'}</span>
                                     </div>
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PBR</span>
@@ -490,8 +500,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                                         <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.psr ? searchResult.psr.toFixed(1) + 'x' : 'N/A'}</span>
                                     </div>
                                     <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">시가총액</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">{formatMarketCap(searchResult.marketCap)}</span>
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Beta</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.beta ? searchResult.beta.toFixed(2) : 'N/A'}</span>
                                     </div>
                                 </div>
 
