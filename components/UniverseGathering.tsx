@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.4: Live Validator Link Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.0.0: Real-Time Feed Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -24,6 +24,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const [searchResult, setSearchResult] = useState<any | null>(null);
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, any>>(new Map());
   const [isLive, setIsLive] = useState(false);
+  const [liveSource, setLiveSource] = useState<string>('');
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
   const logRef = useRef<HTMLDivElement>(null);
@@ -62,6 +63,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
         setSearchResult(null);
         setIsLive(false);
         setPriceFlash(null);
+        setLiveSource('');
         return;
     }
     const query = searchQuery.trim().toUpperCase();
@@ -73,48 +75,113 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
         setSearchResult(null);
         setIsLive(false);
         setPriceFlash(null);
+        setLiveSource('');
     }
   }, [searchQuery, gatheredRegistry]);
 
-  // Live Data Polling for Selected Stock
+  // Enhanced Real-Time Polling (Polygon > Finnhub > Yahoo)
   useEffect(() => {
       let intervalId: any;
+      const symbol = searchResult?.symbol;
       
-      if (searchResult?.symbol) {
-          const fetchLiveQuote = async () => {
+      if (symbol) {
+          const fetchRealTimeData = async () => {
               try {
-                  // Cache-busting with timestamp to ensure fresh data
-                  const res = await fetch(`/api/yahoo?symbols=${searchResult.symbol}&t=${Date.now()}`);
-                  if (res.ok) {
-                      const data = await res.json();
-                      if (data && data.length > 0) {
-                          const live = data[0];
-                          setSearchResult((prev: any) => {
-                              // Only update if it matches the current view
-                              if (!prev || prev.symbol !== live.symbol) return prev;
-                              
-                              // Check for price change to trigger flash
-                              if (prev.price !== live.price) {
-                                  setPriceFlash(live.price > prev.price ? 'up' : 'down');
-                                  setTimeout(() => setPriceFlash(null), 500); // Reset flash after 500ms
+                  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+                  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+                  
+                  let price = 0;
+                  let change = 0;
+                  let changeAmount = 0;
+                  let prevClose = 0;
+                  let found = false;
+                  let source = "";
+
+                  // 1. Polygon Snapshot (Fastest/Most Reliable for US Stocks)
+                  if (polygonKey && !found) {
+                      try {
+                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polygonKey}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              const t = data.ticker;
+                              if (t) {
+                                  price = t.lastTrade?.p || t.day?.c || t.min?.c || 0;
+                                  change = t.todaysChangePerc || 0;
+                                  changeAmount = t.todaysChange || 0;
+                                  prevClose = t.prevDay?.c || 0;
+                                  if (price > 0) {
+                                      found = true;
+                                      source = "Polygon.io (Live)";
+                                  }
                               }
-
-                              setIsLive(true);
-                              
-                              // Calculate change amount if missing
-                              const changeAmt = live.changeAmount !== undefined ? live.changeAmount : (live.price - (live.prevClose || prev.prevClose || live.price));
-
-                              return {
-                                  ...prev,
-                                  price: live.price,
-                                  change: live.change,
-                                  changeAmount: changeAmt,
-                                  prevClose: live.prevClose || prev.prevClose,
-                                  pe: live.trailingPE || prev.pe,
-                                  marketCap: live.marketCap || prev.marketCap
-                              };
-                          });
+                          }
+                      } catch (e) { 
+                          // Fallback to next
                       }
+                  }
+
+                  // 2. Finnhub Quote (Good Backup)
+                  if (finnhubKey && !found) {
+                      try {
+                          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              // c: Current price, d: Change, dp: Percent change, pc: Previous close
+                              if (data.c > 0) {
+                                  price = data.c;
+                                  change = data.dp;
+                                  changeAmount = data.d;
+                                  prevClose = data.pc;
+                                  found = true;
+                                  source = "Finnhub (Live)";
+                              }
+                          }
+                      } catch (e) { 
+                          // Fallback to next
+                      }
+                  }
+
+                  // 3. Yahoo Proxy (Last Resort)
+                  if (!found) {
+                      const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
+                      if (res.ok) {
+                          const data = await res.json();
+                          if (data && data.length > 0) {
+                              const live = data[0];
+                              price = live.price;
+                              change = live.change;
+                              changeAmount = live.changeAmount !== undefined ? live.changeAmount : (price - (live.prevClose || price));
+                              prevClose = live.prevClose || 0;
+                              found = true;
+                              source = "Yahoo Finance (Delayed)";
+                          }
+                      }
+                  }
+
+                  if (found) {
+                      setSearchResult((prev: any) => {
+                          // Prevent race condition if user switched stock
+                          if (!prev || prev.symbol !== symbol) return prev;
+                          
+                          // Flash logic
+                          if (prev.price !== price) {
+                              setPriceFlash(price > prev.price ? 'up' : 'down');
+                              setTimeout(() => setPriceFlash(null), 300); // Quick 300ms flash
+                          }
+                          
+                          setIsLive(true);
+                          setLiveSource(source);
+
+                          return {
+                              ...prev,
+                              price,
+                              change,
+                              changeAmount,
+                              prevClose: prevClose || prev.prevClose,
+                              pe: prev.pe, // Keep fundamental data
+                              marketCap: prev.marketCap
+                          };
+                      });
                   }
               } catch (e) {
                   // Silent fail for polling
@@ -122,12 +189,13 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           };
 
           // Fetch immediately
-          fetchLiveQuote();
+          fetchRealTimeData();
           
-          // Then poll every 2 seconds
-          intervalId = setInterval(fetchLiveQuote, 2000);
+          // Poll interval - 2 seconds for balance between responsiveness and rate limits
+          intervalId = setInterval(fetchRealTimeData, 2000);
       } else {
           setIsLive(false);
+          setLiveSource('');
       }
 
       return () => {
@@ -379,7 +447,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.9.3", 
+                  version: "6.9.4", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -512,7 +580,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
              <div className="flex items-center justify-between mb-4">
                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
                  <div className="flex items-center gap-2">
-                     {isLive && <span className="text-[8px] font-black text-emerald-400 animate-pulse uppercase border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">● LIVE FEED</span>}
+                     {isLive && <span className="text-[8px] font-black text-emerald-400 animate-pulse uppercase border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">● {liveSource || 'LIVE FEED'}</span>}
                      <span className="text-[8px] text-slate-500 uppercase">Mode: Real-Time_Audit</span>
                  </div>
              </div>
