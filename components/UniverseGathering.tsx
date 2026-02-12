@@ -217,8 +217,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           // Fetch immediately
           fetchRealTimeData();
           
-          // Poll interval - 2 seconds for balance between responsiveness and rate limits
-          intervalId = setInterval(fetchRealTimeData, 2000);
+          // Poll interval - 1 second for faster updates matching MarketTicker
+          intervalId = setInterval(fetchRealTimeData, 1000);
       } else {
           setIsLive(false);
           setLiveSource('');
@@ -630,7 +630,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                     <div className="text-right">
                                         {isLive ? (
                                             <>
-                                                <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-300 scale-110' : priceFlash === 'down' ? 'text-rose-300 scale-110' : 'text-emerald-400'}`}>
+                                                <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-400 scale-110' : priceFlash === 'down' ? 'text-rose-400 scale-110' : 'text-white'}`}>
                                                     ${searchResult.price?.toFixed(2) || 'N/A'}
                                                 </p>
                                                 <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${searchResult.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
