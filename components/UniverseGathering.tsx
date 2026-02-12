@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.3: Live Validator Link Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.4: Live Validator Link Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -24,6 +24,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const [searchResult, setSearchResult] = useState<any | null>(null);
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, any>>(new Map());
   const [isLive, setIsLive] = useState(false);
+  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
@@ -60,6 +61,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
     if (!searchQuery) {
         setSearchResult(null);
         setIsLive(false);
+        setPriceFlash(null);
         return;
     }
     const query = searchQuery.trim().toUpperCase();
@@ -70,6 +72,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
     } else {
         setSearchResult(null);
         setIsLive(false);
+        setPriceFlash(null);
     }
   }, [searchQuery, gatheredRegistry]);
 
@@ -80,7 +83,8 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       if (searchResult?.symbol) {
           const fetchLiveQuote = async () => {
               try {
-                  const res = await fetch(`/api/yahoo?symbols=${searchResult.symbol}`);
+                  // Cache-busting with timestamp to ensure fresh data
+                  const res = await fetch(`/api/yahoo?symbols=${searchResult.symbol}&t=${Date.now()}`);
                   if (res.ok) {
                       const data = await res.json();
                       if (data && data.length > 0) {
@@ -89,14 +93,22 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                               // Only update if it matches the current view
                               if (!prev || prev.symbol !== live.symbol) return prev;
                               
-                              // Check if price actually changed to avoid unnecessary renders
-                              if (prev.price === live.price && prev.change === live.change) return prev;
+                              // Check for price change to trigger flash
+                              if (prev.price !== live.price) {
+                                  setPriceFlash(live.price > prev.price ? 'up' : 'down');
+                                  setTimeout(() => setPriceFlash(null), 500); // Reset flash after 500ms
+                              }
 
                               setIsLive(true);
+                              
+                              // Calculate change amount if missing
+                              const changeAmt = live.changeAmount !== undefined ? live.changeAmount : (live.price - (live.prevClose || prev.prevClose || live.price));
+
                               return {
                                   ...prev,
                                   price: live.price,
                                   change: live.change,
+                                  changeAmount: changeAmt,
                                   prevClose: live.prevClose || prev.prevClose,
                                   pe: live.trailingPE || prev.pe,
                                   marketCap: live.marketCap || prev.marketCap
@@ -121,7 +133,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       return () => {
           if (intervalId) clearInterval(intervalId);
       };
-  }, [searchResult?.symbol]); // Depend only on the symbol changing
+  }, [searchResult?.symbol]); 
 
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -522,11 +534,12 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                                         <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{searchResult.name}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className={`text-2xl font-mono font-black ${isLive ? 'text-emerald-300' : 'text-emerald-400'}`}>
+                                        <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-300 scale-110' : priceFlash === 'down' ? 'text-rose-300 scale-110' : isLive ? 'text-emerald-400' : 'text-white'}`}>
                                             ${searchResult.price?.toFixed(2) || 'N/A'}
                                         </p>
-                                        <p className={`text-[10px] font-bold ${searchResult.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
-                                            {searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.change || 0).toFixed(2)}%
+                                        <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${searchResult.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                            <span>{searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.changeAmount || 0).toFixed(2)}</span>
+                                            <span className="opacity-50">({Math.abs(searchResult.change || 0).toFixed(2)}%)</span>
                                         </p>
                                     </div>
                                 </div>
