@@ -104,7 +104,9 @@ export const GOOGLE_DRIVE_TARGET = {
   reportSubFolder: 'Report',
   reportsArchiveFolder: 'Stage2_Financial_Reports',
   systemMapSubFolder: 'System_Identity_Maps',
-  financialDataFolder: 'Financial_Data_5Y_Split' // [NEW] The Engine Heart Folder
+  // Updated Folder Structure
+  financialDailyFolder: 'Financial_Data_Daily', // Daily updated metrics (Stage 0 Source)
+  financialHistoryFolder: 'Financial_Data_History_5Y' // 5-Year History (Deep Dive Source)
 };
 
 export const STAGES_FLOW = [
