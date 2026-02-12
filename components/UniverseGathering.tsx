@@ -18,25 +18,6 @@ interface Props {
   onComplete?: () => void;
 }
 
-interface MasterTicker {
-  symbol: string;
-  name?: string;
-  price: number;
-  volume: number;
-  change: number;
-  updated: string;
-  type?: string; 
-  marketCap?: number;
-  sector?: string;
-  industry?: string;
-  pe?: number;
-  eps?: number;
-  roe?: number;
-  debtToEquity?: number;
-  pb?: number;
-  source?: string;
-}
-
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
   const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.0.0: Real-Time Feed Protocol Active.']);
@@ -50,12 +31,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, any>>(new Map());
   const [isLive, setIsLive] = useState(false);
   const [liveSource, setLiveSource] = useState<string>('');
+  
+  // [VISUAL] Flash State for Animation
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
+  // Refs
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
+  const wsRef = useRef<WebSocket | null>(null);
+  const prevPriceRef = useRef<number>(0);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -89,145 +76,212 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         setIsLive(false);
         setPriceFlash(null);
         setLiveSource('');
+        prevPriceRef.current = 0;
+        // Close WS if open
+        if (wsRef.current) {
+            wsRef.current.close();
+            wsRef.current = null;
+        }
         return;
     }
     const query = searchQuery.trim().toUpperCase();
     
     if (gatheredRegistry.has(query)) {
-        // Load static data first but mark as NOT live yet
-        setSearchResult(gatheredRegistry.get(query));
-        setIsLive(false); // Validating...
+        const staticData = gatheredRegistry.get(query);
+        setSearchResult(staticData);
+        prevPriceRef.current = staticData.price;
+        setIsLive(false); // Switch to Live pending
     } else {
         setSearchResult(null);
         setIsLive(false);
-        setPriceFlash(null);
-        setLiveSource('');
+        prevPriceRef.current = 0;
     }
   }, [searchQuery, gatheredRegistry]);
 
-  // Enhanced Real-Time Polling (Polygon > Finnhub > Yahoo)
+  // [REAL-TIME ENGINE] WebSocket Priority -> Polling Fallback
   useEffect(() => {
-      let intervalId: any;
       const symbol = searchResult?.symbol;
       
-      if (symbol) {
-          const fetchRealTimeData = async () => {
-              try {
-                  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-                  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-                  
-                  let price = 0;
-                  let change = 0;
-                  let changeAmount = 0;
-                  let prevClose = 0;
-                  let found = false;
-                  let source = "";
-
-                  // 1. Polygon Snapshot (Fastest/Most Reliable for US Stocks)
-                  if (polygonKey && !found) {
-                      try {
-                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polygonKey}`);
-                          if (res.ok) {
-                              const data = await res.json();
-                              const t = data.ticker;
-                              if (t) {
-                                  price = t.lastTrade?.p || t.day?.c || t.min?.c || 0;
-                                  change = t.todaysChangePerc || 0;
-                                  changeAmount = t.todaysChange || 0;
-                                  prevClose = t.prevDay?.c || 0;
-                                  if (price > 0) {
-                                      found = true;
-                                      source = "Polygon.io (Live)";
-                                  }
-                              }
-                          }
-                      } catch (e) { 
-                          // Fallback to next
-                      }
-                  }
-
-                  // 2. Finnhub Quote (Good Backup)
-                  if (finnhubKey && !found) {
-                      try {
-                          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
-                          if (res.ok) {
-                              const data = await res.json();
-                              // c: Current price, d: Change, dp: Percent change, pc: Previous close
-                              if (data.c > 0) {
-                                  price = data.c;
-                                  change = data.dp;
-                                  changeAmount = data.d;
-                                  prevClose = data.pc;
-                                  found = true;
-                                  source = "Finnhub (Live)";
-                              }
-                          }
-                      } catch (e) { 
-                          // Fallback to next
-                      }
-                  }
-
-                  // 3. Yahoo Proxy (Last Resort)
-                  if (!found) {
-                      const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
-                      if (res.ok) {
-                          const data = await res.json();
-                          if (data && data.length > 0) {
-                              const live = data[0];
-                              price = live.price;
-                              change = live.change;
-                              changeAmount = live.changeAmount !== undefined ? live.changeAmount : (price - (live.prevClose || price));
-                              prevClose = live.prevClose || 0;
-                              found = true;
-                              source = "Yahoo Finance (Delayed)";
-                          }
-                      }
-                  }
-
-                  if (found) {
-                      setSearchResult((prev: any) => {
-                          // Prevent race condition if user switched stock
-                          if (!prev || prev.symbol !== symbol) return prev;
-                          
-                          // Flash logic
-                          if (prev.price !== price && isLive) {
-                              setPriceFlash(price > prev.price ? 'up' : 'down');
-                              setTimeout(() => setPriceFlash(null), 300); // Quick 300ms flash
-                          }
-                          
-                          setIsLive(true);
-                          setLiveSource(source);
-
-                          return {
-                              ...prev,
-                              price,
-                              change,
-                              changeAmount,
-                              prevClose: prevClose || prev.prevClose,
-                              pe: prev.pe, // Keep fundamental data
-                              marketCap: prev.marketCap
-                          };
-                      });
-                  }
-              } catch (e) {
-                  // Silent fail for polling
-              }
-          };
-
-          // Fetch immediately
-          fetchRealTimeData();
-          
-          // Poll interval - 1 second for faster updates matching MarketTicker
-          intervalId = setInterval(fetchRealTimeData, 1000);
-      } else {
-          setIsLive(false);
-          setLiveSource('');
+      // Cleanup previous socket/interval
+      if (wsRef.current) {
+          wsRef.current.close();
+          wsRef.current = null;
       }
 
-      return () => {
-          if (intervalId) clearInterval(intervalId);
+      if (!symbol) return;
+
+      // 1. WebSocket Strategy (Priority)
+      if (finnhubKey) {
+          try {
+              const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
+              wsRef.current = ws;
+
+              ws.onopen = () => {
+                  ws.send(JSON.stringify({ type: 'subscribe', symbol: symbol }));
+                  // addLog(`WS Link Established: ${symbol}`, 'info');
+              };
+
+              ws.onmessage = (event) => {
+                  try {
+                      const msg = JSON.parse(event.data);
+                      if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
+                          // Get the latest trade
+                          const trade = msg.data[msg.data.length - 1];
+                          const newPrice = trade.p;
+                          
+                          if (newPrice && newPrice !== prevPriceRef.current) {
+                              const direction = newPrice > prevPriceRef.current ? 'up' : 'down';
+                              prevPriceRef.current = newPrice;
+                              
+                              setPriceFlash(direction);
+                              setTimeout(() => setPriceFlash(null), 300); // 300ms flash
+
+                              setSearchResult((prev: any) => {
+                                  if (!prev || prev.symbol !== symbol) return prev;
+                                  
+                                  // Recalculate change if we have prevClose
+                                  let newChange = prev.change;
+                                  let newChangeAmount = prev.changeAmount;
+                                  
+                                  if (prev.prevClose) {
+                                      newChangeAmount = newPrice - prev.prevClose;
+                                      newChange = (newChangeAmount / prev.prevClose) * 100;
+                                  }
+
+                                  return {
+                                      ...prev,
+                                      price: newPrice,
+                                      change: newChange,
+                                      changeAmount: newChangeAmount
+                                  };
+                              });
+                              setIsLive(true);
+                              setLiveSource('Finnhub WS');
+                          }
+                      }
+                  } catch (e) { }
+              };
+
+              ws.onerror = () => {
+                  console.warn("WS Error, switching to polling");
+                  startPolling(symbol); // Fallback
+              };
+
+              return () => {
+                  if (ws.readyState === 1) ws.close();
+              };
+
+          } catch (e) {
+              console.warn("WS Setup failed, using polling");
+              startPolling(symbol);
+          }
+      } else {
+          startPolling(symbol);
+      }
+
+  }, [searchResult?.symbol, finnhubKey]); 
+
+  // Polling Strategy (Fallback)
+  const startPolling = (symbol: string) => {
+      const fetchRealTimeData = async () => {
+          try {
+              const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+              const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+              
+              let price = 0;
+              let change = 0;
+              let changeAmount = 0;
+              let prevClose = 0;
+              let found = false;
+              let source = "";
+
+              // 1. Polygon Snapshot
+              if (polygonKey && !found) {
+                  try {
+                      const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polygonKey}`);
+                      if (res.ok) {
+                          const data = await res.json();
+                          const t = data.ticker;
+                          if (t) {
+                              price = t.lastTrade?.p || t.day?.c || t.min?.c || 0;
+                              change = t.todaysChangePerc || 0;
+                              changeAmount = t.todaysChange || 0;
+                              prevClose = t.prevDay?.c || 0;
+                              if (price > 0) {
+                                  found = true;
+                                  source = "Polygon (Poll)";
+                              }
+                          }
+                      }
+                  } catch (e) { }
+              }
+
+              // 2. Finnhub Quote
+              if (finnhubKey && !found) {
+                  try {
+                      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
+                      if (res.ok) {
+                          const data = await res.json();
+                          if (data.c > 0) {
+                              price = data.c;
+                              change = data.dp;
+                              changeAmount = data.d;
+                              prevClose = data.pc;
+                              found = true;
+                              source = "Finnhub (Poll)";
+                          }
+                      }
+                  } catch (e) { }
+              }
+
+              // 3. Yahoo Proxy
+              if (!found) {
+                  const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (data && data.length > 0) {
+                          const live = data[0];
+                          price = live.price;
+                          change = live.change;
+                          changeAmount = live.changeAmount !== undefined ? live.changeAmount : (price - (live.prevClose || price));
+                          prevClose = live.prevClose || 0;
+                          found = true;
+                          source = "Yahoo (Delayed)";
+                      }
+                  }
+              }
+
+              if (found) {
+                  setSearchResult((prev: any) => {
+                      if (!prev || prev.symbol !== symbol) return prev;
+                      
+                      if (prev.price !== price) {
+                          setPriceFlash(price > prev.price ? 'up' : 'down');
+                          setTimeout(() => setPriceFlash(null), 300);
+                      }
+                      
+                      setIsLive(true);
+                      setLiveSource(source);
+                      prevPriceRef.current = price;
+
+                      return {
+                          ...prev,
+                          price,
+                          change,
+                          changeAmount,
+                          prevClose: prevClose || prev.prevClose,
+                          pe: prev.pe,
+                          marketCap: prev.marketCap
+                      };
+                  });
+              }
+          } catch (e) { }
       };
-  }, [searchResult?.symbol]); 
+
+      fetchRealTimeData();
+      const intervalId = setInterval(fetchRealTimeData, 2000); // 2s polling
+      return () => clearInterval(intervalId);
+  };
 
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -345,9 +399,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const processCylinderData = (jsonContent: any): any[] => {
       const results: any[] = [];
-      
       try {
-          // Handle array format (if user saved as array)
           if (Array.isArray(jsonContent)) {
               return jsonContent.map(item => {
                   const root = item.basic || item;
@@ -360,47 +412,28 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       marketCap: Number(root.marketCap) || 0,
                       sector: root.sector || root.company?.sector || 'Unknown',
                       industry: root.industry || root.company?.industry || 'Unknown',
-                      pe: root.pe || root.per, // Look for per too
-                      pbr: root.pbr || root.priceToBook, // Look for pbr too
-                      psr: root.psr || root.priceToSales, // Look for psr too
+                      pe: root.pe || root.per, 
+                      pbr: root.pbr || root.priceToBook, 
+                      psr: root.psr || root.priceToSales, 
                       roe: root.roe,
                       debtToEquity: root.debtToEquity,
                       updated: new Date().toISOString()
                   };
-              }).filter(item => item.symbol); // Basic filter for valid objects
+              }).filter(item => item.symbol);
           }
-
-          // Handle Object Map format (Ticker Key -> Data Value)
           if (typeof jsonContent === 'object' && jsonContent !== null) {
               Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
                   if (!val) return;
-                  
-                  // Handle nested 'basic' structure (Updated for new Heart data)
                   const root = val.basic || val;
                   const company = root.company || val.company || {};
                   const analysis = root.analysis || val.analysis || {};
                   const metrics = analysis.keyMetrics || {};
                   const companyMetrics = analysis.companyMetrics || {};
-                  
-                  // 1. Symbol Extraction
                   const symbol = company.symbol || root.symbol || key;
-
-                  // 2. Price Extraction
-                  const price = Number(
-                    root.price || 
-                    root.currentPrice || 
-                    metrics.latestPrice || 
-                    root.regularMarketPrice || 
-                    0
-                  );
-
-                  // 3. Change Extraction
+                  const price = Number(root.price || root.currentPrice || metrics.latestPrice || root.regularMarketPrice || 0);
                   const change = Number(root.change || root.regularMarketChangePercent || 0);
-
-                  // 4. Calculate Prev Close if missing
                   let prevClose = Number(root.previousClose || root.regularMarketPreviousClose || 0);
                   if (prevClose === 0 && price > 0) {
-                      // Reverse engineer from change %: Price / (1 + change/100)
                       prevClose = price / (1 + (change / 100));
                   }
 
@@ -408,8 +441,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       results.push({
                           symbol: symbol,
                           name: company.name || root.name || root.shortName || key,
-                          
-                          // Expanded Metrics - Updated to catch per, pbr, psr keys from daily JSON
                           pe: Number(metrics.pe || metrics.averagePE || metrics.forwardPriceToEPS || companyMetrics.peRatio || root.pe || root.per || root.trailingPE || root.peRatio || 0),
                           roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
                           pbr: Number(metrics.priceToBookRatio || companyMetrics.priceToBookRatio || root.priceToBook || root.pbr || 0),
@@ -418,16 +449,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           eps: Number(metrics.eps || metrics.earningsPerShare || root.eps || root.earningsPerShare || 0),
                           beta: Number(metrics.beta || root.beta || 0),
                           dividendYield: Number(metrics.dividendYield || root.dividendYield || 0),
-                          
                           price: price,
                           prevClose: prevClose,
                           volume: Number(root.volume || root.regularMarketVolume || 0),
                           change: change,
                           marketCap: Number(root.marketCap || metrics.marketCap || companyMetrics.marketCap || 0),
-                          
                           sector: company.sector || root.sector || 'Unknown',
                           industry: company.industry || root.industry || 'Unknown',
-                          
                           updated: val.last_updated || new Date().toISOString()
                       });
                   }
@@ -436,7 +464,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       } catch (e) {
           console.error("Error processing cylinder data chunk", e);
       }
-
       return results;
   };
 
@@ -452,18 +479,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       setIsGathering(true);
       startTimeRef.current = Date.now();
       setProgress({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Google_Drive_Engine', phase: 'Discovery' });
-      setGatheredRegistry(new Map()); // Reset Search Registry
+      setGatheredRegistry(new Map()); 
       
       try {
-          // 1. Mount Engine (Load Split Files)
           const assets = await mountFinancialEngine(token);
-
           if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
-
           setProgress(prev => ({ ...prev, found: assets.length, phase: 'Mapping' }));
           addLog(`Engine Ignition Successful. ${assets.length} HP Generated.`, "ok");
-
-          // 2. Save Master Index
           addLog(`Phase 2: Recording Telemetry to Stage 0...`, "info");
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
@@ -483,12 +505,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           };
 
           await uploadFile(token, folderId, fileName, payload);
-
           setProgress(prev => ({ ...prev, phase: 'Finalized' }));
           addLog(`System: Ready for Launch. Saved ${fileName}`, "ok");
           
           if (onComplete) onComplete();
-
       } catch (e: any) {
           addLog(`Fatal Error: ${e.message}`, "err");
           setProgress(prev => ({ ...prev, phase: 'Idle' }));
@@ -499,7 +519,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // --- Drive Utilities ---
-
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
@@ -546,6 +565,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
       });
+  };
+
+  // --- Dynamic Style Helpers ---
+  const getBorderColor = () => {
+    if (priceFlash === 'up') return '#4ade80'; // Neon Green
+    if (priceFlash === 'down') return '#f87171'; // Neon Red
+    if (searchResult) return '#10b981'; // Default Green for active item
+    return 'rgba(255,255,255,0.05)'; // Default Slate
+  };
+
+  const getBackgroundColor = () => {
+    if (priceFlash === 'up') return 'rgba(74, 222, 128, 0.15)'; 
+    if (priceFlash === 'down') return 'rgba(248, 113, 113, 0.15)';
+    if (searchResult) return 'rgba(16, 185, 129, 0.1)'; // Slight Green Tint
+    return 'transparent'; // Slate 900 base
   };
 
   return (
@@ -619,7 +653,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                         value={searchQuery}
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
-                    <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-white/5'}`}>
+                    
+                    {/* ENHANCED TICKER BOX: Matches MarketTicker.tsx Style */}
+                    <div 
+                        className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all duration-300 transform ${priceFlash ? 'scale-105' : 'scale-100'} ${searchResult ? '' : 'bg-slate-900 border-white/5'}`}
+                        style={searchResult ? {
+                            borderWidth: '2px', // Slightly thicker like MarketTicker
+                            borderColor: getBorderColor(),
+                            backgroundColor: getBackgroundColor()
+                        } : {}}
+                    >
                         {searchResult ? (
                             <div className="w-full">
                                 <div className="flex justify-between items-center mb-4">
@@ -630,10 +673,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                     <div className="text-right">
                                         {isLive ? (
                                             <>
-                                                <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-400 scale-110' : priceFlash === 'down' ? 'text-rose-400 scale-110' : 'text-white'}`}>
+                                                <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-300 scale-110' : priceFlash === 'down' ? 'text-rose-300 scale-110' : 'text-white'}`}>
                                                     ${searchResult.price?.toFixed(2) || 'N/A'}
                                                 </p>
-                                                <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${searchResult.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                                <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${searchResult.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
                                                     <span>{searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.changeAmount || 0).toFixed(2)}</span>
                                                     <span className="opacity-50">({Math.abs(searchResult.change || 0).toFixed(2)}%)</span>
                                                 </p>
