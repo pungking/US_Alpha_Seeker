@@ -279,7 +279,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       };
 
       fetchRealTimeData();
-      const intervalId = setInterval(fetchRealTimeData, 2000); // 2s polling
+      const intervalId = setInterval(fetchRealTimeData, 1000); // 1s polling
       return () => clearInterval(intervalId);
   };
 
@@ -569,17 +569,35 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   // --- Dynamic Style Helpers ---
   const getBorderColor = () => {
-    if (priceFlash === 'up') return '#4ade80'; // Neon Green
-    if (priceFlash === 'down') return '#f87171'; // Neon Red
-    if (searchResult) return '#10b981'; // Default Green for active item
-    return 'rgba(255,255,255,0.05)'; // Default Slate
+    // 1. Flash Logic (Highest Priority)
+    if (priceFlash === 'up') return '#4ade80'; // Bright Green
+    if (priceFlash === 'down') return '#f87171'; // Bright Red
+
+    // 2. Base Logic (Daily Change)
+    if (searchResult) {
+        return searchResult.change >= 0 
+            ? 'rgba(16, 185, 129, 0.5)' // Emerald-500/50
+            : 'rgba(244, 63, 94, 0.5)'; // Rose-500/50
+    }
+    
+    // 3. Idle Logic
+    return 'rgba(255,255,255,0.05)'; 
   };
 
   const getBackgroundColor = () => {
+    // 1. Flash Logic
     if (priceFlash === 'up') return 'rgba(74, 222, 128, 0.15)'; 
     if (priceFlash === 'down') return 'rgba(248, 113, 113, 0.15)';
-    if (searchResult) return 'rgba(16, 185, 129, 0.1)'; // Slight Green Tint
-    return 'transparent'; // Slate 900 base
+
+    // 2. Base Logic (Daily Change - Very subtle tint)
+    if (searchResult) {
+        return searchResult.change >= 0 
+            ? 'rgba(16, 185, 129, 0.05)' 
+            : 'rgba(244, 63, 94, 0.05)';
+    }
+
+    // 3. Idle Logic
+    return 'transparent'; // Fallback to Slate 900 base
   };
 
   return (
@@ -654,11 +672,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                     
-                    {/* ENHANCED TICKER BOX: Matches MarketTicker.tsx Style */}
+                    {/* ENHANCED TICKER BOX: Responsive Logic for Daily Change & Real-time Flash */}
                     <div 
                         className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all duration-300 transform ${priceFlash ? 'scale-105' : 'scale-100'} ${searchResult ? '' : 'bg-slate-900 border-white/5'}`}
                         style={searchResult ? {
-                            borderWidth: '2px', // Slightly thicker like MarketTicker
+                            borderWidth: '2px', 
                             borderColor: getBorderColor(),
                             backgroundColor: getBackgroundColor()
                         } : {}}
@@ -673,6 +691,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                     <div className="text-right">
                                         {isLive ? (
                                             <>
+                                                {/* Price text stays white unless flashing */}
                                                 <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-300 scale-110' : priceFlash === 'down' ? 'text-rose-300 scale-110' : 'text-white'}`}>
                                                     ${searchResult.price?.toFixed(2) || 'N/A'}
                                                 </p>
