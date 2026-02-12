@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.6.0: Heartbeat Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.7.0: Heartbeat Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -218,46 +218,49 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                   const metrics = analysis.keyMetrics || {};
                   const companyMetrics = analysis.companyMetrics || {};
                   
-                  // 1. Symbol Extraction: Priority to explicit symbol in company data
+                  // 1. Symbol Extraction
                   const symbol = company.symbol || root.symbol || key;
+
+                  // 2. Price Extraction
+                  const price = Number(
+                    root.price || 
+                    root.currentPrice || 
+                    metrics.latestPrice || 
+                    root.regularMarketPrice || 
+                    0
+                  );
+
+                  // 3. Change Extraction
+                  const change = Number(root.change || root.regularMarketChangePercent || 0);
+
+                  // 4. Calculate Prev Close if missing
+                  let prevClose = Number(root.previousClose || root.regularMarketPreviousClose || 0);
+                  if (prevClose === 0 && price > 0) {
+                      // Reverse engineer from change %: Price / (1 + change/100)
+                      prevClose = price / (1 + (change / 100));
+                  }
 
                   if (symbol) {
                       results.push({
                           symbol: symbol,
                           name: company.name || root.name || root.shortName || key,
                           
-                          // 2. PE Extraction: Deep dive into metrics and root
-                          pe: Number(
-                              metrics.pe || 
-                              metrics.averagePE || 
-                              metrics.forwardPriceToEPS || 
-                              companyMetrics.peRatio || 
-                              root.pe || 
-                              root.trailingPE || 
-                              root.peRatio || 
-                              0
-                          ),
-                          
+                          // Expanded Metrics
+                          pe: Number(metrics.pe || metrics.averagePE || metrics.forwardPriceToEPS || companyMetrics.peRatio || root.pe || root.trailingPE || root.peRatio || 0),
                           roe: Number(metrics.returnOnEquity || metrics.roe || root.roe || root.returnOnEquity || 0),
+                          pbr: Number(metrics.priceToBookRatio || companyMetrics.priceToBookRatio || root.priceToBook || 0),
+                          psr: Number(metrics.priceToSalesRatio || companyMetrics.priceToSalesRatio || root.priceToSales || 0),
                           debtToEquity: Number(metrics.debtToEquityRatio || root.debtToEquity || 0),
                           
-                          // 3. Price Extraction: Check root first, then metrics
-                          price: Number(
-                            root.price || 
-                            root.currentPrice || 
-                            metrics.latestPrice || 
-                            root.regularMarketPrice || 
-                            0
-                          ),
-                          
+                          price: price,
+                          prevClose: prevClose,
                           volume: Number(root.volume || root.regularMarketVolume || 0),
-                          change: Number(root.change || root.regularMarketChangePercent || 0),
+                          change: change,
                           marketCap: Number(root.marketCap || metrics.marketCap || companyMetrics.marketCap || 0),
                           
                           sector: company.sector || root.sector || 'Unknown',
                           industry: company.industry || root.industry || 'Unknown',
                           
-                          // Use 'last_updated' from the root value object if available
                           updated: val.last_updated || new Date().toISOString()
                       });
                   }
@@ -268,6 +271,14 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
       }
 
       return results;
+  };
+
+  const formatMarketCap = (num: number) => {
+    if (!num) return 'N/A';
+    if (num >= 1.0e+12) return `$${(num / 1.0e+12).toFixed(2)}T`;
+    if (num >= 1.0e+9) return `$${(num / 1.0e+9).toFixed(2)}B`;
+    if (num >= 1.0e+6) return `$${(num / 1.0e+6).toFixed(2)}M`;
+    return `$${num.toLocaleString()}`;
   };
 
   const startGathering = async (token: string) => {
@@ -295,7 +306,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.6.0", 
+                  version: "6.7.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -440,17 +451,55 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                     />
                     <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/10 border-emerald-500/30' : 'bg-slate-900 border-white/5'}`}>
                         {searchResult ? (
-                            <div className="flex justify-between items-center w-full">
-                                <div>
-                                    <p className="text-[10px] font-black text-white">{searchResult.name}</p>
-                                    <p className="text-[8px] font-mono text-emerald-400">P: {searchResult.price || 'N/A'} | PE: {searchResult.pe || 'N/A'}</p>
+                            <div className="w-full">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <p className="text-xl font-black text-white">{searchResult.symbol}</p>
+                                        <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{searchResult.name}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        <p className="text-2xl font-mono font-black text-emerald-400">
+                                            ${searchResult.price?.toFixed(2) || 'N/A'}
+                                        </p>
+                                        <p className={`text-[10px] font-bold ${searchResult.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
+                                            {searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.change || 0).toFixed(2)}%
+                                        </p>
+                                    </div>
                                 </div>
-                                <div className="flex items-center gap-2">
+                                
+                                <div className="grid grid-cols-3 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 mb-4">
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">전일종가</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">${searchResult.prevClose ? searchResult.prevClose.toFixed(2) : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PER</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.pe ? searchResult.pe.toFixed(1) + 'x' : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PBR</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.pbr ? searchResult.pbr.toFixed(1) + 'x' : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">ROE</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.roe ? searchResult.roe.toFixed(1) + '%' : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PSR</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.psr ? searchResult.psr.toFixed(1) + 'x' : 'N/A'}</span>
+                                    </div>
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">시가총액</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{formatMarketCap(searchResult.marketCap)}</span>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end">
                                      <button 
                                         onClick={handleSetTarget}
-                                        className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
+                                        className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
                                     >
-                                        Set Target
+                                        Set Audit Target
                                     </button>
                                 </div>
                             </div>
