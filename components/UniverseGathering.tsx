@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.7.0: Heartbeat Sync Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.8.0: Daily Sync Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -119,7 +119,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   };
 
   const mountFinancialEngine = async (token: string) => {
-      addLog("Initializing V12 Engine Mounting Protocol...", "info");
+      addLog("Initializing Daily Sync Protocol...", "info");
       
       // 1. Locate the 'System_Identity_Maps' folder
       let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
@@ -131,11 +131,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
 
       if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found in Drive.`);
 
-      // 2. Locate the 'Financial_Data_5Y_Split' folder inside it
-      const financialDataFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDataFolder, systemMapFolderId);
-      if (!financialDataFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDataFolder}' not found inside Maps.`);
+      // 2. Locate the 'Financial_Data_Daily' folder inside it
+      const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
+      if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
 
-      addLog("Engine Core Located. Injecting Data Cylinders...", "ok");
+      addLog("Daily Core Located. Injecting Data Cylinders...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
       alphabet.push("ETC"); 
@@ -148,10 +148,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
 
       for (let i = 0; i < cylinders.length; i++) {
           const char = cylinders[i];
-          const fileName = `${char}_stocks.json`;
+          // Updated filename convention for Daily Data
+          const fileName = `${char}_stocks_daily.json`;
           
           try {
-              const fileId = await findFileId(token, fileName, financialDataFolderId);
+              const fileId = await findFileId(token, fileName, financialDailyFolderId);
               
               if (fileId) {
                   const content = await downloadFile(token, fileId);
@@ -166,10 +167,10 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                   // Batch update UI registry for search
                   setGatheredRegistry(new Map(tempRegistry));
 
-                  addLog(`Cylinder ${char}: Mounted ${count} assets.`, "info");
+                  addLog(`Cylinder ${char}: Mounted ${count} daily assets.`, "info");
                   setProgress(prev => ({ ...prev, found: masterUniverse.length, synced: i + 1 }));
               } else {
-                  addLog(`Cylinder ${char} Misfire: File not found.`, "warn");
+                  addLog(`Cylinder ${char} Misfire: ${fileName} not found.`, "warn");
               }
           } catch (e: any) {
               addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
@@ -306,11 +307,11 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.7.0", 
+                  version: "6.8.0", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
-                  note: "Engine Mounted from Financial_Data_5Y_Split (Heartbeat V2)"
+                  note: "Engine Mounted from Financial_Data_Daily (Heartbeat V3)"
               },
               universe: assets
           };
