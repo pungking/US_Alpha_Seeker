@@ -14,7 +14,7 @@ interface Props {
 
 const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSuccess, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.2: Live Validator Link Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v6.9.3: Live Validator Link Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 27, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
@@ -23,6 +23,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<any | null>(null);
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, any>>(new Map());
+  const [isLive, setIsLive] = useState(false);
   
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
@@ -54,54 +55,73 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
     }
   }, [autoStart, isActive]);
 
-  // Search Effect with Live Data Injection
+  // Initial Search from Registry (Static Data)
   useEffect(() => {
     if (!searchQuery) {
         setSearchResult(null);
+        setIsLive(false);
         return;
     }
     const query = searchQuery.trim().toUpperCase();
     
-    // 1. First, try to find in loaded static registry
     if (gatheredRegistry.has(query)) {
-        const staticData = gatheredRegistry.get(query);
-        setSearchResult(staticData);
-
-        // 2. [NEW] Fetch Live Market Data to augment static snapshot (Fixes 0% change issue)
-        const fetchLiveQuote = async () => {
-            try {
-                const res = await fetch(`/api/yahoo?symbols=${staticData.symbol}`);
-                if (res.ok) {
-                    const data = await res.json();
-                    if (data && data.length > 0) {
-                        const live = data[0];
-                        setSearchResult((prev: any) => {
-                            if (prev && prev.symbol === staticData.symbol) {
-                                return {
-                                    ...prev,
-                                    price: live.price || prev.price,
-                                    change: live.change || 0, // Injects real-time change
-                                    prevClose: live.prevClose || prev.prevClose,
-                                    pe: live.trailingPE || prev.pe,
-                                    marketCap: live.marketCap || prev.marketCap
-                                };
-                            }
-                            return prev;
-                        });
-                    }
-                }
-            } catch (e) {
-                // Silent fail, keep static data
-            }
-        };
-
-        // Debounce slightly to avoid spamming if typing fast, but for single match valid check is ok
-        fetchLiveQuote();
-
+        // Load static data first for instant feedback
+        setSearchResult(gatheredRegistry.get(query));
     } else {
         setSearchResult(null);
+        setIsLive(false);
     }
   }, [searchQuery, gatheredRegistry]);
+
+  // Live Data Polling for Selected Stock
+  useEffect(() => {
+      let intervalId: any;
+      
+      if (searchResult?.symbol) {
+          const fetchLiveQuote = async () => {
+              try {
+                  const res = await fetch(`/api/yahoo?symbols=${searchResult.symbol}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (data && data.length > 0) {
+                          const live = data[0];
+                          setSearchResult((prev: any) => {
+                              // Only update if it matches the current view
+                              if (!prev || prev.symbol !== live.symbol) return prev;
+                              
+                              // Check if price actually changed to avoid unnecessary renders
+                              if (prev.price === live.price && prev.change === live.change) return prev;
+
+                              setIsLive(true);
+                              return {
+                                  ...prev,
+                                  price: live.price,
+                                  change: live.change,
+                                  prevClose: live.prevClose || prev.prevClose,
+                                  pe: live.trailingPE || prev.pe,
+                                  marketCap: live.marketCap || prev.marketCap
+                              };
+                          });
+                      }
+                  }
+              } catch (e) {
+                  // Silent fail for polling
+              }
+          };
+
+          // Fetch immediately
+          fetchLiveQuote();
+          
+          // Then poll every 2 seconds
+          intervalId = setInterval(fetchLiveQuote, 2000);
+      } else {
+          setIsLive(false);
+      }
+
+      return () => {
+          if (intervalId) clearInterval(intervalId);
+      };
+  }, [searchResult?.symbol]); // Depend only on the symbol changing
 
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -347,7 +367,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           
           const payload = {
               manifest: { 
-                  version: "6.9.2", 
+                  version: "6.9.3", 
                   provider: "Drive_Split_Fusion", 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -479,7 +499,10 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
           <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
              <div className="flex items-center justify-between mb-4">
                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-                 <div className="flex items-center gap-2"><span className="text-[8px] text-slate-500 uppercase">Mode: Real-Time_Audit</span></div>
+                 <div className="flex items-center gap-2">
+                     {isLive && <span className="text-[8px] font-black text-emerald-400 animate-pulse uppercase border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">● LIVE FEED</span>}
+                     <span className="text-[8px] text-slate-500 uppercase">Mode: Real-Time_Audit</span>
+                 </div>
              </div>
              <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
@@ -499,7 +522,7 @@ const UniverseGathering: React.FC<Props> = ({ isActive, apiStatuses, onAuthSucce
                                         <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{searchResult.name}</p>
                                     </div>
                                     <div className="text-right">
-                                        <p className="text-2xl font-mono font-black text-emerald-400">
+                                        <p className={`text-2xl font-mono font-black ${isLive ? 'text-emerald-300' : 'text-emerald-400'}`}>
                                             ${searchResult.price?.toFixed(2) || 'N/A'}
                                         </p>
                                         <p className={`text-[10px] font-bold ${searchResult.change >= 0 ? 'text-emerald-500' : 'text-rose-500'}`}>
