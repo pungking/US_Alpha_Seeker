@@ -573,14 +573,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (priceFlash === 'up') return '#4ade80'; // Bright Green
     if (priceFlash === 'down') return '#f87171'; // Bright Red
 
-    // 2. Base Logic (Daily Change)
-    if (searchResult) {
+    // 2. Base Logic (Live Status Check)
+    if (searchResult && isLive) {
         return searchResult.change >= 0 
             ? 'rgba(16, 185, 129, 0.5)' // Emerald-500/50
             : 'rgba(244, 63, 94, 0.5)'; // Rose-500/50
     }
     
-    // 3. Idle Logic
+    // 3. Idle / Syncing Logic (Neutral)
     return 'rgba(255,255,255,0.05)'; 
   };
 
@@ -589,15 +589,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (priceFlash === 'up') return 'rgba(74, 222, 128, 0.15)'; 
     if (priceFlash === 'down') return 'rgba(248, 113, 113, 0.15)';
 
-    // 2. Base Logic (Daily Change - Very subtle tint)
-    if (searchResult) {
+    // 2. Base Logic (Live Status Check)
+    if (searchResult && isLive) {
         return searchResult.change >= 0 
             ? 'rgba(16, 185, 129, 0.05)' 
             : 'rgba(244, 63, 94, 0.05)';
     }
 
-    // 3. Idle Logic
-    return 'transparent'; // Fallback to Slate 900 base
+    // 3. Idle / Syncing Logic (Neutral)
+    return 'transparent'; 
   };
 
   return (
@@ -702,7 +702,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                             </>
                                         ) : (
                                             <div className="flex flex-col items-end animate-pulse">
-                                                <div className="h-8 w-28 bg-emerald-500/10 rounded mb-1 border border-emerald-500/10"></div>
+                                                <div className="h-8 w-28 bg-slate-800 rounded mb-1 border border-white/5"></div>
                                                 <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">Syncing Live Data...</span>
                                             </div>
                                         )}
