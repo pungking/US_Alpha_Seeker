@@ -18,9 +18,9 @@ interface Props {
   onComplete?: () => void;
 }
 
-// [V13 ENGINE] Updated Data Structure for Hedge Fund Grade Metrics (28 Fields)
+// [V13 ENGINE] Expanded Data Structure for Hedge Fund Grade Metrics (28 Fields)
 interface MasterTicker {
-  // 1. Basic Info
+  // 1. Basic Info & Price
   symbol: string;
   name: string;
   price: number;
@@ -29,21 +29,21 @@ interface MasterTicker {
   updated: string;
   source: string;
   
-  // 2. Valuation
+  // 2. Valuation (Value)
   pe: number;             // per
   pbr: number;            // pbr
   psr: number;            // psr
   pegRatio: number;       // pegRatio
   targetMeanPrice: number;// targetMeanPrice
   
-  // 3. Quality & Efficiency
+  // 3. Quality & Efficiency (Quality)
   roe: number;            // roe
   roa: number;            // roa
   eps: number;            // eps
   operatingMargins: number; // operatingMargins
   debtToEquity: number;   // debtToEquity
   
-  // 4. Growth & Cash
+  // 4. Growth & Cash (Growth)
   revenueGrowth: number;  // revenueGrowth
   operatingCashflow: number; // operatingCashflow
   
@@ -61,16 +61,17 @@ interface MasterTicker {
   fiftyTwoWeekHigh: number;
   fiftyTwoWeekLow: number;
   
-  // 7. Meta
+  // 7. Meta Data
   sector: string;
   industry: string;
 
-  // System
+  // System Fields
   change: number;
   changeAmount: number;
   prevClose: number;
   dataQuality: 'HIGH' | 'MEDIUM' | 'LOW';
   
+  // Index Signature for dynamic expansion
   [key: string]: any;
 }
 
@@ -115,10 +116,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   // --- UI EFFECTS ---
 
+  // Auto-scroll logs
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // Elapsed Time & Telemetry Simulation
   useEffect(() => {
     let interval: any;
     if (isGathering && startTimeRef.current > 0) {
@@ -138,6 +141,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     return () => clearInterval(interval);
   }, [isGathering]);
 
+  // Auto-Pilot
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
@@ -149,6 +153,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [autoStart, isActive]);
 
+  // Search Logic & Registry Lookup
   useEffect(() => {
     if (cleanupRef.current) {
         cleanupRef.current();
@@ -167,12 +172,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     const query = searchQuery.trim().toUpperCase();
     
+    // 1. Check Local Registry First (Instant Access)
     if (gatheredRegistry.has(query)) {
         const staticData = gatheredRegistry.get(query);
         if (staticData) {
             setSearchResult(staticData);
             prevPriceRef.current = staticData.price;
             addLog(`Registry Hit: ${staticData.symbol} loaded from local memory.`, "info");
+            
+            // Initiate Real-Time Stream
             startRealTimeEngine(staticData.symbol);
         }
     } else {
@@ -233,12 +241,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  // --- V12 HEAVY REAL-TIME ENGINE ---
+  // --- V13 REAL-TIME ENGINE (WebSocket + Polling) ---
 
   const startRealTimeEngine = (symbol: string) => {
       let isCleanedUp = false;
       let heartbeatCount = 0;
       
+      // Heartbeat Monitor
       const pulseCheck = setInterval(() => {
           heartbeatCount++;
           if (heartbeatCount > 10) {
@@ -247,6 +256,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }, 1000);
       healthCheckRef.current = pulseCheck;
 
+      // Central Update Handler
       const updatePrice = (price: number, source: string, bid?: number, ask?: number) => {
           if (isCleanedUp) return;
           
@@ -261,6 +271,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   setPriceFlash(direction);
                   setTimeout(() => setPriceFlash(null), 300);
                   
+                  // Dynamic Change Calculation
                   let change = prev.change;
                   let changeAmount = prev.changeAmount;
                   if (prev.prevClose && prev.prevClose > 0) {
@@ -285,6 +296,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           prevPriceRef.current = price;
       };
 
+      // Protocol A: Finnhub WebSocket
       const connectWS = () => {
           if (!finnhubKey) {
               return connectPolling();
@@ -334,11 +346,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           }
       };
 
+      // Protocol B: Polling (Yahoo/Polygon)
       const connectPolling = () => {
           const fetchPoll = async () => {
               if (isCleanedUp) return;
               let success = false;
               
+              // 1. Yahoo (Fastest Proxy)
               if (!success) {
                   try {
                       const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
@@ -352,13 +366,33 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   } catch(e) {}
               }
 
+              // 2. Polygon (Fallback)
+              if (!success) {
+                  const polyKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+                  if (polyKey) {
+                      try {
+                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polyKey}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              if (data.ticker) {
+                                  const p = data.ticker.lastTrade?.p || data.ticker.min?.c;
+                                  if (p) {
+                                      updatePrice(p, 'Polygon.io');
+                                      success = true;
+                                  }
+                              }
+                          }
+                      } catch(e) {}
+                  }
+              }
+
               if (!success) {
                   setConnectionHealth('POOR');
               }
           };
 
-          fetchPoll(); 
-          const interval = setInterval(fetchPoll, 1500); 
+          fetchPoll(); // Initial
+          const interval = setInterval(fetchPoll, 1500); // 1.5s Loop
           return () => clearInterval(interval);
       };
 
@@ -370,12 +404,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       };
   };
 
-  // --- V12 ENGINE DATA PROCESSOR ---
+  // --- V13 ENGINE DATA PROCESSOR ---
 
   const startGathering = async (token: string) => {
       setIsGathering(true);
       startTimeRef.current = Date.now();
-      setProgress({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'V12_Engine', phase: 'Discovery', integrity: 100 });
+      setProgress({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'V13_Engine', phase: 'Discovery', integrity: 100 });
       setGatheredRegistry(new Map()); 
       
       try {
@@ -457,6 +491,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               
               if (fileId) {
                   const content = await downloadFile(token, fileId);
+                  // [CORE] Process Data with Robust Key Mapping (28 Metrics)
                   const stocks = processCylinderData(content);
                   const count = stocks.length;
                   
@@ -504,7 +539,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   source: 'V13_Cylinder',
 
                   // 2. Valuation (Value)
-                  pe: Number(root.per || root.pe || root.peRatio || 0),
+                  pe: Number(root.per || root.pe || root.peRatio || 0), // Correct mapping
                   pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
                   psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
                   pegRatio: Number(root.pegRatio || root.peg || 0),
