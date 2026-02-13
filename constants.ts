@@ -11,7 +11,6 @@ export interface ApiConfig {
 }
 
 // [HYBRID CONFIG] Priority: Environment Variables (GitHub Actions) > Hardcoded Fallback (Local Dev)
-// Note: import.meta.env is for Vite, process.env is for Node/Compat
 const getEnvVar = (key: string) => {
     // @ts-ignore
     if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
@@ -84,7 +83,6 @@ export const API_CONFIGS: ApiConfig[] = [
   { 
     provider: ApiProvider.GOOGLE_DRIVE, 
     // [CRITICAL REVERT] Restored original API Key format for status checks.
-    // Do NOT replace with Client ID here; Client ID is handled in UniverseGathering.tsx
     key: process.env.GDRIVE_API_KEY || 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY', 
     category: 'Infrastructure' 
   }
@@ -103,10 +101,10 @@ export const GOOGLE_DRIVE_TARGET = {
   stage6SubFolder: 'Stage6_Alpha_Final',
   reportSubFolder: 'Report',
   reportsArchiveFolder: 'Stage2_Financial_Reports',
+  // [NEW] V12 Engine Data Map Folders
   systemMapSubFolder: 'System_Identity_Maps',
-  // Updated Folder Structure
-  financialDailyFolder: 'Financial_Data_Daily', // Daily updated metrics (Stage 0 Source)
-  financialHistoryFolder: 'Financial_Data_History_5Y' // 5-Year History (Deep Dive Source)
+  financialDailyFolder: 'Financial_Data_Daily', // Daily Metrics (A-Z)
+  financialHistoryFolder: 'Financial_Data_History_5Y' // Historical Data (A-Z)
 };
 
 export const STAGES_FLOW = [
