@@ -18,17 +18,38 @@ interface Props {
   onComplete?: () => void;
 }
 
+interface MasterTicker {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  changeAmount: number;
+  volume: number;
+  marketCap: number;
+  sector: string;
+  industry: string;
+  pe: number;
+  pbr: number;
+  psr: number;
+  roe: number;
+  eps: number;
+  beta: number;
+  prevClose: number;
+  updated: string;
+  [key: string]: any;
+}
+
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.0.0: V12 Engine (Drive Core) Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.1.0: V12 Drive Engine (Restored) Ready.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
   
   // Real-time Search State
   const [searchQuery, setSearchQuery] = useState('');
-  const [searchResult, setSearchResult] = useState<any | null>(null);
-  const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, any>>(new Map());
+  const [searchResult, setSearchResult] = useState<MasterTicker | null>(null);
+  const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [isLive, setIsLive] = useState(false);
   const [liveSource, setLiveSource] = useState<string>('');
   
@@ -77,7 +98,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         setPriceFlash(null);
         setLiveSource('');
         prevPriceRef.current = 0;
-        // Close WS if open
         if (wsRef.current) {
             wsRef.current.close();
             wsRef.current = null;
@@ -88,9 +108,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     
     if (gatheredRegistry.has(query)) {
         const staticData = gatheredRegistry.get(query);
-        setSearchResult(staticData);
-        prevPriceRef.current = staticData.price;
-        setIsLive(false); // Switch to Live pending
+        if (staticData) {
+            setSearchResult(staticData);
+            prevPriceRef.current = staticData.price;
+            setIsLive(false); // Switch to Live pending
+        }
     } else {
         setSearchResult(null);
         setIsLive(false);
@@ -118,7 +140,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
               ws.onopen = () => {
                   ws.send(JSON.stringify({ type: 'subscribe', symbol: symbol }));
-                  // addLog(`WS Link Established: ${symbol}`, 'info');
               };
 
               ws.onmessage = (event) => {
@@ -163,7 +184,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
               ws.onerror = () => {
-                  console.warn("WS Error, switching to polling");
+                  // console.warn("WS Error, switching to polling");
                   startPolling(symbol); // Fallback
               };
 
@@ -172,7 +193,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
           } catch (e) {
-              console.warn("WS Setup failed, using polling");
+              // console.warn("WS Setup failed, using polling");
               startPolling(symbol);
           }
       } else {
@@ -234,23 +255,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   } catch (e) { }
               }
 
-              // 3. Yahoo Proxy
-              if (!found) {
-                  const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
-                  if (res.ok) {
-                      const data = await res.json();
-                      if (data && data.length > 0) {
-                          const live = data[0];
-                          price = live.price;
-                          change = live.change;
-                          changeAmount = live.changeAmount !== undefined ? live.changeAmount : (price - (live.prevClose || price));
-                          prevClose = live.prevClose || 0;
-                          found = true;
-                          source = "Yahoo (Delayed)";
-                      }
-                  }
-              }
-
               if (found) {
                   setSearchResult((prev: any) => {
                       if (!prev || prev.symbol !== symbol) return prev;
@@ -269,9 +273,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           price,
                           change,
                           changeAmount,
-                          prevClose: prevClose || prev.prevClose,
-                          pe: prev.pe,
-                          marketCap: prev.marketCap
+                          prevClose: prevClose || prev.prevClose
                       };
                   });
               }
@@ -363,7 +365,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       for (let i = 0; i < cylinders.length; i++) {
           const char = cylinders[i];
-          // Updated filename convention for Daily Data
           const fileName = `${char}_stocks_daily.json`;
           
           try {
@@ -372,6 +373,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               if (fileId) {
                   const content = await downloadFile(token, fileId);
                   
+                  // [CRITICAL FIX] Ensure keys are mapped from 'per', 'pbr' etc. to standard keys
                   const stocks = processCylinderData(content);
                   const count = stocks.length;
                   
@@ -391,63 +393,93 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
           }
           
-          // Small delay to prevent rate limit spikes on file reads
           await new Promise(r => setTimeout(r, 50));
       }
       
       return masterUniverse;
   };
 
-  const processCylinderData = (jsonContent: any): any[] => {
-      const results: any[] = [];
+  const processCylinderData = (jsonContent: any): MasterTicker[] => {
+      const results: MasterTicker[] = [];
       try {
-          // Case 1: Array of objects
-          if (Array.isArray(jsonContent)) {
-              return jsonContent.map(item => {
-                  const root = item.basic || item; // Fallback if data is nested
-                  return {
-                      symbol: root.symbol,
-                      name: root.name || root.company?.name || root.symbol,
-                      price: Number(root.price) || 0,
-                      volume: Number(root.volume) || 0,
-                      change: Number(root.change) || 0,
-                      marketCap: Number(root.marketCap) || 0,
-                      sector: root.sector || root.company?.sector || 'Unknown',
-                      industry: root.industry || root.company?.industry || 'Unknown',
-                      pe: root.pe || root.per, 
-                      pbr: root.pbr || root.priceToBook, 
-                      psr: root.psr || root.priceToSales, 
-                      roe: root.roe,
-                      debtToEquity: root.debtToEquity,
-                      updated: new Date().toISOString()
-                  };
-              }).filter(item => item.symbol);
-          }
-          
-          // Case 2: Object with keys (Symbol as key)
-          if (typeof jsonContent === 'object' && jsonContent !== null) {
+          // Case 2: Object with keys (Symbol as key) - This matches the provided sample structure
+          if (typeof jsonContent === 'object' && jsonContent !== null && !Array.isArray(jsonContent)) {
               Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
                   if (!val) return;
                   const root = val.basic || val;
-                  // Try to find symbol
                   const symbol = root.symbol || key;
+                  
                   if (symbol) {
+                      const price = Number(root.price) || 0;
+                      // Handle various change keys
+                      const change = Number(root.change || root.changesPercentage || root.pChange || 0);
+                      
+                      // Calculate or find prevClose
+                      let prevClose = Number(root.previousClose || root.prevClose || 0);
+                      if (prevClose === 0 && price > 0 && change !== 0) {
+                          prevClose = price / (1 + (change / 100));
+                      } else if (prevClose === 0 && price > 0) {
+                          prevClose = price; // Fallback if change is 0/missing
+                      }
+                      
+                      const changeAmount = price - prevClose;
+
                       results.push({
                           symbol: symbol,
                           name: root.name || root.companyName || key,
-                          price: Number(root.price) || 0,
+                          price: price,
                           volume: Number(root.volume) || 0,
-                          change: Number(root.changesPercentage) || 0,
+                          change: change,
+                          changeAmount: changeAmount,
                           marketCap: Number(root.marketCap) || 0,
                           sector: root.sector || 'Unknown',
-                          pe: root.pe || root.peRatio,
-                          pbr: root.priceToBookRatio,
-                          roe: root.returnOnEquity,
-                          debtToEquity: root.debtToEquity,
+                          industry: root.industry || 'Unknown',
+                          
+                          // Correctly mapping lowercase keys from provided JSON
+                          pe: Number(root.per || root.pe || root.peRatio || 0),
+                          pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
+                          psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
+                          roe: Number(root.roe || root.returnOnEquity || 0),
+                          eps: Number(root.eps || root.earningsPerShare || 0),
+                          beta: Number(root.beta || 0),
+                          debtToEquity: Number(root.debtToEquity || 0),
+                          
+                          prevClose: prevClose,
                           updated: new Date().toISOString()
                       });
                   }
               });
+          }
+          // Case 1: Array of objects (Fallback support)
+          else if (Array.isArray(jsonContent)) {
+              return jsonContent.map(item => {
+                  const root = item.basic || item;
+                  const price = Number(root.price) || 0;
+                  const change = Number(root.change || root.changesPercentage || 0);
+                  let prevClose = Number(root.previousClose || 0);
+                  if (prevClose === 0 && price > 0) prevClose = price / (1 + (change / 100));
+
+                  return {
+                      symbol: root.symbol,
+                      name: root.name || root.companyName,
+                      price: price,
+                      volume: Number(root.volume) || 0,
+                      change: change,
+                      changeAmount: price - prevClose,
+                      marketCap: Number(root.marketCap) || 0,
+                      sector: root.sector || 'Unknown',
+                      industry: root.industry || 'Unknown',
+                      pe: Number(root.per || root.pe || 0),
+                      pbr: Number(root.pbr || 0),
+                      psr: Number(root.psr || 0),
+                      roe: Number(root.roe || 0),
+                      eps: Number(root.eps || 0),
+                      beta: Number(root.beta || 0),
+                      debtToEquity: Number(root.debtToEquity || 0),
+                      prevClose: prevClose,
+                      updated: new Date().toISOString()
+                  };
+              }).filter(item => item.symbol);
           }
       } catch (e) {
           console.error("Error processing cylinder data chunk", e);
@@ -486,7 +518,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           
           const payload = {
               manifest: { 
-                  version: "7.0.0", 
+                  version: "7.1.0", 
                   provider: "Drive_V12_Engine", 
                   date: new Date().toISOString(), 
                   count: assets.length,
@@ -560,34 +592,28 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   // --- Dynamic Style Helpers ---
   const getBorderColor = () => {
-    // 1. Flash Logic (Highest Priority)
     if (priceFlash === 'up') return '#4ade80'; // Bright Green
     if (priceFlash === 'down') return '#f87171'; // Bright Red
 
-    // 2. Base Logic (Live Status Check)
     if (searchResult && isLive) {
         return searchResult.change >= 0 
-            ? 'rgba(16, 185, 129, 0.5)' // Emerald-500/50
-            : 'rgba(244, 63, 94, 0.5)'; // Rose-500/50
+            ? 'rgba(16, 185, 129, 0.5)' // Emerald
+            : 'rgba(244, 63, 94, 0.5)'; // Rose
     }
     
-    // 3. Idle / Syncing Logic (Neutral)
     return 'rgba(255,255,255,0.05)'; 
   };
 
   const getBackgroundColor = () => {
-    // 1. Flash Logic
     if (priceFlash === 'up') return 'rgba(74, 222, 128, 0.15)'; 
     if (priceFlash === 'down') return 'rgba(248, 113, 113, 0.15)';
 
-    // 2. Base Logic (Live Status Check)
     if (searchResult && isLive) {
         return searchResult.change >= 0 
             ? 'rgba(16, 185, 129, 0.05)' 
             : 'rgba(244, 63, 94, 0.05)';
     }
 
-    // 3. Idle / Syncing Logic (Neutral)
     return 'transparent'; 
   };
 
@@ -627,9 +653,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v5.0.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v7.1.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">Drive_Engine_Mount</span>
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V12_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
@@ -641,7 +667,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 disabled={isGathering}
                 className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isGathering ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : accessToken ? 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' : 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20'}`}
             >
-                {isGathering ? 'Mounting Cylinders...' : accessToken ? 'Ignite V12 Engine' : 'Connect Cloud Vault'}
+                {isGathering ? 'Cylinders Firing...' : accessToken ? 'Ignite V12 Engine' : 'Connect Cloud Vault'}
             </button>
           </div>
 
@@ -692,9 +718,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                                 </p>
                                             </>
                                         ) : (
-                                            <div className="flex flex-col items-end animate-pulse">
-                                                <div className="h-8 w-28 bg-slate-800 rounded mb-1 border border-white/5"></div>
-                                                <span className="text-[8px] font-bold text-slate-500 uppercase tracking-wider">Syncing Live Data...</span>
+                                            <div className="text-right">
+                                                <p className="text-2xl font-mono font-black text-white">${searchResult.price?.toFixed(2)}</p>
+                                                <p className={`text-[10px] font-bold ${searchResult.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                     {searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.change || 0).toFixed(2)}%
+                                                </p>
                                             </div>
                                         )}
                                     </div>
