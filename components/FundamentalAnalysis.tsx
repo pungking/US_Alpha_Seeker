@@ -41,7 +41,7 @@ interface FundamentalTicker {
   
   // Forensic / Quality
   earningsQuality: number;
-  economicMoat: 'Wide' | 'Narrow' | 'None';
+  economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)';
   
   // Visualization
   radarData: {
@@ -68,12 +68,12 @@ interface Props {
 // Insight Helpers
 const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'INTRINSIC': {
-        title: "Intrinsic Value (RIM/BPS Model)",
-        desc: "5년치 재무 데이터를 기반으로 산출된 내재가치입니다. 시장 가격과의 괴리율을 분석합니다.",
+        title: "내재가치 (Intrinsic Value)",
+        desc: "5년치 재무 데이터를 기반으로 산출된 기업의 본질적 가치입니다. RIM/BPS 모델을 복합적으로 사용하여 시장 가격과의 괴리율을 분석합니다.",
         strategy: "현재 주가가 이 가치보다 30% 이상 낮다면 '강력한 안전마진'이 확보된 상태입니다."
     },
     'Z_SCORE': {
-        title: "Altman Z-Score (파산 위험)",
+        title: "알트만 Z-Score (파산 위험)",
         desc: "부채비율, 유동성, 이익잉여금 대체 지표를 사용하여 기업의 재무적 파산 가능성을 진단합니다.",
         strategy: "Z-Score가 3.0 이상인 기업은 재무적으로 '철옹성'입니다. 하락장에서도 버틸 체력이 있습니다."
     },
@@ -88,8 +88,8 @@ const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: s
         strategy: "40을 넘으면 '초고속 성장'과 '수익성'의 균형이 완벽합니다. 주가 방어력이 매우 높습니다."
     },
     'MARGIN': {
-        title: "Gross Margin (매출총이익률)",
-        desc: "기업이 제품을 생산하는 데 드는 비용을 제외한 이익률입니다. 5년치 재무제표를 정밀 분석하여 산출되었습니다.",
+        title: "매출총이익률 (Gross Margin)",
+        desc: "기업이 제품을 생산하는 데 드는 비용을 제외한 순수 이익률입니다. 5년치 재무제표를 정밀 분석하여 산출되었습니다.",
         strategy: "40% 이상의 높은 마진율은 '가격 결정권'을 가진 독점적 지위를 의미합니다. (워렌 버핏의 최애 지표)"
     }
 };
@@ -278,24 +278,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const per = safeNum(data.pe || data.per || data.peRatio);
       const pbr = safeNum(data.pbr || data.priceToBook);
       
-      // 3. Advanced Metric Calculation using History (Force calculation)
+      // 3. Advanced Metric Calculation
+      // [FIX] Prioritize Flat Data (from Stage 0/1/2) then Fallback to History
       
-      // A. Margins (Calculate directly from latest Income Statement if top-level is missing)
-      // Expanded fuzzy keys for searching
+      // A. Margins
+      // Try finding in flat data first with expanded keys
+      let grossMargin = findValueInObject(data, ["Gross Margin", "grossMargin", "grossProfitMargin"]);
+      let opMargin = findValueInObject(data, ["Operating Margin", "operatingMargins", "operatingMargin"]);
+      
+      // If missing in flat data, calculate from history
       let grossProfit = findValueInObject(latest, ["Gross Profit", "grossProfit", "gross_profit", "Gross Margin"]);
       let totalRevenue = findValueInObject(latest, ["Total Revenue", "revenue", "sales", "Total Revenue"]);
       let operatingIncome = findValueInObject(latest, ["Operating Income", "operatingIncome", "ebit", "Operating Profit"]);
       let netIncome = findValueInObject(latest, ["Net Income", "netIncome", "net_income", "Net Income Common Stockholders"]);
       let opCashflow = safeNum(data.operatingCashflow) || findValueInObject(latest, ["Operating Cash Flow", "Cash Flow from Operating Activities"]);
       
-      // If revenue missing in latest history, try to find it in root data
       if (totalRevenue === 0) totalRevenue = safeNum(data.revenue);
 
-      // *** CRITICAL MARGIN CALCULATION FIX ***
-      let grossMargin = safeNum(data.grossMargin);
-      let opMargin = safeNum(data.operatingMargins || data.operatingMargin);
-
-      if (totalRevenue > 0) {
+      if (grossMargin === 0 && totalRevenue > 0) {
           if (grossProfit > 0) {
               grossMargin = (grossProfit / totalRevenue) * 100;
           } else {
@@ -306,23 +306,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   grossMargin = (grossProfit / totalRevenue) * 100;
               }
           }
-
-          if (operatingIncome !== 0) {
-              opMargin = (operatingIncome / totalRevenue); // decimal
-          }
       }
       
-      // Fallback: If 0, try to pull from `metrics` sub-object if available
-      if (grossMargin === 0 && data.metrics?.grossMargin) grossMargin = safeNum(data.metrics.grossMargin);
+      if (opMargin === 0 && totalRevenue > 0 && operatingIncome !== 0) {
+          opMargin = (operatingIncome / totalRevenue); // decimal
+      }
 
-      // Convert decimal margins to percentage for scoring
+      // Convert decimal margins to percentage for scoring if needed
       const opMarginPct = opMargin < 1 ? opMargin * 100 : opMargin;
 
-      // B. Growth (CAGR - Compound Annual Growth Rate over 3-5 Years)
+      // B. Growth (CAGR)
       let revenueGrowth = safeNum(data.revenueGrowth);
       let cagrScore = 0;
       
-      if (history.length >= 3) {
+      if (revenueGrowth === 0 && history.length >= 3) {
           const latestRev = findValueInObject(history[0], ["Total Revenue", "revenue"]);
           const oldRev = findValueInObject(history[Math.min(history.length-1, 4)], ["Total Revenue", "revenue"]);
           if (latestRev > 0 && oldRev > 0) {
@@ -331,19 +328,19 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               const cagr = (Math.pow(latestRev / oldRev, 1/years) - 1) * 100;
               if (isFinite(cagr)) {
                   revenueGrowth = cagr / 100; 
-                  cagrScore = normalizeScore(cagr, 5, 25);
               }
           }
       }
       const growthPct = revenueGrowth * 100;
+      cagrScore = normalizeScore(growthPct, 5, 25);
 
       // C. Rule of 40 (SaaS Metric: Growth + Profit Margin)
       const ruleOf40 = growthPct + opMarginPct;
 
       // D. ROIC (Return on Invested Capital) - The Moat Metric
-      let roic = 0;
+      let roic = safeNum(data.roic);
       const taxRate = 0.21; 
-      if (operatingIncome !== 0 && marketCap > 0) {
+      if (roic === 0 && operatingIncome !== 0 && marketCap > 0) {
           const nopat = operatingIncome * (1 - taxRate);
           // Simplified Invested Capital = Equity + Debt
           const bookEquity = pbr > 0 ? marketCap / pbr : marketCap; 
@@ -436,9 +433,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const fundamentalScore = (valScore * 0.2) + (qualityScore * 0.2) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.2);
 
       // Moat Classification
-      let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
-      if (roic > 15 && grossMargin > 40 && fScore >= 5) economicMoat = 'Wide';
-      else if (roic > 8 && grossMargin > 20) economicMoat = 'Narrow';
+      let economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)' = '없음 (None)';
+      if (roic > 15 && grossMargin > 40 && fScore >= 5) economicMoat = '광폭 (Wide)';
+      else if (roic > 8 && grossMargin > 20) economicMoat = '협소 (Narrow)';
 
       return {
           fundamentalScore: Number(fundamentalScore.toFixed(2)),
@@ -453,11 +450,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           earningsQuality: Number((opCashflow / (netIncome || 1)).toFixed(2)),
           economicMoat,
           radarData: [
-              { subject: 'Valuation', A: Number(valScore.toFixed(0)), fullMark: 100 },
-              { subject: 'Quality', A: Number(qualityScore.toFixed(0)), fullMark: 100 },
-              { subject: 'Health', A: Number(safeScore.toFixed(0)), fullMark: 100 },
-              { subject: 'Growth', A: Number(growthScore.toFixed(0)), fullMark: 100 },
-              { subject: 'Moat', A: Number(moatScore.toFixed(0)), fullMark: 100 },
+              { subject: '밸류에이션', A: Number(valScore.toFixed(0)), fullMark: 100 },
+              { subject: '퀄리티', A: Number(qualityScore.toFixed(0)), fullMark: 100 },
+              { subject: '재무건전성', A: Number(safeScore.toFixed(0)), fullMark: 100 },
+              { subject: '성장성', A: Number(growthScore.toFixed(0)), fullMark: 100 },
+              { subject: '경제적해자', A: Number(moatScore.toFixed(0)), fullMark: 100 },
           ]
       };
   };
@@ -691,7 +688,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                     </span>
                                     {selectedTicker.zScore < 1.8 && <span className="text-[8px] font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded uppercase">Distress Risk</span>}
                                     {selectedTicker.earningsQuality > 1.2 && <span className="text-[8px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded uppercase">High Quality</span>}
-                                    {selectedTicker.economicMoat === 'Wide' && <span className="text-[8px] font-black bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded uppercase">Wide Moat</span>}
+                                    {selectedTicker.economicMoat.includes('Wide') && <span className="text-[8px] font-black bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded uppercase">Wide Moat</span>}
                                 </div>
                             </div>
                             <div 
