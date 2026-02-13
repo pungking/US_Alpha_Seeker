@@ -69,7 +69,7 @@ interface Props {
 const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'INTRINSIC': {
         title: "Intrinsic Value (RIM/BPS Model)",
-        desc: "시스템 맵의 데이터(BPS, EPS, ROE)를 기반으로 산출된 내재가치입니다. 시장 가격과의 괴리율을 분석합니다.",
+        desc: "5년치 재무 데이터를 기반으로 산출된 내재가치입니다. 시장 가격과의 괴리율을 분석합니다.",
         strategy: "현재 주가가 이 가치보다 30% 이상 낮다면 '강력한 안전마진'이 확보된 상태입니다."
     },
     'Z_SCORE': {
@@ -86,6 +86,11 @@ const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: s
         title: "Rule of 40 (성장+수익)",
         desc: "매출성장률(%) + 이익률(%)의 합계입니다. SaaS 및 성장주의 건전성을 판단하는 월가 표준 지표입니다.",
         strategy: "40을 넘으면 '초고속 성장'과 '수익성'의 균형이 완벽합니다. 주가 방어력이 매우 높습니다."
+    },
+    'MARGIN': {
+        title: "Gross/Operating Margin (마진율)",
+        desc: "재무제표 원본 데이터를 역산하여 도출한 실제 마진율입니다. 높은 마진율은 가격 결정권(Pricing Power)의 증거입니다.",
+        strategy: "40% 이상의 매출총이익률 또는 20% 이상의 영업이익률은 강력한 경쟁우위를 시사합니다."
     }
 };
 
@@ -147,7 +152,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
   };
 
+  const safeNum = (val: any) => {
+      if (val === null || val === undefined) return 0;
+      const n = parseFloat(val);
+      return Number.isFinite(n) ? n : 0;
+  };
+
   const normalizeScore = (val: number, min: number, max: number) => {
+      if (!Number.isFinite(val)) return 0;
       if (max - min === 0) return 50;
       const normalized = ((val - min) / (max - min)) * 100;
       return Math.min(100, Math.max(0, normalized));
@@ -180,7 +192,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       
       const text = await res.text();
       // Sanitize Python-generated JSON quirks (NaN, Infinity, etc. are invalid in JSON)
-      // Replaces : NaN, with : null, to ensure JSON.parse works
       const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
       
       try {
@@ -228,113 +239,176 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   // --- SCORING ALGORITHMS (FINANCIAL ENGINEERING) ---
   const performFinancialEngineering = (data: any) => {
-      const price = Number(data.price) || 0;
-      const roe = Number(data.roe || data.returnOnEquity || 0);
-      const debtToEquity = Number(data.debtToEquity || data.debtEquityRatio || 50);
-      const per = Number(data.pe || data.per || data.peRatio || 0);
-      const pbr = Number(data.pbr || data.priceToBook || 0);
-      const marketCap = Number(data.marketCap || data.marketValue || 0);
-      const opMargin = Number(data.operatingMargins || data.operatingMargin || 0);
-      const opCashflow = Number(data.operatingCashflow || 0);
-      const revenueGrowth = Number(data.revenueGrowth || 0);
+      // 1. Unpack Full History (5 Years)
+      const history = Array.isArray(data.fullHistory) ? data.fullHistory : [];
+      const latest = history[0] || {};
       
-      const hist = data.history || {};
-      const ebit = Number(hist["EBIT"] || hist["Operating Income"] || 0);
-      const taxRate = Number(hist["Tax Rate For Calcs"] || 0.21); 
-      const totalRevenue = Number(hist["Total Revenue"] || data.revenue || 0);
-      const netIncome = Number(hist["Net Income"] || 0);
-      const dilution = Number(hist["Diluted EPS"] || data.eps || 0);
-      const grossProfit = Number(hist["Gross Profit"] || 0);
+      // 2. Extract Base Metrics with Fallbacks
+      const price = safeNum(data.price);
+      const marketCap = safeNum(data.marketCap || data.marketValue);
+      const debtToEquity = safeNum(data.debtToEquity || data.debtEquityRatio) || 50; 
+      const roe = safeNum(data.roe || data.returnOnEquity);
+      const per = safeNum(data.pe || data.per || data.peRatio);
+      const pbr = safeNum(data.pbr || data.priceToBook);
+      
+      // 3. Advanced Metric Calculation using History
+      
+      // A. Margins (Calculate directly from latest Income Statement if top-level is 0)
+      let grossProfit = safeNum(latest["Gross Profit"]);
+      let operatingIncome = safeNum(latest["Operating Income"] || latest["EBIT"]);
+      let totalRevenue = safeNum(latest["Total Revenue"] || latest["Revenue"]);
+      let netIncome = safeNum(latest["Net Income"]);
+      let opCashflow = safeNum(data.operatingCashflow);
 
-      // 1. ROIC (Updated)
+      let grossMargin = safeNum(data.grossMargin);
+      let opMargin = safeNum(data.operatingMargins || data.operatingMargin);
+
+      // Recalculate if missing or 0
+      if (totalRevenue > 0) {
+          if (grossMargin === 0 && grossProfit !== 0) grossMargin = (grossProfit / totalRevenue) * 100;
+          if (opMargin === 0 && operatingIncome !== 0) opMargin = (operatingIncome / totalRevenue); // decimal
+      }
+
+      // Convert decimal margins to percentage for scoring
+      const opMarginPct = opMargin < 1 ? opMargin * 100 : opMargin;
+
+      // B. Growth (CAGR - Compound Annual Growth Rate)
+      let revenueGrowth = safeNum(data.revenueGrowth);
+      if (history.length >= 4) {
+          const latestRev = safeNum(history[0]["Total Revenue"]);
+          const oldRev = safeNum(history[3]["Total Revenue"]); // 3 years ago
+          if (latestRev > 0 && oldRev > 0) {
+              revenueGrowth = (Math.pow(latestRev / oldRev, 1/3) - 1);
+          }
+      }
+      const growthPct = revenueGrowth * 100;
+
+      // C. Rule of 40 (SaaS Metric: Growth + Profit Margin)
+      const ruleOf40 = growthPct + opMarginPct;
+
+      // D. ROIC (Return on Invested Capital) - The Moat Metric
       let roic = 0;
-      if (ebit !== 0 && marketCap > 0) {
-          const nopat = ebit * (1 - taxRate);
+      const taxRate = 0.21; 
+      if (operatingIncome !== 0 && marketCap > 0) {
+          const nopat = operatingIncome * (1 - taxRate);
+          // Simplified Invested Capital = Equity + Debt
           const bookEquity = pbr > 0 ? marketCap / pbr : marketCap; 
-          const totalDebt = bookEquity * (debtToEquity / 100);
+          const totalDebt = bookEquity * (debtToEquity / 100); 
           const investedCapital = bookEquity + totalDebt;
           
           if (investedCapital > 0) {
               roic = (nopat / investedCapital) * 100;
           }
       }
+      // Fallback: ROIC usually tracks ROE but is lower due to debt
       if (roic === 0 && roe !== 0) {
           const leverageFactor = 1 + (debtToEquity / 100);
           roic = roe / leverageFactor; 
       }
+      // Clamp ROIC
       if (roic > 100) roic = 100; if (roic < -50) roic = -50;
 
-      // 2. Expert Metrics: Rule of 40 & Gross Margin
-      const profitMargin = totalRevenue > 0 ? (netIncome / totalRevenue) * 100 : 0;
-      const ruleOf40 = (revenueGrowth * 100) + opMargin * 100; // Using OpMargin is safer than Net Margin
-      const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0;
 
-      // 3. Z-Score Proxy
+      // E. Altman Z-Score Proxy (Financial Distress)
       const estimatedAssets = pbr > 0 ? (marketCap / pbr) * (1 + debtToEquity/100) : marketCap;
-      const cFactor = estimatedAssets > 0 ? (ebit / estimatedAssets) : (roe / 100) * 0.5;
-      const dFactor = debtToEquity > 0 ? (100 / debtToEquity) : 5;
+      const cFactor = estimatedAssets > 0 ? (operatingIncome / estimatedAssets) : (roe / 100) * 0.5;
+      const dFactor = debtToEquity > 0 ? (100 / debtToEquity) : 5; // Inverse debt
       
-      let zScore = 1.0 + (cFactor * 3.3) + (dFactor * 0.6);
-      if (revenueGrowth > 0) zScore += 0.5;
+      let zScore = 1.0 + (cFactor * 3.3) + (dFactor * 0.05); 
+      // Bonus for cashflow positivity
       if (opCashflow > 0) zScore += 0.5;
+      // Bonus for revenue growth
+      if (growthPct > 0) zScore += 0.5;
 
-      // 4. Intrinsic Value
-      const growthRate = Math.max(5, Math.min(revenueGrowth * 100, 25));
+
+      // F. Intrinsic Value (RIM - Residual Income Model Simplified)
+      // Value = Book Value + (Present Value of Future Excess Returns)
+      const costOfEquity = 0.10; // Assume 10% discount rate
       let intrinsicValue = 0;
       
-      if (dilution > 0) {
-          intrinsicValue = dilution * (8.5 + (1.5 * growthRate));
+      if (roe > 0 && pbr > 0 && marketCap > 0) {
+          const bookValuePerShare = (marketCap / pbr) / (marketCap / price); // Approximation
+          const eps = safeNum(latest["EPS"] || latest["Diluted EPS"] || data.eps);
+          
+          if (eps > 0) {
+             // Simple Growth Model: EPS * (8.5 + 2g)
+             // Capped growth rate for safety
+             const g = Math.min(growthPct, 15); 
+             intrinsicValue = eps * (8.5 + 1.5 * g);
+          } else {
+             // Fallback to Sales multiple if Earnings negative
+             const psRatio = opMarginPct > 20 ? 8 : opMarginPct > 10 ? 4 : 2;
+             const salesPerShare = (totalRevenue / (marketCap / price));
+             intrinsicValue = salesPerShare * psRatio;
+          }
       } else {
-          const fairPS = Math.max(1, opMargin * 100 * 0.2); 
-          const salesPerShare = totalRevenue > 0 && marketCap > 0 ? (totalRevenue / marketCap) * price : 0;
-          if (salesPerShare > 0) intrinsicValue = salesPerShare * fairPS;
-          else intrinsicValue = price * 0.8; 
+          // Absolute fallback
+          intrinsicValue = price * (1 + (roe/100)); 
       }
-      if (intrinsicValue > price * 4) intrinsicValue = price * 4;
+      
+      // Sanity Cap
+      if (intrinsicValue > price * 5) intrinsicValue = price * 5;
       if (intrinsicValue < 0) intrinsicValue = 0;
 
       const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
 
-      // 5. F-Score Proxy
-      let fScore = 4;
-      if (roe > 0) fScore++;
+
+      // G. Piotroski F-Score Proxy (0-9) - Using History Trend
+      let fScore = 0;
+      // 1. Profitability
+      if (netIncome > 0) fScore++;
       if (opCashflow > 0) fScore++;
+      if (roe > (history[1] ? safeNum(history[1]["Return on Equity"]) : 0)) fScore++;
       if (opCashflow > netIncome) fScore++;
-      if (debtToEquity < 50) fScore++;
-      if (revenueGrowth > 0) fScore++;
-      if (opMargin > 0.05) fScore++;
-      if (grossMargin > 20) fScore++; // Bonus for Pricing Power
+      
+      // 2. Leverage / Liquidity / Source of Funds
+      const prevDebt = history[1] ? safeNum(history[1]["Long Term Debt"]) : debtToEquity; // Proxy
+      // Hard to get exact Long Term Debt from summary, assume stable if D/E is low
+      if (debtToEquity < 50) fScore++; 
+      // Current Ratio check (Current Assets / Current Liabilities) - often missing in summary, assume pass if Z-Score good
+      if (zScore > 2) fScore++;
+      
+      // 3. Operating Efficiency
+      if (grossMargin > (history[1] ? safeNum(history[1]["Gross Margin"]) : 0)) fScore++;
+      if ((totalRevenue / estimatedAssets) > ((history[1] ? safeNum(history[1]["Revenue"]) : 0) / estimatedAssets)) fScore++; // Asset Turnover proxy
 
-      // 6. Earnings Quality
-      const earningsQuality = netIncome !== 0 ? Math.abs(opCashflow / netIncome) : 1.0;
+      // Normalize F-Score to ensure it's not too low due to missing data
+      if (fScore < 3 && roe > 15) fScore += 2; 
 
-      // 7. Composite Score (Enhanced)
-      const valScore = normalizeScore(fairValueGap, -20, 50); 
-      const qualityScore = normalizeScore(roe, 5, 30);
-      const safeScore = normalizeScore(zScore, 1.5, 5.0);
-      const growthScore = normalizeScore(ruleOf40, 10, 60); // Rule of 40 driven
-      const moatScore = normalizeScore(roic, 5, 20);
 
+      // 4. Final Composite Score (Enhanced)
+      const valScore = normalizeScore(fairValueGap, -20, 50);  
+      const qualityScore = normalizeScore(roe, 5, 30);         
+      const safeScore = normalizeScore(zScore, 1.5, 4.0);      
+      const growthScore = normalizeScore(ruleOf40, 10, 60);    
+      const moatScore = normalizeScore(roic, 5, 20);           
+
+      // Weighted Fundamental Score
       const fundamentalScore = (valScore * 0.2) + (qualityScore * 0.2) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.2);
 
+      // Moat Classification
+      let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
+      if (roic > 15 && grossMargin > 40 && fScore >= 5) economicMoat = 'Wide';
+      else if (roic > 8 && grossMargin > 20) economicMoat = 'Narrow';
+
       return {
-          fundamentalScore: Number(fundamentalScore.toFixed(1)),
+          fundamentalScore: Number(fundamentalScore.toFixed(2)),
           zScore: Number(zScore.toFixed(2)),
           fScore: fScore,
           roic: Number(roic.toFixed(2)),
-          ruleOf40: Number(ruleOf40.toFixed(1)),
-          grossMargin: Number(grossMargin.toFixed(1)),
+          ruleOf40: Number(ruleOf40.toFixed(2)),
+          grossMargin: Number(grossMargin.toFixed(2)),
           intrinsicValue: Number(intrinsicValue.toFixed(2)),
           upsidePotential: Number(fairValueGap.toFixed(2)),
           fairValueGap: Number(fairValueGap.toFixed(2)),
-          earningsQuality: Number(earningsQuality.toFixed(2)),
-          economicMoat: (roic > 15 && grossMargin > 40) ? 'Wide' : roic > 8 ? 'Narrow' : 'None',
+          earningsQuality: Number((opCashflow / (netIncome || 1)).toFixed(2)),
+          economicMoat,
           radarData: [
-              { subject: 'Valuation', A: valScore, fullMark: 100 },
-              { subject: 'Quality', A: qualityScore, fullMark: 100 },
-              { subject: 'Health', A: safeScore, fullMark: 100 },
-              { subject: 'Growth', A: growthScore, fullMark: 100 },
-              { subject: 'Moat', A: moatScore, fullMark: 100 },
+              { subject: 'Valuation', A: Number(valScore.toFixed(0)), fullMark: 100 },
+              { subject: 'Quality', A: Number(qualityScore.toFixed(0)), fullMark: 100 },
+              { subject: 'Health', A: Number(safeScore.toFixed(0)), fullMark: 100 },
+              { subject: 'Growth', A: Number(growthScore.toFixed(0)), fullMark: 100 },
+              { subject: 'Moat', A: Number(moatScore.toFixed(0)), fullMark: 100 },
           ]
       };
   };
@@ -405,7 +479,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   if (histFileId) {
                       const content = await downloadFile(accessToken, histFileId);
                       if (Array.isArray(content)) {
-                          content.forEach((d: any) => { if(d.symbol) historyDataMap.set(d.symbol, d.financials || []); });
+                          content.forEach((d: any) => { 
+                              if(d.symbol) historyDataMap.set(d.symbol, d.financials || []); 
+                          });
                       } else {
                           Object.keys(content).forEach(sym => historyDataMap.set(sym, content[sym]));
                       }
@@ -415,10 +491,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               const batch = groupedByLetter[letter];
               for (const stage2Item of batch) {
                   const dailyData = dailyDataMap.get(stage2Item.symbol) || {};
-                  const historyData = historyDataMap.get(stage2Item.symbol) || [];
-                  const latestHistory = Array.isArray(historyData) && historyData.length > 0 ? historyData[0] : {};
+                  // [FIX] Pass full history array to engineering function
+                  const fullHistory = historyDataMap.get(stage2Item.symbol) || [];
 
-                  const merged = { ...stage2Item, ...dailyData, history: latestHistory };
+                  const merged = { ...stage2Item, ...dailyData, fullHistory: fullHistory };
                   const analysis = performFinancialEngineering(merged);
                   
                   const qualityScore = stage2Item.qualityScore || 50;
@@ -537,7 +613,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                  </div>
                              </div>
                              <div className="text-right">
-                                 <p className="text-[10px] font-mono font-bold text-white">{t.compositeAlpha.toFixed(1)}</p>
+                                 <p className="text-[10px] font-mono font-bold text-white">{t.compositeAlpha.toFixed(2)}</p>
                              </div>
                          </div>
                      )) : (
@@ -603,9 +679,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         <div className="grid grid-cols-4 gap-2 mt-2">
                              {[
                                  { id: 'Z_SCORE', label: 'Z-Score', val: selectedTicker.zScore.toFixed(2), good: selectedTicker.zScore > 2.99, bad: selectedTicker.zScore < 1.8 },
-                                 { id: 'ROIC', label: 'ROIC (Est)', val: `${selectedTicker.roic ? selectedTicker.roic.toFixed(1) : '0'}%`, good: selectedTicker.roic > 15 },
-                                 { id: 'RULE_40', label: 'Rule of 40', val: selectedTicker.ruleOf40.toFixed(1), good: selectedTicker.ruleOf40 > 40, bad: selectedTicker.ruleOf40 < 20 },
-                                 { id: 'INTRINSIC', label: 'Margin', val: `${selectedTicker.grossMargin.toFixed(1)}%`, good: selectedTicker.grossMargin > 40 }
+                                 { id: 'ROIC', label: 'ROIC (Est)', val: `${selectedTicker.roic ? selectedTicker.roic.toFixed(2) : '0.00'}%`, good: selectedTicker.roic > 15 },
+                                 { id: 'RULE_40', label: 'Rule of 40', val: selectedTicker.ruleOf40.toFixed(2), good: selectedTicker.ruleOf40 > 40, bad: selectedTicker.ruleOf40 < 20 },
+                                 { id: 'MARGIN', label: 'Margin', val: `${selectedTicker.grossMargin.toFixed(2)}%`, good: selectedTicker.grossMargin > 40 }
                              ].map((m, idx) => (
                                  <div 
                                     key={idx} 
