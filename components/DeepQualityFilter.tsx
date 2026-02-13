@@ -32,6 +32,9 @@ interface MasterTicker {
   safeScore?: number;
   valueScore?: number;
   
+  // History Context
+  historyFolderId?: string;
+
   [key: string]: any;
 }
 
@@ -45,6 +48,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
+  const [historyFolderId, setHistoryFolderId] = useState<string | null>(null);
   
   const [eliteUniverse, setEliteUniverse] = useState<MasterTicker[]>([]);
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.1: Waiting for Stage 1 Output...']);
@@ -68,6 +72,38 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
   };
 
+  const findHistoryFolder = async () => {
+     if (!accessToken) return null;
+     try {
+         // 1. Try to find in System Maps first
+         let q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' and trashed = false`);
+         let res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+             headers: { 'Authorization': `Bearer ${accessToken}` }
+         }).then(r => r.json());
+         
+         let parentId = 'root';
+         if (res.files && res.files.length > 0) {
+             parentId = res.files[0].id;
+         }
+
+         // 2. Find History Folder
+         q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.financialHistoryFolder}' and '${parentId}' in parents and trashed = false`);
+         res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+             headers: { 'Authorization': `Bearer ${accessToken}` }
+         }).then(r => r.json());
+
+         if (res.files && res.files.length > 0) {
+             addLog(`History Archives Located: ${res.files[0].id}`, "ok");
+             return res.files[0].id;
+         }
+         addLog("History Archives Not Found. Using Daily TTM Only.", "warn");
+         return null;
+     } catch (e) {
+         console.warn("History lookup failed", e);
+         return null;
+     }
+  };
+
   const executeQuantPipeline = async () => {
       if (!accessToken) {
           addLog("Cloud link required.", "err");
@@ -76,6 +112,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       setLoading(true);
 
       try {
+          // 0. Locate History Folder (Background)
+          const hId = await findHistoryFolder();
+          setHistoryFolderId(hId);
+
           // 1. Load Stage 1 Data (Purified Universe ~2000)
           addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
           
@@ -130,7 +170,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   profitScore: Number(roeScore.toFixed(0)),
                   safeScore: Number(safeScore.toFixed(0)),
                   valueScore: Number(valueScore.toFixed(0)),
-                  qualityScore: Number(finalScore.toFixed(1))
+                  qualityScore: Number(finalScore.toFixed(1)),
+                  historyFolderId: hId // Pass reference for Deep Audit
               };
           });
 
@@ -204,31 +245,34 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     return create.id;
   };
 
-  const handleSelectStock = (stock: MasterTicker) => {
+  const handleSelectStock = async (stock: MasterTicker) => {
       setSelectedSymbol(stock.symbol);
+      
+      // Inject History Folder ID so the Auditor can use it
+      const stockWithContext = {
+          ...stock,
+          historyContext: historyFolderId ? { folderId: historyFolderId, available: true } : { available: false }
+      };
+
       if (onStockSelected) {
-          onStockSelected(stock);
+          onStockSelected(stockWithContext);
       }
   };
 
-  // Helper for P/S/V Badges colors - Enhanced Visibility
   const getScoreColor = (type: 'P'|'S'|'V', score: number | undefined) => {
       if (!score) return 'text-slate-600 border-slate-800 bg-slate-900/50';
       
-      // P (Profitability): Emerald
-      if (type === 'P') {
+      if (type === 'P') { // Profit
          if (score >= 80) return 'text-emerald-400 border-emerald-500/50 bg-emerald-500/20';
          if (score >= 50) return 'text-emerald-600 border-emerald-800 bg-emerald-900/10';
          return 'text-slate-500 border-slate-700';
       }
-      // S (Safety): Blue
-      if (type === 'S') {
+      if (type === 'S') { // Safety
          if (score >= 80) return 'text-blue-400 border-blue-500/50 bg-blue-500/20';
          if (score >= 50) return 'text-blue-600 border-blue-800 bg-blue-900/10';
          return 'text-slate-500 border-slate-700';
       }
-      // V (Value): Amber (Gold)
-      if (type === 'V') {
+      if (type === 'V') { // Value
          if (score >= 80) return 'text-amber-400 border-amber-500/50 bg-amber-500/20';
          if (score >= 50) return 'text-amber-600 border-amber-800 bg-amber-900/10';
          return 'text-slate-500 border-slate-700';
@@ -252,6 +296,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                      {loading ? `Scoring & Filtering...` : 'Elite 500 Selection Ready'}
                    </span>
+                   {historyFolderId && <span className="text-[8px] px-2 py-0.5 bg-indigo-900/50 text-indigo-400 border border-indigo-500/20 rounded font-black uppercase">5Y History Linked</span>}
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
               </div>
@@ -314,13 +359,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 </div>
              </div>
 
-             {/* Elite 500 Ranking List */}
-             <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden h-[300px]">
+             {/* Elite 500 Ranking List (Scrollable) */}
+             <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden h-[600px]">
                 <div className="flex justify-between items-center mb-4">
                     <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest">Elite 500 Candidates</p>
                     <span className="text-[8px] text-slate-500 font-mono">{eliteUniverse.length} / 500</span>
                 </div>
-                <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
+                <div className="flex-1 overflow-y-auto custom-scrollbar space-y-2 pr-1">
                     {eliteUniverse.length > 0 ? eliteUniverse.map((s, i) => (
                         <div 
                             key={i} 
