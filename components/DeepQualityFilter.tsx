@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell, ReferenceLine } from 'recharts';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
 
-// [STAGE 0 -> 2 DATA STRUCTURE]
+// [STAGE 1 -> 2 DATA STRUCTURE]
 interface MasterTicker {
   symbol: string;
   name: string;
@@ -12,37 +12,27 @@ interface MasterTicker {
   sector: string;
   industry: string;
   
-  // Value
+  // Value Inputs
   pe: number;
   pbr: number;
   psr: number;
-  pegRatio: number;
   
-  // Quality
+  // Quality Inputs
   roe: number;
   operatingMargins: number;
   debtToEquity: number;
   
-  // Growth & Cash
+  // Growth Inputs
   revenueGrowth: number;
   operatingCashflow: number;
   
-  // Scores (Calculated in Stage 2)
-  zScore?: number;        // Bankruptcy Risk
-  fScore?: number;        // Financial Health
-  qualityScore?: number;  // Absolute Quality
-  sectorNeutralScore?: number; // Relative Value
-  earningsQuality?: number; // Cash vs Income
+  // Scoring Outputs
+  qualityScore: number;  // Final Composite Score
+  profitScore?: number;
+  safeScore?: number;
+  valueScore?: number;
   
   [key: string]: any;
-}
-
-interface SectorStat {
-    sector: string;
-    medianPE: number;
-    medianPB: number;
-    medianROE: number;
-    count: number;
 }
 
 interface Props {
@@ -53,22 +43,18 @@ interface Props {
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
-  const [status, setStatus] = useState<string>("Standby");
   const [progress, setProgress] = useState({ current: 0, total: 0 });
-  const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
-  const [eliteUniverse, setEliteUniverse] = useState<MasterTicker[]>([]);
-  const [sectorStats, setSectorStats] = useState<SectorStat[]>([]);
   
-  const [logs, setLogs] = useState<string[]>(['> Quant_Node v2.0: "Supercar Heart" Protocol Ready.']);
+  const [eliteUniverse, setEliteUniverse] = useState<MasterTicker[]>([]);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.1: Waiting for Stage 1 Output...']);
+  
   const logRef = useRef<HTMLDivElement>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
-  // Auto-scroll logs
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // AUTO START
   useEffect(() => {
     if (autoStart && !loading) {
         addLog("AUTO-PILOT: Engaging Deep Quality Quant Filter...", "signal");
@@ -87,122 +73,87 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           return;
       }
       setLoading(true);
-      setStatus("Loading Universe");
 
       try {
-          // 1. Load Stage 0 Data (The Supercar Heart)
-          addLog("Phase 1: Loading 28-Metric Master Universe...", "info");
-          const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
+          // 1. Load Stage 1 Data (Purified Universe ~2000)
+          addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
+          
+          // [CHANGE] Target STAGE1 file instead of STAGE0
+          const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
           const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          if (!listRes.files?.length) throw new Error("Stage 0 Data not found. Run Stage 0.");
+          if (!listRes.files?.length) throw new Error("Stage 1 Data not found. Please run Stage 1 first.");
 
-          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+          const fileId = listRes.files[0].id;
+          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          const universe: MasterTicker[] = content.universe || [];
-          setRawUniverse(universe);
-          addLog(`Matrix Loaded: ${universe.length} Assets with Full Metrics.`, "ok");
+          // Handle array structure from Stage 1
+          const universe: MasterTicker[] = content.investable_universe || [];
+          addLog(`Input Loaded: ${universe.length} Candidates from Stage 1.`, "ok");
 
-          // 2. Sector Normalization
-          setStatus("Sector Analysis");
-          addLog("Phase 2: Calculating Sector Neutral Benchmarks...", "info");
-          const stats = calculateSectorStats(universe);
-          setSectorStats(stats);
-          addLog(`Sector Map Built: ${stats.length} Sectors Indexed.`, "ok");
+          if (universe.length === 0) throw new Error("Stage 1 file is empty.");
 
-          // 3. Deep Scoring (The Quant Engine)
-          setStatus("Scoring Assets");
-          addLog("Phase 3: Running Z-Score / F-Score / Valuation Models...", "info");
+          // 2. Scoring Logic (The Quant Engine)
+          addLog("Phase 2: Calculating 3-Factor Quality Scores...", "info");
           
           const scoredUniverse = universe.map(ticker => {
-              // A. Modified Altman Z-Score Proxy
-              // 1.2(Working Cap) + 1.4(RE) + 3.3(EBIT) + 0.6(MktCap/Liab) + 1.0(Sales/Asset)
-              // Simplified for available data:
-              const safeDebt = ticker.debtToEquity > 0 ? ticker.debtToEquity : 100;
-              const zProxy = (1.2 * (ticker.currentRatio || 1)) + (3.3 * (ticker.operatingMargins || 0)) + (0.6 * (100 / safeDebt));
+              // A. Profitability Score (ROE is King)
+              // ROE > 15% is good. Max 100 points.
+              const roeScore = Math.min(100, Math.max(0, (ticker.roe || 0) * 5));
               
-              // B. F-Score Proxy (0-5 scale based on snapshots)
-              let fScore = 0;
-              if (ticker.roe > 0) fScore++; // Profitability
-              if (ticker.operatingCashflow > 0) fScore++; // CashGen
-              if (ticker.revenueGrowth > 0) fScore++; // Growth
-              if (ticker.operatingMargins > 0.05) fScore++; // Efficiency
-              if (ticker.debtToEquity < 100) fScore++; // Safety
+              // B. Safety Score (Low Debt is King)
+              // Debt/Equity < 50% is good. 
+              const debt = ticker.debtToEquity || 100;
+              const safeScore = Math.max(0, 100 - (debt * 0.5));
 
-              // C. Earnings Quality
-              // OCF should ideally be > Net Income (Implied by EPS * Shares, approximated)
-              // Ratio > 1.0 is good.
-              const estimatedIncome = (ticker.eps || 0) * (ticker.marketCap / ticker.price);
-              const eq = estimatedIncome > 0 ? (ticker.operatingCashflow / estimatedIncome) : 0;
-
-              // D. Sector Neutral Valuation Score (0-100)
-              const sectorStat = stats.find(s => s.sector === ticker.sector);
-              let valScore = 50;
-              if (sectorStat && ticker.pe > 0 && ticker.pbr > 0) {
-                  const peRel = sectorStat.medianPE / ticker.pe; // Higher is cheaper
-                  const pbRel = sectorStat.medianPB / ticker.pbr;
-                  valScore = Math.min(100, ((peRel + pbRel) / 2) * 50);
+              // C. Value Score (Sector Neutral Proxy)
+              // Low PER/PBR relative to growth. 
+              // Simplification: PER < 20 is good.
+              let valueScore = 50;
+              if (ticker.pe > 0) {
+                 if (ticker.pe < 15) valueScore = 90;
+                 else if (ticker.pe < 25) valueScore = 70;
+                 else if (ticker.pe < 40) valueScore = 50;
+                 else valueScore = 30;
               }
 
-              // Final Composite Quality Score
-              const qScore = (ticker.roe * 2) + (fScore * 10) + (Math.min(eq, 2) * 10) + (valScore * 0.3);
+              // Final Composite Score (Weighted)
+              // 40% Profit + 30% Safety + 30% Value
+              const finalScore = (roeScore * 0.4) + (safeScore * 0.3) + (valueScore * 0.3);
 
               return {
                   ...ticker,
-                  zScore: Number(zProxy.toFixed(2)),
-                  fScore: fScore,
-                  earningsQuality: Number(eq.toFixed(2)),
-                  sectorNeutralScore: Number(valScore.toFixed(2)),
-                  qualityScore: Number(qScore.toFixed(2))
+                  profitScore: Number(roeScore.toFixed(0)),
+                  safeScore: Number(safeScore.toFixed(0)),
+                  valueScore: Number(valueScore.toFixed(0)),
+                  qualityScore: Number(finalScore.toFixed(1))
               };
           });
 
-          // 4. Filtering Elite 500
-          const elite = scoredUniverse
-              .filter(t => t.qualityScore > 40 && t.marketCap > 50000000) // Basic filters
-              .sort((a, b) => (b.qualityScore || 0) - (a.qualityScore || 0))
-              .slice(0, 500);
+          // 3. Filter & Sort (Elite 500)
+          addLog("Phase 3: Cutting to Top 500 Elite...", "info");
+          
+          // Sort Descending by Quality Score
+          scoredUniverse.sort((a, b) => b.qualityScore - a.qualityScore);
+          
+          // Slice Top 500
+          const elite500 = scoredUniverse.slice(0, 500);
+          setEliteUniverse(elite500);
+          
+          addLog(`Cutoff Score: ${elite500[elite500.length - 1].qualityScore}. Survivors: ${elite500.length}`, "ok");
 
-          setEliteUniverse(elite);
-          addLog(`Quant Filter Complete. Top ${elite.length} Elite Assets Selected.`, "ok");
-
-          // 5. Commit to Drive
-          await commitEliteUniverse(elite);
+          // 4. Commit to Drive
+          await commitEliteUniverse(elite500);
 
       } catch (e: any) {
           addLog(`Quant Error: ${e.message}`, "err");
       } finally {
           setLoading(false);
-          setStatus("Complete");
       }
-  };
-
-  const calculateSectorStats = (data: MasterTicker[]): SectorStat[] => {
-      const sectors: { [key: string]: MasterTicker[] } = {};
-      data.forEach(t => {
-          const s = t.sector || "Unclassified";
-          if (!sectors[s]) sectors[s] = [];
-          sectors[s].push(t);
-      });
-
-      return Object.keys(sectors).map(sector => {
-          const items = sectors[sector];
-          const pes = items.map(i => i.pe).filter(v => v > 0 && v < 200).sort((a,b)=>a-b);
-          const pbs = items.map(i => i.pbr).filter(v => v > 0 && v < 50).sort((a,b)=>a-b);
-          const roes = items.map(i => i.roe).sort((a,b)=>a-b);
-
-          return {
-              sector,
-              medianPE: pes[Math.floor(pes.length / 2)] || 20,
-              medianPB: pbs[Math.floor(pbs.length / 2)] || 3,
-              medianROE: roes[Math.floor(roes.length / 2)] || 10,
-              count: items.length
-          };
-      });
   };
 
   const commitEliteUniverse = async (data: MasterTicker[]) => {
@@ -214,8 +165,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       const payload = {
           manifest: {
-              version: "2.0.0",
-              strategy: "Sector_Neutral_Quality_Scoring",
+              version: "2.1.0",
+              strategy: "3-Factor_Quality_Score_Top500",
               count: data.length,
               timestamp: new Date().toISOString()
           },
@@ -260,10 +211,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.1</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                     {loading ? `Engine Status: ${status}` : 'Engine Ready'}
+                     {loading ? `Scoring & Filtering...` : 'Elite 500 Selection Ready'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
@@ -274,20 +225,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 disabled={loading} 
                 className={`px-8 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-cyan-900 text-cyan-200 cursor-wait' : 'bg-cyan-600 text-white hover:scale-105'}`}
             >
-                {loading ? 'Processing...' : 'Run Quant Filter'}
+                {loading ? 'Crunching Numbers...' : 'Run Top 500 Filter'}
             </button>
           </div>
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
              {/* Quality vs Value Matrix */}
              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 100)</p>
+                <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality Matrix (Top 100 Samples)</p>
                 <div className="flex-1 w-full h-full mt-4">
                     <ResponsiveContainer width="100%" height="100%">
                         <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
                             <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                            <XAxis type="number" dataKey="sectorNeutralScore" name="Value Score" stroke="#64748b" fontSize={9} label={{ value: "Undervalued →", position: 'bottom', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
-                            <YAxis type="number" dataKey="roe" name="ROE" stroke="#64748b" fontSize={9} label={{ value: "Quality (ROE) ↑", angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }} domain={[0, 'auto']} />
+                            <XAxis type="number" dataKey="valueScore" name="Value" stroke="#64748b" fontSize={9} label={{ value: "Value Score", position: 'bottom', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
+                            <YAxis type="number" dataKey="profitScore" name="Profit" stroke="#64748b" fontSize={9} label={{ value: "Profit Score", angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
                             <Tooltip 
                                 cursor={{ strokeDasharray: '3 3' }}
                                 content={({ active, payload }) => {
@@ -296,8 +247,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                         return (
                                             <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-xl">
                                                 <p className="text-xs font-black text-white mb-1">{data.symbol}</p>
-                                                <p className="text-[9px] text-cyan-400">Score: {data.qualityScore}</p>
-                                                <p className="text-[8px] text-slate-400">Val: {data.sectorNeutralScore} | ROE: {data.roe}%</p>
+                                                <p className="text-[9px] text-cyan-400">Total: {data.qualityScore}</p>
+                                                <p className="text-[8px] text-slate-400">Profit: {data.profitScore} | Value: {data.valueScore}</p>
                                             </div>
                                         );
                                     }
@@ -305,10 +256,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                 }}
                             />
                             <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
-                            <ReferenceLine y={15} stroke="#475569" strokeDasharray="3 3" />
+                            <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
                             <Scatter name="Elite Stocks" data={eliteUniverse.slice(0, 100)} fill="#06b6d4">
                                 {eliteUniverse.slice(0, 100).map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.sectorNeutralScore > 60 && entry.roe > 20 ? '#10b981' : '#06b6d4'} />
+                                    <Cell key={`cell-${index}`} fill={entry.qualityScore > 80 ? '#10b981' : '#06b6d4'} />
                                 ))}
                             </Scatter>
                         </ScatterChart>
@@ -316,24 +267,34 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 </div>
              </div>
 
-             {/* Sector Breakdown */}
-             <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden">
-                <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-4">Sector Opportunities</p>
+             {/* Elite 500 Ranking List */}
+             <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden h-[300px]">
+                <div className="flex justify-between items-center mb-4">
+                    <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest">Elite 500 Candidates</p>
+                    <span className="text-[8px] text-slate-500 font-mono">{eliteUniverse.length} / 500</span>
+                </div>
                 <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
-                    {sectorStats.length > 0 ? sectorStats.map((s, i) => (
-                        <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5">
-                            <div>
-                                <p className="text-[9px] font-bold text-white uppercase">{s.sector}</p>
-                                <p className="text-[7px] text-slate-500">Median PE: {s.medianPE.toFixed(1)}x</p>
+                    {eliteUniverse.length > 0 ? eliteUniverse.slice(0, 100).map((s, i) => (
+                        <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors cursor-default">
+                            <div className="flex items-center gap-3">
+                                <span className={`text-[9px] font-mono font-bold w-6 ${i < 10 ? 'text-cyan-400' : 'text-slate-600'}`}>#{i + 1}</span>
+                                <div>
+                                    <p className="text-[10px] font-bold text-white uppercase">{s.symbol}</p>
+                                    <p className="text-[7px] text-slate-500 truncate w-24">{s.name}</p>
+                                </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] font-mono font-black text-cyan-400">{s.count}</p>
-                                <p className="text-[7px] text-slate-600 uppercase">Assets</p>
+                                <p className="text-[10px] font-mono font-black text-cyan-400">{s.qualityScore}</p>
+                                <div className="flex gap-1 justify-end">
+                                    <span className="text-[6px] text-slate-600 px-1 border border-slate-700 rounded">P:{s.profitScore}</span>
+                                    <span className="text-[6px] text-slate-600 px-1 border border-slate-700 rounded">S:{s.safeScore}</span>
+                                    <span className="text-[6px] text-slate-600 px-1 border border-slate-700 rounded">V:{s.valueScore}</span>
+                                </div>
                             </div>
                         </div>
                     )) : (
                         <div className="flex items-center justify-center h-full opacity-30 text-[9px] uppercase">
-                            Waiting for calculation...
+                            Awaiting Calculation...
                         </div>
                     )}
                 </div>
