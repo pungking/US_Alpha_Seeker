@@ -36,39 +36,45 @@ interface MasterTicker {
   beta: number;
   prevClose: number;
   updated: string;
+  // Dynamic fields
   [key: string]: any;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
+  // Engine State
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.1.0: V12 Drive Engine (Restored) Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.2.0: V12 Drive Engine (Restored) Ready.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle' });
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
   
-  // Real-time Search State
+  // Real-time Search & Audit State
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<MasterTicker | null>(null);
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, MasterTicker>>(new Map());
   const [isLive, setIsLive] = useState(false);
   const [liveSource, setLiveSource] = useState<string>('');
   
-  // [VISUAL] Flash State for Animation
+  // Visual Flash State
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
-  // Refs
+  // Refs for Cleanup & Persistence
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
-  const wsRef = useRef<WebSocket | null>(null);
+  const cleanupRef = useRef<() => void>(() => {});
   const prevPriceRef = useRef<number>(0);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
 
+  // --- Effects ---
+
+  // Auto-scroll logs
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
+  // Elapsed Timer
   useEffect(() => {
     let interval: any;
     if (isGathering && startTimeRef.current > 0) {
@@ -79,6 +85,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     return () => clearInterval(interval);
   }, [isGathering]);
 
+  // Auto-Pilot Trigger
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
@@ -90,7 +97,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [autoStart, isActive]);
 
-  // Initial Search from Registry (Static Data)
+  // 1. Initial Search from Registry (Static Data Look-up)
   useEffect(() => {
     if (!searchQuery) {
         setSearchResult(null);
@@ -98,14 +105,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         setPriceFlash(null);
         setLiveSource('');
         prevPriceRef.current = 0;
-        if (wsRef.current) {
-            wsRef.current.close();
-            wsRef.current = null;
-        }
+        cleanupRef.current(); // Stop any active monitoring
         return;
     }
     const query = searchQuery.trim().toUpperCase();
     
+    // Immediate feedback from static registry if available
     if (gatheredRegistry.has(query)) {
         const staticData = gatheredRegistry.get(query);
         if (staticData) {
@@ -120,33 +125,34 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [searchQuery, gatheredRegistry]);
 
-  // [REAL-TIME ENGINE] WebSocket Priority -> Polling Fallback
+  // 2. Real-Time Data Engine (WebSocket -> Polling Fallback)
+  // Re-implemented robustly to ensure cleanup and avoid memory leaks
   useEffect(() => {
-      const symbol = searchResult?.symbol;
-      
-      // Cleanup previous socket/interval
-      if (wsRef.current) {
-          wsRef.current.close();
-          wsRef.current = null;
-      }
+      // Cleanup previous connection immediately
+      cleanupRef.current();
+      cleanupRef.current = () => {};
 
+      const symbol = searchResult?.symbol;
       if (!symbol) return;
 
-      // 1. WebSocket Strategy (Priority)
-      if (finnhubKey) {
+      let isCleanedUp = false;
+
+      // Strategy A: Finnhub WebSocket
+      const connectWebSocket = (): (() => void) => {
+          if (!finnhubKey) return () => {};
+          
           try {
               const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
-              wsRef.current = ws;
-
+              
               ws.onopen = () => {
-                  ws.send(JSON.stringify({ type: 'subscribe', symbol: symbol }));
+                  if (!isCleanedUp) ws.send(JSON.stringify({ type: 'subscribe', symbol: symbol }));
               };
 
               ws.onmessage = (event) => {
+                  if (isCleanedUp) return;
                   try {
                       const msg = JSON.parse(event.data);
                       if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
-                          // Get the latest trade
                           const trade = msg.data[msg.data.length - 1];
                           const newPrice = trade.p;
                           
@@ -155,12 +161,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                               prevPriceRef.current = newPrice;
                               
                               setPriceFlash(direction);
-                              setTimeout(() => setPriceFlash(null), 300); // 300ms flash
+                              setTimeout(() => setPriceFlash(null), 300);
 
                               setSearchResult((prev: any) => {
                                   if (!prev || prev.symbol !== symbol) return prev;
                                   
-                                  // Recalculate change if we have prevClose
                                   let newChange = prev.change;
                                   let newChangeAmount = prev.changeAmount;
                                   
@@ -169,12 +174,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                       newChange = (newChangeAmount / prev.prevClose) * 100;
                                   }
 
-                                  return {
-                                      ...prev,
-                                      price: newPrice,
-                                      change: newChange,
-                                      changeAmount: newChangeAmount
-                                  };
+                                  return { ...prev, price: newPrice, change: newChange, changeAmount: newChangeAmount };
                               });
                               setIsLive(true);
                               setLiveSource('Finnhub WS');
@@ -184,8 +184,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
               ws.onerror = () => {
-                  // console.warn("WS Error, switching to polling");
-                  startPolling(symbol); // Fallback
+                  if (!isCleanedUp) {
+                      ws.close();
+                      // Fallback to polling if WS fails
+                      cleanupRef.current = startPolling();
+                  }
               };
 
               return () => {
@@ -193,98 +196,136 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
           } catch (e) {
-              // console.warn("WS Setup failed, using polling");
-              startPolling(symbol);
+              return startPolling();
           }
-      } else {
-          startPolling(symbol);
-      }
-
-  }, [searchResult?.symbol, finnhubKey]); 
-
-  // Polling Strategy (Fallback)
-  const startPolling = (symbol: string) => {
-      const fetchRealTimeData = async () => {
-          try {
-              const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-              const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-              
-              let price = 0;
-              let change = 0;
-              let changeAmount = 0;
-              let prevClose = 0;
-              let found = false;
-              let source = "";
-
-              // 1. Polygon Snapshot
-              if (polygonKey && !found) {
-                  try {
-                      const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polygonKey}`);
-                      if (res.ok) {
-                          const data = await res.json();
-                          const t = data.ticker;
-                          if (t) {
-                              price = t.lastTrade?.p || t.day?.c || t.min?.c || 0;
-                              change = t.todaysChangePerc || 0;
-                              changeAmount = t.todaysChange || 0;
-                              prevClose = t.prevDay?.c || 0;
-                              if (price > 0) {
-                                  found = true;
-                                  source = "Polygon (Poll)";
-                              }
-                          }
-                      }
-                  } catch (e) { }
-              }
-
-              // 2. Finnhub Quote
-              if (finnhubKey && !found) {
-                  try {
-                      const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
-                      if (res.ok) {
-                          const data = await res.json();
-                          if (data.c > 0) {
-                              price = data.c;
-                              change = data.dp;
-                              changeAmount = data.d;
-                              prevClose = data.pc;
-                              found = true;
-                              source = "Finnhub (Poll)";
-                          }
-                      }
-                  } catch (e) { }
-              }
-
-              if (found) {
-                  setSearchResult((prev: any) => {
-                      if (!prev || prev.symbol !== symbol) return prev;
-                      
-                      if (prev.price !== price) {
-                          setPriceFlash(price > prev.price ? 'up' : 'down');
-                          setTimeout(() => setPriceFlash(null), 300);
-                      }
-                      
-                      setIsLive(true);
-                      setLiveSource(source);
-                      prevPriceRef.current = price;
-
-                      return {
-                          ...prev,
-                          price,
-                          change,
-                          changeAmount,
-                          prevClose: prevClose || prev.prevClose
-                      };
-                  });
-              }
-          } catch (e) { }
       };
 
-      fetchRealTimeData();
-      const intervalId = setInterval(fetchRealTimeData, 1000); // 1s polling
-      return () => clearInterval(intervalId);
-  };
+      // Strategy B: Polling (Polygon -> Finnhub -> Yahoo)
+      const startPolling = (): (() => void) => {
+          const fetchRealTimeData = async () => {
+              if (isCleanedUp) return;
+              try {
+                  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+                  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+                  
+                  let price = 0;
+                  let change = 0;
+                  let changeAmount = 0;
+                  let prevClose = 0;
+                  let found = false;
+                  let source = "";
 
+                  // 1. Polygon Snapshot
+                  if (polygonKey && !found) {
+                      try {
+                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polygonKey}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              const t = data.ticker;
+                              if (t) {
+                                  price = t.lastTrade?.p || t.day?.c || t.min?.c || 0;
+                                  change = t.todaysChangePerc || 0;
+                                  changeAmount = t.todaysChange || 0;
+                                  prevClose = t.prevDay?.c || 0;
+                                  if (price > 0) {
+                                      found = true;
+                                      source = "Polygon (Poll)";
+                                  }
+                              }
+                          }
+                      } catch (e) { }
+                  }
+
+                  // 2. Finnhub Quote
+                  if (finnhubKey && !found) {
+                      try {
+                          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              if (data.c > 0) {
+                                  price = data.c;
+                                  change = data.dp;
+                                  changeAmount = data.d;
+                                  prevClose = data.pc;
+                                  found = true;
+                                  source = "Finnhub (Poll)";
+                              }
+                          }
+                      } catch (e) { }
+                  }
+
+                  // 3. Yahoo Proxy
+                  if (!found) {
+                      try {
+                          const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              if (data && data.length > 0) {
+                                  const live = data[0];
+                                  price = live.price;
+                                  change = live.change;
+                                  changeAmount = live.changeAmount !== undefined ? live.changeAmount : (price - (live.prevClose || price));
+                                  prevClose = live.prevClose || 0;
+                                  found = true;
+                                  source = "Yahoo (Delayed)";
+                              }
+                          }
+                      } catch (e) { }
+                  }
+
+                  if (found && !isCleanedUp) {
+                      setSearchResult((prev: any) => {
+                          if (!prev || prev.symbol !== symbol) return prev;
+                          
+                          if (prev.price !== price) {
+                              setPriceFlash(price > prev.price ? 'up' : 'down');
+                              setTimeout(() => setPriceFlash(null), 300);
+                          }
+                          
+                          setIsLive(true);
+                          setLiveSource(source);
+                          prevPriceRef.current = price;
+
+                          return {
+                              ...prev,
+                              price,
+                              change,
+                              changeAmount,
+                              prevClose: prevClose || prev.prevClose
+                          };
+                      });
+                  }
+              } catch (e) { }
+          };
+
+          fetchRealTimeData();
+          const intervalId = setInterval(fetchRealTimeData, 2000); // 2s polling
+          return () => clearInterval(intervalId);
+      };
+
+      // Initialize Logic
+      if (finnhubKey) {
+          const wsCleanup = connectWebSocket();
+          cleanupRef.current = () => {
+              isCleanedUp = true;
+              wsCleanup();
+          };
+      } else {
+          const pollingCleanup = startPolling();
+          cleanupRef.current = () => {
+              isCleanedUp = true;
+              pollingCleanup();
+          };
+      }
+
+      return () => {
+          cleanupRef.current();
+      };
+
+  }, [searchResult?.symbol, finnhubKey]);
+
+  // --- Helper Functions ---
+  
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
       setLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-50));
@@ -303,7 +344,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           setShowConfig(true);
           return;
       }
-      
       try {
           // @ts-ignore
           const client = google.accounts.oauth2.initTokenClient({
@@ -335,10 +375,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
   };
 
+  // --- Engine Logic (V12) ---
   const mountFinancialEngine = async (token: string) => {
       addLog("Initializing V12 Engine Protocol...", "info");
       
-      // 1. Locate the 'System_Identity_Maps' folder
       let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       
       if (!systemMapFolderId) {
@@ -348,15 +388,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found in Drive.`);
 
-      // 2. Locate the 'Financial_Data_Daily' folder inside it
       const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
       if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
 
       addLog("Core Map Located. Firing Cylinders...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-      // No ETC as per instructions
-      
       const cylinders = alphabet;
       setProgress(prev => ({ ...prev, target: cylinders.length }));
 
@@ -373,15 +410,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               if (fileId) {
                   const content = await downloadFile(token, fileId);
                   
-                  // [CRITICAL FIX] Ensure keys are mapped from 'per', 'pbr' etc. to standard keys
+                  // Process Data with Robust Mapping
                   const stocks = processCylinderData(content);
                   const count = stocks.length;
                   
-                  // Update Master Array and Registry
                   masterUniverse.push(...stocks);
                   stocks.forEach(s => tempRegistry.set(s.symbol, s));
 
-                  // Batch update UI registry for search
                   setGatheredRegistry(new Map(tempRegistry));
 
                   addLog(`Cylinder ${char}: Fired. ${count} HP added.`, "info");
@@ -392,17 +427,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           } catch (e: any) {
               addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
           }
-          
           await new Promise(r => setTimeout(r, 50));
       }
-      
       return masterUniverse;
   };
 
   const processCylinderData = (jsonContent: any): MasterTicker[] => {
       const results: MasterTicker[] = [];
       try {
-          // Case 2: Object with keys (Symbol as key) - This matches the provided sample structure
+          // Case 2: Object with keys (Symbol as key) - Standard Map format
           if (typeof jsonContent === 'object' && jsonContent !== null && !Array.isArray(jsonContent)) {
               Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
                   if (!val) return;
@@ -411,15 +444,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   
                   if (symbol) {
                       const price = Number(root.price) || 0;
-                      // Handle various change keys
                       const change = Number(root.change || root.changesPercentage || root.pChange || 0);
                       
-                      // Calculate or find prevClose
                       let prevClose = Number(root.previousClose || root.prevClose || 0);
                       if (prevClose === 0 && price > 0 && change !== 0) {
                           prevClose = price / (1 + (change / 100));
                       } else if (prevClose === 0 && price > 0) {
-                          prevClose = price; // Fallback if change is 0/missing
+                          prevClose = price; 
                       }
                       
                       const changeAmount = price - prevClose;
@@ -435,7 +466,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           sector: root.sector || 'Unknown',
                           industry: root.industry || 'Unknown',
                           
-                          // Correctly mapping lowercase keys from provided JSON
+                          // Correctly mapping lowercase keys
                           pe: Number(root.per || root.pe || root.peRatio || 0),
                           pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
                           psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
@@ -653,7 +684,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v7.1.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v7.2.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V12_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
