@@ -155,19 +155,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const safeNum = (val: any) => {
       if (val === null || val === undefined || val === '') return 0;
       if (typeof val === 'number') return isFinite(val) ? val : 0;
-      // Handle "1,234.56" strings
+      // Handle "1,234.56" and "12.5%" strings
       const cleanStr = String(val).replace(/,/g, '').replace(/%/g, '').trim();
       const n = parseFloat(cleanStr);
       return Number.isFinite(n) ? n : 0;
   };
 
-  const findValueInObject = (obj: any, keys: string[]): number => {
+  // Fuzzy Finder for keys (handles "Gross Profit", "gross_profit", "grossProfit" etc.)
+  const findValueInObject = (obj: any, candidates: string[]): number => {
       if (!obj) return 0;
-      for (const key of keys) {
-          // Case-insensitive search
-          const foundKey = Object.keys(obj).find(k => k.toLowerCase() === key.toLowerCase());
-          if (foundKey && obj[foundKey] !== undefined) {
-              return safeNum(obj[foundKey]);
+      const keys = Object.keys(obj);
+      for (const candidate of candidates) {
+          const lowerCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+          for (const key of keys) {
+              const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+              if (lowerKey === lowerCandidate || lowerKey.includes(lowerCandidate)) {
+                  const val = safeNum(obj[key]);
+                  if (val !== 0) return val;
+              }
           }
       }
       return 0;
@@ -206,20 +211,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       if (!res.ok) throw new Error(`Download failed`);
       
       const text = await res.text();
-      // Sanitize Python-generated JSON quirks (NaN, Infinity, etc. are invalid in JSON)
       const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
       
       try {
           return JSON.parse(safeText);
       } catch (e) {
-          console.error("JSON Parse Error on File:", fileId, safeText.slice(0, 100));
-          throw new Error("Invalid JSON Data (NaN/Infinity sanitization failed)");
+          console.error("JSON Parse Error on File:", fileId);
+          throw new Error("Invalid JSON Data");
       }
   };
 
   const getFormattedTimestamp = () => {
     const now = new Date();
-    // Format: YYYY-MM-DD_HH-mm-ss
     const pad = (n: number) => n.toString().padStart(2, '0');
     const yyyy = now.getFullYear();
     const mm = pad(now.getMonth() + 1);
@@ -269,13 +272,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       // 3. Advanced Metric Calculation using History (Force calculation)
       
       // A. Margins (Calculate directly from latest Income Statement if top-level is missing)
+      // Flexible key search
       let grossProfit = findValueInObject(latest, ["Gross Profit", "grossProfit", "gross_profit"]);
       let totalRevenue = findValueInObject(latest, ["Total Revenue", "revenue", "sales"]);
       let operatingIncome = findValueInObject(latest, ["Operating Income", "operatingIncome", "ebit"]);
       let netIncome = findValueInObject(latest, ["Net Income", "netIncome", "net_income"]);
       let opCashflow = safeNum(data.operatingCashflow);
-
-      // Try searching deeper if main keys missing
+      
+      // If revenue missing in latest history, try to find it in root data
       if (totalRevenue === 0) totalRevenue = safeNum(data.revenue);
 
       // *** CRITICAL MARGIN CALCULATION FIX ***
@@ -298,7 +302,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               opMargin = (operatingIncome / totalRevenue); // decimal
           }
       }
-      // If still 0, try to pull from `metrics` if available
+      
+      // Fallback: If 0, try to pull from `metrics` sub-object if available
       if (grossMargin === 0 && data.metrics?.grossMargin) grossMargin = safeNum(data.metrics.grossMargin);
 
       // Convert decimal margins to percentage for scoring
@@ -312,10 +317,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           const latestRev = findValueInObject(history[0], ["Total Revenue", "revenue"]);
           const oldRev = findValueInObject(history[Math.min(history.length-1, 4)], ["Total Revenue", "revenue"]);
           if (latestRev > 0 && oldRev > 0) {
-              // CAGR formula
+              // CAGR formula: (End/Start)^(1/n) - 1
               const years = Math.min(history.length-1, 4);
               const cagr = (Math.pow(latestRev / oldRev, 1/years) - 1) * 100;
-              // Use calculated CAGR if it makes sense, otherwise fallback
               if (isFinite(cagr)) {
                   revenueGrowth = cagr / 100; 
                   cagrScore = normalizeScore(cagr, 5, 25);
@@ -351,24 +355,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
 
       // E. Altman Z-Score Proxy (Financial Distress)
+      // Approximate if full balance sheet unavailable
       const estimatedAssets = pbr > 0 ? (marketCap / pbr) * (1 + debtToEquity/100) : marketCap;
       const cFactor = estimatedAssets > 0 ? (operatingIncome / estimatedAssets) : (roe / 100) * 0.5;
-      const dFactor = debtToEquity > 0 ? (100 / debtToEquity) : 5; // Inverse debt
+      const dFactor = debtToEquity > 0 ? (100 / debtToEquity) : 5; // Inverse debt (lower is better)
       
       let zScore = 1.0 + (cFactor * 3.3) + (dFactor * 0.05); 
-      // Bonus for cashflow positivity
       if (opCashflow > 0) zScore += 0.5;
-      // Bonus for revenue growth
       if (growthPct > 0) zScore += 0.5;
 
 
       // F. Intrinsic Value (RIM - Residual Income Model Simplified)
-      // Value = Book Value + (Present Value of Future Excess Returns)
-      const costOfEquity = 0.10; // Assume 10% discount rate
       let intrinsicValue = 0;
       
       if (roe > 0 && pbr > 0 && marketCap > 0) {
-          const bookValuePerShare = (marketCap / pbr) / (marketCap / price); // Approximation
+          const bookValuePerShare = (marketCap / pbr) / (marketCap / price);
           const eps = safeNum(latest["EPS"] || latest["Diluted EPS"] || data.eps);
           
           if (eps > 0) {
@@ -399,41 +400,30 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       // 1. Profitability
       if (netIncome > 0) fScore++;
       if (opCashflow > 0) fScore++;
+      // Check trend if history exists
       if (roe > (history[1] ? safeNum(history[1]["Return on Equity"]) : 0)) fScore++;
       if (opCashflow > netIncome) fScore++;
       
       // 2. Leverage / Liquidity / Source of Funds
-      const prevDebt = history[1] ? safeNum(history[1]["Long Term Debt"]) : debtToEquity; // Proxy
-      // Hard to get exact Long Term Debt from summary, assume stable if D/E is low
       if (debtToEquity < 50) fScore++; 
-      // Current Ratio check (Current Assets / Current Liabilities) - often missing in summary, assume pass if Z-Score good
       if (zScore > 2) fScore++;
       
       // 3. Operating Efficiency
       if (grossMargin > (history[1] ? safeNum(history[1]["Gross Margin"]) : 0)) fScore++;
-      if ((totalRevenue / estimatedAssets) > ((history[1] ? findValueInObject(history[1], ["Revenue", "Total Revenue"]) : 0) / estimatedAssets)) fScore++; // Asset Turnover proxy
-
+      
       // Normalize F-Score to ensure it's not too low due to missing data
       if (fScore < 3 && roe > 15) fScore += 2; 
 
 
       // 4. Final Composite Score (Enhanced with Weights)
-      // Valuation (Price vs Value)
       const valScore = normalizeScore(fairValueGap, -20, 50);  
-      
-      // Quality (Profitability)
       const qualityScore = normalizeScore(roe, 5, 30);         
-      
-      // Health (Safety)
       const safeScore = normalizeScore(zScore, 1.5, 4.0);      
-      
-      // Growth (CAGR + Rule of 40)
       const growthScore = (cagrScore * 0.6) + (normalizeScore(ruleOf40, 10, 60) * 0.4);    
       
       // Moat (Competitive Advantage) -> High Margin + High ROIC
       const moatScore = (normalizeScore(grossMargin, 20, 70) * 0.5) + (normalizeScore(roic, 5, 20) * 0.5);           
 
-      // Weighted Fundamental Score
       const fundamentalScore = (valScore * 0.2) + (qualityScore * 0.2) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.2);
 
       // Moat Classification
