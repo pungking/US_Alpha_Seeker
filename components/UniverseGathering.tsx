@@ -28,53 +28,56 @@ interface MasterTicker {
   marketCap: number;
   sector: string;
   industry: string;
+  // Financial Metrics
   pe: number;
   pbr: number;
   psr: number;
   roe: number;
   eps: number;
   beta: number;
+  debtToEquity: number;
+  // System Fields
   prevClose: number;
   updated: string;
-  // Dynamic fields
+  source: string;
   [key: string]: any;
 }
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
-  // Engine State
+  // --- ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v7.2.0: V12 Drive Engine (Restored) Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v12.5.0: V12 Drive Engine Online.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle' });
-  const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
   const [showConfig, setShowConfig] = useState(false);
-  
-  // Real-time Search & Audit State
+  const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
+
+  // --- DATA & SEARCH STATE ---
   const [searchQuery, setSearchQuery] = useState('');
   const [searchResult, setSearchResult] = useState<MasterTicker | null>(null);
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, MasterTicker>>(new Map());
+  
+  // --- REAL-TIME FEED STATE ---
   const [isLive, setIsLive] = useState(false);
   const [liveSource, setLiveSource] = useState<string>('');
-  
-  // Visual Flash State
   const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
   
-  // Refs for Cleanup & Persistence
+  // --- REFS ---
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
-  const cleanupRef = useRef<() => void>(() => {});
+  const cleanupRef = useRef<() => void>(() => {}); // Cleanup for WS/Intervals
   const prevPriceRef = useRef<number>(0);
   
+  // --- KEYS ---
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+  const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
 
-  // --- Effects ---
-
-  // Auto-scroll logs
+  // --- AUTO SCROLL LOGS ---
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Elapsed Timer
+  // --- ELAPSED TIMER ---
   useEffect(() => {
     let interval: any;
     if (isGathering && startTimeRef.current > 0) {
@@ -85,7 +88,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     return () => clearInterval(interval);
   }, [isGathering]);
 
-  // Auto-Pilot Trigger
+  // --- AUTO START ---
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
@@ -97,235 +100,170 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [autoStart, isActive]);
 
-  // 1. Initial Search from Registry (Static Data Look-up)
+  // --- SEARCH LOGIC (LOCAL REGISTRY + FALLBACK) ---
   useEffect(() => {
+    // Immediate Cleanup on query change
+    if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = () => {};
+    }
+
     if (!searchQuery) {
         setSearchResult(null);
         setIsLive(false);
         setPriceFlash(null);
         setLiveSource('');
         prevPriceRef.current = 0;
-        cleanupRef.current(); // Stop any active monitoring
         return;
     }
+
     const query = searchQuery.trim().toUpperCase();
     
-    // Immediate feedback from static registry if available
+    // 1. Check Local Registry First (Instant)
     if (gatheredRegistry.has(query)) {
         const staticData = gatheredRegistry.get(query);
         if (staticData) {
             setSearchResult(staticData);
             prevPriceRef.current = staticData.price;
-            setIsLive(false); // Switch to Live pending
+            // Initiate Live Feed for this symbol
+            startRealTimeFeed(staticData.symbol);
         }
     } else {
+        // 2. If not in registry, maybe try basic API lookup or just show not found
+        // For V12 Engine, we rely on the registry mostly, but can do a quick check
         setSearchResult(null);
         setIsLive(false);
-        prevPriceRef.current = 0;
     }
-  }, [searchQuery, gatheredRegistry]);
+  }, [searchQuery, gatheredRegistry]); // Re-run if registry updates or query changes
 
-  // 2. Real-Time Data Engine (WebSocket -> Polling Fallback)
-  // Re-implemented robustly to ensure cleanup and avoid memory leaks
-  useEffect(() => {
-      // Cleanup previous connection immediately
-      cleanupRef.current();
-      cleanupRef.current = () => {};
-
-      const symbol = searchResult?.symbol;
-      if (!symbol) return;
-
+  // --- REAL-TIME FEED ENGINE (The "Heartbeat") ---
+  const startRealTimeFeed = (symbol: string) => {
       let isCleanedUp = false;
-
-      // Strategy A: Finnhub WebSocket
-      const connectWebSocket = (): (() => void) => {
-          if (!finnhubKey) return () => {};
+      
+      // Helper to update state safely
+      const updatePrice = (price: number, source: string) => {
+          if (isCleanedUp) return;
           
+          setSearchResult((prev: any) => {
+              if (!prev || prev.symbol !== symbol) return prev;
+              
+              if (price !== prev.price) {
+                  const direction = price > prev.price ? 'up' : 'down';
+                  setPriceFlash(direction);
+                  setTimeout(() => setPriceFlash(null), 300);
+                  
+                  // Calculate dynamic change
+                  let change = prev.change;
+                  let changeAmount = prev.changeAmount;
+                  if (prev.prevClose) {
+                      changeAmount = price - prev.prevClose;
+                      change = (changeAmount / prev.prevClose) * 100;
+                  }
+
+                  return { ...prev, price, change, changeAmount };
+              }
+              return prev;
+          });
+          
+          setIsLive(true);
+          setLiveSource(source);
+          prevPriceRef.current = price;
+      };
+
+      // Strategy 1: Finnhub WebSocket (Priority)
+      const connectWS = () => {
+          if (!finnhubKey) return connectPolling();
+
           try {
               const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
               
               ws.onopen = () => {
-                  if (!isCleanedUp) ws.send(JSON.stringify({ type: 'subscribe', symbol: symbol }));
+                  ws.send(JSON.stringify({ type: 'subscribe', symbol }));
               };
 
               ws.onmessage = (event) => {
-                  if (isCleanedUp) return;
                   try {
                       const msg = JSON.parse(event.data);
                       if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
+                          // Get latest trade
                           const trade = msg.data[msg.data.length - 1];
-                          const newPrice = trade.p;
-                          
-                          if (newPrice && newPrice !== prevPriceRef.current) {
-                              const direction = newPrice > prevPriceRef.current ? 'up' : 'down';
-                              prevPriceRef.current = newPrice;
-                              
-                              setPriceFlash(direction);
-                              setTimeout(() => setPriceFlash(null), 300);
-
-                              setSearchResult((prev: any) => {
-                                  if (!prev || prev.symbol !== symbol) return prev;
-                                  
-                                  let newChange = prev.change;
-                                  let newChangeAmount = prev.changeAmount;
-                                  
-                                  if (prev.prevClose) {
-                                      newChangeAmount = newPrice - prev.prevClose;
-                                      newChange = (newChangeAmount / prev.prevClose) * 100;
-                                  }
-
-                                  return { ...prev, price: newPrice, change: newChange, changeAmount: newChangeAmount };
-                              });
-                              setIsLive(true);
-                              setLiveSource('Finnhub WS');
-                          }
+                          updatePrice(trade.p, 'Finnhub WS');
                       }
-                  } catch (e) { }
+                  } catch (e) {}
               };
 
               ws.onerror = () => {
-                  if (!isCleanedUp) {
-                      ws.close();
-                      // Fallback to polling if WS fails
-                      cleanupRef.current = startPolling();
-                  }
+                  ws.close();
+                  // Fallback to polling
+                  cleanupRef.current = connectPolling(); 
               };
 
-              return () => {
-                  if (ws.readyState === 1) ws.close();
-              };
-
+              return () => ws.close();
           } catch (e) {
-              return startPolling();
+              return connectPolling();
           }
       };
 
-      // Strategy B: Polling (Polygon -> Finnhub -> Yahoo)
-      const startPolling = (): (() => void) => {
-          const fetchRealTimeData = async () => {
+      // Strategy 2: Polling (Polygon -> Yahoo -> MSN)
+      const connectPolling = () => {
+          const fetchPoll = async () => {
               if (isCleanedUp) return;
+              
+              // A. Yahoo (Fastest Proxy)
               try {
-                  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-                  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-                  
-                  let price = 0;
-                  let change = 0;
-                  let changeAmount = 0;
-                  let prevClose = 0;
-                  let found = false;
-                  let source = "";
+                  const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (data && data.length > 0) {
+                          updatePrice(data[0].price, 'Yahoo Live');
+                          return; // Success
+                      }
+                  }
+              } catch(e) {}
 
-                  // 1. Polygon Snapshot
-                  if (polygonKey && !found) {
-                      try {
-                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polygonKey}`);
-                          if (res.ok) {
-                              const data = await res.json();
-                              const t = data.ticker;
-                              if (t) {
-                                  price = t.lastTrade?.p || t.day?.c || t.min?.c || 0;
-                                  change = t.todaysChangePerc || 0;
-                                  changeAmount = t.todaysChange || 0;
-                                  prevClose = t.prevDay?.c || 0;
-                                  if (price > 0) {
-                                      found = true;
-                                      source = "Polygon (Poll)";
-                                  }
+              // B. Polygon (If Yahoo fails)
+              const polyKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+              if (polyKey) {
+                  try {
+                      const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polyKey}`);
+                      if (res.ok) {
+                          const data = await res.json();
+                          if (data.ticker) {
+                              const p = data.ticker.lastTrade?.p || data.ticker.min?.c;
+                              if (p) {
+                                  updatePrice(p, 'Polygon Poll');
+                                  return;
                               }
                           }
-                      } catch (e) { }
+                      }
+                  } catch(e) {}
+              }
+              
+              // C. MSN (Deep Fallback)
+              try {
+                  const res = await fetch(`/api/msn?ids=${symbol}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (data && data.length > 0) {
+                          updatePrice(data[0].price, 'MSN Proxy');
+                      }
                   }
-
-                  // 2. Finnhub Quote
-                  if (finnhubKey && !found) {
-                      try {
-                          const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${symbol}&token=${finnhubKey}`);
-                          if (res.ok) {
-                              const data = await res.json();
-                              if (data.c > 0) {
-                                  price = data.c;
-                                  change = data.dp;
-                                  changeAmount = data.d;
-                                  prevClose = data.pc;
-                                  found = true;
-                                  source = "Finnhub (Poll)";
-                              }
-                          }
-                      } catch (e) { }
-                  }
-
-                  // 3. Yahoo Proxy
-                  if (!found) {
-                      try {
-                          const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
-                          if (res.ok) {
-                              const data = await res.json();
-                              if (data && data.length > 0) {
-                                  const live = data[0];
-                                  price = live.price;
-                                  change = live.change;
-                                  changeAmount = live.changeAmount !== undefined ? live.changeAmount : (price - (live.prevClose || price));
-                                  prevClose = live.prevClose || 0;
-                                  found = true;
-                                  source = "Yahoo (Delayed)";
-                              }
-                          }
-                      } catch (e) { }
-                  }
-
-                  if (found && !isCleanedUp) {
-                      setSearchResult((prev: any) => {
-                          if (!prev || prev.symbol !== symbol) return prev;
-                          
-                          if (prev.price !== price) {
-                              setPriceFlash(price > prev.price ? 'up' : 'down');
-                              setTimeout(() => setPriceFlash(null), 300);
-                          }
-                          
-                          setIsLive(true);
-                          setLiveSource(source);
-                          prevPriceRef.current = price;
-
-                          return {
-                              ...prev,
-                              price,
-                              change,
-                              changeAmount,
-                              prevClose: prevClose || prev.prevClose
-                          };
-                      });
-                  }
-              } catch (e) { }
+              } catch(e) {}
           };
 
-          fetchRealTimeData();
-          const intervalId = setInterval(fetchRealTimeData, 2000); // 2s polling
-          return () => clearInterval(intervalId);
+          fetchPoll(); // Initial call
+          const interval = setInterval(fetchPoll, 1500); // 1.5s interval
+          return () => clearInterval(interval);
       };
 
-      // Initialize Logic
-      if (finnhubKey) {
-          const wsCleanup = connectWebSocket();
-          cleanupRef.current = () => {
-              isCleanedUp = true;
-              wsCleanup();
-          };
-      } else {
-          const pollingCleanup = startPolling();
-          cleanupRef.current = () => {
-              isCleanedUp = true;
-              pollingCleanup();
-          };
-      }
-
-      return () => {
-          cleanupRef.current();
+      // Start Logic
+      const cleanup = connectWS();
+      cleanupRef.current = () => {
+          isCleanedUp = true;
+          if (cleanup) cleanup();
       };
+  };
 
-  }, [searchResult?.symbol, finnhubKey]);
-
-  // --- Helper Functions ---
-  
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
       setLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-50));
@@ -344,6 +282,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           setShowConfig(true);
           return;
       }
+      
       try {
           // @ts-ignore
           const client = google.accounts.oauth2.initTokenClient({
@@ -364,42 +303,82 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       }
   };
 
-  const getFormattedTimestamp = () => {
-      const now = new Date();
-      const year = now.getFullYear();
-      const month = String(now.getMonth() + 1).padStart(2, '0');
-      const day = String(now.getDate()).padStart(2, '0');
-      const hours = String(now.getHours()).padStart(2, '0');
-      const minutes = String(now.getMinutes()).padStart(2, '0');
-      const seconds = String(now.getSeconds()).padStart(2, '0');
-      return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+  // --- V12 ENGINE CORE LOGIC ---
+
+  const startGathering = async (token: string) => {
+      setIsGathering(true);
+      startTimeRef.current = Date.now();
+      setProgress({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'V12_Engine', phase: 'Discovery' });
+      setGatheredRegistry(new Map()); // Clear registry
+      
+      try {
+          const assets = await mountFinancialEngine(token);
+          
+          if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
+
+          setProgress(prev => ({ ...prev, found: assets.length, phase: 'Mapping' }));
+          addLog(`Engine Ignition Successful. ${assets.length} HP Generated.`, "ok");
+          
+          addLog(`Phase 2: Recording Telemetry to Stage 0...`, "info");
+          setProgress(prev => ({ ...prev, phase: 'Commit' }));
+
+          const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
+          const timestamp = getFormattedTimestamp();
+          const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
+          
+          const payload = {
+              manifest: { 
+                  version: "12.5.0", 
+                  provider: "Drive_V12_Engine", 
+                  date: new Date().toISOString(), 
+                  count: assets.length,
+                  note: "Engine Mounted from Financial_Data_Daily (A-Z)"
+              },
+              universe: assets
+          };
+
+          await uploadFile(token, folderId, fileName, payload);
+          setProgress(prev => ({ ...prev, phase: 'Finalized' }));
+          addLog(`System: Ready for Launch. Saved ${fileName}`, "ok");
+          
+          if (onComplete) onComplete();
+      } catch (e: any) {
+          addLog(`Fatal Error: ${e.message}`, "err");
+          setProgress(prev => ({ ...prev, phase: 'Idle' }));
+      } finally {
+          setIsGathering(false);
+          startTimeRef.current = 0;
+      }
   };
 
-  // --- Engine Logic (V12) ---
   const mountFinancialEngine = async (token: string) => {
       addLog("Initializing V12 Engine Protocol...", "info");
       
+      // 1. Locate 'System_Identity_Maps'
       let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       
       if (!systemMapFolderId) {
+          // Fallback scan root
           addLog(`'${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not in Project Root. Scanning Drive Root...`, "warn");
           systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
       }
 
       if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found in Drive.`);
 
+      // 2. Locate 'Financial_Data_Daily'
       const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
       if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
 
-      addLog("Core Map Located. Firing Cylinders...", "ok");
+      addLog("Core Map Located. Firing Cylinders (A-Z)...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-      const cylinders = alphabet;
+      const cylinders = alphabet; // Processing A-Z
       setProgress(prev => ({ ...prev, target: cylinders.length }));
 
       const masterUniverse: any[] = [];
       const tempRegistry = new Map<string, any>();
 
+      // Sequential Loading to prevent API rate limits or memory overflow
       for (let i = 0; i < cylinders.length; i++) {
           const char = cylinders[i];
           const fileName = `${char}_stocks_daily.json`;
@@ -410,13 +389,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               if (fileId) {
                   const content = await downloadFile(token, fileId);
                   
-                  // Process Data with Robust Mapping
+                  // [CORE] Process Data with Robust Key Mapping
                   const stocks = processCylinderData(content);
                   const count = stocks.length;
                   
                   masterUniverse.push(...stocks);
                   stocks.forEach(s => tempRegistry.set(s.symbol, s));
 
+                  // Update UI Registry incrementally
                   setGatheredRegistry(new Map(tempRegistry));
 
                   addLog(`Cylinder ${char}: Fired. ${count} HP added.`, "info");
@@ -427,18 +407,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           } catch (e: any) {
               addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
           }
-          await new Promise(r => setTimeout(r, 50));
+          
+          // Small delay to keep UI responsive
+          await new Promise(r => setTimeout(r, 20));
       }
+      
       return masterUniverse;
   };
 
   const processCylinderData = (jsonContent: any): MasterTicker[] => {
       const results: MasterTicker[] = [];
       try {
-          // Case 2: Object with keys (Symbol as key) - Standard Map format
+          // Structure Type 2: Object with Symbol Keys (Standard Map)
           if (typeof jsonContent === 'object' && jsonContent !== null && !Array.isArray(jsonContent)) {
               Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
                   if (!val) return;
+                  // Handle potential nested structures
                   const root = val.basic || val;
                   const symbol = root.symbol || key;
                   
@@ -466,22 +450,23 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           sector: root.sector || 'Unknown',
                           industry: root.industry || 'Unknown',
                           
-                          // Correctly mapping lowercase keys
+                          // Robust Financial Key Mapping
                           pe: Number(root.per || root.pe || root.peRatio || 0),
                           pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
                           psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
                           roe: Number(root.roe || root.returnOnEquity || 0),
                           eps: Number(root.eps || root.earningsPerShare || 0),
                           beta: Number(root.beta || 0),
-                          debtToEquity: Number(root.debtToEquity || 0),
+                          debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0),
                           
                           prevClose: prevClose,
-                          updated: new Date().toISOString()
+                          updated: new Date().toISOString(),
+                          source: 'V12_Cylinder'
                       });
                   }
               });
           }
-          // Case 1: Array of objects (Fallback support)
+          // Structure Type 1: Array of Objects
           else if (Array.isArray(jsonContent)) {
               return jsonContent.map(item => {
                   const root = item.basic || item;
@@ -508,7 +493,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       beta: Number(root.beta || 0),
                       debtToEquity: Number(root.debtToEquity || 0),
                       prevClose: prevClose,
-                      updated: new Date().toISOString()
+                      updated: new Date().toISOString(),
+                      source: 'V12_Cylinder'
                   };
               }).filter(item => item.symbol);
           }
@@ -518,61 +504,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return results;
   };
 
-  const formatMarketCap = (num: number) => {
-    if (!num) return 'N/A';
-    if (num >= 1.0e+12) return `$${(num / 1.0e+12).toFixed(2)}T`;
-    if (num >= 1.0e+9) return `$${(num / 1.0e+9).toFixed(2)}B`;
-    if (num >= 1.0e+6) return `$${(num / 1.0e+6).toFixed(2)}M`;
-    return `$${num.toLocaleString()}`;
-  };
-
-  const startGathering = async (token: string) => {
-      setIsGathering(true);
-      startTimeRef.current = Date.now();
-      setProgress({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Google_Drive_Engine', phase: 'Discovery' });
-      setGatheredRegistry(new Map()); 
-      
-      try {
-          const assets = await mountFinancialEngine(token);
-          
-          if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
-
-          setProgress(prev => ({ ...prev, found: assets.length, phase: 'Mapping' }));
-          addLog(`Engine Ignition Successful. ${assets.length} HP Generated.`, "ok");
-          
-          addLog(`Phase 2: Recording Telemetry to Stage 0...`, "info");
-          setProgress(prev => ({ ...prev, phase: 'Commit' }));
-
-          const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
-          const timestamp = getFormattedTimestamp();
-          const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
-          
-          const payload = {
-              manifest: { 
-                  version: "7.1.0", 
-                  provider: "Drive_V12_Engine", 
-                  date: new Date().toISOString(), 
-                  count: assets.length,
-                  note: "Engine Mounted from Financial_Data_Daily (A-Z)"
-              },
-              universe: assets
-          };
-
-          await uploadFile(token, folderId, fileName, payload);
-          setProgress(prev => ({ ...prev, phase: 'Finalized' }));
-          addLog(`System: Ready for Launch. Saved ${fileName}`, "ok");
-          
-          if (onComplete) onComplete();
-      } catch (e: any) {
-          addLog(`Fatal Error: ${e.message}`, "err");
-          setProgress(prev => ({ ...prev, phase: 'Idle' }));
-      } finally {
-          setIsGathering(false);
-          startTimeRef.current = 0;
-      }
-  };
-
-  // --- Drive Utilities ---
+  // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
@@ -621,7 +553,21 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       });
   };
 
-  // --- Dynamic Style Helpers ---
+  const getFormattedTimestamp = () => {
+      const now = new Date();
+      // KST Logic (optional, typically use UTC ISO for system files)
+      return now.toISOString().replace(/[:.]/g, '-');
+  };
+
+  const formatMarketCap = (num: number) => {
+    if (!num) return 'N/A';
+    if (num >= 1.0e+12) return `$${(num / 1.0e+12).toFixed(2)}T`;
+    if (num >= 1.0e+9) return `$${(num / 1.0e+9).toFixed(2)}B`;
+    if (num >= 1.0e+6) return `$${(num / 1.0e+6).toFixed(2)}M`;
+    return `$${num.toLocaleString()}`;
+  };
+
+  // --- DYNAMIC STYLING ---
   const getBorderColor = () => {
     if (priceFlash === 'up') return '#4ade80'; // Bright Green
     if (priceFlash === 'down') return '#f87171'; // Bright Red
@@ -684,7 +630,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v7.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v12.5.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V12_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
@@ -804,7 +750,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                 </div>
                             </div>
                         ) : (
-                            <span className="text-[10px] font-black italic uppercase tracking-widest text-slate-600">{searchQuery ? 'Searching...' : 'Awaiting Input...'}</span>
+                            <span className="text-[10px] font-black italic uppercase tracking-widest text-slate-600">{searchQuery ? 'Searching Registry...' : 'Awaiting Input...'}</span>
                         )}
                     </div>
                 </div>
