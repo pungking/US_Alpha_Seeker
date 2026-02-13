@@ -180,6 +180,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       
       const text = await res.text();
       // Sanitize Python-generated JSON quirks (NaN, Infinity, etc. are invalid in JSON)
+      // Replaces : NaN, with : null, to ensure JSON.parse works
       const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
       
       try {
@@ -518,7 +519,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
               {/* TICKER LIST (Updated Height & Removed Alpha) */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[600px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[360px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Calculated Targets ({processedData.length})</p>
                     <span className="text-[8px] font-mono text-slate-500">Ranked by Composite Alpha</span>
@@ -548,7 +549,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               </div>
 
               {/* DETAIL VIEW (Updated Height & New Metrics) */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[600px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[360px]">
                  {selectedTicker ? (
                      <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
                         <div className="flex justify-between items-start">
@@ -641,7 +642,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
+        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
           <div className="flex items-center justify-between mb-4 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Log</h3>
           </div>
