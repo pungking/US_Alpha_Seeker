@@ -288,19 +288,27 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
+          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-8 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v2.1</h2>
-                <div className="flex items-center space-x-3 mt-2">
-                   <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                     {loading ? `Scoring & Filtering...` : 'Elite 500 Selection Ready'}
-                   </span>
-                   {historyFolderId && <span className="text-[8px] px-2 py-0.5 bg-indigo-900/50 text-indigo-400 border border-indigo-500/20 rounded font-black uppercase">5Y History Linked</span>}
-                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                <div className="flex flex-col mt-2">
+                   <div className="flex items-center space-x-3">
+                       <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
+                         {loading ? `Scoring & Filtering...` : 'Elite 500 Selection Ready'}
+                       </span>
+                       {historyFolderId && <span className="text-[8px] px-2 py-0.5 bg-indigo-900/50 text-indigo-400 border border-indigo-500/20 rounded font-black uppercase">5Y History Linked</span>}
+                       {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
+                   </div>
+                   {/* Legend for P/S/V */}
+                   <div className="flex items-center space-x-3 mt-1.5 opacity-70">
+                        <span className="text-[7px] text-emerald-400 font-bold">P = Profitability (ROE)</span>
+                        <span className="text-[7px] text-blue-400 font-bold">S = Stability (Debt/Eq)</span>
+                        <span className="text-[7px] text-amber-400 font-bold">V = Value (PER/PBR)</span>
+                   </div>
                 </div>
               </div>
             </div>
@@ -315,8 +323,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
              {/* Quality vs Value Matrix */}
-             <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality Matrix (Top 100 Samples)</p>
+             <div className="bg-black/40 p-4 rounded-3xl border border-white/5 h-[340px] flex flex-col relative">
+                <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-2 absolute top-6 left-6 z-10">Quality Matrix (Top 100 Samples)</p>
                 <div className="flex-1 w-full h-full mt-4">
                     <ResponsiveContainer width="100%" height="100%">
                         <ScatterChart 
@@ -363,7 +371,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
              </div>
 
              {/* Elite 500 Ranking List (Scrollable) */}
-             <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden h-[600px]">
+             <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden h-[340px]">
                 <div className="flex justify-between items-center mb-4">
                     <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest">Elite 500 Candidates</p>
                     <span className="text-[8px] text-slate-500 font-mono">{eliteUniverse.length} / 500</span>
