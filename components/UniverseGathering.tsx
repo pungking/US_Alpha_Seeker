@@ -18,43 +18,62 @@ interface Props {
   onComplete?: () => void;
 }
 
-// [V12 ENGINE] Expanded Data Structure for Maximum Fidelity
+// [V13 ENGINE] Updated Data Structure for Hedge Fund Grade Metrics (28 Fields)
 interface MasterTicker {
+  // 1. Basic Info
   symbol: string;
   name: string;
   price: number;
-  change: number;
-  changeAmount: number;
-  volume: number;
+  currency: string;
   marketCap: number;
-  sector: string;
-  industry: string;
-  
-  // Fundamental Metrics
-  pe: number;
-  pbr: number;
-  psr: number;
-  roe: number;
-  eps: number;
-  beta: number;
-  debtToEquity: number;
-  
-  // Technical Bounds
-  fiftyTwoWeekHigh: number;
-  fiftyTwoWeekLow: number;
-  avgVolume: number;
-  
-  // System Fields
-  prevClose: number;
   updated: string;
   source: string;
+  
+  // 2. Valuation
+  pe: number;             // per
+  pbr: number;            // pbr
+  psr: number;            // psr
+  pegRatio: number;       // pegRatio
+  targetMeanPrice: number;// targetMeanPrice
+  
+  // 3. Quality & Efficiency
+  roe: number;            // roe
+  roa: number;            // roa
+  eps: number;            // eps
+  operatingMargins: number; // operatingMargins
+  debtToEquity: number;   // debtToEquity
+  
+  // 4. Growth & Cash
+  revenueGrowth: number;  // revenueGrowth
+  operatingCashflow: number; // operatingCashflow
+  
+  // 5. Dividend
+  dividendRate: number;   // dividendRate
+  dividendYield: number;  // dividendYield
+  
+  // 6. Momentum & Sentiment
+  volume: number;
+  beta: number;
+  heldPercentInstitutions: number; // heldPercentInstitutions
+  shortRatio: number;     // shortRatio
+  fiftyDayAverage: number;
+  twoHundredDayAverage: number;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+  
+  // 7. Meta
+  sector: string;
+  industry: string;
+
+  // System
+  change: number;
+  changeAmount: number;
+  prevClose: number;
   dataQuality: 'HIGH' | 'MEDIUM' | 'LOW';
   
-  // Index Signature for dynamic expansion
   [key: string]: any;
 }
 
-// [V12 ENGINE] Telemetry Interface
 interface EngineTelemetry {
   fps: number;
   latency: number;
@@ -66,7 +85,7 @@ interface EngineTelemetry {
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v12.8.5: V12 Heavy Industry Protocol Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.0.0: Hedge Fund Protocol Loaded.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
@@ -88,22 +107,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const startTimeRef = useRef<number>(0);
   const cleanupRef = useRef<() => void>(() => {}); 
   const prevPriceRef = useRef<number>(0);
-  const retryCountRef = useRef<number>(0);
   const healthCheckRef = useRef<any>(null);
   
   // --- SECURE KEYS ---
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
 
   // --- UI EFFECTS ---
 
-  // Auto-scroll logs terminal
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Elapsed Time Counter & FPS Simulation
   useEffect(() => {
     let interval: any;
     if (isGathering && startTimeRef.current > 0) {
@@ -112,7 +127,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
         const elapsed = Math.floor((now - startTimeRef.current) / 1000);
         setProgress(prev => ({ ...prev, elapsed }));
         
-        // Simulate Engine Telemetry
         setTelemetry(prev => ({
             ...prev,
             fps: Math.max(30, 60 - Math.random() * 10),
@@ -124,11 +138,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     return () => clearInterval(interval);
   }, [isGathering]);
 
-  // Auto-Pilot Initiation
   useEffect(() => {
     if (autoStart && isActive && !isGathering) {
         if (accessToken) {
-            addLog("AUTO-PILOT: Engaging V12 Heavy Engine Ignition...", "signal");
+            addLog("AUTO-PILOT: Engaging V13 Heavy Engine Ignition...", "signal");
             startGathering(accessToken);
         } else {
             addLog("AUTO-PILOT: Critical - Auth Token Missing. Aborting.", "err");
@@ -136,15 +149,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [autoStart, isActive]);
 
-  // Search Logic with Instant Registry Lookup
   useEffect(() => {
-    // Immediate Cleanup on query change
     if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = () => {};
     }
     
-    // Clear previous heartbeats
     if (healthCheckRef.current) {
         clearInterval(healthCheckRef.current);
         healthCheckRef.current = null;
@@ -157,15 +167,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     const query = searchQuery.trim().toUpperCase();
     
-    // 1. Check Local Registry First (Instant Access)
     if (gatheredRegistry.has(query)) {
         const staticData = gatheredRegistry.get(query);
         if (staticData) {
             setSearchResult(staticData);
             prevPriceRef.current = staticData.price;
             addLog(`Registry Hit: ${staticData.symbol} loaded from local memory.`, "info");
-            
-            // Initiate Heavy Duty Live Feed for this symbol
             startRealTimeEngine(staticData.symbol);
         }
     } else {
@@ -232,21 +239,17 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       let isCleanedUp = false;
       let heartbeatCount = 0;
       
-      // Update Health Telemetry
       const pulseCheck = setInterval(() => {
           heartbeatCount++;
           if (heartbeatCount > 10) {
               setConnectionHealth('POOR');
-              // Trigger Reconnection Logic if needed
           }
       }, 1000);
       healthCheckRef.current = pulseCheck;
 
-      // Centralized Update Handler
       const updatePrice = (price: number, source: string, bid?: number, ask?: number) => {
           if (isCleanedUp) return;
           
-          // Reset Health Check
           heartbeatCount = 0;
           setConnectionHealth('EXCELLENT');
 
@@ -258,7 +261,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   setPriceFlash(direction);
                   setTimeout(() => setPriceFlash(null), 300);
                   
-                  // Dynamic Change Calculation
                   let change = prev.change;
                   let changeAmount = prev.changeAmount;
                   if (prev.prevClose && prev.prevClose > 0) {
@@ -283,10 +285,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           prevPriceRef.current = price;
       };
 
-      // --- PROTOCOL A: Finnhub WebSocket (Primary) ---
       const connectWS = () => {
           if (!finnhubKey) {
-              addLog("WS Key Missing. Downgrading to Polling.", "warn");
               return connectPolling();
           }
 
@@ -302,7 +302,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   try {
                       const msg = JSON.parse(event.data);
                       if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
-                          // Get latest trade
                           const trade = msg.data[msg.data.length - 1];
                           updatePrice(trade.p, 'Finnhub WS (Live)');
                           
@@ -318,16 +317,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
               ws.onerror = (e) => {
-                  console.error("WS Error", e);
                   setConnectionHealth('CRITICAL');
                   ws.close();
-                  // Failover to Polling
                   cleanupRef.current = connectPolling(); 
               };
               
               ws.onclose = () => {
                   if (!isCleanedUp) {
-                      addLog("WS Closed. Reconnecting...", "warn");
                       cleanupRef.current = connectPolling();
                   }
               };
@@ -338,15 +334,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           }
       };
 
-      // --- PROTOCOL B: High-Speed Polling Cluster (Fallback) ---
       const connectPolling = () => {
-          addLog("Engaging Polling Cluster (Yahoo/Polygon/CNBC)...", "info");
-          
           const fetchPoll = async () => {
               if (isCleanedUp) return;
               let success = false;
               
-              // 1. Yahoo (Fastest Proxy)
               if (!success) {
                   try {
                       const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
@@ -360,68 +352,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   } catch(e) {}
               }
 
-              // 2. CNBC (RapidAPI / Portal)
-              if (!success) {
-                  try {
-                       const res = await fetch(`/api/portal_indices`); 
-                       // Note: Portal indices usually only covers major indices/stocks, 
-                       // but we check anyway if symbol is major
-                       if (res.ok) {
-                           const data = await res.json();
-                           const target = data.find((d: any) => d.symbol === symbol);
-                           if (target) {
-                               updatePrice(target.price, 'CNBC Direct');
-                               success = true;
-                           }
-                       }
-                  } catch(e) {}
-              }
-
-              // 3. Polygon (If Key Available)
-              if (!success) {
-                  const polyKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-                  if (polyKey) {
-                      try {
-                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polyKey}`);
-                          if (res.ok) {
-                              const data = await res.json();
-                              if (data.ticker) {
-                                  const p = data.ticker.lastTrade?.p || data.ticker.min?.c;
-                                  if (p) {
-                                      updatePrice(p, 'Polygon.io');
-                                      success = true;
-                                  }
-                              }
-                          }
-                      } catch(e) {}
-                  }
-              }
-              
-              // 4. MSN (Deep Fallback)
-              if (!success) {
-                  try {
-                      const res = await fetch(`/api/msn?ids=${symbol}`);
-                      if (res.ok) {
-                          const data = await res.json();
-                          if (data && data.length > 0 && data[0].price) {
-                              updatePrice(data[0].price, 'MSN Money');
-                              success = true;
-                          }
-                      }
-                  } catch(e) {}
-              }
-              
               if (!success) {
                   setConnectionHealth('POOR');
               }
           };
 
-          fetchPoll(); // Initial call
-          const interval = setInterval(fetchPoll, 1500); // 1.5s interval
+          fetchPoll(); 
+          const interval = setInterval(fetchPoll, 1500); 
           return () => clearInterval(interval);
       };
 
-      // Start Protocol
       const cleanup = connectWS();
       cleanupRef.current = () => {
           isCleanedUp = true;
@@ -436,7 +376,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       setIsGathering(true);
       startTimeRef.current = Date.now();
       setProgress({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'V12_Engine', phase: 'Discovery', integrity: 100 });
-      setGatheredRegistry(new Map()); // Clear registry
+      setGatheredRegistry(new Map()); 
       
       try {
           const assets = await mountFinancialEngine(token);
@@ -446,7 +386,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           setProgress(prev => ({ ...prev, found: assets.length, phase: 'Mapping' }));
           addLog(`Engine Ignition Successful. ${assets.length} HP Generated.`, "ok");
           
-          // Integrity Check
           const invalidAssets = assets.filter(a => !a.price || a.price === 0).length;
           const integrityScore = Math.max(0, 100 - (invalidAssets / assets.length * 100));
           setProgress(prev => ({ ...prev, integrity: Math.floor(integrityScore) }));
@@ -461,12 +400,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           
           const payload = {
               manifest: { 
-                  version: "12.8.5", 
-                  provider: "Drive_V12_Heavy", 
+                  version: "13.0.0", 
+                  provider: "Drive_V13_HedgeFund", 
                   date: new Date().toISOString(), 
                   count: assets.length,
                   integrity: integrityScore,
-                  note: "Engine Mounted from Financial_Data_Daily (A-Z) with Enhanced Mapping"
+                  note: "Full 28 Metric Expansion for Hedge Fund Analysis"
               },
               universe: assets
           };
@@ -486,9 +425,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const mountFinancialEngine = async (token: string) => {
-      addLog("Initializing V12 Engine Protocol...", "info");
+      addLog("Initializing V13 Engine Protocol...", "info");
       
-      // 1. Locate 'System_Identity_Maps'
       let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       
       if (!systemMapFolderId) {
@@ -498,20 +436,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found in Drive.`);
 
-      // 2. Locate 'Financial_Data_Daily'
       const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
       if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
 
       addLog("Core Map Located. Firing Cylinders (A-Z)...", "ok");
 
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-      const cylinders = alphabet; // Processing A-Z
+      const cylinders = alphabet; 
       setProgress(prev => ({ ...prev, target: cylinders.length }));
 
       const masterUniverse: any[] = [];
       const tempRegistry = new Map<string, any>();
 
-      // Sequential Loading to prevent API rate limits or memory overflow
       for (let i = 0; i < cylinders.length; i++) {
           const char = cylinders[i];
           const fileName = `${char}_stocks_daily.json`;
@@ -521,15 +457,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               
               if (fileId) {
                   const content = await downloadFile(token, fileId);
-                  
-                  // [CORE] Process Data with Robust Key Mapping
                   const stocks = processCylinderData(content);
                   const count = stocks.length;
                   
                   masterUniverse.push(...stocks);
                   stocks.forEach(s => tempRegistry.set(s.symbol, s));
-
-                  // Update UI Registry incrementally
                   setGatheredRegistry(new Map(tempRegistry));
 
                   addLog(`Cylinder ${char}: Fired. ${count} HP added.`, "info");
@@ -540,109 +472,80 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           } catch (e: any) {
               addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
           }
-          
-          // Small delay to keep UI responsive
           await new Promise(r => setTimeout(r, 20));
       }
       
       return masterUniverse;
   };
 
+  // [V13] Enhanced Data Processor for 28 Metrics
   const processCylinderData = (jsonContent: any): MasterTicker[] => {
       const results: MasterTicker[] = [];
       try {
-          // Structure Type 2: Object with Symbol Keys (Standard Map)
-          if (typeof jsonContent === 'object' && jsonContent !== null && !Array.isArray(jsonContent)) {
-              Object.entries(jsonContent).forEach(([key, val]: [string, any]) => {
-                  if (!val) return;
-                  // Handle potential nested structures
-                  const root = val.basic || val;
-                  const symbol = root.symbol || key;
-                  
-                  if (symbol) {
-                      const price = Number(root.price) || 0;
-                      const change = Number(root.change || root.changesPercentage || root.pChange || 0);
-                      
-                      let prevClose = Number(root.previousClose || root.prevClose || 0);
-                      if (prevClose === 0 && price > 0 && change !== 0) {
-                          prevClose = price / (1 + (change / 100));
-                      } else if (prevClose === 0 && price > 0) {
-                          prevClose = price; 
-                      }
-                      
-                      const changeAmount = price - prevClose;
+          const items = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
+          
+          return items.map((item: any) => {
+              const root = item.basic || item;
+              if (!root.symbol) return null;
 
-                      results.push({
-                          symbol: symbol,
-                          name: root.name || root.companyName || key,
-                          price: price,
-                          volume: Number(root.volume) || 0,
-                          change: change,
-                          changeAmount: changeAmount,
-                          marketCap: Number(root.marketCap) || 0,
-                          sector: root.sector || 'Unknown',
-                          industry: root.industry || 'Unknown',
-                          
-                          // Robust Financial Key Mapping
-                          pe: Number(root.per || root.pe || root.peRatio || 0),
-                          pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
-                          psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
-                          roe: Number(root.roe || root.returnOnEquity || 0),
-                          eps: Number(root.eps || root.earningsPerShare || 0),
-                          beta: Number(root.beta || 0),
-                          debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0),
-                          
-                          // New Fields for V12
-                          fiftyTwoWeekHigh: Number(root.yearHigh || 0),
-                          fiftyTwoWeekLow: Number(root.yearLow || 0),
-                          avgVolume: Number(root.avgVolume || root.averageVolume || 0),
-                          
-                          prevClose: prevClose,
-                          updated: new Date().toISOString(),
-                          source: 'V12_Cylinder',
-                          dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
-                      });
-                  }
-              });
-          }
-          // Structure Type 1: Array of Objects
-          else if (Array.isArray(jsonContent)) {
-              return jsonContent.map(item => {
-                  const root = item.basic || item;
-                  const price = Number(root.price) || 0;
-                  const change = Number(root.change || root.changesPercentage || 0);
-                  let prevClose = Number(root.previousClose || 0);
-                  if (prevClose === 0 && price > 0) prevClose = price / (1 + (change / 100));
+              const price = Number(root.price) || 0;
+              const change = Number(root.change || root.changesPercentage || root.pChange || 0);
+              let prevClose = Number(root.previousClose || root.prevClose || 0);
+              if (prevClose === 0 && price > 0) prevClose = price / (1 + (change / 100));
 
-                  return {
-                      symbol: root.symbol,
-                      name: root.name || root.companyName,
-                      price: price,
-                      volume: Number(root.volume) || 0,
-                      change: change,
-                      changeAmount: price - prevClose,
-                      marketCap: Number(root.marketCap) || 0,
-                      sector: root.sector || 'Unknown',
-                      industry: root.industry || 'Unknown',
-                      pe: Number(root.per || root.pe || 0),
-                      pbr: Number(root.pbr || 0),
-                      psr: Number(root.psr || 0),
-                      roe: Number(root.roe || 0),
-                      eps: Number(root.eps || 0),
-                      beta: Number(root.beta || 0),
-                      debtToEquity: Number(root.debtToEquity || 0),
-                      
-                      fiftyTwoWeekHigh: Number(root.yearHigh || 0),
-                      fiftyTwoWeekLow: Number(root.yearLow || 0),
-                      avgVolume: Number(root.avgVolume || 0),
+              return {
+                  // 1. Basic Info & Price
+                  symbol: root.symbol,
+                  name: root.name || root.companyName || "Unknown",
+                  price: price,
+                  currency: root.currency || "USD",
+                  marketCap: Number(root.marketCap) || 0,
+                  updated: new Date().toISOString(),
+                  source: 'V13_Cylinder',
 
-                      prevClose: prevClose,
-                      updated: new Date().toISOString(),
-                      source: 'V12_Cylinder',
-                      dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
-                  };
-              }).filter(item => item.symbol);
-          }
+                  // 2. Valuation (Value)
+                  pe: Number(root.per || root.pe || root.peRatio || 0),
+                  pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
+                  psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
+                  pegRatio: Number(root.pegRatio || root.peg || 0),
+                  targetMeanPrice: Number(root.targetMeanPrice || 0),
+
+                  // 3. Profitability & Efficiency (Quality)
+                  roe: Number(root.roe || root.returnOnEquity || 0),
+                  roa: Number(root.roa || root.returnOnAssets || 0),
+                  eps: Number(root.eps || root.earningsPerShare || 0),
+                  operatingMargins: Number(root.operatingMargins || root.operatingMargin || 0),
+                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0),
+
+                  // 4. Growth & Cash
+                  revenueGrowth: Number(root.revenueGrowth || 0),
+                  operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
+
+                  // 5. Dividend
+                  dividendRate: Number(root.dividendRate || 0),
+                  dividendYield: Number(root.dividendYield || 0),
+
+                  // 6. Momentum & Sentiment
+                  volume: Number(root.volume) || 0,
+                  beta: Number(root.beta || 0),
+                  heldPercentInstitutions: Number(root.heldPercentInstitutions || root.institutionOwnership || 0),
+                  shortRatio: Number(root.shortRatio || 0),
+                  fiftyDayAverage: Number(root.fiftyDayAverage || 0),
+                  twoHundredDayAverage: Number(root.twoHundredDayAverage || 0),
+                  fiftyTwoWeekHigh: Number(root.fiftyTwoWeekHigh || root.yearHigh || 0),
+                  fiftyTwoWeekLow: Number(root.fiftyTwoWeekLow || root.yearLow || 0),
+
+                  // 7. Meta Data
+                  sector: root.sector || 'Unknown',
+                  industry: root.industry || 'Unknown',
+
+                  // System Fields
+                  change: change,
+                  changeAmount: price - prevClose,
+                  prevClose: prevClose,
+                  dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
+              };
+          }).filter(item => item !== null) as MasterTicker[];
       } catch (e) {
           console.error("Error processing cylinder data chunk", e);
       }
@@ -713,13 +616,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   // --- DYNAMIC STYLING ---
   const getBorderColor = () => {
-    if (priceFlash === 'up') return '#4ade80'; // Bright Green
-    if (priceFlash === 'down') return '#f87171'; // Bright Red
+    if (priceFlash === 'up') return '#4ade80'; 
+    if (priceFlash === 'down') return '#f87171'; 
 
     if (searchResult && isLive) {
         return searchResult.change >= 0 
-            ? 'rgba(16, 185, 129, 0.5)' // Emerald
-            : 'rgba(244, 63, 94, 0.5)'; // Rose
+            ? 'rgba(16, 185, 129, 0.5)' 
+            : 'rgba(244, 63, 94, 0.5)'; 
     }
     
     return 'rgba(255,255,255,0.05)'; 
@@ -774,9 +677,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v12.8.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.0.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V12_Drive_Engine</span>
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
@@ -788,7 +691,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                 disabled={isGathering}
                 className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isGathering ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : accessToken ? 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' : 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20'}`}
             >
-                {isGathering ? 'Cylinders Firing...' : accessToken ? 'Ignite V12 Engine' : 'Connect Cloud Vault'}
+                {isGathering ? 'Cylinders Firing...' : accessToken ? 'Ignite V13 Engine' : 'Connect Cloud Vault'}
             </button>
           </div>
 
@@ -812,7 +715,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                         onChange={(e) => setSearchQuery(e.target.value)}
                     />
                     
-                    {/* ENHANCED TICKER BOX: Responsive Logic for Daily Change & Real-time Flash */}
+                    {/* ENHANCED TICKER BOX: 8 Core Quant Metrics */}
                     <div 
                         className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all duration-300 transform ${priceFlash ? 'scale-105' : 'scale-100'} ${searchResult ? '' : 'bg-slate-900 border-white/5'}`}
                         style={searchResult ? {
@@ -851,38 +754,51 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                     </div>
                                 </div>
                                 
-                                <div className="grid grid-cols-4 gap-2 bg-black/40 p-3 rounded-xl border border-white/5 mb-4">
+                                <div className="grid grid-cols-4 gap-3 bg-black/40 p-4 rounded-xl border border-white/5 mb-4">
+                                    {/* Slot 1: Market Cap (Size) */}
                                     <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">전일종가</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">${searchResult.prevClose ? searchResult.prevClose.toFixed(2) : 'N/A'}</span>
-                                    </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">시가총액</span>
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Market Cap</span>
                                         <span className="text-xs font-mono text-slate-300 font-bold">{formatMarketCap(searchResult.marketCap)}</span>
                                     </div>
+                                    {/* Slot 2: P/E (Valuation) */}
                                     <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PER</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.pe ? searchResult.pe.toFixed(1) + 'x' : 'N/A'}</span>
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">P/E (TTM)</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.pe > 30 ? 'text-rose-400' : 'text-emerald-400'}`}>{searchResult.pe ? searchResult.pe.toFixed(1) + 'x' : 'N/A'}</span>
                                     </div>
+                                    {/* Slot 3: P/S (Revenue Multi) */}
                                     <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">EPS</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">${searchResult.eps ? searchResult.eps.toFixed(2) : 'N/A'}</span>
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">P/S (TTM)</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.psr ? searchResult.psr.toFixed(1) + 'x' : 'N/A'}</span>
                                     </div>
-                                    <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">PBR</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.pbr ? searchResult.pbr.toFixed(1) + 'x' : 'N/A'}</span>
-                                    </div>
+                                    {/* Slot 4: ROE (Quality) */}
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">ROE</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.roe ? searchResult.roe.toFixed(1) + '%' : 'N/A'}</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.roe > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{searchResult.roe ? searchResult.roe.toFixed(1) + '%' : 'N/A'}</span>
                                     </div>
+                                    
+                                    {/* Slot 5: Operating Margin (Efficiency) */}
                                     <div className="flex flex-col">
-                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">52W High</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">${searchResult.fiftyTwoWeekHigh ? searchResult.fiftyTwoWeekHigh.toFixed(2) : 'N/A'}</span>
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Op. Margin</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.operatingMargins ? (searchResult.operatingMargins * 100).toFixed(1) + '%' : 'N/A'}</span>
                                     </div>
+                                    {/* Slot 6: Inst. Own (Smart Money) - Hedge Fund Special */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Inst. Own</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.heldPercentInstitutions > 70 ? 'text-indigo-400' : 'text-slate-300'}`}>
+                                            {searchResult.heldPercentInstitutions ? (searchResult.heldPercentInstitutions * 100).toFixed(1) + '%' : 'N/A'}
+                                        </span>
+                                    </div>
+                                    {/* Slot 7: Beta (Volatility) */}
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Beta</span>
                                         <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.beta ? searchResult.beta.toFixed(2) : 'N/A'}</span>
+                                    </div>
+                                    {/* Slot 8: Target Gap (Upside) */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Target Gap</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.targetMeanPrice > searchResult.price ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {searchResult.targetMeanPrice > 0 ? (((searchResult.targetMeanPrice - searchResult.price) / searchResult.price) * 100).toFixed(1) + '%' : 'N/A'}
+                                        </span>
                                     </div>
                                 </div>
 
