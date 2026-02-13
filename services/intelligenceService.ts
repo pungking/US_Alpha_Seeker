@@ -681,11 +681,23 @@ export async function analyzePipelineStatus(data: {
           - Market State: ${stock.marketState || 'UNKNOWN'}
           `;
       }
+      
+      let stage2Context = "";
+      if (stock.qualityScore || stock.profitScore) {
+        stage2Context = `
+        [STAGE 2 DEEP QUALITY FILTER DATA DETECTED]
+        - Composite Quality Score: ${stock.qualityScore}/100
+        - Profitability Score: ${stock.profitScore}/100 (ROE driven)
+        - Safety Score: ${stock.safeScore}/100 (Debt driven)
+        - Value Score: ${stock.valueScore}/100 (PE driven)
+        `;
+      }
 
       userPrompt = `
       [SINGLE ASSET DEEP DIVE AUDIT]
       대상: ${stock.symbol}
       데이터: 현재가 $${stock.price}, 확신도 ${stock.convictionScore || stock.compositeAlpha}%, AI판정 ${stock.aiVerdict}
+      ${stage2Context}
       ${fundamentalContext}
       ${technicalContext}
       ${ictContext}
@@ -693,6 +705,9 @@ export async function analyzePipelineStatus(data: {
 
       당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
+      
+      **사용 가능한 모든 데이터([STAGE 2] ~ [STAGE 5])를 종합하여 입체적인 분석을 제공하십시오.**
+      특히 STAGE 2의 품질 점수(Quality Scores)가 있다면, 이를 기반으로 기업의 기초 체력을 먼저 진단하십시오.
       
       **[STAGE 3 FUNDAMENTAL DATA]**, **[STAGE 4 TECHNICAL MOMENTUM DATA]**, 그리고 **[STAGE 5 INSTITUTIONAL FOOTPRINT (ICT) DATA]** 섹션이 존재할 경우, 해당 수치들을 반드시 분석에 인용하여 펀더멘털, 기술적 모멘텀, 그리고 기관 수급(ICT)의 조화를 종합적으로 평가하십시오.
       
@@ -721,8 +736,9 @@ export async function analyzePipelineStatus(data: {
          - **핵심 모멘텀 지표 (RSI/RVOL/Squeeze)**: RSI의 상태, RVOL을 통한 수급 강도, TTM Squeeze의 발동 여부를 종합하여 기술적 타점을 분석.
       
       3. **펀더멘털 건전성 진단 (Fundamental Audit)**:
-         - ROIC 및 Rule of 40 기반의 기업 효율성 평가.
-         - 현재 주가 대비 내재가치(Intrinsic Value)의 괴리율 분석.
+         - 수익성(Profit Score), 안정성(Safety Score), 가치(Value Score)를 기반으로 한 기초 체력 평가.
+         - ROIC 및 Rule of 40 기반의 기업 효율성 평가 (데이터 존재 시).
+         - 현재 주가 대비 내재가치(Intrinsic Value)의 괴리율 분석 (데이터 존재 시).
          
       4. **실전 매매 가이드**:
          - **최적 진입 구간**: 분할 매수 타점 (구체적 가격대, Order Block 참고)
