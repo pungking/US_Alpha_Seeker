@@ -89,7 +89,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const cleanupRef = useRef<() => void>(() => {}); 
   const prevPriceRef = useRef<number>(0);
   const retryCountRef = useRef<number>(0);
-  const healthCheckRef = useRef<NodeJS.Timeout | null>(null);
+  const healthCheckRef = useRef<any>(null);
   
   // --- SECURE KEYS ---
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -600,7 +600,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                           prevClose: prevClose,
                           updated: new Date().toISOString(),
                           source: 'V12_Cylinder',
-                          dataQuality: price > 0 ? 'HIGH' : 'LOW'
+                          dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
                       });
                   }
               });
@@ -639,7 +639,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       prevClose: prevClose,
                       updated: new Date().toISOString(),
                       source: 'V12_Cylinder',
-                      dataQuality: price > 0 ? 'HIGH' : 'LOW'
+                      dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
                   };
               }).filter(item => item.symbol);
           }
