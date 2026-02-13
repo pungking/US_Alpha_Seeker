@@ -800,7 +800,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                          {connectionHealth} SIGNAL
                      </span>
                      {isLive && <span className="text-[8px] font-black text-emerald-400 animate-pulse uppercase border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">● {liveSource || 'LIVE FEED'}</span>}
-                     <span className="text-[8px] text-slate-500 uppercase">Mode: Real-Time_Audit</span>
                  </div>
              </div>
              <div className="flex flex-col gap-4">
