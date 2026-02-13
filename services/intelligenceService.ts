@@ -542,39 +542,92 @@ export async function analyzePipelineStatus(data: {
   }
 
   if (isIntegrityCheck) {
-      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자입니다. 투자 전 '무결성 검증(Integrity Check)' 단계에서 스캠, 상장폐지 위험, 페이퍼 컴퍼니 가능성을 냉철하게 차단하는 역할을 수행합니다. 보고서는 금융 전문가를 위한 것이므로 이모티콘을 절대 사용하지 않으며, 건조하고 전문적인 한국어 문체를 유지해야 합니다.";
+      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자이자 수석 퀀트 분석가입니다. 투자 전 '무결성 검증(Integrity Check)' 단계에서 기업의 펀더멘털, 밸류에이션, 수급 데이터를 종합적으로 분석하여 스캠 및 상장폐지 위험을 차단하고 투자가치를 판단합니다. 보고서는 금융 전문가를 위한 것이므로 이모티콘을 절대 사용하지 않으며, 건조하고 전문적인 한국어 문체를 유지해야 합니다.";
+      
+      const formatVal = (val: any, suffix = '') => val !== undefined && val !== null ? `${Number(val).toLocaleString()}${suffix}` : 'N/A';
+      
+      const metricsData = `
+      [DETAILED QUANT METRICS DATA]
+      1. 기본 정보 & 가격
+         - Symbol: ${stock.symbol}
+         - Name: ${stock.name}
+         - Price: $${stock.price}
+         - Market Cap: ${formatVal(stock.marketCap)}
+         - Currency: ${stock.currency || 'USD'}
+         
+      2. 밸류에이션 (Value)
+         - PER: ${formatVal(stock.pe || stock.per)}x
+         - PBR: ${formatVal(stock.pbr)}x
+         - PSR: ${formatVal(stock.psr)}x
+         - PEG Ratio: ${formatVal(stock.pegRatio)}
+         - Target Mean Price: $${formatVal(stock.targetMeanPrice)}
+         
+      3. 수익성 & 효율성 (Quality)
+         - ROE: ${formatVal(stock.roe)}%
+         - ROA: ${formatVal(stock.roa)}%
+         - EPS: $${formatVal(stock.eps)}
+         - Operating Margin: ${formatVal(stock.operatingMargins ? stock.operatingMargins * 100 : 0)}%
+         - Debt/Equity: ${formatVal(stock.debtToEquity)}%
+         
+      4. 성장성 & 현금흐름 (Growth & Cash)
+         - Revenue Growth: ${formatVal(stock.revenueGrowth ? stock.revenueGrowth * 100 : 0)}%
+         - Operating Cashflow: $${formatVal(stock.operatingCashflow)}
+         
+      5. 주주 환원 (Dividend)
+         - Dividend Rate: $${formatVal(stock.dividendRate)}
+         - Dividend Yield: ${formatVal(stock.dividendYield ? stock.dividendYield * 100 : 0)}%
+         
+      6. 수급 & 추세 (Momentum & Sentiment)
+         - Volume: ${formatVal(stock.volume)}
+         - Beta: ${formatVal(stock.beta)}
+         - Inst. Ownership: ${formatVal(stock.heldPercentInstitutions ? stock.heldPercentInstitutions * 100 : 0)}%
+         - Short Ratio: ${formatVal(stock.shortRatio)}
+         - 50 Day MA: $${formatVal(stock.fiftyDayAverage)}
+         - 200 Day MA: $${formatVal(stock.twoHundredDayAverage)}
+         - 52W High: $${formatVal(stock.fiftyTwoWeekHigh)}
+         - 52W Low: $${formatVal(stock.fiftyTwoWeekLow)}
+         
+      7. 메타 데이터
+         - Sector: ${stock.sector || 'Unknown'}
+         - Industry: ${stock.industry || 'Unknown'}
+      `;
+
       userPrompt = `
       [GLOBAL INTEGRITY VALIDATOR]
       대상 종목: ${stock.symbol} (${stock.name || 'Unknown'})
       현재 주가: $${stock.price}
       검증 일자: ${today}
 
-      이 종목이 당사의 심층 분석 파이프라인(Deep Dive Pipeline)에 진입할 가치가 있는지 검증하는 '무결성 감사 보고서'를 작성하십시오.
+      ${metricsData}
+
+      위 28가지 핵심 지표를 기반으로 이 종목이 당사의 심층 분석 파이프라인(Deep Dive Pipeline)에 진입할 가치가 있는지 검증하는 '무결성 감사 보고서'를 작성하십시오.
+      단순한 수치 나열이 아니라, 지표 간의 상관관계를 해석하여 인사이트를 제공하십시오.
 
       **작성 원칙 (Guidelines)**:
       1. **이모티콘 사용 절대 금지**: 텍스트와 기호(-, *, #)만 사용하여 작성하십시오.
       2. **언어**: 전문적인 한국어(Korean)로 작성하십시오.
-      3. **서식**: Markdown 포맷을 사용하여 가독성을 높이십시오.
-      4. **날짜**: 보고서 시작 부분에 검증 일자를 명시하십시오.
+      3. **서식**: Markdown 포맷을 사용하여 가독성을 높이십시오. (## 헤더, - 불렛 포인트 활용)
 
       **필수 보고서 양식**:
       
       ### 검증 일자: ${today}
-      ### 무결성 검증 감사 (Integrity Audit)
+      ### 무결성 및 밸류에이션 감사 (Comprehensive Integrity Audit)
       
-      1. **기업 실체 및 펀더멘털 (Corporate Reality)**:
-         - 동사가 실질적인 비즈니스를 영위하고 있는지, 페이퍼 컴퍼니 리스크는 없는지 진단하십시오.
+      1. **펀더멘털 및 재무 건전성 (Fundamental Health)**:
+         - 수익성(ROE, Operating Margin)과 재무 안정성(Debt/Equity)을 평가하십시오.
+         - 현금흐름(Operating Cashflow)이 건전한지 확인하십시오.
          
-      2. **핵심 위험 신호 (Red Flags)**:
-         - 상장폐지 가능성, 잦은 유상증자/CB발행(희석), 회계 이슈 등을 점검하십시오.
-         - '동전주(Penny Stock)' 여부와 투기적 위험성을 경고하십시오.
+      2. **밸류에이션 및 적정 주가 분석 (Valuation Check)**:
+         - PER, PBR, PEG 등을 고려할 때 현재 주가가 고평가/저평가 상태인지 진단하십시오.
+         - Target Price와 현재가와의 괴리를 분석하십시오.
          
-      3. **시장 신뢰도 (Market Consensus)**:
-         - 기관 투자자 참여도 및 시장의 평판을 요약하십시오.
+      3. **기관 수급 및 모멘텀 (Institutional & Momentum)**:
+         - 기관 보유 비중(Inst. Ownership)과 공매도 비율(Short Ratio)이 시사하는 바를 해석하십시오.
+         - 이동평균선(50/200 MA) 대비 현재 주가 위치를 통한 추세 판단.
          
       4. **최종 판정 (Gatekeeper Verdict)**:
          - **[분석 승인]** 또는 **[부적격(반려)]** 중 하나를 선택하여 명시하십시오.
-         - 판단의 결정적 사유를 한 문장으로 요약하십시오.
+         - 판단의 결정적 사유를 3가지 요점으로 요약하십시오.
       `;
   } else if (isPortfolio) {
       userPrompt = `
