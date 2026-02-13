@@ -34,6 +34,7 @@ interface FundamentalTicker {
   operatingMargins: number;
   revenueGrowth: number;
   operatingCashflow: number;
+  roic: number; // Added explicit type
   
   // Forensic / Quality
   earningsQuality: number;
@@ -259,7 +260,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
                   results.push({
                       ...stage2Item, // Base info
-                      ...analysis,   // New calculated metrics
+                      ...analysis,   // New calculated metrics (includes ROIC)
                       qualityScore,
                       fundamentalScore,
                       compositeAlpha: Number(compositeAlpha.toFixed(2)),
@@ -329,11 +330,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const opCashflow = Number(data.operatingCashflow || 0);
       const revenueGrowth = Number(data.revenueGrowth || 0);
 
+      // ROIC Extraction & Proxy Calculation
+      let roic = Number(data.roic || data.returnOnInvestedCapital || data.returnOnCapital || 0);
+      if (roic === 0 && roe !== 0) {
+          // Fallback: ROIC ~ ROE * (Equity / (Equity + Debt))
+          // DebtRatio = D / E
+          const debtRatio = debtToEquity / 100; // e.g. 50% = 0.5
+          // Equity Ratio approx 1 / (1 + DebtRatio)
+          const equityRatio = 1 / (1 + debtRatio);
+          roic = roe * equityRatio;
+      }
+
       // 1. Z-Score Proxy (Modified for Data Availability)
-      // Standard Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
-      // We use proxies:
-      // A (Liquidity) -> Inverse of Debt? No, assume neutral if missing.
-      // D (Levearge) -> MarketCap / Debt (Estimated from D/E)
       const estimatedEquity = marketCap / (pbr || 3); // Estimate Book Equity
       const estimatedDebt = estimatedEquity * (debtToEquity / 100);
       const leverageScore = estimatedDebt > 0 ? (marketCap / estimatedDebt) : 5; // Higher is safer
@@ -344,7 +352,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       if (marketCap > 10000000000) zScore += 0.5; // Large cap bonus
       
       // 2. Intrinsic Value (Modified Graham)
-      // V = EPS * (8.5 + 2g)
       const growthRate = Math.max(0, Math.min(revenueGrowth * 100, 20)); // Cap at 20%
       let intrinsicValue = 0;
       if (eps > 0) {
@@ -368,7 +375,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       if (opMargin > 0.1) fScore++;
 
       // 4. Earnings Quality
-      // OCF / NetIncome Proxy. NetIncome approx MarketCap / PE
       const netIncomeApprox = per > 0 ? (marketCap / per) : 0;
       const earningsQuality = (netIncomeApprox > 0 && opCashflow !== 0) 
           ? Math.abs(opCashflow / netIncomeApprox) 
@@ -400,7 +406,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               { subject: 'Moat', A: moatScore, fullMark: 100 },
           ],
           // Pass through metrics for visualization
-          roe, roa: Number(data.roa || 0), per, pbr, debtToEquity, 
+          roe, roa: Number(data.roa || 0), roic, per, pbr, debtToEquity, 
           operatingMargins: opMargin, revenueGrowth, operatingCashflow: opCashflow
       };
   };
@@ -464,7 +470,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
           <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
               {/* TICKER LIST */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[360px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[600px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Calculated Targets ({processedData.length})</p>
                     <span className="text-[8px] font-mono text-slate-500">Ranked by Composite Alpha</span>
@@ -495,7 +501,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               </div>
 
               {/* DETAIL VIEW */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[360px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[600px]">
                  {selectedTicker ? (
                      <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
                         <div className="flex justify-between items-start">
@@ -577,7 +583,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                          <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select an Asset to Audit</p>
                      </div>
                  )}
