@@ -129,20 +129,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog(`Scanning ${rawList.length} assets...`, "info");
           setProgress({ current: 0, total: rawList.length });
 
-          // 2. Score & Filter
+          // 2. Score & Sort (No Threshold Filter)
           const scored = rawList.map((item: any) => {
               const scores = calculateScores(item);
               return { ...item, ...scores };
           });
 
-          // Filter: Quality Score > 60 (Elite)
-          const elite = scored.filter((s: any) => s.qualityScore >= 60).sort((a: any, b: any) => b.qualityScore - a.qualityScore);
+          // Sort by Quality Score Descending
+          const ranked = scored.sort((a: any, b: any) => b.qualityScore - a.qualityScore);
+
+          // 3. Strict Cutoff: Top 250 (Unconditional)
+          const ELITE_COUNT = 250;
+          const elite = ranked.slice(0, ELITE_COUNT);
           
           setEliteUniverse(elite);
-          addLog(`${elite.length} Elite Assets Qualified.`, "ok");
+          addLog(`Applying Top ${ELITE_COUNT} Cut from ${ranked.length} assets...`, "info");
+          addLog(`${elite.length} Assets Qualified for Stage 3.`, "ok");
           setProgress({ current: rawList.length, total: rawList.length });
 
-          // 3. Save Stage 2
+          // 4. Save Stage 2
           const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
           const now = new Date();
           const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -150,7 +155,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
           
           const payload = {
-            manifest: { version: "5.0.0", count: elite.length, timestamp: new Date().toISOString(), strategy: "3-Factor_Quant_Model" },
+            manifest: { version: "5.0.0", count: elite.length, timestamp: new Date().toISOString(), strategy: "3-Factor_Quant_Top250" },
             elite_universe: elite
           };
 
@@ -296,7 +301,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
              {/* Elite Ranking List (Scrollable) */}
              <div className="bg-black/40 p-6 rounded-3xl border border-white/5 flex flex-col overflow-hidden h-[600px]">
                 <div className="flex justify-between items-center mb-4">
-                    <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest">Elite Candidates</p>
+                    <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest">Elite 250 Candidates</p>
                     <span className="text-[8px] text-slate-500 font-mono">{eliteUniverse.length} Qualified</span>
                 </div>
                 <div className="flex-1 overflow-y-auto no-scrollbar space-y-2 pr-1">
@@ -339,7 +344,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[720px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
+        <div className="glass-panel h-full min-h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
           <div className="flex items-center justify-between mb-4 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Log</h3>
           </div>
