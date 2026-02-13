@@ -17,32 +17,7 @@ interface FundamentalTicker {
   
   // Advanced Scoring
   fScore: number;         // Piotroski F-Score (0-9)
-  zScore: number;         // Altman Z-Score      "radarData": [
-        {
-          "subject": "밸류에이션",
-          "A": 11,
-          "fullMark": 100
-        },
-        {
-          "subject": "퀄리티",
-          "A": 100,
-          "fullMark": 100
-        },
-        {
-          "subject": "재무건전성",
-          "A": 20,
-          "fullMark": 100
-        },
-        {
-          "subject": "성장성",
-          "A": 74,
-          "fullMark": 100
-        },
-        {
-          "subject": "경제적해자",
-          "A": 19,
-          "fullMark": 100
-        }
+  zScore: number;         // Altman Z-Score
   
   // Valuation & Metrics
   intrinsicValue: number;
@@ -79,6 +54,7 @@ interface FundamentalTicker {
   lastUpdate: string;
   source: string; 
   isDerived: boolean;
+  dataConfidence: number; // New: Data completeness score (0-100)
 
   // Allow flexible indexing for raw data retention
   [key: string]: any;
@@ -294,15 +270,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       // 1. Unpack Full History (5 Years)
       const history = Array.isArray(data.fullHistory) ? data.fullHistory : [];
       const latest = history[0] || {};
+      let missingDataPoints = 0;
       
       // 2. Extract Base Metrics with Fallbacks
       const price = safeNum(data.price);
       const marketCap = safeNum(data.marketCap || data.marketValue);
-      const debtToEquity = safeNum(data.debtToEquity || data.debtEquityRatio) || 50; 
+      const debtToEquity = safeNum(data.debtToEquity || data.debtEquityRatio); // Keep 0 if 0
       const roe = safeNum(data.roe || data.returnOnEquity);
       const per = safeNum(data.pe || data.per || data.peRatio);
       const pbr = safeNum(data.pbr || data.priceToBook);
       
+      // Check for vital signs of life
+      if (roe === 0) missingDataPoints++;
+      if (marketCap === 0) missingDataPoints++;
+      if (price === 0) missingDataPoints++;
+
       // 3. Advanced Metric Calculation
       // [FIX] Prioritize Flat Data (from Stage 0/1/2) then Fallback to History
       
@@ -320,6 +302,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       
       if (totalRevenue === 0) totalRevenue = safeNum(data.revenue);
 
+      // Data Fill Logic: If margin is 0, try to infer
       if (grossMargin === 0 && totalRevenue > 0) {
           if (grossProfit > 0) {
               grossMargin = (grossProfit / totalRevenue) * 100;
@@ -338,7 +321,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
 
       // Convert decimal margins to percentage for scoring if needed
-      const opMarginPct = opMargin < 1 ? opMargin * 100 : opMargin;
+      let opMarginPct = opMargin < 1 ? opMargin * 100 : opMargin;
+
+      // [CRITICAL FIX] If margins are absolute 0 but it's a profitable company (ROE > 0, PER > 0), 
+      // assume sector average or minimum valid baseline to prevent 0-score penalty.
+      if (grossMargin === 0 && roe > 5) { 
+          grossMargin = 20; // Assume minimum viable margin for profitable firm
+          missingDataPoints++;
+      }
+      if (opMarginPct === 0 && roe > 5) {
+          opMarginPct = 10;
+          missingDataPoints++;
+      }
 
       // B. Growth (CAGR)
       let revenueGrowth = safeNum(data.revenueGrowth);
@@ -357,7 +351,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           }
       }
       const growthPct = revenueGrowth * 100;
-      cagrScore = normalizeScore(growthPct, 5, 25);
+      // Growth Scoring: Scale 5%~50% (Harder to get 100)
+      cagrScore = normalizeScore(growthPct, 5, 50);
 
       // C. Rule of 40 (SaaS Metric: Growth + Profit Margin)
       const ruleOf40 = growthPct + opMarginPct;
@@ -389,7 +384,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       // Approximate if full balance sheet unavailable
       const estimatedAssets = pbr > 0 ? (marketCap / pbr) * (1 + debtToEquity/100) : marketCap;
       const cFactor = estimatedAssets > 0 ? (operatingIncome / estimatedAssets) : (roe / 100) * 0.5;
-      const dFactor = debtToEquity > 0 ? (100 / debtToEquity) : 5; // Inverse debt (lower is better)
+      // Fix: Debt 0 shouldn't explode Z-Score. Cap the dFactor.
+      const dFactor = debtToEquity > 0 ? (100 / debtToEquity) : 50; 
       
       let zScore = 1.0 + (cFactor * 3.3) + (dFactor * 0.05); 
       if (opCashflow > 0) zScore += 0.5;
@@ -446,16 +442,32 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       if (fScore < 3 && roe > 15) fScore += 2; 
 
 
-      // 4. Final Composite Score (Enhanced with Weights)
-      const valScore = normalizeScore(fairValueGap, -20, 50);  
-      const qualityScore = normalizeScore(roe, 5, 30);         
-      const safeScore = normalizeScore(zScore, 1.5, 4.0);      
-      const growthScore = (cagrScore * 0.6) + (normalizeScore(ruleOf40, 10, 60) * 0.4);    
+      // 4. Final Composite Score (Updated with HARDER thresholds)
+      // Valuation: Upside > 100% = 100pts. < -20% = 0pts. (Stretched)
+      const valScore = normalizeScore(fairValueGap, -20, 100);  
+      
+      // Quality: ROE > 50% = 100pts. < 5% = 0pts. (Stretched)
+      const qualityScore = normalizeScore(roe, 5, 50);         
+      
+      // Safety: Z-Score > 5.0 = 100pts. < 1.5 = 0pts. (Harder)
+      const safeScore = normalizeScore(zScore, 1.5, 5.0);      
+      
+      // Growth: CAGR up to 50% and RuleOf40 up to 80
+      const growthScore = (cagrScore * 0.5) + (normalizeScore(ruleOf40, 10, 80) * 0.5);    
       
       // Moat (Competitive Advantage) -> High Margin + High ROIC
-      const moatScore = (normalizeScore(grossMargin, 20, 70) * 0.5) + (normalizeScore(roic, 5, 20) * 0.5);           
+      const moatScore = (normalizeScore(grossMargin, 20, 90) * 0.5) + (normalizeScore(roic, 5, 30) * 0.5);           
 
-      const fundamentalScore = (valScore * 0.2) + (qualityScore * 0.2) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.2);
+      // Data Confidence Penalty
+      // If we assumed margins or debt, reduce the final score confidence
+      const dataConfidence = Math.max(10, 100 - (missingDataPoints * 20));
+      
+      let fundamentalScore = (valScore * 0.2) + (qualityScore * 0.2) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.2);
+      
+      // Apply Confidence Penalty if data was missing
+      if (dataConfidence < 60) {
+          fundamentalScore *= (dataConfidence / 100);
+      }
 
       // Moat Classification
       let economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)' = '없음 (None)';
@@ -474,6 +486,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           fairValueGap: Number(fairValueGap.toFixed(2)),
           earningsQuality: Number((opCashflow / (netIncome || 1)).toFixed(2)),
           economicMoat,
+          dataConfidence,
           radarData: [
               { subject: '밸류에이션', A: Number(valScore.toFixed(0)), fullMark: 100 },
               { subject: '퀄리티', A: Number(qualityScore.toFixed(0)), fullMark: 100 },
@@ -711,6 +724,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                     <span className={`text-[8px] font-black uppercase tracking-wider px-2 py-0.5 rounded border ${getSectorStyle(selectedTicker.sector)}`}>
                                         {selectedTicker.sector}
                                     </span>
+                                    {selectedTicker.dataConfidence < 60 && <span className="text-[8px] font-black bg-amber-500/20 text-amber-400 border border-amber-500/30 px-2 py-0.5 rounded uppercase animate-pulse">Low Data Confidence</span>}
                                     {selectedTicker.zScore < 1.8 && <span className="text-[8px] font-black bg-rose-500/20 text-rose-400 border border-rose-500/30 px-2 py-0.5 rounded uppercase">Distress Risk</span>}
                                     {selectedTicker.earningsQuality > 1.2 && <span className="text-[8px] font-black bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 px-2 py-0.5 rounded uppercase">High Quality</span>}
                                     {selectedTicker.economicMoat.includes('Wide') && <span className="text-[8px] font-black bg-purple-500/20 text-purple-400 border border-purple-500/30 px-2 py-0.5 rounded uppercase">Wide Moat</span>}
