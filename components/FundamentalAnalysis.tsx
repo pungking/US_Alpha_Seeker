@@ -17,7 +17,32 @@ interface FundamentalTicker {
   
   // Advanced Scoring
   fScore: number;         // Piotroski F-Score (0-9)
-  zScore: number;         // Altman Z-Score
+  zScore: number;         // Altman Z-Score      "radarData": [
+        {
+          "subject": "밸류에이션",
+          "A": 11,
+          "fullMark": 100
+        },
+        {
+          "subject": "퀄리티",
+          "A": 100,
+          "fullMark": 100
+        },
+        {
+          "subject": "재무건전성",
+          "A": 20,
+          "fullMark": 100
+        },
+        {
+          "subject": "성장성",
+          "A": 74,
+          "fullMark": 100
+        },
+        {
+          "subject": "경제적해자",
+          "A": 19,
+          "fullMark": 100
+        }
   
   // Valuation & Metrics
   intrinsicValue: number;
