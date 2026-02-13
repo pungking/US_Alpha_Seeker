@@ -142,22 +142,25 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const scoredUniverse = universe.map(ticker => {
               // A. Profitability Score (ROE is King)
-              // ROE > 15% is good. Max 100 points.
+              // ROE > 20% is perfect (100). 
               const roeScore = Math.min(100, Math.max(0, (ticker.roe || 0) * 5));
               
               // B. Safety Score (Low Debt is King)
-              // Debt/Equity < 50% is good. 
-              const debt = ticker.debtToEquity || 100;
-              const safeScore = Math.max(0, 100 - (debt * 0.5));
+              // Debt/Equity handling: API might return 1.5 (Ratio) or 150 (Percent).
+              // Normalize: if > 10, assume percent.
+              let debt = ticker.debtToEquity || 0;
+              if (debt > 10) debt = debt / 100; // Normalize percentage to ratio
+              // Ratio 0.0 -> 100 pts, Ratio 2.0 -> 60 pts, Ratio 5.0 -> 0 pts
+              const safeScore = Math.max(0, 100 - (debt * 20));
 
               // C. Value Score (Sector Neutral Proxy)
               // Low PER/PBR relative to growth. 
-              // Simplification: PER < 20 is good.
               let valueScore = 50;
-              if (ticker.pe > 0) {
-                 if (ticker.pe < 15) valueScore = 90;
-                 else if (ticker.pe < 25) valueScore = 70;
-                 else if (ticker.pe < 40) valueScore = 50;
+              const pe = ticker.pe || 0;
+              if (pe > 0) {
+                 if (pe < 15) valueScore = 90;
+                 else if (pe < 25) valueScore = 70;
+                 else if (pe < 40) valueScore = 50;
                  else valueScore = 30;
               }
 
@@ -375,16 +378,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                             <div className="flex items-center gap-3">
                                 <span className={`text-[9px] font-mono font-bold w-6 ${i < 10 ? 'text-cyan-400' : 'text-slate-600'}`}>#{i + 1}</span>
                                 <div>
-                                    <p className="text-[10px] font-bold text-white uppercase">{s.symbol}</p>
-                                    <p className="text-[7px] text-slate-500 truncate w-24">{s.name}</p>
+                                    <div className="flex items-center gap-1.5">
+                                        <p className="text-[10px] font-bold text-white uppercase">{s.symbol}</p>
+                                        <span className="text-[6px] text-slate-500 px-1 bg-white/5 rounded border border-white/5">
+                                            ROE {s.roe}% | D/E {s.debtToEquity}
+                                        </span>
+                                    </div>
+                                    <p className="text-[7px] text-slate-500 truncate w-32">{s.name}</p>
                                 </div>
                             </div>
                             <div className="text-right">
                                 <p className="text-[12px] font-mono font-black text-white mb-1">{s.qualityScore}</p>
                                 <div className="flex gap-1 justify-end">
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('P', s.profitScore)}`} title="Profitability (ROE)">P:{s.profitScore}</span>
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('S', s.safeScore)}`} title="Stability (Debt)">S:{s.safeScore}</span>
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('V', s.valueScore)}`} title="Valuation (PE/PBR)">V:{s.valueScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('P', s.profitScore)}`} title={`Profitability Score (ROE: ${s.roe}%)`}>P:{s.profitScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('S', s.safeScore)}`} title={`Safety Score (D/E: ${s.debtToEquity})`}>S:{s.safeScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('V', s.valueScore)}`} title={`Value Score (PER: ${s.pe})`}>V:{s.valueScore}</span>
                                 </div>
                             </div>
                         </div>
