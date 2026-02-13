@@ -88,9 +88,9 @@ const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: s
         strategy: "40을 넘으면 '초고속 성장'과 '수익성'의 균형이 완벽합니다. 주가 방어력이 매우 높습니다."
     },
     'MARGIN': {
-        title: "Gross/Operating Margin (마진율)",
-        desc: "재무제표 원본 데이터를 역산하여 도출한 실제 마진율입니다. 높은 마진율은 가격 결정권(Pricing Power)의 증거입니다.",
-        strategy: "40% 이상의 매출총이익률 또는 20% 이상의 영업이익률은 강력한 경쟁우위를 시사합니다."
+        title: "Gross Margin (매출총이익률)",
+        desc: "기업이 제품을 생산하는 데 드는 비용을 제외한 이익률입니다. 5년치 재무제표를 정밀 분석하여 산출되었습니다.",
+        strategy: "40% 이상의 높은 마진율은 '가격 결정권'을 가진 독점적 지위를 의미합니다. (워렌 버핏의 최애 지표)"
     }
 };
 
@@ -153,9 +153,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   };
 
   const safeNum = (val: any) => {
-      if (val === null || val === undefined) return 0;
-      const n = parseFloat(val);
+      if (val === null || val === undefined || val === '') return 0;
+      if (typeof val === 'number') return isFinite(val) ? val : 0;
+      // Handle "1,234.56" strings
+      const cleanStr = String(val).replace(/,/g, '').replace(/%/g, '').trim();
+      const n = parseFloat(cleanStr);
       return Number.isFinite(n) ? n : 0;
+  };
+
+  const findValueInObject = (obj: any, keys: string[]): number => {
+      if (!obj) return 0;
+      for (const key of keys) {
+          // Case-insensitive search
+          const foundKey = Object.keys(obj).find(k => k.toLowerCase() === key.toLowerCase());
+          if (foundKey && obj[foundKey] !== undefined) {
+              return safeNum(obj[foundKey]);
+          }
+      }
+      return 0;
   };
 
   const normalizeScore = (val: number, min: number, max: number) => {
@@ -251,34 +266,60 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const per = safeNum(data.pe || data.per || data.peRatio);
       const pbr = safeNum(data.pbr || data.priceToBook);
       
-      // 3. Advanced Metric Calculation using History
+      // 3. Advanced Metric Calculation using History (Force calculation)
       
-      // A. Margins (Calculate directly from latest Income Statement if top-level is 0)
-      let grossProfit = safeNum(latest["Gross Profit"]);
-      let operatingIncome = safeNum(latest["Operating Income"] || latest["EBIT"]);
-      let totalRevenue = safeNum(latest["Total Revenue"] || latest["Revenue"]);
-      let netIncome = safeNum(latest["Net Income"]);
+      // A. Margins (Calculate directly from latest Income Statement if top-level is missing)
+      let grossProfit = findValueInObject(latest, ["Gross Profit", "grossProfit", "gross_profit"]);
+      let totalRevenue = findValueInObject(latest, ["Total Revenue", "revenue", "sales"]);
+      let operatingIncome = findValueInObject(latest, ["Operating Income", "operatingIncome", "ebit"]);
+      let netIncome = findValueInObject(latest, ["Net Income", "netIncome", "net_income"]);
       let opCashflow = safeNum(data.operatingCashflow);
 
+      // Try searching deeper if main keys missing
+      if (totalRevenue === 0) totalRevenue = safeNum(data.revenue);
+
+      // *** CRITICAL MARGIN CALCULATION FIX ***
       let grossMargin = safeNum(data.grossMargin);
       let opMargin = safeNum(data.operatingMargins || data.operatingMargin);
 
-      // Recalculate if missing or 0
       if (totalRevenue > 0) {
-          if (grossMargin === 0 && grossProfit !== 0) grossMargin = (grossProfit / totalRevenue) * 100;
-          if (opMargin === 0 && operatingIncome !== 0) opMargin = (operatingIncome / totalRevenue); // decimal
+          if (grossProfit > 0) {
+              grossMargin = (grossProfit / totalRevenue) * 100;
+          } else {
+              // Estimate from Cost of Revenue if available
+              const costOfRevenue = findValueInObject(latest, ["Cost of Revenue", "costOfRevenue"]);
+              if (costOfRevenue > 0) {
+                  grossProfit = totalRevenue - costOfRevenue;
+                  grossMargin = (grossProfit / totalRevenue) * 100;
+              }
+          }
+
+          if (operatingIncome !== 0) {
+              opMargin = (operatingIncome / totalRevenue); // decimal
+          }
       }
+      // If still 0, try to pull from `metrics` if available
+      if (grossMargin === 0 && data.metrics?.grossMargin) grossMargin = safeNum(data.metrics.grossMargin);
 
       // Convert decimal margins to percentage for scoring
       const opMarginPct = opMargin < 1 ? opMargin * 100 : opMargin;
 
-      // B. Growth (CAGR - Compound Annual Growth Rate)
+      // B. Growth (CAGR - Compound Annual Growth Rate over 3-5 Years)
       let revenueGrowth = safeNum(data.revenueGrowth);
-      if (history.length >= 4) {
-          const latestRev = safeNum(history[0]["Total Revenue"]);
-          const oldRev = safeNum(history[3]["Total Revenue"]); // 3 years ago
+      let cagrScore = 0;
+      
+      if (history.length >= 3) {
+          const latestRev = findValueInObject(history[0], ["Total Revenue", "revenue"]);
+          const oldRev = findValueInObject(history[Math.min(history.length-1, 4)], ["Total Revenue", "revenue"]);
           if (latestRev > 0 && oldRev > 0) {
-              revenueGrowth = (Math.pow(latestRev / oldRev, 1/3) - 1);
+              // CAGR formula
+              const years = Math.min(history.length-1, 4);
+              const cagr = (Math.pow(latestRev / oldRev, 1/years) - 1) * 100;
+              // Use calculated CAGR if it makes sense, otherwise fallback
+              if (isFinite(cagr)) {
+                  revenueGrowth = cagr / 100; 
+                  cagrScore = normalizeScore(cagr, 5, 25);
+              }
           }
       }
       const growthPct = revenueGrowth * 100;
@@ -370,18 +411,27 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       
       // 3. Operating Efficiency
       if (grossMargin > (history[1] ? safeNum(history[1]["Gross Margin"]) : 0)) fScore++;
-      if ((totalRevenue / estimatedAssets) > ((history[1] ? safeNum(history[1]["Revenue"]) : 0) / estimatedAssets)) fScore++; // Asset Turnover proxy
+      if ((totalRevenue / estimatedAssets) > ((history[1] ? findValueInObject(history[1], ["Revenue", "Total Revenue"]) : 0) / estimatedAssets)) fScore++; // Asset Turnover proxy
 
       // Normalize F-Score to ensure it's not too low due to missing data
       if (fScore < 3 && roe > 15) fScore += 2; 
 
 
-      // 4. Final Composite Score (Enhanced)
+      // 4. Final Composite Score (Enhanced with Weights)
+      // Valuation (Price vs Value)
       const valScore = normalizeScore(fairValueGap, -20, 50);  
+      
+      // Quality (Profitability)
       const qualityScore = normalizeScore(roe, 5, 30);         
+      
+      // Health (Safety)
       const safeScore = normalizeScore(zScore, 1.5, 4.0);      
-      const growthScore = normalizeScore(ruleOf40, 10, 60);    
-      const moatScore = normalizeScore(roic, 5, 20);           
+      
+      // Growth (CAGR + Rule of 40)
+      const growthScore = (cagrScore * 0.6) + (normalizeScore(ruleOf40, 10, 60) * 0.4);    
+      
+      // Moat (Competitive Advantage) -> High Margin + High ROIC
+      const moatScore = (normalizeScore(grossMargin, 20, 70) * 0.5) + (normalizeScore(roic, 5, 20) * 0.5);           
 
       // Weighted Fundamental Score
       const fundamentalScore = (valScore * 0.2) + (qualityScore * 0.2) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.2);
@@ -554,9 +604,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   };
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
+    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 items-stretch">
+      <div className="xl:col-span-3 space-y-6 flex flex-col">
+        {/* Header Panel */}
+        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden shrink-0">
           
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
@@ -592,10 +643,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               {loading ? 'Fusing System Data...' : 'Execute Financial Protocol'}
             </button>
           </div>
+        </div>
 
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6">
-              {/* TICKER LIST (Updated Height & Removed Alpha) */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[360px]">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 flex-1">
+              {/* TICKER LIST (Updated Height to sync with Terminal) */}
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[550px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Calculated Targets ({processedData.length})</p>
                     <span className="text-[8px] font-mono text-slate-500">Ranked by Composite Alpha</span>
@@ -624,8 +676,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  </div>
               </div>
 
-              {/* DETAIL VIEW (Updated Height & New Metrics) */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[360px]">
+              {/* DETAIL VIEW (Updated Height to sync with Terminal) */}
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[550px]">
                  {selectedTicker ? (
                      <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
                         <div className="flex justify-between items-start">
@@ -714,11 +766,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  )}
               </div>
           </div>
-        </div>
       </div>
 
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
+      <div className="xl:col-span-1 h-full flex flex-col">
+        <div className="glass-panel h-full min-h-[550px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
           <div className="flex items-center justify-between mb-4 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Log</h3>
           </div>
