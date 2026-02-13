@@ -689,7 +689,7 @@ export async function analyzePipelineStatus(data: {
         - Composite Quality Score: ${stock.qualityScore}/100
         - Profitability Score: ${stock.profitScore}/100 (ROE driven)
         - Safety Score: ${stock.safeScore}/100 (Debt driven)
-        - Value Score: ${stock.valueScore}/100 (PE driven)
+        - Value Score: ${stock.valueScore}/100 (PE/PBR driven)
         `;
       }
 
