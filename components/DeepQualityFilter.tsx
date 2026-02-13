@@ -211,11 +211,29 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  const getScoreColor = (score: number | undefined) => {
-      if (!score) return 'text-slate-500 border-slate-700';
-      if (score >= 80) return 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10';
-      if (score >= 50) return 'text-blue-400 border-blue-500/50 bg-blue-500/10';
-      return 'text-rose-400 border-rose-500/50 bg-rose-500/10';
+  // Helper for P/S/V Badges colors - Enhanced Visibility
+  const getScoreColor = (type: 'P'|'S'|'V', score: number | undefined) => {
+      if (!score) return 'text-slate-600 border-slate-800 bg-slate-900/50';
+      
+      // P (Profitability): Emerald
+      if (type === 'P') {
+         if (score >= 80) return 'text-emerald-400 border-emerald-500/50 bg-emerald-500/20';
+         if (score >= 50) return 'text-emerald-600 border-emerald-800 bg-emerald-900/10';
+         return 'text-slate-500 border-slate-700';
+      }
+      // S (Safety): Blue
+      if (type === 'S') {
+         if (score >= 80) return 'text-blue-400 border-blue-500/50 bg-blue-500/20';
+         if (score >= 50) return 'text-blue-600 border-blue-800 bg-blue-900/10';
+         return 'text-slate-500 border-slate-700';
+      }
+      // V (Value): Amber (Gold)
+      if (type === 'V') {
+         if (score >= 80) return 'text-amber-400 border-amber-500/50 bg-amber-500/20';
+         if (score >= 50) return 'text-amber-600 border-amber-800 bg-amber-900/10';
+         return 'text-slate-500 border-slate-700';
+      }
+      return 'text-slate-600';
   };
 
   return (
@@ -303,7 +321,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     <span className="text-[8px] text-slate-500 font-mono">{eliteUniverse.length} / 500</span>
                 </div>
                 <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
-                    {eliteUniverse.length > 0 ? eliteUniverse.slice(0, 100).map((s, i) => (
+                    {eliteUniverse.length > 0 ? eliteUniverse.map((s, i) => (
                         <div 
                             key={i} 
                             onClick={() => handleSelectStock(s)}
@@ -319,9 +337,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                             <div className="text-right">
                                 <p className="text-[12px] font-mono font-black text-white mb-1">{s.qualityScore}</p>
                                 <div className="flex gap-1 justify-end">
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor(s.profitScore)}`} title="Profitability">P:{s.profitScore}</span>
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor(s.safeScore)}`} title="Stability/Safety">S:{s.safeScore}</span>
-                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor(s.valueScore)}`} title="Valuation">V:{s.valueScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('P', s.profitScore)}`} title="Profitability (ROE)">P:{s.profitScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('S', s.safeScore)}`} title="Stability (Debt)">S:{s.safeScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor('V', s.valueScore)}`} title="Valuation (PE/PBR)">V:{s.valueScore}</span>
                                 </div>
                             </div>
                         </div>
