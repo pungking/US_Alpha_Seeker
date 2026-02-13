@@ -44,6 +44,7 @@ interface Props {
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   
   const [eliteUniverse, setEliteUniverse] = useState<MasterTicker[]>([]);
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v2.1: Waiting for Stage 1 Output...']);
@@ -78,7 +79,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           // 1. Load Stage 1 Data (Purified Universe ~2000)
           addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
           
-          // [CHANGE] Target STAGE1 file instead of STAGE0
           const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
           const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -144,6 +144,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const elite500 = scoredUniverse.slice(0, 500);
           setEliteUniverse(elite500);
           
+          if (elite500.length > 0) {
+              handleSelectStock(elite500[0]);
+          }
+          
           addLog(`Cutoff Score: ${elite500[elite500.length - 1].qualityScore}. Survivors: ${elite500.length}`, "ok");
 
           // 4. Commit to Drive
@@ -200,6 +204,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     return create.id;
   };
 
+  const handleSelectStock = (stock: MasterTicker) => {
+      setSelectedSymbol(stock.symbol);
+      if (onStockSelected) {
+          onStockSelected(stock);
+      }
+  };
+
+  const getScoreColor = (score: number | undefined) => {
+      if (!score) return 'text-slate-500 border-slate-700';
+      if (score >= 80) return 'text-emerald-400 border-emerald-500/50 bg-emerald-500/10';
+      if (score >= 50) return 'text-blue-400 border-blue-500/50 bg-blue-500/10';
+      return 'text-rose-400 border-rose-500/50 bg-rose-500/10';
+  };
+
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -235,7 +253,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 <p className="text-[9px] font-black text-cyan-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality Matrix (Top 100 Samples)</p>
                 <div className="flex-1 w-full h-full mt-4">
                     <ResponsiveContainer width="100%" height="100%">
-                        <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
+                        <ScatterChart 
+                            margin={{ top: 20, right: 20, bottom: 20, left: 0 }}
+                            onClick={(e) => {
+                                if (e && e.activePayload && e.activePayload[0]) {
+                                    handleSelectStock(e.activePayload[0].payload);
+                                }
+                            }}
+                        >
                             <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
                             <XAxis type="number" dataKey="valueScore" name="Value" stroke="#64748b" fontSize={9} label={{ value: "Value Score", position: 'bottom', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
                             <YAxis type="number" dataKey="profitScore" name="Profit" stroke="#64748b" fontSize={9} label={{ value: "Profit Score", angle: -90, position: 'insideLeft', fill: '#64748b', fontSize: 9 }} domain={[0, 100]} />
@@ -248,7 +273,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                             <div className="bg-slate-900 border border-slate-700 p-3 rounded-xl shadow-xl">
                                                 <p className="text-xs font-black text-white mb-1">{data.symbol}</p>
                                                 <p className="text-[9px] text-cyan-400">Total: {data.qualityScore}</p>
-                                                <p className="text-[8px] text-slate-400">Profit: {data.profitScore} | Value: {data.valueScore}</p>
+                                                <div className="flex gap-2 mt-1">
+                                                    <span className="text-[8px] text-emerald-400">P:{data.profitScore}</span>
+                                                    <span className="text-[8px] text-blue-400">S:{data.safeScore}</span>
+                                                    <span className="text-[8px] text-amber-400">V:{data.valueScore}</span>
+                                                </div>
                                             </div>
                                         );
                                     }
@@ -257,9 +286,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                             />
                             <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
                             <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
-                            <Scatter name="Elite Stocks" data={eliteUniverse.slice(0, 100)} fill="#06b6d4">
+                            <Scatter name="Elite Stocks" data={eliteUniverse.slice(0, 100)} fill="#06b6d4" cursor="pointer">
                                 {eliteUniverse.slice(0, 100).map((entry, index) => (
-                                    <Cell key={`cell-${index}`} fill={entry.qualityScore > 80 ? '#10b981' : '#06b6d4'} />
+                                    <Cell key={`cell-${index}`} fill={entry.symbol === selectedSymbol ? '#f43f5e' : entry.qualityScore > 80 ? '#10b981' : '#06b6d4'} />
                                 ))}
                             </Scatter>
                         </ScatterChart>
@@ -275,7 +304,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 </div>
                 <div className="flex-1 overflow-y-auto no-scrollbar space-y-2">
                     {eliteUniverse.length > 0 ? eliteUniverse.slice(0, 100).map((s, i) => (
-                        <div key={i} className="flex justify-between items-center p-3 bg-white/5 rounded-xl border border-white/5 hover:bg-white/10 transition-colors cursor-default">
+                        <div 
+                            key={i} 
+                            onClick={() => handleSelectStock(s)}
+                            className={`flex justify-between items-center p-3 rounded-xl border cursor-pointer transition-all ${selectedSymbol === s.symbol ? 'bg-cyan-900/30 border-cyan-500/50' : 'bg-white/5 border-white/5 hover:bg-white/10'}`}
+                        >
                             <div className="flex items-center gap-3">
                                 <span className={`text-[9px] font-mono font-bold w-6 ${i < 10 ? 'text-cyan-400' : 'text-slate-600'}`}>#{i + 1}</span>
                                 <div>
@@ -284,11 +317,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                 </div>
                             </div>
                             <div className="text-right">
-                                <p className="text-[10px] font-mono font-black text-cyan-400">{s.qualityScore}</p>
+                                <p className="text-[12px] font-mono font-black text-white mb-1">{s.qualityScore}</p>
                                 <div className="flex gap-1 justify-end">
-                                    <span className="text-[6px] text-slate-600 px-1 border border-slate-700 rounded">P:{s.profitScore}</span>
-                                    <span className="text-[6px] text-slate-600 px-1 border border-slate-700 rounded">S:{s.safeScore}</span>
-                                    <span className="text-[6px] text-slate-600 px-1 border border-slate-700 rounded">V:{s.valueScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor(s.profitScore)}`} title="Profitability">P:{s.profitScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor(s.safeScore)}`} title="Stability/Safety">S:{s.safeScore}</span>
+                                    <span className={`text-[8px] font-bold px-1.5 py-0.5 rounded border ${getScoreColor(s.valueScore)}`} title="Valuation">V:{s.valueScore}</span>
                                 </div>
                             </div>
                         </div>
