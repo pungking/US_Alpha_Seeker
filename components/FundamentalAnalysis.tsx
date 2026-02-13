@@ -152,25 +152,32 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       }
   };
 
+  // Robust Number Parsing
   const safeNum = (val: any) => {
       if (val === null || val === undefined || val === '') return 0;
       if (typeof val === 'number') return isFinite(val) ? val : 0;
-      // Handle "1,234.56" and "12.5%" strings
-      const cleanStr = String(val).replace(/,/g, '').replace(/%/g, '').trim();
+      // Remove commas, percent signs, and handle parentheses for negative numbers (e.g. "(1,000)")
+      let cleanStr = String(val).replace(/,/g, '').replace(/%/g, '').trim();
+      if (cleanStr.startsWith('(') && cleanStr.endsWith(')')) {
+          cleanStr = '-' + cleanStr.slice(1, -1);
+      }
       const n = parseFloat(cleanStr);
       return Number.isFinite(n) ? n : 0;
   };
 
-  // Fuzzy Finder for keys (handles "Gross Profit", "gross_profit", "grossProfit" etc.)
+  // Fuzzy Finder for keys (handles "Gross Profit", "gross_profit", "grossProfit", "Gross Profit (Loss)" etc.)
   const findValueInObject = (obj: any, candidates: string[]): number => {
-      if (!obj) return 0;
+      if (!obj || typeof obj !== 'object') return 0;
       const keys = Object.keys(obj);
+      // Normalize object keys once
+      const normalizedKeys = keys.map(k => ({ original: k, lower: k.toLowerCase().replace(/[^a-z0-9]/g, '') }));
+      
       for (const candidate of candidates) {
           const lowerCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
-          for (const key of keys) {
-              const lowerKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-              if (lowerKey === lowerCandidate || lowerKey.includes(lowerCandidate)) {
-                  const val = safeNum(obj[key]);
+          for (const keyObj of normalizedKeys) {
+              // Exact match or Contains match
+              if (keyObj.lower === lowerCandidate || keyObj.lower.includes(lowerCandidate)) {
+                  const val = safeNum(obj[keyObj.original]);
                   if (val !== 0) return val;
               }
           }
@@ -211,6 +218,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       if (!res.ok) throw new Error(`Download failed`);
       
       const text = await res.text();
+      // Sanitize Python-generated JSON quirks (NaN, Infinity, etc. are invalid in JSON)
       const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
       
       try {
@@ -223,6 +231,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const getFormattedTimestamp = () => {
     const now = new Date();
+    // Format: YYYY-MM-DD_HH-mm-ss
     const pad = (n: number) => n.toString().padStart(2, '0');
     const yyyy = now.getFullYear();
     const mm = pad(now.getMonth() + 1);
@@ -272,12 +281,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       // 3. Advanced Metric Calculation using History (Force calculation)
       
       // A. Margins (Calculate directly from latest Income Statement if top-level is missing)
-      // Flexible key search
-      let grossProfit = findValueInObject(latest, ["Gross Profit", "grossProfit", "gross_profit"]);
-      let totalRevenue = findValueInObject(latest, ["Total Revenue", "revenue", "sales"]);
-      let operatingIncome = findValueInObject(latest, ["Operating Income", "operatingIncome", "ebit"]);
-      let netIncome = findValueInObject(latest, ["Net Income", "netIncome", "net_income"]);
-      let opCashflow = safeNum(data.operatingCashflow);
+      // Expanded fuzzy keys for searching
+      let grossProfit = findValueInObject(latest, ["Gross Profit", "grossProfit", "gross_profit", "Gross Margin"]);
+      let totalRevenue = findValueInObject(latest, ["Total Revenue", "revenue", "sales", "Total Revenue"]);
+      let operatingIncome = findValueInObject(latest, ["Operating Income", "operatingIncome", "ebit", "Operating Profit"]);
+      let netIncome = findValueInObject(latest, ["Net Income", "netIncome", "net_income", "Net Income Common Stockholders"]);
+      let opCashflow = safeNum(data.operatingCashflow) || findValueInObject(latest, ["Operating Cash Flow", "Cash Flow from Operating Activities"]);
       
       // If revenue missing in latest history, try to find it in root data
       if (totalRevenue === 0) totalRevenue = safeNum(data.revenue);
@@ -291,7 +300,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               grossMargin = (grossProfit / totalRevenue) * 100;
           } else {
               // Estimate from Cost of Revenue if available
-              const costOfRevenue = findValueInObject(latest, ["Cost of Revenue", "costOfRevenue"]);
+              const costOfRevenue = findValueInObject(latest, ["Cost of Revenue", "costOfRevenue", "Cost of Goods Sold"]);
               if (costOfRevenue > 0) {
                   grossProfit = totalRevenue - costOfRevenue;
                   grossMargin = (grossProfit / totalRevenue) * 100;
@@ -637,7 +646,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 flex-1">
               {/* TICKER LIST (Updated Height to sync with Terminal) */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[550px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[600px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Calculated Targets ({processedData.length})</p>
                     <span className="text-[8px] font-mono text-slate-500">Ranked by Composite Alpha</span>
@@ -667,7 +676,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               </div>
 
               {/* DETAIL VIEW (Updated Height to sync with Terminal) */}
-              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[550px]">
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[600px]">
                  {selectedTicker ? (
                      <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
                         <div className="flex justify-between items-start">
@@ -759,7 +768,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       </div>
 
       <div className="xl:col-span-1 h-full flex flex-col">
-        <div className="glass-panel h-full min-h-[550px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
+        <div className="glass-panel h-full min-h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden relative">
           <div className="flex items-center justify-between mb-4 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Log</h3>
           </div>
