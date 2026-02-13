@@ -429,6 +429,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
+          
+          // [UPDATED] Use KST Format (YYYY-MM-DD_HH-mm-ss)
           const timestamp = getFormattedTimestamp();
           const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
           
@@ -636,9 +638,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       });
   };
 
+  // [MODIFIED] KST Timestamp Formatter
   const getFormattedTimestamp = () => {
       const now = new Date();
-      return now.toISOString().replace(/[:.]/g, '-');
+      // KST (UTC+9) Calculation
+      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      return kstDate.toISOString()
+        .replace('T', '_')
+        .replace(/:/g, '-')
+        .split('.')[0]; // Removes milliseconds and 'Z'
   };
 
   const formatMarketCap = (num: number) => {
