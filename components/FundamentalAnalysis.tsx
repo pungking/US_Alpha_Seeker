@@ -1,4 +1,5 @@
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+
+import React, { useState, useEffect, useRef } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
@@ -10,26 +11,33 @@ interface FundamentalTicker {
   marketCap: number;
   sector: string;
   
-  // Advanced Scoring (Real Calculation)
-  fScore: number;         // Piotroski F-Score (0-9)
-  zScore: number;         // Altman Z-Score
-  fundamentalScore: number; // Composite Alpha
+  // Scores
+  qualityScore: number;     // Stage 2 Score
+  fundamentalScore: number; // Stage 3 Score (New)
+  compositeAlpha: number;   // Accumulated Score
   
-  // Valuation Engineering
+  // Advanced Scoring
+  fScore: number;         // Piotroski F-Score Proxy (0-9)
+  zScore: number;         // Altman Z-Score Proxy
+  
+  // Valuation & Metrics
   intrinsicValue: number;
   upsidePotential: number;
   fairValueGap: number;
   
-  // Core Metrics
-  roic: number;
-  ruleOf40: number;
-  fcfYield: number;
-  grossMargin: number;
-  pegRatio: number;
+  // Core Metrics (From System Map)
+  roe: number;
+  roa: number;
+  per: number;
+  pbr: number;
+  debtToEquity: number;
+  operatingMargins: number;
+  revenueGrowth: number;
+  operatingCashflow: number;
   
   // Forensic / Quality
-  earningsQuality: number; // Accruals Ratio
-  economicMoat: 'Wide' | 'Narrow' | 'None' | 'Analyzing...';
+  earningsQuality: number;
+  economicMoat: 'Wide' | 'Narrow' | 'None';
   
   // Visualization
   radarData: {
@@ -41,7 +49,7 @@ interface FundamentalTicker {
   // Meta
   lastUpdate: string;
   source: string; 
-  isDerived: boolean; // True if math models were used
+  isDerived: boolean;
 
   [key: string]: any;
 }
@@ -52,33 +60,26 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// Helper: Extract raw value from Yahoo's { raw: ..., fmt: ... } object or return value directly
-const getRaw = (val: any): number => {
-    if (val === null || val === undefined) return 0;
-    if (typeof val === 'object' && 'raw' in val) return Number(val.raw) || 0;
-    const num = Number(val);
-    return isNaN(num) ? 0 : num;
-};
-
+// Insight Helpers
 const METRIC_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'INTRINSIC': {
         title: "Intrinsic Value (RIM/BPS Model)",
-        desc: "잔여이익모델(RIM) 혹은 자본청산가치(BPS)를 기반으로 산출된 보수적 적정 주가입니다. 데이터 누락 시 BPS 멀티플로 자동 보정됩니다.",
+        desc: "시스템 맵의 데이터(BPS, EPS, ROE)를 기반으로 산출된 내재가치입니다. 시장 가격과의 괴리율을 분석합니다.",
         strategy: "현재 주가가 이 가치보다 30% 이상 낮다면 '강력한 안전마진'이 확보된 상태입니다."
     },
     'Z_SCORE': {
         title: "Altman Z-Score (파산 위험)",
-        desc: "기업의 재무제표 5가지 항목을 조합하여 파산 가능성을 통계적으로 예측합니다. (1.8 미만: 위험 구역). 데이터 부족 시 자본 비율로 추정됩니다.",
+        desc: "부채비율, 유동성, 이익잉여금 대체 지표를 사용하여 기업의 재무적 파산 가능성을 진단합니다.",
         strategy: "Z-Score가 3.0 이상인 기업은 재무적으로 '철옹성'입니다. 하락장에서도 버틸 체력이 있습니다."
     },
     'ROIC': {
         title: "ROIC (투하자본이익률)",
-        desc: "영업에 실제 투입된 자본(Invested Capital) 대비 세후 영업이익(NOPAT)의 비율입니다. WACC(자본비용)보다 높아야 가치를 창출합니다.",
-        strategy: "데이터 누락 시 ROE와 부채비율을 통해 역산된 추정치를 사용합니다. 15% 이상이면 훌륭합니다."
+        desc: "영업에 실제 투입된 자본 대비 이익 효율성을 나타냅니다. ROE와 부채비율을 통해 역산된 프록시를 사용합니다.",
+        strategy: "15% 이상이면 자본 배분 효율이 뛰어난 경영진이 있다는 증거입니다."
     },
     'QUALITY': {
         title: "Earnings Quality (이익의 질)",
-        desc: "영업활동현금흐름(OCF)과 당기순이익(Net Income)의 괴리를 분석합니다. 이익은 나는데 현금이 없다면 분식회계 가능성이 있습니다.",
+        desc: "영업활동현금흐름(OCF)과 순이익의 비율입니다. 장부상 이익만 내고 현금이 없는 '흑자 부도' 위험을 감지합니다.",
         strategy: "비율 > 1.0 (현금흐름 > 순이익)인 기업은 이익의 질이 매우 높습니다."
     }
 };
@@ -88,23 +89,21 @@ const getSectorStyle = (sector: string) => {
     if (s.includes('tech') || s.includes('software')) return 'bg-blue-500/20 text-blue-400 border-blue-500/30';
     if (s.includes('health') || s.includes('bio')) return 'bg-teal-500/20 text-teal-400 border-teal-500/30';
     if (s.includes('finance')) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
-    if (s.includes('energy') || s.includes('oil')) return 'bg-amber-500/20 text-amber-400 border-amber-500/30';
     return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
 };
 
 const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
   const [activeMetric, setActiveMetric] = useState<string | null>(null); 
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Financial_Engine v8.2: Imputation Protocols Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Financial_Engine v9.0: System_Map Link Ready.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -112,38 +111,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   }, [logs]);
 
   useEffect(() => {
-    const handleClickOutside = (event: MouseEvent) => {
-        const target = event.target as HTMLElement;
-        if (!target.closest('.insight-trigger') && !target.closest('.insight-overlay')) {
-            setActiveMetric(null);
-        }
-    };
-    document.addEventListener('mousedown', handleClickOutside);
-    return () => document.removeEventListener('mousedown', handleClickOutside);
-  }, []);
-
-  useEffect(() => {
     let interval: any;
     if (loading && startTimeRef.current > 0) {
       interval = setInterval(() => {
         const now = Date.now();
         const elapsedSec = Math.floor((now - startTimeRef.current) / 1000);
-        let etaSec = 0;
-        if (progress.current > 0 && progress.total > 0) {
-           const rate = progress.current / elapsedSec; 
-           const remaining = progress.total - progress.current;
-           etaSec = rate > 0 ? Math.floor(remaining / rate) : 0;
-        }
-        setTimeStats({ elapsed: elapsedSec, eta: etaSec });
+        setTimeStats({ elapsed: elapsedSec, eta: 0 });
       }, 1000);
     }
     return () => clearInterval(interval);
-  }, [loading, progress]);
+  }, [loading]);
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Financial Engineering Protocol...", "signal");
-        executeFundamentalFortress();
+        addLog("AUTO-PILOT: Initiating System_Map Data Fusion...", "signal");
+        executeFundamentalEngine();
     }
   }, [autoStart]);
 
@@ -166,281 +148,261 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       return Math.min(100, Math.max(0, normalized));
   };
 
-  // --- FINANCIAL ENGINEERING CORE ---
-
-  // 1. Fetch Real Data with Full Granularity
-  const fetchDeepFinancials = async (symbol: string) => {
-      try {
-          const modules = "financialData,defaultKeyStatistics,balanceSheetHistory,incomeStatementHistory,cashflowStatementHistory,earningsTrend,summaryDetail";
-          const res = await fetch(`/api/yahoo?symbols=${symbol}&modules=${modules}`);
-          if (!res.ok) return null;
-          return await res.json();
-      } catch (e) { return null; }
+  // --- DRIVE HELPERS (Reused for System Map Access) ---
+  const findFolder = async (token: string, name: string, parentId = 'root') => {
+      const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
-  // 2. Altman Z-Score Calculation (Enhanced with Imputation)
-  const calculateRealAltmanZ = (bs: any, is: any, marketCap: number) => {
-      try {
-          const totalAssets = getRaw(bs?.totalAssets);
-          if (!totalAssets) return 0; // Absolute minimum req
-
-          const currentAssets = getRaw(bs?.totalCurrentAssets);
-          const currentLiabs = getRaw(bs?.totalCurrentLiabilities);
-          // [IMPUTATION] If Retained Earnings missing, use 30% of Equity (Conservative Estimate)
-          const totalEquity = getRaw(bs?.totalStockholderEquity);
-          const retainedEarnings = getRaw(bs?.retainedEarnings) || (totalEquity * 0.3) || (totalAssets * 0.1);
-          
-          const ebit = getRaw(is?.ebit) || getRaw(is?.operatingIncome) || (getRaw(is?.grossProfit) * 0.4);
-          const totalLiabs = getRaw(bs?.totalLiab) || getRaw(bs?.totalLiabilitiesNetMinorityInterest);
-          const totalRevenue = getRaw(is?.totalRevenue);
-
-          // Working Capital Proxy if missing
-          const workingCapital = (currentAssets && currentLiabs) ? (currentAssets - currentLiabs) : (totalAssets * 0.05);
-
-          const A = workingCapital / totalAssets; 
-          const B = retainedEarnings / totalAssets;               
-          const C = ebit / totalAssets;                           
-          const D = marketCap / (totalLiabs || 1);                
-          const E = totalRevenue / totalAssets;                   
-
-          const z = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
-          return isFinite(z) ? z : 0;
-      } catch (e) { return 0; }
+  const findFileId = async (token: string, name: string, parentId: string) => {
+      const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
-  // 3. ROIC Calculation (Enhanced with ROE fallback)
-  const calculateRealROIC = (is: any, bs: any) => {
+  const downloadFile = async (token: string, fileId: string) => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error(`Download failed`);
+      return await res.json();
+  };
+
+  // --- CORE LOGIC: BATCH PROCESSING ---
+  const executeFundamentalEngine = async () => {
+      if (!accessToken || loading) return;
+      setLoading(true);
+      setProcessedData([]);
+      startTimeRef.current = Date.now();
+
       try {
-          const ebit = getRaw(is?.ebit) || getRaw(is?.operatingIncome);
-          const taxProvision = getRaw(is?.incomeTaxExpense);
-          const pretaxIncome = getRaw(is?.incomeBeforeTax);
-          
-          const taxRate = (pretaxIncome && taxProvision) ? (taxProvision / pretaxIncome) : 0.21;
-          const nopat = ebit * (1 - taxRate);
+          // 1. Load Stage 2 Data (The Targets)
+          addLog("Phase 1: Loading Stage 2 Elite Universe...", "info");
+          const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
+          const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }).then(r => r.json());
 
-          const totalEquity = getRaw(bs?.totalStockholderEquity);
-          const totalDebt = (getRaw(bs?.shortLongTermDebt) || 0) + (getRaw(bs?.longTermDebt) || 0);
-          const investedCapital = totalEquity + totalDebt;
-
-          if (investedCapital > 0) {
-             const roic = (nopat / investedCapital) * 100;
-             if (isFinite(roic)) return roic;
+          if (!listRes.files?.length) {
+              throw new Error("Stage 2 Data Missing. Please run Stage 2 first.");
           }
 
-          return 0; // Fallback handled in main loop
-      } catch (e) { return 0; }
+          const stage2Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+            headers: { 'Authorization': `Bearer ${accessToken}` }
+          }).then(r => r.json());
+
+          const candidates = stage2Content.elite_universe || [];
+          addLog(`Target Acquired: ${candidates.length} Elite Assets.`, "ok");
+          setProgress({ current: 0, total: candidates.length, file: 'Initializing...' });
+
+          // 2. Locate System Map & Data Folders
+          let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+          if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+          if (!systemMapId) throw new Error("System_Identity_Maps folder not found.");
+
+          const dailyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId);
+          if (!dailyFolderId) throw new Error("Financial_Data_Daily folder not found.");
+
+          // 3. Batch Process by Alphabet to Minimize API Calls
+          const groupedByLetter: Record<string, any[]> = {};
+          candidates.forEach((c: any) => {
+              const letter = c.symbol.charAt(0).toUpperCase();
+              if (!groupedByLetter[letter]) groupedByLetter[letter] = [];
+              groupedByLetter[letter].push(c);
+          });
+
+          const results: FundamentalTicker[] = [];
+          const sortedLetters = Object.keys(groupedByLetter).sort();
+
+          for (const letter of sortedLetters) {
+              setProgress(prev => ({ ...prev, file: `Loading Cylinder ${letter}...` }));
+              
+              // Load the Daily Data File for this letter
+              const fileName = `${letter}_stocks_daily.json`;
+              const fileId = await findFileId(accessToken, fileName, dailyFolderId);
+              
+              let dailyDataMap = new Map();
+              if (fileId) {
+                  const content = await downloadFile(accessToken, fileId);
+                  const items = Array.isArray(content) ? content : Object.values(content);
+                  items.forEach((d: any) => {
+                       // Normalize keys
+                       const sym = d.symbol || d.basic?.symbol;
+                       if (sym) dailyDataMap.set(sym, d.basic || d);
+                  });
+              } else {
+                  addLog(`Warning: Map ${fileName} not found. Using Stage 2 fallbacks.`, "warn");
+              }
+
+              // Process tickers for this letter
+              const batch = groupedByLetter[letter];
+              for (const stage2Item of batch) {
+                  const systemData = dailyDataMap.get(stage2Item.symbol) || {};
+                  
+                  // Merge Data: Priority to System Map, Fallback to Stage 2
+                  const merged = { ...stage2Item, ...systemData };
+                  
+                  // --- FINANCIAL ENGINEERING SCORING ---
+                  const analysis = performFinancialEngineering(merged);
+                  
+                  // Accumulate Scores
+                  const qualityScore = stage2Item.qualityScore || 50;
+                  const fundamentalScore = analysis.fundamentalScore;
+                  const compositeAlpha = (qualityScore * 0.4) + (fundamentalScore * 0.6);
+
+                  results.push({
+                      ...stage2Item, // Base info
+                      ...analysis,   // New calculated metrics
+                      qualityScore,
+                      fundamentalScore,
+                      compositeAlpha: Number(compositeAlpha.toFixed(2)),
+                      lastUpdate: new Date().toISOString()
+                  });
+              }
+              
+              setProgress(prev => ({ ...prev, current: results.length }));
+          }
+
+          // 4. Sort & Save
+          results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
+          setProcessedData(results);
+          if (results.length > 0) handleTickerSelect(results[0]);
+
+          addLog("Analysis Complete. Saving to Vault...", "info");
+          
+          const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
+          
+          // KST Timestamp Format
+          const now = new Date();
+          const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+          const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+          const resultFileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
+
+          const payload = {
+              manifest: { 
+                  version: "9.0.0", 
+                  count: results.length, 
+                  timestamp: new Date().toISOString(),
+                  engine: "System_Map_Fusion_Engine" 
+              },
+              fundamental_universe: results
+          };
+
+          const meta = { name: resultFileName, parents: [saveFolderId], mimeType: 'application/json' };
+          const form = new FormData();
+          form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+          form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
+
+          await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+              method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+          });
+
+          addLog(`Vault Saved: ${resultFileName}`, "ok");
+          if (onComplete) onComplete();
+
+      } catch (e: any) {
+          addLog(`Engine Failure: ${e.message}`, "err");
+      } finally {
+          setLoading(false);
+          setProgress({ current: 0, total: 0, file: '' });
+      }
   };
 
-  const executeFundamentalFortress = async () => {
-    if (!accessToken || loading) return;
-    setLoading(true);
-    setProcessedData([]);
-    startTimeRef.current = Date.now();
-    
-    try {
-      // Load Stage 2
-      const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+  // --- SCORING ALGORITHMS ---
+  const performFinancialEngineering = (data: any) => {
+      // Extract Metrics (Handle various naming conventions)
+      const price = Number(data.price) || 0;
+      const roe = Number(data.roe || data.returnOnEquity || 0);
+      const debtToEquity = Number(data.debtToEquity || data.debtEquityRatio || 50);
+      const per = Number(data.pe || data.per || data.peRatio || 0);
+      const pbr = Number(data.pbr || data.priceToBook || 0);
+      const eps = Number(data.eps || 0);
+      const marketCap = Number(data.marketCap || data.marketValue || 0);
+      const opMargin = Number(data.operatingMargins || data.operatingMargin || 0);
+      const opCashflow = Number(data.operatingCashflow || 0);
+      const revenueGrowth = Number(data.revenueGrowth || 0);
 
-      if (!listRes.files?.length) {
-        addLog("Stage 2 Data Missing.", "err");
-        setLoading(false); return;
+      // 1. Z-Score Proxy (Modified for Data Availability)
+      // Standard Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
+      // We use proxies:
+      // A (Liquidity) -> Inverse of Debt? No, assume neutral if missing.
+      // D (Levearge) -> MarketCap / Debt (Estimated from D/E)
+      const estimatedEquity = marketCap / (pbr || 3); // Estimate Book Equity
+      const estimatedDebt = estimatedEquity * (debtToEquity / 100);
+      const leverageScore = estimatedDebt > 0 ? (marketCap / estimatedDebt) : 5; // Higher is safer
+      
+      let zScore = 1.0 + (roe / 20) + (leverageScore * 0.2); // Simplified Proxy
+      if (debtToEquity < 50) zScore += 1.5;
+      if (opMargin > 0.15) zScore += 1.0;
+      if (marketCap > 10000000000) zScore += 0.5; // Large cap bonus
+      
+      // 2. Intrinsic Value (Modified Graham)
+      // V = EPS * (8.5 + 2g)
+      const growthRate = Math.max(0, Math.min(revenueGrowth * 100, 20)); // Cap at 20%
+      let intrinsicValue = 0;
+      if (eps > 0) {
+          intrinsicValue = eps * (8.5 + (2 * growthRate));
+      } else {
+          // Loss making? Use Price/Sales proxy
+          const ps = data.psr || 3;
+          intrinsicValue = price * (3 / ps); // If PS is low, value is high
       }
-      
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      // Safety clamp
+      if (intrinsicValue > price * 3) intrinsicValue = price * 3;
+      if (intrinsicValue < 0) intrinsicValue = 0;
 
-      let candidates = content.elite_universe || [];
-      // [FIX] Analyze ALL top 300 candidates (Removed slice limit)
-      const eliteSquad = candidates.sort((a: any, b: any) => (b.qualityScore || 0) - (a.qualityScore || 0)).slice(0, 300);
+      const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
 
-      addLog(`Financial Engineering: Auditing ${eliteSquad.length} Assets (Enhanced Imputation)...`, "info");
-      setProgress({ current: 0, total: eliteSquad.length });
+      // 3. F-Score Proxy (0-9)
+      let fScore = 5; // Base
+      if (roe > 0) fScore++;
+      if (opCashflow > 0) fScore++;
+      if (debtToEquity < 80) fScore++;
+      if (opMargin > 0.1) fScore++;
 
-      const results: FundamentalTicker[] = [];
-      const BATCH_SIZE = 5; 
-      
-      for (let i = 0; i < eliteSquad.length; i += BATCH_SIZE) {
-          const batch = eliteSquad.slice(i, i + BATCH_SIZE);
-          
-          await Promise.all(batch.map(async (item: any) => {
-              try {
-                  // --- A. Data Acquisition ---
-                  const realData = await fetchDeepFinancials(item.symbol);
-                  
-                  // Extract Financial Statements
-                  const bs = realData?.balanceSheetHistory?.balanceSheetStatements?.[0];
-                  const is = realData?.incomeStatementHistory?.incomeStatementHistory?.[0];
-                  const cf = realData?.cashflowStatementHistory?.cashflowStatements?.[0];
-                  const stats = realData?.defaultKeyStatistics;
-                  const finance = realData?.financialData;
-                  const details = realData?.summaryDetail;
+      // 4. Earnings Quality
+      // OCF / NetIncome Proxy. NetIncome approx MarketCap / PE
+      const netIncomeApprox = per > 0 ? (marketCap / per) : 0;
+      const earningsQuality = (netIncomeApprox > 0 && opCashflow !== 0) 
+          ? Math.abs(opCashflow / netIncomeApprox) 
+          : 1.0;
 
-                  // [FIX] Robust Fallbacks for Basic Data
-                  const marketCap = getRaw(details?.marketCap) || item.marketValue || item.marketCap || 0;
-                  const price = getRaw(finance?.currentPrice) || item.price || 0;
-                  const itemRoe = item.roe || item.returnOnEquity || 15; // Default safe ROE
+      // 5. Composite Score Calculation
+      const valScore = normalizeScore(fairValueGap, -20, 50); 
+      const qualityScore = normalizeScore(roe, 5, 30);
+      const safeScore = normalizeScore(zScore, 1.5, 5.0);
+      const growthScore = normalizeScore(revenueGrowth * 100, 0, 30);
+      const moatScore = normalizeScore(opMargin * 100, 10, 50);
 
-                  // --- B. Forensic Calculations ---
-                  
-                  // 1. Z-Score (Bankruptcy)
-                  let zScore = calculateRealAltmanZ(bs, is, marketCap);
-                  if (zScore === 0) {
-                      // [FALLBACK] If Z-Score fails, assume safe for Large Caps with positive ROE
-                      zScore = (marketCap > 10000000000 && itemRoe > 0) ? 3.5 : 2.0; 
-                  }
+      const fundamentalScore = (valScore * 0.25) + (qualityScore * 0.25) + (safeScore * 0.2) + (growthScore * 0.2) + (moatScore * 0.1);
 
-                  // 2. ROIC (Efficiency)
-                  let roic = calculateRealROIC(is, bs);
-                  // [FIX] Improved ROIC Fallback via Dupont Analysis Proxy
-                  if (roic === 0 || isNaN(roic)) {
-                      // ROIC approx ROE / Leverage
-                      const roe = getRaw(finance?.returnOnEquity) * 100 || itemRoe;
-                      const debtToEquity = getRaw(finance?.debtToEquity) || item.debtToEquity || 50; 
-                      // Simple Proxy: ROIC = ROE / (1 + D/E)
-                      roic = roe / (1 + (debtToEquity / 100));
-                  }
-                  // Sanity caps
-                  if (roic > 100) roic = 99;
-                  if (roic < -50) roic = -50;
-                  if (isNaN(roic)) roic = 10; // Neutral fallback
-
-                  // 3. Earnings Quality (Cash Flow Check)
-                  const netIncome = getRaw(is?.netIncome);
-                  const ocf = getRaw(cf?.totalCashFromOperatingActivities);
-                  // [FALLBACK] If OCF missing, assume ratio 1.0 (Neutral)
-                  let earningsQuality = (netIncome && ocf) ? (ocf / netIncome) : 1.0;
-                  if (!isFinite(earningsQuality)) earningsQuality = 1.0;
-
-                  // 4. Growth & Valuation Reverse Engineering
-                  const pe = getRaw(details?.trailingPE) || getRaw(details?.forwardPE) || item.per || 20;
-                  const peg = getRaw(stats?.pegRatio);
-                  let impliedGrowth = 0;
-                  let isDerivedGrowth = false;
-
-                  if (peg && peg > 0) {
-                      impliedGrowth = pe / peg; 
-                      isDerivedGrowth = true;
-                  } else {
-                      impliedGrowth = getRaw(finance?.revenueGrowth) * 100 || 8.0;
-                  }
-                  
-                  // 5. Intrinsic Value
-                  const eps = getRaw(stats?.trailingEps) || (price / (pe || 20));
-                  let intrinsicValue = 0;
-                  
-                  if (eps > 0 && impliedGrowth > -20) {
-                      // Modified Graham: V = EPS * (8.5 + 2g)
-                      intrinsicValue = (eps * (8.5 + 2 * Math.min(impliedGrowth, 15))) * 0.8; // 20% Margin Safety
-                  } else {
-                       // [FALLBACK] Book Value Proxy if Earnings are negative
-                       const bookVal = getRaw(stats?.bookValue) || (price / (item.pbr || 3));
-                       intrinsicValue = bookVal * 1.5; 
-                  }
-                  
-                  // Safety: Intrinsic Value should not be wildly different from price without reason
-                  if (intrinsicValue <= 0 || isNaN(intrinsicValue)) intrinsicValue = price * 0.9;
-
-                  // --- C. Composite Scoring ---
-                  const upside = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
-                  const fcfYield = marketCap > 0 && ocf ? ((ocf - getRaw(cf?.capitalExpenditures)) / marketCap) * 100 : 0;
-                  const grossMargin = getRaw(finance?.grossMargins) * 100 || 30;
-                  const ruleOf40 = impliedGrowth + (getRaw(finance?.profitMargins) * 100 || 10);
-
-                  // Normalized Scores for Radar
-                  const valScore = normalizeScore(upside, -20, 50); 
-                  const qualityScore = normalizeScore(roic, 5, 30);
-                  const safeScore = normalizeScore(zScore, 1.5, 5.0);
-                  const growthScore = normalizeScore(impliedGrowth, 0, 30);
-                  const moatScore = normalizeScore(grossMargin, 10, 60);
-                  const eqScore = normalizeScore(earningsQuality, 0.5, 2.0);
-
-                  const compositeScore = (valScore * 0.3) + (qualityScore * 0.3) + (safeScore * 0.2) + (growthScore * 0.2);
-
-                  const ticker: FundamentalTicker = {
-                      ...item,
-                      symbol: item.symbol,
-                      name: item.name || item.symbol,
-                      price: price,
-                      marketCap: marketCap,
-                      sector: item.sector || "Unclassified",
-                      
-                      fundamentalScore: Number(compositeScore.toFixed(2)),
-                      intrinsicValue: Number(intrinsicValue.toFixed(2)),
-                      upsidePotential: Number(upside.toFixed(2)),
-                      fairValueGap: Number(upside.toFixed(2)),
-                      
-                      zScore: Number(zScore.toFixed(2)),
-                      fScore: 5, 
-                      
-                      roic: Number(roic.toFixed(2)),
-                      ruleOf40: Number(ruleOf40.toFixed(2)),
-                      fcfYield: Number(fcfYield.toFixed(2)),
-                      grossMargin: Number(grossMargin.toFixed(2)),
-                      pegRatio: peg || 0,
-                      
-                      earningsQuality: Number(earningsQuality.toFixed(2)),
-                      economicMoat: roic > 15 && grossMargin > 40 ? 'Wide' : roic > 10 ? 'Narrow' : 'None',
-                      
-                      isDerived: isDerivedGrowth,
-                      source: "Financial_Engineering_V8.2",
-                      lastUpdate: new Date().toISOString(),
-                      
-                      radarData: [
-                          { subject: 'Valuation', A: valScore, fullMark: 100 },
-                          { subject: 'Quality', A: qualityScore, fullMark: 100 },
-                          { subject: 'Health', A: safeScore, fullMark: 100 },
-                          { subject: 'Growth', A: growthScore, fullMark: 100 },
-                          { subject: 'Moat', A: moatScore, fullMark: 100 },
-                          { subject: 'Earnings', A: eqScore, fullMark: 100 },
-                      ]
-                  };
-
-                  results.push(ticker);
-
-              } catch (err) { }
-          }));
-
-          setProgress({ current: Math.min(i + BATCH_SIZE, eliteSquad.length), total: eliteSquad.length });
-          await new Promise(r => setTimeout(r, 100)); 
-      }
-
-      results.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
-      setProcessedData(results);
-      if (results.length > 0) handleTickerSelect(results[0]);
-
-      const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
-      const now = new Date();
-      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-      const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
-      
-      const payload = {
-        manifest: { version: "8.2.0", count: results.length, strategy: "Financial_Engineering_Protocol_V3" },
-        fundamental_universe: results
+      return {
+          fundamentalScore: Number(fundamentalScore.toFixed(1)),
+          zScore: Number(zScore.toFixed(2)),
+          fScore: fScore,
+          intrinsicValue: Number(intrinsicValue.toFixed(2)),
+          upsidePotential: Number(fairValueGap.toFixed(2)),
+          fairValueGap: Number(fairValueGap.toFixed(2)),
+          earningsQuality: Number(earningsQuality.toFixed(2)),
+          economicMoat: roe > 15 && opMargin > 0.2 ? 'Wide' : roe > 10 ? 'Narrow' : 'None',
+          radarData: [
+              { subject: 'Valuation', A: valScore, fullMark: 100 },
+              { subject: 'Quality', A: qualityScore, fullMark: 100 },
+              { subject: 'Health', A: safeScore, fullMark: 100 },
+              { subject: 'Growth', A: growthScore, fullMark: 100 },
+              { subject: 'Moat', A: moatScore, fullMark: 100 },
+          ],
+          // Pass through metrics for visualization
+          roe, roa: Number(data.roa || 0), per, pbr, debtToEquity, 
+          operatingMargins, revenueGrowth, operatingCashflow: opCashflow
       };
-
-      const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-      const form = new FormData();
-      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-      form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-      });
-
-      addLog(`Financial Engineering Complete. ${results.length} Assets Validated.`, "ok");
-      if (onComplete) onComplete();
-
-    } catch (e: any) {
-      addLog(`Engineering Fault: ${e.message}`, "err");
-    } finally {
-      setLoading(false);
-      startTimeRef.current = 0;
-    }
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -470,26 +432,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Financial_Engine v8.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Financial_Engine v9.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                            {loading ? `Engineering: ${progress.current}/${progress.total}` : 'Accounting Reverse-Engineering Active'}
+                            {loading ? `Engineering: ${progress.current}/${progress.total} (${progress.file})` : 'System Map Fusion Active'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
                    {loading && (
                      <div className="flex items-center space-x-2 mt-0.5">
                        <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">Elapsed: <span className="text-white">{formatTime(timeStats.elapsed)}</span></span>
-                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">ETA: <span className="text-emerald-400">{formatTime(timeStats.eta)}</span></span>
                      </div>
                    )}
                 </div>
               </div>
             </div>
             <button 
-              onClick={executeFundamentalFortress} 
+              onClick={executeFundamentalEngine} 
               disabled={loading} 
               className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
                   loading 
@@ -497,7 +457,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95'
               }`}
             >
-              {loading ? 'Reverse Engineering...' : 'Execute Financial Protocol'}
+              {loading ? 'Fusing System Data...' : 'Execute Financial Protocol'}
             </button>
           </div>
 
@@ -506,7 +466,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[360px]">
                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
                     <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Calculated Targets ({processedData.length})</p>
-                    <span className="text-[8px] font-mono text-slate-500">Ranked by Engineering Score</span>
+                    <span className="text-[8px] font-mono text-slate-500">Ranked by Composite Alpha</span>
                  </div>
                  <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
                      {processedData.length > 0 ? processedData.map((t, i) => (
@@ -515,15 +475,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                  <span className="text-[10px] font-black text-slate-500 w-4">{i + 1}</span>
                                  <div>
                                      <div className="flex items-center gap-1.5">
-                                         <p className={`text-xs font-black ${t.isDerived ? 'text-amber-300' : 'text-white'}`}>{t.symbol}</p>
-                                         {t.isDerived && <span className="text-[6px] px-1 bg-amber-500/20 text-amber-500 rounded border border-amber-500/30 font-bold uppercase">Derived</span>}
+                                         <p className={`text-xs font-black text-white`}>{t.symbol}</p>
                                      </div>
                                      <p className="text-[8px] text-slate-400 truncate w-20">{t.name}</p>
                                  </div>
                              </div>
                              <div className="text-right">
-                                 <p className="text-[10px] font-mono font-bold text-white">{t.fundamentalScore.toFixed(1)}</p>
-                                 <p className="text-[7px] text-slate-500 uppercase">Score</p>
+                                 <p className="text-[10px] font-mono font-bold text-white">{t.compositeAlpha.toFixed(1)}</p>
+                                 <p className="text-[7px] text-slate-500 uppercase">Alpha</p>
                              </div>
                          </div>
                      )) : (
@@ -556,7 +515,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 className="text-right cursor-pointer group hover:opacity-80 transition-opacity insight-trigger"
                                 onClick={() => setActiveMetric('INTRINSIC')}
                             >
-                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1 group-hover:text-emerald-400 transition-colors">Intrinsic Value (Calculated)</p>
+                                 <p className="text-[8px] text-slate-500 uppercase font-bold mb-1 group-hover:text-emerald-400 transition-colors">Intrinsic Value Gap</p>
                                  <div className="w-32 h-2 bg-slate-800 rounded-full overflow-hidden relative">
                                      <div className="absolute left-1/2 top-0 bottom-0 w-0.5 bg-white z-10"></div>
                                      <div 
@@ -588,7 +547,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         <div className="grid grid-cols-4 gap-2 mt-2">
                              {[
                                  { id: 'Z_SCORE', label: 'Z-Score', val: selectedTicker.zScore.toFixed(2), good: selectedTicker.zScore > 2.99, bad: selectedTicker.zScore < 1.8 },
-                                 { id: 'ROIC', label: 'ROIC (Eng)', val: `${selectedTicker.roic.toFixed(1)}%`, good: selectedTicker.roic > 15 },
+                                 { id: 'ROIC', label: 'ROIC (Est)', val: `${selectedTicker.roic ? selectedTicker.roic.toFixed(1) : '0'}%`, good: selectedTicker.roic > 15 },
                                  { id: 'QUALITY', label: 'Earn Qual', val: selectedTicker.earningsQuality.toFixed(2), good: selectedTicker.earningsQuality > 1.0, bad: selectedTicker.earningsQuality < 0.8 },
                                  { id: 'INTRINSIC', label: 'IV Gap', val: `${selectedTicker.fairValueGap}%`, good: selectedTicker.fairValueGap > 20 }
                              ].map((m, idx) => (
