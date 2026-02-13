@@ -255,7 +255,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     <ResponsiveContainer width="100%" height="100%">
                         <ScatterChart 
                             margin={{ top: 20, right: 20, bottom: 20, left: 0 }}
-                            onClick={(e) => {
+                            onClick={(e: any) => {
                                 if (e && e.activePayload && e.activePayload[0]) {
                                     handleSelectStock(e.activePayload[0].payload);
                                 }
