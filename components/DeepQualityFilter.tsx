@@ -23,12 +23,12 @@ const safeNum = (val: any) => {
 
 // [FIX] Auto-scaler: Detects if value is 0.15 (decimal) vs 15.0 (percent)
 const toPercent = (val: number) => {
-    // If value is between -5 and 5, assume it's a decimal representation (e.g., 0.15 for 15%)
-    // Unless it's exactly 0.
+    // If value is small (e.g. 0.21), assume it's a decimal and convert to 21.0
+    // Threshold set to 5.0 (500%) to avoid scaling already correct values like 15.0
     if (val !== 0 && Math.abs(val) <= 5.0) {
-        return val * 100;
+        return Number((val * 100).toFixed(2));
     }
-    return val;
+    return Number(val.toFixed(2));
 };
 
 const findValue = (obj: any, candidates: string[]): number => {
@@ -71,10 +71,13 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
 
   // 1. Data Extraction & Scaling Correction
   const rawRoe = safeNum(daily.roe || latest.returnOnEquity || 0);
-  const roe = toPercent(rawRoe); // [FIX] Apply auto-scaling
+  const roe = toPercent(rawRoe); // [FIX] Apply auto-scaling 0.21 -> 21.0
+
+  const rawRoa = safeNum(daily.roa || latest.returnOnAssets || 0);
+  const roa = toPercent(rawRoa);
 
   const rawDebtEq = safeNum(daily.debtToEquity || daily.debtEquityRatio || latest.debtEquityRatio || 0);
-  const debt = rawDebtEq; // Debt/Eq is usually a ratio (e.g. 0.5 or 1.2), usually not % in raw data, but kept as is for scoring.
+  const debt = rawDebtEq; // Debt/Eq is typically a ratio (e.g., 0.5 or 1.5), not percent. kept as is.
   
   const pe = safeNum(daily.pe || daily.per || 0);
   const pbr = safeNum(daily.pbr || daily.priceToBook || latest.priceToBookRatio || 0);
@@ -151,11 +154,12 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   
   let roic = 0;
   if (investedCapital > 0) {
-      roic = (nopat / investedCapital) * 100; // ROIC is traditionally %
+      roic = (nopat / investedCapital) * 100;
   } else {
       // Proxy if missing data
       roic = roe / (1 + debt);
   }
+  roic = Number(roic.toFixed(2));
 
   const accruals = isOcfReconstructed ? 0 : (netIncome - ocf) / (totalAssets || 1);
 
@@ -178,8 +182,21 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
       
       zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
   } else {
-      // Fallback only if no balance sheet data
-      zScore = (roe > 10 && debt < 1) ? 3.5 : 1.5; 
+      // Dynamic Proxy if no balance sheet data
+      let proxy = 3.0; // Base score
+      
+      // Penalize for high debt
+      if (debt > 100) proxy -= 1.0;
+      else if (debt > 50) proxy -= 0.5;
+
+      // Penalize for negative ROE
+      if (roe < 0) proxy -= 1.0;
+      else if (roe > 20) proxy += 0.5;
+
+      // Penalize for small cap (volatility risk)
+      if (marketCap < 1000000000) proxy -= 0.3;
+
+      zScore = proxy; 
   }
 
   // 5. Growth
@@ -227,12 +244,14 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
       metrics: {
           fcf,
           pfcf: Number(pfcf.toFixed(2)),
-          roic: Number(roic.toFixed(2)),
+          roic: roic,
+          roe: roe, // Ensure normalized ROE is passed
+          roa: roa,
           investedCapital,
           nopat,
           accruals,
           currentRatio: Number(currentRatio.toFixed(2)),
-          zScoreProxy: Number(zScore.toFixed(2)), // Renamed for compatibility, but now real Z-Score
+          zScoreProxy: Number(zScore.toFixed(2)), 
           revenueGrowth: Number(revenueGrowth.toFixed(2)),
           epsGrowth: Number(epsGrowth.toFixed(2)),
           grossMargin: Number(grossMargin.toFixed(2)),
