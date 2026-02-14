@@ -51,7 +51,7 @@ const safeNum = (val: any) => {
     return Number.isFinite(n) ? n : 0;
 };
 
-// [FIX] Auto-scaler for ratios (e.g. 0.15 -> 15.0)
+// Auto-scaler for ratios (e.g. 0.15 -> 15.0)
 const toPercent = (val: number) => {
     if (val !== 0 && Math.abs(val) <= 5.0) {
         return Number((val * 100).toFixed(2));
@@ -59,6 +59,7 @@ const toPercent = (val: number) => {
     return Number(val.toFixed(2));
 };
 
+// Normalize score to 0-100 scale
 const normalizeScore = (val: number, min: number, max: number) => {
     const safeVal = safeNum(val);
     if (safeVal <= min) return 0;
@@ -66,15 +67,17 @@ const normalizeScore = (val: number, min: number, max: number) => {
     return ((safeVal - min) / (max - min)) * 100;
 };
 
-// [ENGINE v4.3] Advanced Valuation & Moat Calculator with Financial Proxy Logic
+// [ENGINE v4.4] Sector-Adaptive Valuation & Perfect-Score Logic
 const performFinancialEngineering = (data: any) => {
     // 1. Extract & Sanitize Metrics
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
     const marketCap = safeNum(data.marketCap || data.marketValue);
     const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
-    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0);
+    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0); // Note: This might be Ratio or Absolute
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
+    const pe = safeNum(data.pe || data.per);
+    const pbr = safeNum(data.pbr || data.priceToBook);
     
     // Revenue Logic
     let sales = safeNum(data.revenue || data.totalRevenue);
@@ -82,98 +85,139 @@ const performFinancialEngineering = (data: any) => {
         sales = marketCap / safeNum(data.psr); // Infer sales from PSR if missing
     }
     
-    // [PROXY LOGIC] Cash Flow for Financials (Banks/Insurance often show 0 OpCashflow)
-    let opCashflow = safeNum(data.operatingCashflow || data.operatingCashFlow);
+    // Sector Detection
     const isFinancial = (data.sector || '').toLowerCase().includes('financial') || (data.industry || '').toLowerCase().includes('bank');
+    
+    // [PROXY LOGIC] Cash Flow
+    let opCashflow = safeNum(data.operatingCashflow || data.operatingCashFlow);
+    let isCashflowProxy = false;
     
     if (opCashflow === 0) {
         if (netIncome > 0) {
-            // Proxy: Net Income * 1.2 (Assuming non-cash expenses add back)
-            opCashflow = netIncome * 1.2; 
-        } else if (marketCap > 0 && safeNum(data.pe) > 0) {
-            // Proxy: Implied Earnings from PE * 1.2
-            const impliedEarnings = marketCap / safeNum(data.pe);
-            opCashflow = impliedEarnings * 1.2;
+            opCashflow = netIncome * (isFinancial ? 1.0 : 1.2); 
+            isCashflowProxy = true;
+        } else if (marketCap > 0 && pe > 0) {
+            const impliedEarnings = marketCap / pe;
+            opCashflow = impliedEarnings * (isFinancial ? 1.0 : 1.2);
+            isCashflowProxy = true;
         }
     }
 
-    // Growth Rates & Margins
+    // Growth & Margins
     const revenueGrowth = toPercent(safeNum(data.revenueGrowth || 5)); 
-    const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 5; // Default 5% fallback
-    
+    const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 5;
     const rawGrossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) : 0));
     const grossMargin = toPercent(rawGrossMargin);
     
-    // Dividend Fix (458 -> 4.58)
     let divYield = safeNum(data.dividendYield);
     if (divYield > 100) divYield = divYield / 100;
 
     const roe = toPercent(safeNum(data.roe || data.returnOnEquity || 0));
 
     // 2. Intrinsic Value (Enhanced Benjamin Graham)
-    // V = EPS * (8.5 + 2g) * (4.4 / Y)
-    const g = Math.min(revenueGrowth, 15); // Cap growth for safety
+    const g = Math.min(revenueGrowth, 15); // Cap growth
     let intrinsicValue = 0;
     
     if (eps > 0) {
-        intrinsicValue = eps * (8.5 + 1.5 * g); // Slightly more conservative multiplier (1.5g)
+        // Multiplier adjusted by sector risk
+        const multiplier = isFinancial ? 1.0 : 1.5; 
+        intrinsicValue = eps * (8.5 + multiplier * g); 
     } else {
-        // Fallback: Book Value Multiplier (BPS * ROE factor)
-        const bookValue = safeNum(data.bookValuePerShare) || (price / (safeNum(data.pbr) || 1));
-        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 10)); // ROE 10% -> 1.0x Book
+        // Fallback: Book Value Multiplier
+        const bookValue = safeNum(data.bookValuePerShare) || (price / (pbr || 1));
+        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 10));
         intrinsicValue = bookValue * roeFactor;
     }
 
-    // Safety Cap: Intrinsic Value shouldn't exceed 300% of price (Avoid outliers)
+    // Safety Cap
     if (intrinsicValue > price * 3) intrinsicValue = price * 3;
-    if (intrinsicValue <= 0) intrinsicValue = price * 0.9; // Default slightly below price if calc fails
+    if (intrinsicValue <= 0) intrinsicValue = price * 0.9; 
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
-    // 3. Efficiency Metrics (Rule of 40, ROIC)
+    // 3. Efficiency Metrics
     const investedCapital = totalEquity + totalDebt;
     let roic = 0;
     if (investedCapital > 0) {
         roic = (netIncome / investedCapital) * 100;
     } else {
-        roic = roe * 0.7; // ROIC is usually lower than ROE due to debt
+        roic = roe * 0.7; 
     }
     
-    // Rule of 40: Growth + Profitability (Cashflow Margin or Net Margin)
     const cfMargin = sales > 0 ? (opCashflow / sales) * 100 : profitMargin;
     const ruleOf40 = revenueGrowth + cfMargin;
     
-    // 4. Financial Health
+    // 4. Financial Health (Piotroski F-Score)
     const zScore = safeNum(data.zScoreProxy) || 1.5;
-    
-    // Piotroski F-Score Proxy (0-9)
-    let fScore = 5; // Start average
+    let fScore = 4;
     if (netIncome > 0) fScore++;
     if (opCashflow > 0) fScore++;
-    if (opCashflow > netIncome) fScore++;
+    if (opCashflow > netIncome) fScore++; // Quality earnings
     if (roic > 5) fScore++;
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
-    // 5. Final Scoring
-    const valScore = normalizeScore(fairValueGap, -10, 50); // Value
-    const qualityScore = (normalizeScore(grossMargin, 10, 60) * 0.4) + (normalizeScore(roic, 5, 20) * 0.6); // Quality
-    const growthScore = normalizeScore(ruleOf40, 0, 50); // Growth
-    const safetyScore = normalizeScore(zScore, 1.0, 4.0); // Safety
+    // 5. SCORING ENGINE [CORE UPDATE]
+    
+    // A. Valuation Score (Sector Adaptive)
+    let valScore = 0;
+    if (isFinancial) {
+        // Financials: Low PE is normal. Don't reward PE < 8 too much.
+        // Focus on PBR and PEG.
+        // PE 10 = 50pts. PE 5 = 90pts.
+        const peScore = normalizeScore(20 - pe, 0, 15); 
+        // PBR 1.0 = 50pts. PBR 0.5 = 100pts.
+        const pbrScore = normalizeScore(2.0 - pbr, 0, 1.5);
+        valScore = (peScore * 0.4) + (pbrScore * 0.6);
+    } else {
+        // Non-Financials: Fair Value Gap is King.
+        valScore = normalizeScore(fairValueGap, -20, 80);
+    }
+    
+    // B. Quality Score (Profitability)
+    const qualScore = (normalizeScore(grossMargin, 10, 60) * 0.4) + (normalizeScore(roic, 5, 20) * 0.6);
 
-    // Weighted Fundamental Score
-    const fundamentalScore = (valScore * 0.35) + (qualityScore * 0.35) + (growthScore * 0.20) + (safetyScore * 0.10);
+    // C. Growth Score
+    const growthScore = normalizeScore(ruleOf40, 10, 60);
+
+    // D. Safety Score [FIXED: Zero Debt = Perfect]
+    let safetyScore = 0;
+    if (totalDebt === 0) {
+        safetyScore = 100; // Perfect Score for Zero Debt
+    } else {
+        // If totalDebt is huge, check if it's actually Debt/Equity Ratio (usually < 5.0)
+        // Or absolute debt amount. Assuming Ratio from Stage 2 normalization.
+        const d2e = totalDebt; 
+        if (isFinancial) {
+             // Financials run on leverage. D/E < 2.0 is safe. > 5.0 risky.
+             safetyScore = normalizeScore(6 - d2e, 0, 5);
+        } else {
+             // Non-Financials. D/E < 0.5 is safe. > 2.0 risky.
+             safetyScore = normalizeScore(2.5 - d2e, 0, 2);
+        }
+    }
+    // Boost safety if Z-Score is high
+    if (zScore > 2.99) safetyScore = Math.max(safetyScore, 90);
+
+    // E. Earnings Quality
+    // If Proxy used, max score is capped at 70.
+    let earningsQualityScore = normalizeScore(opCashflow / (netIncome || 1), 0.5, 2.0);
+    if (isCashflowProxy) earningsQualityScore = Math.min(earningsQualityScore, 70);
+
+    // 6. Weighted Fundamental Alpha
+    const fundamentalScore = (valScore * 0.35) + (qualScore * 0.30) + (growthScore * 0.20) + (safetyScore * 0.15);
 
     // Moat Label
     let economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)' = '없음 (None)';
-    if (roic > 15 && ruleOf40 > 40) economicMoat = '광폭 (Wide)';
-    else if (roic > 8 && ruleOf40 > 25) economicMoat = '협소 (Narrow)';
+    if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = '광폭 (Wide)';
+    else if (roic > 8 && ruleOf40 > 25 && fScore >= 5) economicMoat = '협소 (Narrow)';
 
-    // Data Confidence
+    // Data Confidence Penalty
     let missingDataPoints = 0;
     if (!eps && !netIncome) missingDataPoints++;
     if (!sales) missingDataPoints++;
-    const dataConfidence = Math.max(10, 100 - (missingDataPoints * 20));
+    let dataConfidence = Math.max(10, 100 - (missingDataPoints * 20));
+    if (isCashflowProxy) dataConfidence -= 20;
 
     return {
         fundamentalScore: safeNum(fundamentalScore),
@@ -185,16 +229,16 @@ const performFinancialEngineering = (data: any) => {
         intrinsicValue: safeNum(intrinsicValue),
         upsidePotential: safeNum(fairValueGap),
         fairValueGap: safeNum(fairValueGap),
-        earningsQuality: netIncome !== 0 ? safeNum(opCashflow / netIncome) : 0,
+        earningsQuality: safeNum(earningsQualityScore), // Normalized Score (0-100)
         economicMoat,
         dataConfidence,
-        // Ensure Radar Data is never NaN for Recharts
+        // Corrected Radar Keys for UI Matching
         radarData: [
             { subject: '저평가매력', A: safeNum(valScore), fullMark: 100 },
-            { subject: '경제적해자', A: safeNum(qualityScore), fullMark: 100 },
+            { subject: '경제적해자', A: safeNum(qualScore), fullMark: 100 },
             { subject: '성장효율성', A: safeNum(growthScore), fullMark: 100 },
             { subject: '재무안정성', A: safeNum(safetyScore), fullMark: 100 },
-            { subject: '이익의질', A: safeNum(fScore * 10), fullMark: 100 }, // Scale F-Score to 100
+            { subject: '이익의질', A: safeNum(earningsQualityScore), fullMark: 100 },
         ]
     };
 };
@@ -204,7 +248,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.3: Crash Protection & Proxy Logic Added.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.4: Sector-Adaptive Engine Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
   
@@ -289,13 +333,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           let count = 0;
           for (const stage2Item of candidates) {
               count++;
-              // [CORE CHANGE] Execute Valuation & Moat Logic using Stage 2 data + Proxy Logic
+              // [CORE CHANGE] Execute Enhanced Logic
               const analysis = performFinancialEngineering(stage2Item);
               
               const qualityScore = safeNum(stage2Item.qualityScore || 50);
               const fundamentalScore = analysis.fundamentalScore;
               
-              const compositeAlpha = (qualityScore * 0.4) + (fundamentalScore * 0.6);
+              // Composite Alpha: Blend 30% Past (Stage 2) + 70% Future/Safety (Stage 3)
+              const compositeAlpha = (qualityScore * 0.3) + (fundamentalScore * 0.7);
 
               results.push({
                   ...stage2Item, 
@@ -324,10 +369,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
           const payload = {
               manifest: { 
-                  version: "13.5.0", 
+                  version: "13.5.1", 
                   count: results.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "Valuation_Moat_Proxy_Enhanced" 
+                  engine: "Sector_Adaptive_Valuation_v4.4" 
               },
               fundamental_universe: results
           };
@@ -362,7 +407,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.4</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                         {loading ? `Auditing: ${progress.file}` : 'Deep Fundamental Audit Ready'}
@@ -436,6 +481,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                                {selectedTicker.economicMoat}
                                            </span>
                                        )}
+                                       {selectedTicker.dataConfidence < 100 && (
+                                           <span className="text-[8px] font-black bg-rose-900/30 text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 uppercase animate-pulse">
+                                               Low Confidence
+                                           </span>
+                                       )}
                                   </div>
                               </div>
                               <div className="text-right">
@@ -471,8 +521,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                    <p className={`text-xs font-black ${selectedTicker.zScore > 2.9 ? 'text-emerald-400' : selectedTicker.zScore < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScore.toFixed(2)}</p>
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Moat</p>
-                                   <p className={`text-xs font-black ${selectedTicker.economicMoat === '광폭 (Wide)' ? 'text-purple-400' : 'text-slate-300'}`}>{selectedTicker.economicMoat}</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Safety</p>
+                                   <p className={`text-xs font-black ${selectedTicker.radarData[3].A > 80 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.radarData[3].A.toFixed(0)}</p>
                                </div>
                           </div>
                        </div>
