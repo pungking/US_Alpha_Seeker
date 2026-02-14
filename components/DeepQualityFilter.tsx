@@ -189,11 +189,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   // Flexible parsing for array or object map
                   if (Array.isArray(content)) {
                       content.forEach((d: any) => { 
-                          if(d.symbol) historyDataMap.set(d.symbol, d.financials || d.history || []); 
+                          if(d.symbol) {
+                              const history = Array.isArray(d.financials) ? d.financials : (Array.isArray(d.history) ? d.history : []);
+                              historyDataMap.set(d.symbol, history); 
+                          }
                       });
                   } else {
                       Object.keys(content).forEach(sym => {
-                           historyDataMap.set(sym, content[sym].financials || content[sym] || []);
+                           const data = content[sym];
+                           const history = Array.isArray(data.financials) ? data.financials : (Array.isArray(data) ? data : []);
+                           historyDataMap.set(sym, history);
                       });
                   }
               } else {
@@ -203,7 +208,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               const batch = groupedByLetter[letter];
               for (const item of batch) {
                   // Merge Stage 1 Daily Data + Loaded History Data
-                  const fullHistory = historyDataMap.get(item.symbol) || [];
+                  // [FIX] Ensure fullHistory is always an array
+                  let fullHistory = historyDataMap.get(item.symbol);
+                  if (!Array.isArray(fullHistory)) fullHistory = [];
                   
                   // Calculate Scores
                   // 1. ROE (Return On Equity) - Ensure Percent
@@ -271,7 +278,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                             { subject: 'Safety', A: Math.round(safeScore), fullMark: 100 },
                             { subject: 'Value', A: Math.round(valueScore), fullMark: 100 },
                           ],
-                          fullHistory: fullHistory.slice(0, 4) // Keep light
+                          fullHistory: fullHistory.slice(0, 4) // Keep light, now safe from .slice error
                       });
                   }
               }
