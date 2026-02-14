@@ -21,22 +21,29 @@ const safeNum = (val: any) => {
     return Number.isFinite(n) ? n : 0;
 };
 
+// [FIX] Auto-scaler: Detects if value is 0.15 (decimal) vs 15.0 (percent)
+const toPercent = (val: number) => {
+    // If value is between -5 and 5, assume it's a decimal representation (e.g., 0.15 for 15%)
+    // Unless it's exactly 0.
+    if (val !== 0 && Math.abs(val) <= 5.0) {
+        return val * 100;
+    }
+    return val;
+};
+
 const findValue = (obj: any, candidates: string[]): number => {
     if (!obj || typeof obj !== 'object') return 0;
     const keys = Object.keys(obj);
-    // Create a normalized map for case-insensitive lookup
     const normalizedMap = new Map<string, string>();
     keys.forEach(k => normalizedMap.set(k.toLowerCase().replace(/[^a-z0-9]/g, ''), k));
 
     for (const candidate of candidates) {
         const lowerCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
-        // Exact match attempt
         if (normalizedMap.has(lowerCandidate)) {
             const originalKey = normalizedMap.get(lowerCandidate);
             const val = safeNum(obj[originalKey!]);
             if (val !== 0) return val;
         }
-        // Partial match attempt (safer to rely on specific keys, but useful fallback)
         for (const [normKey, originalKey] of normalizedMap) {
              if (normKey === lowerCandidate || (normKey.includes(lowerCandidate) && normKey.length < lowerCandidate.length + 5)) {
                  const val = safeNum(obj[originalKey]);
@@ -49,7 +56,7 @@ const findValue = (obj: any, candidates: string[]): number => {
 
 // --- ADVANCED V-Q-H-G-M LOGIC (Reconstruction Engine) ---
 const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
-  // 0. Data Normalization: Ensure history is an array sorted by date (Newest First)
+  // 0. Data Normalization
   let history: any[] = [];
   if (Array.isArray(rawHistory)) {
       history = rawHistory;
@@ -62,166 +69,134 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   const latest = history[0] || {};
   const prev = history[1] || {};
 
-  // 1. Data Extraction (Stage 2 Basics)
-  const roe = safeNum(daily.roe || latest.returnOnEquity || 0);
-  const debt = safeNum(daily.debtToEquity || daily.debtEquityRatio || latest.debtEquityRatio || 0);
+  // 1. Data Extraction & Scaling Correction
+  const rawRoe = safeNum(daily.roe || latest.returnOnEquity || 0);
+  const roe = toPercent(rawRoe); // [FIX] Apply auto-scaling
+
+  const rawDebtEq = safeNum(daily.debtToEquity || daily.debtEquityRatio || latest.debtEquityRatio || 0);
+  const debt = rawDebtEq; // Debt/Eq is usually a ratio (e.g. 0.5 or 1.2), usually not % in raw data, but kept as is for scoring.
+  
   const pe = safeNum(daily.pe || daily.per || 0);
   const pbr = safeNum(daily.pbr || daily.priceToBook || latest.priceToBookRatio || 0);
   const marketCap = safeNum(daily.marketCap || daily.marketValue || 0);
 
   // --- LEVEL 1: DIRECT EXTRACTION ---
-  const revenue = findValue(latest, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue', 'Sales']);
-  const prevRevenue = findValue(prev, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue', 'Sales']);
+  const revenue = findValue(latest, ['totalRevenue', 'revenue', 'sales']);
+  const prevRevenue = findValue(prev, ['totalRevenue', 'revenue', 'sales']);
   
-  const costOfRevenue = findValue(latest, ['costOfRevenue', 'Cost Of Revenue', 'costOfGoodsSold']);
-  const grossProfit = findValue(latest, ['grossProfit', 'Gross Profit']);
+  const costOfRevenue = findValue(latest, ['costOfRevenue', 'costOfGoodsSold']);
+  const grossProfit = findValue(latest, ['grossProfit']);
   
-  const operatingIncome = findValue(latest, ['operatingIncome', 'Operating Income', 'EBIT', 'ebit']);
-  const netIncome = findValue(latest, ['netIncome', 'Net Income', 'netIncomeCommonStockholders']);
+  const operatingIncome = findValue(latest, ['operatingIncome', 'ebit']);
+  const netIncome = findValue(latest, ['netIncome', 'netIncomeCommonStockholders']);
   
-  // --- LEVEL 2: ARITHMETIC RECONSTRUCTION (Data Recovery) ---
+  // --- LEVEL 2: ARITHMETIC RECONSTRUCTION ---
+  let totalAssets = findValue(latest, ['totalAssets']);
+  const totalLiab = findValue(latest, ['totalLiabilities', 'totalLiabilitiesNetMinorityInterest']);
+  const totalEquity = findValue(latest, ['totalEquity', 'totalStockholdersEquity']);
 
-  // A. Reconstruct Total Assets (Accounting Identity: Assets = Liabilities + Equity)
-  let totalAssets = findValue(latest, ['totalAssets', 'Total Assets']);
-  
   if (totalAssets === 0) {
-      const totalLiab = findValue(latest, ['totalLiabilities', 'Total Liabilities', 'totalLiabilitiesNetMinorityInterest']);
-      const totalEquity = findValue(latest, ['totalEquity', 'Total Equity', 'totalEquityGrossMinorityInterest', 'stockholdersEquity']);
-      
       if (totalLiab !== 0 && totalEquity !== 0) {
-          totalAssets = totalLiab + totalEquity; // Perfect Reconstruction
-      } else {
-          // Fallback B: Current + Non-Current
-          const currentAssets = findValue(latest, ['totalCurrentAssets', 'Current Assets']) || 
-                               (findValue(latest, ['cashAndCashEquivalents', 'Cash']) + 
-                                findValue(latest, ['netReceivables', 'Receivables']) +
-                                findValue(latest, ['inventory', 'Inventory']));
-                                
-          const nonCurrentAssets = findValue(latest, ['totalNonCurrentAssets', 'Total Non Current Assets']) ||
-                                  (findValue(latest, ['propertyPlantEquipmentNet', 'Net PPE']) + 
-                                   findValue(latest, ['goodwill', 'Goodwill']) + 
-                                   findValue(latest, ['intangibleAssets', 'Intangible Assets']));
-          
-          if (currentAssets > 0) {
-              totalAssets = currentAssets + nonCurrentAssets;
-          }
+          totalAssets = totalLiab + totalEquity; 
       }
   }
 
-  // B. Reconstruct Current Liabilities (Crucial for Invested Capital)
-  let currentLiabilities = findValue(latest, ['totalCurrentLiabilities', 'Total Current Liabilities', 'currentLiabilities']);
-  if (currentLiabilities === 0) {
-      currentLiabilities = findValue(latest, ['accountPayables', 'Payables']) + 
-                           findValue(latest, ['shortTermDebt', 'Short Term Debt']) + 
-                           findValue(latest, ['deferredRevenue', 'Deferred Revenue']) +
-                           findValue(latest, ['otherCurrentLiabilities', 'Other Current Liabilities']);
-  }
-  
-  // C. Reconstruct Operating Cash Flow (Indirect Method)
-  // OCF = Net Income + D&A + SBC + Working Capital Changes
-  let ocf = findValue(latest, ['operatingCashFlow', 'Operating Cash Flow', 'netCashProvidedByOperatingActivities']);
+  // Reconstruct Current Liabilities
+  let currentLiabilities = findValue(latest, ['totalCurrentLiabilities', 'currentLiabilities']);
+  const currentAssets = findValue(latest, ['totalCurrentAssets', 'currentAssets']);
+
+  // Reconstruct Operating Cash Flow
+  let ocf = findValue(latest, ['operatingCashFlow', 'netCashProvidedByOperatingActivities']);
   let isOcfReconstructed = false;
 
   if (ocf === 0) {
-       const depreciation = findValue(latest, ['depreciationAndAmortization', 'Depreciation', 'Amortization']);
-       const sbc = findValue(latest, ['stockBasedCompensation', 'Stock Based Compensation']);
-       
+       const depreciation = findValue(latest, ['depreciationAndAmortization']);
        if (netIncome !== 0) {
-           ocf = netIncome + depreciation + sbc;
+           ocf = netIncome + depreciation;
            isOcfReconstructed = true;
-       } else {
-           // Fallback to EBITDA Proxy
-           const ebitda = findValue(latest, ['ebitda', 'EBITDA']);
-           const interest = Math.abs(findValue(latest, ['interestExpense', 'Interest Expense']));
-           const tax = Math.abs(findValue(latest, ['incomeTaxExpense', 'Tax Provision']));
-           if (ebitda !== 0) {
-               ocf = ebitda - interest - tax;
-               isOcfReconstructed = true;
-           }
        }
   }
 
-  const capex = Math.abs(findValue(latest, ['capitalExpenditure', 'Capital Expenditure', 'capex']));
-  const currentAssets = findValue(latest, ['totalCurrentAssets', 'Total Current Assets', 'currentAssets']);
-
+  const capex = Math.abs(findValue(latest, ['capitalExpenditure', 'capex']));
+  
+  // EPS
   const epsCurrent = findValue(latest, ['eps', 'earningsPerShare', 'epsDiluted']);
   const epsPrev = findValue(prev, ['eps', 'earningsPerShare', 'epsDiluted']);
 
-  // --- DERIVED METRICS ---
+  // --- DERIVED METRICS & RATIOS ---
   
-  // 1. Margins
+  // 1. Margins (Apply Percent Correction)
   let calculatedGrossProfit = grossProfit;
   if (!calculatedGrossProfit && revenue && costOfRevenue) calculatedGrossProfit = revenue - costOfRevenue;
   
-  const grossMargin = revenue > 0 ? (calculatedGrossProfit / revenue) * 100 : 0;
-  const operatingMargin = revenue > 0 ? (operatingIncome / revenue) * 100 : 0;
-  const netMargin = revenue > 0 ? (netIncome / revenue) * 100 : 0;
+  const grossMargin = toPercent(revenue > 0 ? (calculatedGrossProfit / revenue) : 0);
+  const operatingMargin = toPercent(revenue > 0 ? (operatingIncome / revenue) : 0);
+  const netMargin = toPercent(revenue > 0 ? (netIncome / revenue) : 0);
 
-  // 2. Valuation (P/FCF)
+  // 2. Valuation
   const fcf = ocf - capex; 
   const pfcf = fcf > 0 ? marketCap / fcf : 0;
-  const fcfMargin = revenue > 0 ? (fcf / revenue) * 100 : 0;
+  const fcfMargin = toPercent(revenue > 0 ? (fcf / revenue) : 0);
 
-  // 3. Quality (ROIC) - Utilizing Reconstructed Data
+  // 3. Quality (ROIC)
   const taxRate = 0.21;
-  const nopat = operatingIncome > 0 ? operatingIncome * (1 - taxRate) : netIncome; // NOPAT proxy if OpInc missing
+  const nopat = operatingIncome > 0 ? operatingIncome * (1 - taxRate) : netIncome; 
   
   let investedCapital = 0;
   if (totalAssets > 0 && currentLiabilities > 0) {
       investedCapital = totalAssets - currentLiabilities;
-  } else if (marketCap > 0 && debt > 0 && pbr > 0) {
-       // Fallback Level 3: Equity (Market) + Debt
-       // Estimate Book Equity via PBR
-       const bookEquity = marketCap / pbr;
-       investedCapital = bookEquity + (bookEquity * (debt / 100)); // Equity + Debt
+  } else if (marketCap > 0 && debt > 0) {
+       investedCapital = (marketCap / (pbr || 1)) + ((marketCap / (pbr || 1)) * debt); 
   }
   
   let roic = 0;
   if (investedCapital > 0) {
-      roic = (nopat / investedCapital) * 100;
-  } else if (roe > 0) {
-      // Level 3 Proxy: ROIC ≈ ROE / (1 + D/E)
-      roic = roe / (1 + (debt / 100));
+      roic = (nopat / investedCapital) * 100; // ROIC is traditionally %
+  } else {
+      // Proxy if missing data
+      roic = roe / (1 + debt);
   }
 
-  // Accruals (Quality Check)
-  // Only calculate if we have confidence in OCF data (not purely reconstructed from NI without adjustments)
-  const accruals = isOcfReconstructed ? 0 : netIncome - ocf; 
+  const accruals = isOcfReconstructed ? 0 : (netIncome - ocf) / (totalAssets || 1);
 
-  // 4. Health (Z-Score Components)
+  // 4. Health & Z-Score (Granular Calculation)
   let currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
-  if (currentRatio === 0) currentRatio = debt < 50 ? 2.0 : 1.0; // Fallback default
+  if (currentRatio === 0) currentRatio = debt < 0.5 ? 2.0 : 1.0; 
 
   const workingCapital = currentAssets - currentLiabilities;
+  const retainedEarnings = findValue(latest, ['retainedEarnings', 'accumulatedRetainedEarningsDeficit']) || (netIncome * 0.5); // Fallback assumption
   
-  // Z-Score Proxy
-  // 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
-  let zScoreProxy = 0;
+  // [FIX] Granular Altman Z-Score
+  // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
+  let zScore = 0;
   if (totalAssets > 0) {
       const A = workingCapital / totalAssets;
+      const B = retainedEarnings / totalAssets;
       const C = operatingIncome / totalAssets;
-      const D = (marketCap > 0 ? marketCap : totalAssets * 0.5) / (totalAssets - (marketCap/pbr || totalAssets*0.5)); // Equity/Liab
+      const D = marketCap / (totalLiab || (totalAssets * 0.5)); // Market Value of Equity / Total Liabilities
       const E = revenue / totalAssets;
-      zScoreProxy = (1.2 * A) + (3.3 * C) + (0.6 * (D > 0 ? D : 0.5)) + (1.0 * E);
+      
+      zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
   } else {
-      zScoreProxy = debt < 40 ? 3.0 : 1.5;
+      // Fallback only if no balance sheet data
+      zScore = (roe > 10 && debt < 1) ? 3.5 : 1.5; 
   }
 
   // 5. Growth
-  const revenueGrowth = prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue) * 100 : 0;
-  const epsGrowth = epsPrev > 0 ? ((epsCurrent - epsPrev) / epsPrev) * 100 : 0;
+  const revenueGrowth = toPercent(prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue) : 0);
+  const epsGrowth = toPercent(epsPrev > 0 ? ((epsCurrent - epsPrev) / epsPrev) : 0);
 
   // --- SCORING ---
   
   let profitScore = Math.min(100, Math.max(0, (roe / 20) * 60 + (roic / 15) * 40));
   
-  // Earnings Quality Flag
   const earningsQualityFlag = !isOcfReconstructed && netIncome > 0 && ocf < (netIncome * 0.5);
   if (earningsQualityFlag) profitScore *= 0.8; 
 
-  let safeScore = Math.max(0, 100 - (debt / 2));
-  if (currentRatio > 0 && currentRatio < 1.0) safeScore -= 15;
-  if (zScoreProxy < 1.8) safeScore -= 10;
+  let safeScore = Math.max(0, 100 - (debt * 50)); // Debt ratio 1.0 -> -50p, 0.0 -> 0p deduction. 
+  if (debt > 2.0) safeScore = 10; // High leverage penalty
+  if (currentRatio < 1.0) safeScore -= 15;
+  if (zScore < 1.8) safeScore -= 20;
 
   let valueScore = 50;
   if (pe > 0 && pe <= 15) valueScore = 90;
@@ -230,13 +205,10 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   else valueScore = 30;
   
   if (pfcf > 0 && pfcf < 15) valueScore += 10;
-  if (revenueGrowth > 20 && epsGrowth > 20) valueScore += 10;
-
-  // Growth Score Calculation (Explicit)
+  
   let growthScore = 50;
   if (revenueGrowth > 15) growthScore += 20;
   else if (revenueGrowth > 5) growthScore += 10;
-  
   if (epsGrowth > 15) growthScore += 20;
   else if (epsGrowth > 5) growthScore += 10;
   
@@ -249,7 +221,7 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
           profitScore: Math.round(profitScore),
           safeScore: Math.round(safeScore),
           valueScore: Math.round(valueScore),
-          growthScore: Math.round(growthScore), // Added
+          growthScore: Math.round(growthScore),
           qualityScore: Number(qualityScore.toFixed(2))
       },
       metrics: {
@@ -260,7 +232,7 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
           nopat,
           accruals,
           currentRatio: Number(currentRatio.toFixed(2)),
-          zScoreProxy: Number(zScoreProxy.toFixed(2)),
+          zScoreProxy: Number(zScore.toFixed(2)), // Renamed for compatibility, but now real Z-Score
           revenueGrowth: Number(revenueGrowth.toFixed(2)),
           epsGrowth: Number(epsGrowth.toFixed(2)),
           grossMargin: Number(grossMargin.toFixed(2)),
@@ -268,7 +240,7 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
           netMargin: Number(netMargin.toFixed(2)),
           fcfMargin: Number(fcfMargin.toFixed(2)),
           workingCapital,
-          retainedEarnings: 0, 
+          retainedEarnings, 
           earningsQualityFlag,
           liquidityCrisisFlag: currentRatio < 1.0 && currentRatio > 0
       }
@@ -280,7 +252,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0: Deep Audit Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.1: Z-Score & ROE Fixed.']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -330,7 +302,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
-  // [CRITICAL FIX] Robust JSON Parser for NaN handling
   const downloadFile = async (token: string, fileId: string) => {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { 'Authorization': `Bearer ${token}` }
@@ -338,7 +309,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (!res.ok) throw new Error(`Download failed`);
       
       const text = await res.text();
-      // Replace NaN/Infinity literals which are invalid in JSON but common in Python outputs
       const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
       
       try {
@@ -450,11 +420,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const fullHistory = historyDataMap.get(item.symbol) || [];
                   const merged = { ...item, ...dailyData, fullHistory: fullHistory };
                   
-                  // Run Analysis with RECONSTRUCTION Logic
                   const analysis = performAdvancedAnalysis(merged, fullHistory);
                   
-                  // Filter out low quality
-                  // Rule: Quality Score > 40 OR (Growth Score > 70 AND Safe Score > 50)
                   if (analysis.scores.qualityScore > 40 || (analysis.scores.valueScore > 70 && analysis.scores.safeScore > 50)) {
                       results.push({
                           ...item,
@@ -471,11 +438,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
               setProgress(prev => ({ ...prev, current: results.length }));
-              await new Promise(r => setTimeout(r, 10)); // Yield to UI
+              await new Promise(r => setTimeout(r, 10));
           }
 
           results.sort((a, b) => b.qualityScore - a.qualityScore);
-          // Slice top 300 for Stage 3 (Optimized Funnel)
           const eliteCandidates = results.slice(0, 300);
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
@@ -487,10 +453,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const payload = {
               manifest: { 
-                  version: "5.0.0", 
+                  version: "5.1.0", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model" 
+                  engine: "3-Factor_Quant_Model_v2" 
               },
               elite_universe: eliteCandidates
           };
@@ -518,7 +484,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.0.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.1.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-emerald-400 text-emerald-400 animate-pulse' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                         {loading ? `Scanning: ${progress.msg}` : '3-Factor Quant Ready'}
@@ -580,7 +546,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
                                   </div>
                                   <div className="flex items-center gap-2 mt-2">
-                                       <span className="text-[8px] font-black bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase">ROE {selectedTicker.roe}%</span>
+                                       <span className="text-[8px] font-black bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase">ROE {selectedTicker.roe.toFixed(2)}%</span>
                                        <span className="text-[8px] font-black bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">Gross {selectedTicker.grossMargin.toFixed(1)}%</span>
                                        {selectedTicker.currentRatio < 1 && <span className="text-[8px] font-black bg-rose-900/30 text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 uppercase">Liquidity Risk</span>}
                                   </div>
