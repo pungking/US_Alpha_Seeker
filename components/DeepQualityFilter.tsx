@@ -36,7 +36,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.5.6: Fixed Scoring Logic.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.5.7: Bugfix Applied (Negative Debt/Value).']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -167,7 +167,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   let fullHistory = historyDataMap.get(item.symbol) || [];
                   if (!Array.isArray(fullHistory)) fullHistory = [];
 
-                  // --- QUANT LOGIC IMPLEMENTATION (V5.5.6 FIXED) ---
+                  // --- QUANT LOGIC IMPLEMENTATION (V5.5.7 FIXED) ---
 
                   // 1. Sector Logic
                   const sector = (item.sector || '').toLowerCase();
@@ -175,9 +175,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   
                   // 2. Data Cleaning & Imputation
                   const rawDebt = item.debtToEquity;
-                  // Handle Negative Debt/Equity (Capital Erosion/Risk) -> Treat as INSOLVENT (Zero Safety)
-                  // If rawDebt is < 0, it means equity is negative. This is critical risk.
-                  // FIX: We set debt to a very high number (999) to crush the safety score to 0 later.
+                  
+                  // [BUG FIX] Negative Debt/Equity means Negative Equity (Insolvency Risk)
+                  // Previously treated as "negative number", causing massive safety score.
+                  // Now treated as High Risk (Debt = 999 for calculation purposes)
                   let debt = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, false); 
                   if (debt < 0) debt = 999; 
                   
@@ -185,10 +186,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const roe = winsorize(toPercent(imputeValue(item.roe, -5, false)), -50, 100);
                   const roa = winsorize(toPercent(imputeValue(item.roa, -2, false)), -20, 50);
                   
-                  // Dividend
                   const dividendYield = item.dividendYield || 0; 
 
-                  // 3. Scoring (CAPPED AT 100 to prevent overflow)
+                  // 3. Scoring (CAPPED AT 100)
                   let profitScore = 0;
                   let safeScore = 0;
                   let valueScore = 50;
@@ -201,23 +201,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
                   profitScore = Math.min(100, profitScore); 
 
-                  // B. Safety Score (CRITICAL FIX)
+                  // B. Safety Score [BUG FIX]
                   if (isFinancial) {
                       const pb = item.pbr || 1;
                       safeScore = Math.max(0, 100 - (pb * 20)); 
                   } else {
                       // Fix: Math.max(0, ...) ensures no negative score
-                      // Fix: If debt was 999 (negative equity), result is 0.
+                      // Fix: If debt was 999 (negative equity), result is 0 (Correct).
                       safeScore = Math.max(0, 100 - (debt * 30));
                   }
                   safeScore = Math.min(100, safeScore);
 
-                  // C. Value Score (PE based)
+                  // C. Value Score (Threshold based instead of inverse) [BUG FIX]
                   const pe = item.pe || 0;
-                  if (pe > 0 && pe < 15) valueScore = 90;
-                  else if (pe >= 15 && pe < 30) valueScore = 70;
-                  else if (pe >= 30 && pe < 50) valueScore = 50;
-                  else valueScore = 30;
+                  if (pe > 0 && pe < 10) valueScore = 100; // Deep Value
+                  else if (pe >= 10 && pe < 25) valueScore = 80; // Reasonable
+                  else if (pe >= 25 && pe < 50) valueScore = 50; // Growth Premium
+                  else if (pe >= 50) valueScore = 30; // Overvalued
+                  else valueScore = 0; // Negative PE (Loss making) or Zero
 
                   // 4. Data Quality Guard
                   let dataQuality = 'HIGH';
@@ -238,7 +239,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       results.push({
                           ...item,
                           roe,
-                          debtToEquity: debt === 999 ? rawDebt : debt, // Restore raw for display context if needed
+                          debtToEquity: debt === 999 ? rawDebt : debt, // Restore raw for display if needed
                           zScoreProxy: Number(zScore.toFixed(2)),
                           profitScore: Math.round(profitScore),
                           safeScore: Math.round(safeScore),
@@ -274,10 +275,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const payload = {
               manifest: { 
-                  version: "5.5.6", 
+                  version: "5.5.7", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Bugfix" 
+                  engine: "3-Factor_Quant_Model_Fixed" 
               },
               elite_universe: eliteCandidates
           };
@@ -305,7 +306,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.5.6</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.5.7</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-emerald-400 text-emerald-400 animate-pulse' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                         {loading ? `Scanning: ${progress.msg}` : 'Robust Quant Logic Active'}
