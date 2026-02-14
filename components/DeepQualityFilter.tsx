@@ -25,18 +25,15 @@ const winsorize = (val: number, min: number, max: number): number => {
     return Math.max(min, Math.min(max, val));
 };
 
-// 3. Smart Percentage Scaler
-const toPercent = (val: number) => {
-    if (val !== 0 && Math.abs(val) <= 5.0) return Number((val * 100).toFixed(2));
-    return Number(val.toFixed(2));
-};
+// 3. Score Normalizer (0-100)
+const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.5.7: Bugfix Applied (Negative Debt/Value).']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.0: Threshold Scoring & Target Price Logic Applied.']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -167,88 +164,87 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   let fullHistory = historyDataMap.get(item.symbol) || [];
                   if (!Array.isArray(fullHistory)) fullHistory = [];
 
-                  // --- QUANT LOGIC IMPLEMENTATION (V5.5.7 FIXED) ---
+                  // --- QUANT LOGIC IMPLEMENTATION (V5.6.0) ---
 
                   // 1. Sector Logic
                   const sector = (item.sector || '').toLowerCase();
                   const isFinancial = sector.includes('financial') || sector.includes('bank') || sector.includes('insurance');
                   
                   // 2. Data Cleaning & Imputation
-                  const rawDebt = item.debtToEquity;
-                  
-                  // [BUG FIX] Negative Debt/Equity means Negative Equity (Insolvency Risk)
-                  // Previously treated as "negative number", causing massive safety score.
-                  // Now treated as High Risk (Debt = 999 for calculation purposes)
-                  let debt = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, false); 
-                  if (debt < 0) debt = 999; 
+                  // Note: Stage 0 already normalized ratios to percentage (e.g. 15.5) or raw value.
+                  // We do NOT multiply by 100 again.
                   
                   // ROE/ROA: Impute 0 to -5% (penalty for missing data)
-                  const roe = winsorize(toPercent(imputeValue(item.roe, -5, false)), -50, 100);
-                  const roa = winsorize(toPercent(imputeValue(item.roa, -2, false)), -20, 50);
+                  const roe = winsorize(imputeValue(item.roe, -5, false), -50, 100);
+                  const roa = winsorize(imputeValue(item.roa, -2, false), -20, 50);
+                  const rawDebt = item.debtToEquity;
                   
-                  const dividendYield = item.dividendYield || 0; 
-
-                  // 3. Scoring (CAPPED AT 100)
+                  // [LOGIC] Negative Debt/Equity means Negative Equity (Insolvency Risk)
+                  let debtScore = 0;
+                  if (rawDebt < 0) {
+                      debtScore = 0; // Insolvency
+                  } else {
+                      // Normalize debt ratio: 0.0 (0%) -> Score 100, 2.0 (200%) -> Score 0
+                      // Assuming debtToEquity is a ratio (e.g. 1.5 for 150%)
+                      const debtVal = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, false);
+                      debtScore = Math.max(0, 100 - (debtVal * 50)); 
+                  }
+                  
+                  // 3. Value Score (Thresholds instead of 1/PE)
+                  let valueScore = 0;
+                  const pe = item.pe || 0;
+                  
+                  if (pe <= 0) valueScore = 0; // Loss making or error
+                  else if (pe < 10) valueScore = 100; // Deep Value
+                  else if (pe < 20) valueScore = 80;  // Good Value
+                  else if (pe < 35) valueScore = 60;  // Fair Value
+                  else if (pe < 50) valueScore = 40;  // Premium
+                  else valueScore = 20;               // Bubble
+                  
+                  // 4. Profit Score
                   let profitScore = 0;
-                  let safeScore = 0;
-                  let valueScore = 50;
-                  
-                  // A. Profit Score
                   if (isFinancial) {
+                      // ROA is key for financials (e.g. 1.5% ROA is great)
                       profitScore = (Math.max(0, roa * 30)) + (Math.max(0, roe * 2)); 
                   } else {
-                      profitScore = Math.max(0, roe * 4);
+                      // ROE 15% -> 45pts (Good), ROE 30% -> 90pts (Great)
+                      profitScore = Math.max(0, roe * 3);
                   }
-                  profitScore = Math.min(100, profitScore); 
+                  profitScore = clampScore(profitScore);
 
-                  // B. Safety Score [BUG FIX]
-                  if (isFinancial) {
-                      const pb = item.pbr || 1;
-                      safeScore = Math.max(0, 100 - (pb * 20)); 
-                  } else {
-                      // Fix: Math.max(0, ...) ensures no negative score
-                      // Fix: If debt was 999 (negative equity), result is 0 (Correct).
-                      safeScore = Math.max(0, 100 - (debt * 30));
-                  }
-                  safeScore = Math.min(100, safeScore);
-
-                  // C. Value Score (Threshold based instead of inverse) [BUG FIX]
-                  const pe = item.pe || 0;
-                  if (pe > 0 && pe < 10) valueScore = 100; // Deep Value
-                  else if (pe >= 10 && pe < 25) valueScore = 80; // Reasonable
-                  else if (pe >= 25 && pe < 50) valueScore = 50; // Growth Premium
-                  else if (pe >= 50) valueScore = 30; // Overvalued
-                  else valueScore = 0; // Negative PE (Loss making) or Zero
-
-                  // 4. Data Quality Guard
+                  // 5. Data Quality Guard
                   let dataQuality = 'HIGH';
                   let penalty = 0;
                   
                   if (roe === -5) { penalty += 10; dataQuality = 'MEDIUM'; }
-                  if (dividendYield > 20) { penalty += 20; dataQuality = 'SUSPECT'; } 
-                  if (!isFinancial && debt === 1.5) { penalty += 10; dataQuality = 'MEDIUM'; } 
+                  // Penalty for missing target price (Future Uncertainty)
+                  if (!item.targetMeanPrice || item.targetMeanPrice <= 0) {
+                      penalty += 20;
+                      dataQuality = 'LOW_VISIBILITY';
+                  }
 
-                  // 5. Final Quality Score (Weighted & Capped)
-                  const rawQuality = (profitScore * 0.4 + safeScore * 0.3 + valueScore * 0.3) - penalty;
-                  const qualityScore = Math.min(100, Math.max(0, rawQuality));
+                  // 6. Final Quality Score (Weighted & Capped)
+                  const rawQuality = (profitScore * 0.4 + debtScore * 0.3 + valueScore * 0.3) - penalty;
+                  const qualityScore = clampScore(rawQuality);
 
-                  // 6. Z-Score Proxy (Simplified)
-                  const zScore = (roe > 10 && debt < 1.0) ? 3.5 : 1.5;
+                  // 7. Z-Score Proxy (Simplified)
+                  // High ROE + Low Debt = High Safety
+                  const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 2.0 : 1.0;
 
                   if (qualityScore > 35) {
                       results.push({
                           ...item,
                           roe,
-                          debtToEquity: debt === 999 ? rawDebt : debt, // Restore raw for display if needed
+                          debtToEquity: rawDebt, 
                           zScoreProxy: Number(zScore.toFixed(2)),
                           profitScore: Math.round(profitScore),
-                          safeScore: Math.round(safeScore),
+                          safeScore: Math.round(debtScore),
                           valueScore: Math.round(valueScore),
                           qualityScore: Number(qualityScore.toFixed(2)),
                           dataQuality,
                           radarData: [
                             { subject: 'Profit', A: Math.round(profitScore), fullMark: 100 },
-                            { subject: 'Safety', A: Math.round(safeScore), fullMark: 100 },
+                            { subject: 'Safety', A: Math.round(debtScore), fullMark: 100 },
                             { subject: 'Value', A: Math.round(valueScore), fullMark: 100 },
                           ],
                           fullHistory: fullHistory.slice(0, 4) 
@@ -275,10 +271,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const payload = {
               manifest: { 
-                  version: "5.5.7", 
+                  version: "5.6.0", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Fixed" 
+                  engine: "3-Factor_Quant_Model_Threshold" 
               },
               elite_universe: eliteCandidates
           };
@@ -306,7 +302,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.5.7</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-emerald-400 text-emerald-400 animate-pulse' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                         {loading ? `Scanning: ${progress.msg}` : 'Robust Quant Logic Active'}
@@ -407,7 +403,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                        </div>
                    ) : (
                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                            <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                        </div>
                    )}
