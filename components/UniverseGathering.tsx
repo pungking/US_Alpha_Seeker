@@ -83,10 +83,27 @@ interface EngineTelemetry {
   activeThreads: number;
 }
 
+// [HELPER] Smart Ratio Normalizer (Auto-Scaling)
+// Handles mixed data sources (e.g., 0.15 vs 15.0)
+const normalizePercent = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    let num = Number(val);
+    if (isNaN(num)) return 0;
+    
+    // Heuristic: If value is small (e.g. < 5.0) and logically likely to be a decimal ratio (0.20 = 20%)
+    // But allowing for negative growth (e.g. -0.5 = -50%)
+    // Threshold: 5.0 (500%). Most ratios like ROE, Growth are rarely > 500% in decimal (5.0).
+    // Exception: If source explicitly confirms unit, use that. Here we guess.
+    if (Math.abs(num) <= 5.0 && num !== 0) {
+        return parseFloat((num * 100).toFixed(2));
+    }
+    return parseFloat(num.toFixed(2));
+};
+
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.3.0: Real-Time Feed Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.5.0: Smart Scaling Logic Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
@@ -263,7 +280,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // [RESTORED] External API Fetcher (Yahoo)
-  // [FIX] Ratios normalized to Percentages
+  // [FIX] Ratios normalized using Smart Scaler
   const fetchExternalStock = async (symbol: string): Promise<MasterTicker | null> => {
       try {
           const res = await fetch(`/api/yahoo?symbols=${symbol}`);
@@ -290,20 +307,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               pegRatio: raw.pegRatio || 0,
               targetMeanPrice: 0,
               
-              // Normalize Ratios to Percentages (x100)
-              roe: (raw.returnOnEquity || 0) * 100,
-              roa: (raw.returnOnAssets || 0) * 100,
+              // Normalize Ratios to Percentages (Smart Scaler)
+              roe: normalizePercent(raw.returnOnEquity),
+              roa: normalizePercent(raw.returnOnAssets),
               eps: raw.eps || raw.trailingEps || 0,
-              operatingMargins: (raw.operatingMargins || 0) * 100,
-              debtToEquity: raw.debtToEquity || 0,
+              operatingMargins: normalizePercent(raw.operatingMargins),
+              debtToEquity: raw.debtToEquity || 0, // Debt is ratio, keep as is
               
-              revenueGrowth: (raw.revenueGrowth || 0) * 100,
+              revenueGrowth: normalizePercent(raw.revenueGrowth),
               operatingCashflow: 0,
               dividendRate: raw.dividendRate || 0,
-              dividendYield: (raw.dividendYield || 0) * 100,
+              dividendYield: normalizePercent(raw.dividendYield),
               
               beta: raw.beta || 0,
-              heldPercentInstitutions: (raw.heldPercentInstitutions || 0) * 100,
+              heldPercentInstitutions: normalizePercent(raw.heldPercentInstitutions),
               shortRatio: 0,
               fiftyDayAverage: raw.fiftyDayAverage || 0,
               twoHundredDayAverage: raw.twoHundredDayAverage || 0,
@@ -519,12 +536,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           
           const payload = {
               manifest: { 
-                  version: "13.2.0", 
-                  provider: "Drive_V13_HedgeFund_RatioFix", 
+                  version: "13.5.0", 
+                  provider: "Drive_V13_HedgeFund_AutoScaled", 
                   date: new Date().toISOString(), 
                   count: assets.length,
                   integrity: integrityScore,
-                  note: "Ratios (ROE, Margins) normalized to percentages (x100)"
+                  note: "Smart Scaler Active: Revenue/ROE/Margins normalized to %"
               },
               universe: assets
           };
@@ -576,7 +593,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               
               if (fileId) {
                   const content = await downloadFile(token, fileId);
-                  // [CORE] Process Data with Robust Key Mapping (28 Metrics)
+                  // [CORE] Process Data with Robust Key Mapping & Scaling
                   const stocks = processCylinderData(content);
                   const count = stocks.length;
                   
@@ -599,7 +616,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // [V13] Enhanced Data Processor for 28 Metrics
-  // [FIX] Ratios normalized to Percentages
+  // [FIX] Smart Scaling for Ratios
   const processCylinderData = (jsonContent: any): MasterTicker[] => {
       const results: MasterTicker[] = [];
       try {
@@ -631,27 +648,25 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   pegRatio: Number(root.pegRatio || root.peg || 0),
                   targetMeanPrice: Number(root.targetMeanPrice || 0),
 
-                  // 3. Profitability & Efficiency (Quality) - Convert Ratios to Percentages
-                  // Yahoo returns 1.5 for 150%, or 0.15 for 15%. Logic expects 15.0 or 150.0 for %.
-                  // We blindly multiply by 100 assuming the source provides decimal ratios (e.g. 0.15 for 15%)
-                  roe: (Number(root.roe || root.returnOnEquity || 0)) * 100,
-                  roa: (Number(root.roa || root.returnOnAssets || 0)) * 100,
+                  // 3. Profitability & Efficiency (Quality) - SMART SCALING
+                  roe: normalizePercent(root.roe || root.returnOnEquity),
+                  roa: normalizePercent(root.roa || root.returnOnAssets),
                   eps: Number(root.eps || root.earningsPerShare || 0),
-                  operatingMargins: (Number(root.operatingMargins || root.operatingMargin || 0)) * 100,
-                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0), // Debt is a ratio, typically left as is (e.g. 1.5)
+                  operatingMargins: normalizePercent(root.operatingMargins || root.operatingMargin),
+                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0), // Debt is a ratio, keep as is
 
                   // 4. Growth & Cash
-                  revenueGrowth: (Number(root.revenueGrowth || 0)) * 100,
+                  revenueGrowth: normalizePercent(root.revenueGrowth),
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
 
                   // 5. Dividend
                   dividendRate: Number(root.dividendRate || 0),
-                  dividendYield: (Number(root.dividendYield || 0)) * 100,
+                  dividendYield: normalizePercent(root.dividendYield),
 
                   // 6. Momentum & Sentiment
                   volume: Number(root.volume) || 0,
                   beta: Number(root.beta || 0),
-                  heldPercentInstitutions: (Number(root.heldPercentInstitutions || root.institutionOwnership || 0)) * 100,
+                  heldPercentInstitutions: normalizePercent(root.heldPercentInstitutions || root.institutionOwnership),
                   shortRatio: Number(root.shortRatio || 0),
                   fiftyDayAverage: Number(root.fiftyDayAverage || 0),
                   twoHundredDayAverage: Number(root.twoHundredDayAverage || 0),
@@ -806,9 +821,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.5</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Drive_Engine</span>
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Smart_Scaler</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
