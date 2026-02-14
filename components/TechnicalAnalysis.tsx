@@ -356,7 +356,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                   // 2. Fallback to API if Drive Empty
                   if (candles.length < 50) {
-                      const apiCandles = await fetchApiCandles(item.symbol);
+                      const apiCandles = await fetchCandlesFromAPI(item.symbol);
                       if (apiCandles) {
                           candles = apiCandles;
                           dataSrc = 'API';
