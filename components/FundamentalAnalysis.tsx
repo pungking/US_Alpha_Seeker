@@ -44,13 +44,6 @@ interface Props {
 
 // --- HELPER FUNCTIONS ---
 
-const normalizeScore = (val: number, min: number, max: number) => {
-    if (val === undefined || val === null || isNaN(val)) return 0;
-    if (val <= min) return 0;
-    if (val >= max) return 100;
-    return ((val - min) / (max - min)) * 100;
-};
-
 const safeNum = (val: any) => {
     if (val === null || val === undefined || val === '') return 0;
     if (typeof val === 'number') return isFinite(val) ? val : 0;
@@ -58,8 +51,7 @@ const safeNum = (val: any) => {
     return Number.isFinite(n) ? n : 0;
 };
 
-// [FIX] Auto-scaler for ratios
-// Handles case where previous stages might have saved decimals (0.15) instead of percent (15.0)
+// [FIX] Auto-scaler for ratios (e.g. 0.15 -> 15.0)
 const toPercent = (val: number) => {
     if (val !== 0 && Math.abs(val) <= 5.0) {
         return Number((val * 100).toFixed(2));
@@ -67,118 +59,142 @@ const toPercent = (val: number) => {
     return Number(val.toFixed(2));
 };
 
-// [ENGINE v4.2] Advanced Valuation & Moat Calculator
+const normalizeScore = (val: number, min: number, max: number) => {
+    const safeVal = safeNum(val);
+    if (safeVal <= min) return 0;
+    if (safeVal >= max) return 100;
+    return ((safeVal - min) / (max - min)) * 100;
+};
+
+// [ENGINE v4.3] Advanced Valuation & Moat Calculator with Financial Proxy Logic
 const performFinancialEngineering = (data: any) => {
-    // 1. Extract Metrics
+    // 1. Extract & Sanitize Metrics
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
-    const sales = safeNum(data.revenue || data.totalRevenue);
+    const marketCap = safeNum(data.marketCap || data.marketValue);
     const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
-    const opCashflow = safeNum(data.operatingCashflow || data.operatingCashFlow);
-    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0); // Normalized in Stage 2
+    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0);
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
     
+    // Revenue Logic
+    let sales = safeNum(data.revenue || data.totalRevenue);
+    if (sales === 0 && marketCap > 0 && safeNum(data.psr) > 0) {
+        sales = marketCap / safeNum(data.psr); // Infer sales from PSR if missing
+    }
+    
+    // [PROXY LOGIC] Cash Flow for Financials (Banks/Insurance often show 0 OpCashflow)
+    let opCashflow = safeNum(data.operatingCashflow || data.operatingCashFlow);
+    const isFinancial = (data.sector || '').toLowerCase().includes('financial') || (data.industry || '').toLowerCase().includes('bank');
+    
+    if (opCashflow === 0) {
+        if (netIncome > 0) {
+            // Proxy: Net Income * 1.2 (Assuming non-cash expenses add back)
+            opCashflow = netIncome * 1.2; 
+        } else if (marketCap > 0 && safeNum(data.pe) > 0) {
+            // Proxy: Implied Earnings from PE * 1.2
+            const impliedEarnings = marketCap / safeNum(data.pe);
+            opCashflow = impliedEarnings * 1.2;
+        }
+    }
+
     // Growth Rates & Margins
-    const revenueGrowth = safeNum(data.revenueGrowth || 10); 
-    const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 0;
+    const revenueGrowth = toPercent(safeNum(data.revenueGrowth || 5)); 
+    const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 5; // Default 5% fallback
     
     const rawGrossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) : 0));
     const grossMargin = toPercent(rawGrossMargin);
     
-    const rawRoe = safeNum(data.roe || data.returnOnEquity || 0);
-    const roe = toPercent(rawRoe);
+    // Dividend Fix (458 -> 4.58)
+    let divYield = safeNum(data.dividendYield);
+    if (divYield > 100) divYield = divYield / 100;
 
-    // 2. Intrinsic Value (Benjamin Graham Approximation)
-    // V = EPS * (8.5 + 2g) * (4.4 / Y)  -- Assuming Y (Bond Yield) ~ 4.4 for neutralization
-    const g = Math.min(revenueGrowth, 20); // Cap growth at 20% for safety
-    
-    // Book Value Proxy if data missing
-    const bookValue = safeNum(data.bookValuePerShare || (totalEquity / (data.sharesOutstanding || 1)) || (price / (data.pbr || 1)));
+    const roe = toPercent(safeNum(data.roe || data.returnOnEquity || 0));
 
+    // 2. Intrinsic Value (Enhanced Benjamin Graham)
+    // V = EPS * (8.5 + 2g) * (4.4 / Y)
+    const g = Math.min(revenueGrowth, 15); // Cap growth for safety
     let intrinsicValue = 0;
+    
     if (eps > 0) {
-        intrinsicValue = eps * (8.5 + 2 * g);
+        intrinsicValue = eps * (8.5 + 1.5 * g); // Slightly more conservative multiplier (1.5g)
     } else {
-        // Fallback to Book Value multiplier if EPS negative
-        intrinsicValue = bookValue * 1.5; 
+        // Fallback: Book Value Multiplier (BPS * ROE factor)
+        const bookValue = safeNum(data.bookValuePerShare) || (price / (safeNum(data.pbr) || 1));
+        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 10)); // ROE 10% -> 1.0x Book
+        intrinsicValue = bookValue * roeFactor;
     }
-    
-    // Safety Margin Adjustment
-    intrinsicValue = intrinsicValue * 0.8; // 20% Margin of Safety
-    
-    // [V4.2 UPDATE] Stricter Safety Cap: Max 3x Price (200% Upside)
-    // Prevents extreme outliers from skewing the weighted average logic
-    if (intrinsicValue <= 0 || intrinsicValue > price * 3) {
-        intrinsicValue = price * 1.2; // Fallback to modest upside if calc is crazy
-    }
+
+    // Safety Cap: Intrinsic Value shouldn't exceed 300% of price (Avoid outliers)
+    if (intrinsicValue > price * 3) intrinsicValue = price * 3;
+    if (intrinsicValue <= 0) intrinsicValue = price * 0.9; // Default slightly below price if calc fails
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
-    // 3. Efficiency Metrics
+    // 3. Efficiency Metrics (Rule of 40, ROIC)
     const investedCapital = totalEquity + totalDebt;
-    const nopat = netIncome; // Simplified
     let roic = 0;
     if (investedCapital > 0) {
-        roic = (nopat / investedCapital) * 100;
+        roic = (netIncome / investedCapital) * 100;
     } else {
-        roic = roe * 0.8; // Proxy if invested capital missing
+        roic = roe * 0.7; // ROIC is usually lower than ROE due to debt
     }
     
-    const ruleOf40 = revenueGrowth + (opCashflow > 0 && sales > 0 ? (opCashflow / sales) * 100 : profitMargin);
+    // Rule of 40: Growth + Profitability (Cashflow Margin or Net Margin)
+    const cfMargin = sales > 0 ? (opCashflow / sales) * 100 : profitMargin;
+    const ruleOf40 = revenueGrowth + cfMargin;
     
-    // 4. Financial Health (Passed from Stage 2)
-    const zScore = data.zScoreProxy || 1.5;
+    // 4. Financial Health
+    const zScore = safeNum(data.zScoreProxy) || 1.5;
     
-    // Piotroski F-Score (0-9) - Heuristic Estimation based on available data
-    let fScore = 5; // Start at average
+    // Piotroski F-Score Proxy (0-9)
+    let fScore = 5; // Start average
     if (netIncome > 0) fScore++;
     if (opCashflow > 0) fScore++;
     if (opCashflow > netIncome) fScore++;
-    if (roic > (data.roic_prev || 0)) fScore++;
-    if (totalDebt < (data.totalDebt_prev || totalDebt * 1.1)) fScore++;
-    if (grossMargin > (data.grossMargin_prev || grossMargin * 0.9)) fScore++;
+    if (roic > 5) fScore++;
+    if (grossMargin > 20) fScore++;
+    if (divYield > 0) fScore++;
     
-    // Missing Data Points Counter
-    let missingDataPoints = 0;
-    if (!eps) missingDataPoints++;
-    if (!opCashflow) missingDataPoints++;
-    
-    // 5. Final Scoring (Refined for Stage 3 Differentiation)
-    const valScore = normalizeScore(fairValueGap, -20, 100); // Higher gap = Better
-    const moatScore = (normalizeScore(grossMargin, 20, 90) * 0.6) + (normalizeScore(roic, 5, 25) * 0.4);
-    const growthEfficiency = normalizeScore(ruleOf40, 10, 60);
-    const safetyCheck = normalizeScore(zScore, 1.5, 5.0); 
+    // 5. Final Scoring
+    const valScore = normalizeScore(fairValueGap, -10, 50); // Value
+    const qualityScore = (normalizeScore(grossMargin, 10, 60) * 0.4) + (normalizeScore(roic, 5, 20) * 0.6); // Quality
+    const growthScore = normalizeScore(ruleOf40, 0, 50); // Growth
+    const safetyScore = normalizeScore(zScore, 1.0, 4.0); // Safety
 
-    // Weighted Fundamental Score: Heavy on Valuation & Moat
-    const fundamentalScore = (valScore * 0.40) + (moatScore * 0.30) + (growthEfficiency * 0.20) + (safetyCheck * 0.10);
+    // Weighted Fundamental Score
+    const fundamentalScore = (valScore * 0.35) + (qualityScore * 0.35) + (growthScore * 0.20) + (safetyScore * 0.10);
 
     // Moat Label
     let economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)' = '없음 (None)';
-    if (roic > 15 && grossMargin > 40 && fScore >= 7) economicMoat = '광폭 (Wide)';
-    else if (roic > 8 && grossMargin > 20) economicMoat = '협소 (Narrow)';
+    if (roic > 15 && ruleOf40 > 40) economicMoat = '광폭 (Wide)';
+    else if (roic > 8 && ruleOf40 > 25) economicMoat = '협소 (Narrow)';
 
-    // Confidence Penalty
-    const dataConfidence = Math.max(10, 100 - (missingDataPoints * 15));
+    // Data Confidence
+    let missingDataPoints = 0;
+    if (!eps && !netIncome) missingDataPoints++;
+    if (!sales) missingDataPoints++;
+    const dataConfidence = Math.max(10, 100 - (missingDataPoints * 20));
 
     return {
-        fundamentalScore: Number(fundamentalScore.toFixed(2)),
-        zScore: Number(zScore.toFixed(2)),
-        fScore: fScore,
-        roic: Number(roic.toFixed(2)),
-        ruleOf40: Number(ruleOf40.toFixed(2)),
-        grossMargin: Number(grossMargin.toFixed(2)),
-        intrinsicValue: Number(intrinsicValue.toFixed(2)),
-        upsidePotential: Number(fairValueGap.toFixed(2)),
-        fairValueGap: Number(fairValueGap.toFixed(2)),
-        earningsQuality: Number((opCashflow / (netIncome || 1)).toFixed(2)),
+        fundamentalScore: safeNum(fundamentalScore),
+        zScore: safeNum(zScore),
+        fScore: safeNum(fScore),
+        roic: safeNum(roic),
+        ruleOf40: safeNum(ruleOf40),
+        grossMargin: safeNum(grossMargin),
+        intrinsicValue: safeNum(intrinsicValue),
+        upsidePotential: safeNum(fairValueGap),
+        fairValueGap: safeNum(fairValueGap),
+        earningsQuality: netIncome !== 0 ? safeNum(opCashflow / netIncome) : 0,
         economicMoat,
         dataConfidence,
+        // Ensure Radar Data is never NaN for Recharts
         radarData: [
-            { subject: '저평가매력', A: Number(valScore.toFixed(0)), fullMark: 100 },
-            { subject: '경제적해자', A: Number(moatScore.toFixed(0)), fullMark: 100 },
-            { subject: '성장효율성', A: Number(growthEfficiency.toFixed(0)), fullMark: 100 },
-            { subject: '재무안정성', A: Number(safetyCheck.toFixed(0)), fullMark: 100 },
-            { subject: '이익의질', A: Number(normalizeScore(fScore, 3, 9).toFixed(0)), fullMark: 100 },
+            { subject: '저평가매력', A: safeNum(valScore), fullMark: 100 },
+            { subject: '경제적해자', A: safeNum(qualityScore), fullMark: 100 },
+            { subject: '성장효율성', A: safeNum(growthScore), fullMark: 100 },
+            { subject: '재무안정성', A: safeNum(safetyScore), fullMark: 100 },
+            { subject: '이익의질', A: safeNum(fScore * 10), fullMark: 100 }, // Scale F-Score to 100
         ]
     };
 };
@@ -188,7 +204,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.1: Value & Moat Engine Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.3: Crash Protection & Proxy Logic Added.']);
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
   
@@ -211,8 +227,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   };
 
   const handleTickerSelect = (ticker: any) => {
-    setSelectedTicker(ticker);
-    if (onStockSelected) onStockSelected(ticker);
+    if (ticker) {
+        setSelectedTicker(ticker);
+        if (onStockSelected) onStockSelected(ticker);
+    }
   };
 
   const getFormattedTimestamp = () => {
@@ -268,20 +286,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
           const results: FundamentalTicker[] = [];
           
-          // No need to re-fetch daily/history data here. Stage 2 already aggregated it.
-          // We iterate the elite candidates directly.
-          
           let count = 0;
           for (const stage2Item of candidates) {
               count++;
-              // [CORE CHANGE] Execute Valuation & Moat Logic using Stage 2 data
+              // [CORE CHANGE] Execute Valuation & Moat Logic using Stage 2 data + Proxy Logic
               const analysis = performFinancialEngineering(stage2Item);
               
-              const qualityScore = stage2Item.qualityScore || 50;
+              const qualityScore = safeNum(stage2Item.qualityScore || 50);
               const fundamentalScore = analysis.fundamentalScore;
               
-              // Composite Alpha: Blend Stage 2 (Quality) and Stage 3 (Valuation)
-              // 40% Quality (Past Performance) + 60% Valuation (Future Upside)
               const compositeAlpha = (qualityScore * 0.4) + (fundamentalScore * 0.6);
 
               results.push({
@@ -289,7 +302,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   ...analysis,
                   qualityScore,
                   fundamentalScore,
-                  compositeAlpha: Number(compositeAlpha.toFixed(2)),
+                  compositeAlpha: safeNum(compositeAlpha),
                   lastUpdate: new Date().toISOString(),
                   isDerived: true
               });
@@ -314,7 +327,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   version: "13.5.0", 
                   count: results.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "Valuation_Moat_Core" 
+                  engine: "Valuation_Moat_Proxy_Enhanced" 
               },
               fundamental_universe: results
           };
@@ -349,7 +362,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.1.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.3</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                         {loading ? `Auditing: ${progress.file}` : 'Deep Fundamental Audit Ready'}
@@ -432,15 +445,20 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                           </div>
 
                           <div className="flex-1 w-full relative -ml-4 my-2">
-                              <ResponsiveContainer width="100%" height="100%">
-                                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
-                                      <PolarGrid stroke="#334155" opacity={0.3} />
-                                      <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
-                                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                      <Radar name={selectedTicker.symbol} dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
-                                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#06b6d4', fontSize: '10px' }} />
-                                  </RadarChart>
-                              </ResponsiveContainer>
+                              {/* Recharts Crash Prevention: Ensure Data is Clean */}
+                              {selectedTicker.radarData && selectedTicker.radarData.length > 0 ? (
+                                  <ResponsiveContainer width="100%" height="100%">
+                                      <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
+                                          <PolarGrid stroke="#334155" opacity={0.3} />
+                                          <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
+                                          <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                          <Radar name={selectedTicker.symbol} dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
+                                          <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#06b6d4', fontSize: '10px' }} />
+                                      </RadarChart>
+                                  </ResponsiveContainer>
+                              ) : (
+                                  <div className="h-full flex items-center justify-center opacity-20 text-[9px] uppercase tracking-widest text-slate-400 italic">No Radar Data Available</div>
+                              )}
                           </div>
                           
                           <div className="grid grid-cols-3 gap-2 mt-2">
@@ -450,17 +468,17 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Z-Score</p>
-                                   <p className={`text-xs font-black ${selectedTicker.zScoreProxy > 2.9 ? 'text-emerald-400' : selectedTicker.zScoreProxy < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScoreProxy.toFixed(2)}</p>
+                                   <p className={`text-xs font-black ${selectedTicker.zScore > 2.9 ? 'text-emerald-400' : selectedTicker.zScore < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScore.toFixed(2)}</p>
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">FCF Yield</p>
-                                   <p className={`text-xs font-black ${selectedTicker.fcfMargin > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.fcfMargin.toFixed(1)}%</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Moat</p>
+                                   <p className={`text-xs font-black ${selectedTicker.economicMoat === '광폭 (Wide)' ? 'text-purple-400' : 'text-slate-300'}`}>{selectedTicker.economicMoat}</p>
                                </div>
                           </div>
                        </div>
                    ) : (
                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                            <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                        </div>
                    )}
