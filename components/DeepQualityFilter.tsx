@@ -14,22 +14,41 @@ interface QualityTicker {
   debtToEquity: number;
   pe: number;
   
-  // Computed Scores
+  // Computed Scores (Stage 2)
   qualityScore: number;
   profitScore: number;
   safeScore: number;
   valueScore: number;
   
-  // Advanced Recovered Metrics (Pre-calculated for Stage 3)
+  // Advanced V-Q-H-G-M Metrics (Pre-calculated for Stage 3)
   metrics: {
+      // 1. Valuation
+      fcf: number;            // Free Cash Flow
+      pfcf: number;           // Price to FCF
+      
+      // 2. Quality
+      roic: number;           // Return on Invested Capital
       investedCapital: number;
-      nopat: number;
-      workingCapital: number;
-      retainedEarnings: number;
+      nopat: number;          // Net Operating Profit After Tax
+      accruals: number;       // Net Income - OCF (Quality of Earnings)
+      
+      // 3. Health
+      currentRatio: number;   // Liquidity
+      zScoreProxy: number;    // Altman Z-Score Component
+      
+      // 4. Growth
+      revenueGrowth: number;  // YoY
+      epsGrowth: number;      // YoY
+      
+      // 5. Moat (Margins)
+      grossMargin: number;
+      operatingMargin: number;
+      netMargin: number;
       fcfMargin: number;
-      epsGrowth: number;
+      
+      // Flags
       earningsQualityFlag: boolean; // OCF < NI ?
-      liquidityCrisisFlag: boolean; // Current Assets < Current Liab ?
+      liquidityCrisisFlag: boolean; // Current Ratio < 1 ?
   };
 
   sector: string;
@@ -47,7 +66,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [eliteUniverse, setEliteUniverse] = useState<QualityTicker[]>([]);
   const [selectedSymbol, setSelectedSymbol] = useState<string | null>(null);
   
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.5.0: Enhanced Logic Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v6.0.0: V-Q-H-G-M Logic Loaded.']);
   const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
@@ -76,7 +95,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   // Auto-start logic
   useEffect(() => {
     if (autoStart && !loading && eliteUniverse.length === 0) {
-        addLog("AUTO-PILOT: Engaging Deep Quality Quant Filter...", "signal");
+        addLog("AUTO-PILOT: Engaging V-Q-H-G-M Deep Scan...", "signal");
         executeQualityScan();
     }
   }, [autoStart]);
@@ -111,7 +130,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       });
       if (!res.ok) throw new Error(`Download failed`);
       const text = await res.text();
-      // Basic sanitization
       const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
       try { return JSON.parse(safeText); } catch (e) { return {}; }
   };
@@ -128,78 +146,114 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const findValue = (obj: any, keys: string[]) => {
       if (!obj) return 0;
       for (const k of keys) {
-          if (obj[k] !== undefined) return safeNum(obj[k]);
+          if (obj[k] !== undefined && obj[k] !== null) return safeNum(obj[k]);
       }
       return 0;
   };
 
-  // --- ADVANCED SCORING LOGIC ---
-  const performAdvancedAnalysis = (daily: any, history: any[]) => {
+  // --- ADVANCED V-Q-H-G-M LOGIC ---
+  const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
+      // 0. Data Normalization: Ensure history is an array sorted by date (Newest First)
+      let history: any[] = [];
+      if (Array.isArray(rawHistory)) {
+          history = rawHistory;
+      } else if (typeof rawHistory === 'object' && rawHistory !== null) {
+          history = Object.keys(rawHistory)
+              .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
+              .map(date => ({ ...rawHistory[date], date }));
+      }
+      
       const latest = history[0] || {};
       const prev = history[1] || {};
 
-      // 1. Data Extraction
+      // 1. Data Extraction (Stage 2 Basics)
       const roe = safeNum(daily.roe || latest.returnOnEquity || 0);
-      const debt = safeNum(daily.debtToEquity || daily.debtEquityRatio || 0);
+      const debt = safeNum(daily.debtToEquity || daily.debtEquityRatio || latest.debtEquityRatio || 0);
       const pe = safeNum(daily.pe || daily.per || 0);
+      const marketCap = safeNum(daily.marketCap || daily.marketValue || 0);
+
+      // --- DEEP LEDGER EXTRACTION ---
+      const revenue = findValue(latest, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue']);
+      const prevRevenue = findValue(prev, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue']);
       
-      const netIncome = findValue(latest, ['netIncome', 'Net Income']);
-      const ocf = findValue(latest, ['operatingCashFlow', 'Operating Cash Flow']);
-      const currentAssets = findValue(latest, ['totalCurrentAssets', 'Total Current Assets']);
-      const currentLiabilities = findValue(latest, ['totalCurrentLiabilities', 'Total Current Liabilities']);
+      const costOfRevenue = findValue(latest, ['costOfRevenue', 'Cost Of Revenue', 'costOfGoodsSold']);
+      const grossProfit = findValue(latest, ['grossProfit', 'Gross Profit']);
+      
+      const operatingIncome = findValue(latest, ['operatingIncome', 'Operating Income', 'EBIT', 'ebit']);
+      const netIncome = findValue(latest, ['netIncome', 'Net Income', 'netIncomeCommonStockholders']);
+      
+      const ocf = findValue(latest, ['operatingCashFlow', 'Operating Cash Flow', 'netCashProvidedByOperatingActivities']);
+      const capex = Math.abs(findValue(latest, ['capitalExpenditure', 'Capital Expenditure', 'capex']));
+      
       const totalAssets = findValue(latest, ['totalAssets', 'Total Assets']);
+      const currentAssets = findValue(latest, ['totalCurrentAssets', 'Total Current Assets', 'currentAssets']);
       const totalLiabilities = findValue(latest, ['totalLiabilities', 'Total Liabilities']);
-      const operatingIncome = findValue(latest, ['operatingIncome', 'Operating Income']);
-      const revenue = findValue(latest, ['revenue', 'totalRevenue', 'Total Revenue']);
-      const capex = findValue(latest, ['capitalExpenditure', 'Capital Expenditure']);
+      const currentLiabilities = findValue(latest, ['totalCurrentLiabilities', 'Total Current Liabilities', 'currentLiabilities']);
       
-      const epsCurrent = findValue(latest, ['eps', 'earningsPerShare']);
-      const epsPrev = findValue(prev, ['eps', 'earningsPerShare']);
+      const epsCurrent = findValue(latest, ['eps', 'earningsPerShare', 'epsDiluted']);
+      const epsPrev = findValue(prev, ['eps', 'earningsPerShare', 'epsDiluted']);
 
-      // 2. Flags & Corrections
-      const earningsQualityFlag = ocf < netIncome && netIncome > 0;
-      const liquidityCrisisFlag = currentAssets < currentLiabilities;
+      // --- REVERSE ENGINEERING ---
       
-      let epsGrowth = 0;
-      if (epsPrev > 0) epsGrowth = (epsCurrent - epsPrev) / epsPrev;
+      // 1. Margins (Profitability)
+      let calculatedGrossProfit = grossProfit;
+      if (!calculatedGrossProfit && revenue && costOfRevenue) calculatedGrossProfit = revenue - costOfRevenue;
+      
+      const grossMargin = revenue > 0 ? (calculatedGrossProfit / revenue) * 100 : 0;
+      const operatingMargin = revenue > 0 ? (operatingIncome / revenue) * 100 : 0;
+      const netMargin = revenue > 0 ? (netIncome / revenue) * 100 : 0;
 
-      // 3. Scoring
-      // A. Profitability (40%)
-      let profitScore = Math.min(100, Math.max(0, (roe / 25) * 100));
-      if (earningsQualityFlag) profitScore *= 0.8; // 20% Penalty for fake earnings
+      // 2. Valuation (P/FCF)
+      const fcf = ocf - capex;
+      const pfcf = fcf > 0 ? marketCap / fcf : 0;
+      const fcfMargin = revenue > 0 ? (fcf / revenue) * 100 : 0;
 
-      // B. Stability (30%)
+      // 3. Quality (ROIC & Accruals)
+      const taxRate = 0.21; // Estimate
+      const nopat = operatingIncome * (1 - taxRate);
+      let investedCapital = totalAssets - currentLiabilities;
+      if (investedCapital <= 0) investedCapital = totalAssets - (totalLiabilities * 0.5); // Fallback
+      const roic = investedCapital > 0 ? (nopat / investedCapital) * 100 : 0;
+      const accruals = netIncome - ocf; // Negative is better (Cash > Income)
+
+      // 4. Health (Current Ratio)
+      const currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
+      // Heuristic Z-Score Proxy (simplified)
+      // 1.2(Working Cap/Assets) + 1.4(RE/Assets) + 3.3(EBIT/Assets) ...
+      // We compute a partial proxy score for sorting
+      const workingCapital = currentAssets - currentLiabilities;
+      const zScoreProxy = totalAssets > 0 ? (1.2 * (workingCapital/totalAssets)) + (3.3 * (operatingIncome/totalAssets)) : 0;
+
+      // 5. Growth
+      const revenueGrowth = prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue) * 100 : 0;
+      const epsGrowth = epsPrev > 0 ? ((epsCurrent - epsPrev) / epsPrev) * 100 : 0;
+
+      // --- STAGE 2 SCORING (Enhanced) ---
+      
+      // A. Profitability (40%) - Now includes ROIC
+      let profitScore = Math.min(100, Math.max(0, (roe / 20) * 60 + (roic / 15) * 40));
+      // Fake Earnings Penalty
+      if (ocf < netIncome && netIncome > 0) profitScore *= 0.85; 
+
+      // B. Stability (30%) - Includes Current Ratio
       let safeScore = Math.max(0, 100 - (debt / 2));
-      if (liquidityCrisisFlag) safeScore -= 10; // Penalty for liquidity risk
+      if (currentRatio > 0 && currentRatio < 1.0) safeScore -= 20; // Liquidity risk
+      if (currentRatio > 2.0) safeScore += 5; // Strong liquidity
 
-      // C. Value (30%)
+      // C. Value (30%) - Includes P/FCF if available
       let valueScore = 50;
-      if (pe > 0 && pe <= 15) valueScore = 100;
-      else if (pe > 15 && pe <= 25) valueScore = 80;
+      if (pe > 0 && pe <= 15) valueScore = 90;
+      else if (pe > 15 && pe <= 25) valueScore = 75;
       else if (pe > 25 && pe <= 50) valueScore = 50;
-      else valueScore = 20;
+      else valueScore = 30;
       
-      if (epsGrowth > 0.2) valueScore += 10; // Growth Premium
+      // Bonus for good FCF Yield
+      if (pfcf > 0 && pfcf < 15) valueScore += 10;
+      
+      // Bonus for Growth
+      if (revenueGrowth > 20 && epsGrowth > 20) valueScore += 10; // GARP (Growth At Reasonable Price)
 
       const qualityScore = (profitScore * 0.4) + (safeScore * 0.3) + (valueScore * 0.3);
-
-      // 4. Data Recovery / Pre-calculation (For Stage 3)
-      // Z-Score Params
-      const workingCapital = currentAssets - currentLiabilities;
-      let retainedEarnings = findValue(latest, ['retainedEarnings', 'Retained Earnings']);
-      if (retainedEarnings === 0) {
-          const commonStock = findValue(latest, ['commonStock', 'Common Stock']);
-          retainedEarnings = totalAssets - totalLiabilities - commonStock; // Estimate
-      }
-
-      // ROIC Params
-      const taxRate = 0.21;
-      const nopat = operatingIncome * (1 - taxRate);
-      const investedCapital = totalAssets - currentLiabilities;
-
-      // Rule of 40 Params
-      const fcf = ocf - Math.abs(capex);
-      const fcfMargin = revenue > 0 ? (fcf / revenue) * 100 : 0;
 
       return {
           scores: {
@@ -209,14 +263,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               qualityScore: Number(qualityScore.toFixed(2))
           },
           metrics: {
+              fcf,
+              pfcf: Number(pfcf.toFixed(2)),
+              roic: Number(roic.toFixed(2)),
               investedCapital,
               nopat,
+              accruals,
+              currentRatio: Number(currentRatio.toFixed(2)),
+              zScoreProxy: Number(zScoreProxy.toFixed(2)),
+              revenueGrowth: Number(revenueGrowth.toFixed(2)),
+              epsGrowth: Number(epsGrowth.toFixed(2)),
+              grossMargin: Number(grossMargin.toFixed(2)),
+              operatingMargin: Number(operatingMargin.toFixed(2)),
+              netMargin: Number(netMargin.toFixed(2)),
+              fcfMargin: Number(fcfMargin.toFixed(2)),
               workingCapital,
-              retainedEarnings,
-              fcfMargin,
-              epsGrowth,
-              earningsQualityFlag,
-              liquidityCrisisFlag
+              retainedEarnings: 0, // Placeholder, usually extracted from BS deep dive if needed
+              earningsQualityFlag: ocf < netIncome,
+              liquidityCrisisFlag: currentRatio < 1.0 && currentRatio > 0
           }
       };
   };
@@ -241,7 +305,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const rawList = s1Content.investable_universe || [];
           addLog(`${rawList.length} Candidates Loaded. Connecting to Financial Maps...`, "ok");
 
-          // Connect to History Maps
           let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
           if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
           if (!systemMapId) throw new Error("System Map not found.");
@@ -249,7 +312,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const historyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
           if (!historyFolderId) throw new Error("History Map not found.");
 
-          // Group by Letter for Batch Processing
           const grouped: Record<string, any[]> = {};
           rawList.forEach((item: any) => {
               const char = item.symbol.charAt(0).toUpperCase();
@@ -264,7 +326,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           for (const char of sortedKeys) {
               setProgress(prev => ({ ...prev, file: `Scanning Sector ${char}...` }));
               
-              // Load History Chunk
               const histFileId = await findFileId(accessToken, `${char}_stocks_history.json`, historyFolderId);
               let historyMap = new Map();
               
@@ -277,31 +338,29 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
               }
 
-              // Process Items
               const batch = grouped[char];
               for (const item of batch) {
                   const history = historyMap.get(item.symbol) || [];
+                  // [ENHANCED ENGINE]
                   const analysis = performAdvancedAnalysis(item, history);
                   
                   results.push({
                       ...item,
                       ...analysis.scores,
-                      metrics: analysis.metrics, // Store recovered data
-                      fullHistory: history // Pass history to next stage if needed
+                      metrics: analysis.metrics, 
+                      fullHistory: history 
                   });
               }
               setProgress(prev => ({ ...prev, current: results.length }));
-              await new Promise(r => setTimeout(r, 10)); // Yield to UI
+              await new Promise(r => setTimeout(r, 0)); 
           }
 
-          // Sort & Cutoff
           const ranked = results.sort((a, b) => b.qualityScore - a.qualityScore);
           const elite = ranked.slice(0, 250);
           
           setEliteUniverse(elite);
           addLog(`Analysis Complete. Top 250 Elite Selected.`, "ok");
 
-          // Save Stage 2
           const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
           const now = new Date();
           const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
@@ -309,7 +368,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
           
           const payload = {
-            manifest: { version: "5.5.0", count: elite.length, timestamp: new Date().toISOString(), strategy: "3-Factor_Adjusted_Recovery" },
+            manifest: { 
+                version: "6.0.0", 
+                count: elite.length, 
+                timestamp: new Date().toISOString(), 
+                strategy: "V-Q-H-G-M_Deep_Scan_Engine" 
+            },
             elite_universe: elite
           };
 
@@ -372,10 +436,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.5.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v6.0.0</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                     {loading ? `Scanning: ${progress.current}/${progress.total}` : '3-Factor Adjusted Quant Active'}
+                     {loading ? `Scanning: ${progress.current}/${progress.total}` : 'V-Q-H-G-M Engine Ready'}
                    </span>
                    {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                 </div>
@@ -395,7 +459,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95'
                 }`}
             >
-              {loading ? 'Quant Processing...' : 'Start Deep Quality Scan'}
+              {loading ? 'Processing Ledger...' : 'Start Deep Quality Scan'}
             </button>
           </div>
 
@@ -430,10 +494,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                                     <span className="text-[8px] text-blue-400">S:{data.safeScore}</span>
                                                     <span className="text-[8px] text-amber-400">V:{data.valueScore}</span>
                                                 </div>
-                                                {/* Advanced Flags */}
+                                                <div className="mt-2 pt-2 border-t border-white/10 text-[8px] text-slate-400">
+                                                    <p>ROIC: {data.metrics?.roic}%</p>
+                                                    <p>Gross M: {data.metrics?.grossMargin}%</p>
+                                                </div>
                                                 {(data.metrics?.earningsQualityFlag || data.metrics?.liquidityCrisisFlag) && (
-                                                    <div className="mt-2 pt-2 border-t border-white/10">
-                                                        {data.metrics?.earningsQualityFlag && <p className="text-[7px] text-rose-500 font-bold">⚠️ Fake Earnings (OCF &lt; NI)</p>}
+                                                    <div className="mt-2 pt-1 border-t border-white/10">
+                                                        {data.metrics?.earningsQualityFlag && <p className="text-[7px] text-rose-500 font-bold">⚠️ Low Earnings Quality</p>}
                                                         {data.metrics?.liquidityCrisisFlag && <p className="text-[7px] text-rose-500 font-bold">⚠️ Liquidity Risk</p>}
                                                     </div>
                                                 )}
@@ -474,7 +541,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                     <div className="flex items-center gap-1.5">
                                         <p className="text-[10px] font-bold text-white uppercase">{s.symbol}</p>
                                         <span className="text-[6px] text-slate-500 px-1 bg-white/5 rounded border border-white/5">
-                                            ROE {Number(s.roe).toFixed(2)}% | PER {s.pe ? Number(s.pe).toFixed(1) : 'N/A'}
+                                            ROIC {s.metrics?.roic}% | GM {s.metrics?.grossMargin}%
                                         </span>
                                     </div>
                                     <p className="text-[7px] text-slate-500 truncate w-32">{s.name}</p>
