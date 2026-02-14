@@ -1,7 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { ApiProvider } from '../types';
 
 interface TechnicalTicker {
   symbol: string;
@@ -74,9 +75,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v6.0: Drive-First Architecture Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v6.2: Hybrid Data Engine (Drive+API).']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -114,7 +118,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging High-Fidelity Tech Scan...", "signal");
+        addLog("AUTO-PILOT: Engaging Hybrid Tech Scan...", "signal");
         executeTechnicalScan();
     }
   }, [autoStart]);
@@ -198,7 +202,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return 100 - (100 / (1 + rs));
   };
 
-  // --- DRIVE HELPERS ---
+  // --- DATA SOURCES ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -216,9 +220,49 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const downloadFile = async (token: string, fileId: string) => {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
       const text = await res.text();
-      // Safe parse handling for NaN/Infinity often found in python dumps
       const safeText = text.replace(/:\s*NaN/g, ': null').replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
       return JSON.parse(safeText);
+  };
+
+  const fetchCandlesFromAPI = async (symbol: string): Promise<any[] | null> => {
+      const to = new Date().toISOString().split('T')[0];
+      const fromDate = new Date();
+      fromDate.setDate(fromDate.getDate() - 200);
+      const from = fromDate.toISOString().split('T')[0];
+      
+      // 1. Polygon
+      if (polygonKey) {
+          try {
+              const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
+              const res = await fetch(url);
+              if (res.ok) {
+                  const json = await res.json();
+                  if (json.results && json.results.length > 20) {
+                      return json.results.map((c: any) => ({
+                          c: c.c, h: c.h, l: c.l, o: c.o, v: c.v, t: c.t
+                      }));
+                  }
+              }
+          } catch (e) { /* Ignore */ }
+      }
+
+      // 2. FMP Fallback
+      if (fmpKey) {
+          try {
+              const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?from=${from}&to=${to}&apikey=${fmpKey}`;
+              const res = await fetch(url);
+              if (res.ok) {
+                  const json = await res.json();
+                  if (json.historical && json.historical.length > 20) {
+                      return json.historical.reverse().map((c: any) => ({
+                          c: c.close, h: c.high, l: c.low, o: c.open, v: c.volume, t: new Date(c.date).getTime()
+                      }));
+                  }
+              }
+          } catch (e) { /* Ignore */ }
+      }
+
+      return null;
   };
 
   const executeTechnicalScan = async () => {
@@ -254,9 +298,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
       
-      if (!systemMapId) throw new Error("System Identity Maps not found. Cannot perform offline analysis.");
-      const historyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
-      if (!historyFolderId) throw new Error("Financial History Map not found.");
+      const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
+      if (!historyFolderId) addLog("Drive History Folder Not Found. Using API Mode.", "warn");
 
       // 3. Group Candidates by Letter for Batch Processing
       const grouped: Record<string, any[]> = {};
@@ -271,49 +314,55 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       // 4. Batch Process by Letter
       for (const letter of letters) {
-          setProgress(prev => ({ ...prev, status: `Mounting Cylinder ${letter}...` }));
+          setProgress(prev => ({ ...prev, status: `Scanning Sector ${letter}...` }));
           
           // Load History File for this letter
-          const fileName = `${letter}_stocks_history.json`;
-          const fileId = await findFileId(accessToken, fileName, historyFolderId);
-          
           let historyMap = new Map();
-          if (fileId) {
-              const fileData = await downloadFile(accessToken, fileId);
-              if (Array.isArray(fileData)) {
-                  fileData.forEach((item: any) => historyMap.set(item.symbol, item.financials || []));
-              } else {
-                  // Handle object format { "AAPL": { financials: [...] } }
-                  Object.entries(fileData).forEach(([sym, val]: [string, any]) => {
-                      historyMap.set(sym, val.financials || val);
-                  });
+          if (historyFolderId) {
+              const fileName = `${letter}_stocks_history.json`;
+              const fileId = await findFileId(accessToken, fileName, historyFolderId);
+              
+              if (fileId) {
+                  try {
+                      const fileData = await downloadFile(accessToken, fileId);
+                      if (Array.isArray(fileData)) {
+                          fileData.forEach((item: any) => historyMap.set(item.symbol, item.financials || []));
+                      } else {
+                          // Handle object format { "AAPL": { financials: [...] } }
+                          Object.entries(fileData).forEach(([sym, val]: [string, any]) => {
+                              historyMap.set(sym, val.financials || val);
+                          });
+                      }
+                  } catch (e) { console.warn(`Failed to parse ${fileName}`, e); }
               }
-              addLog(`Cylinder ${letter}: Loaded ${historyMap.size} history records.`, "info");
-          } else {
-              addLog(`Warning: Cylinder ${letter} history not found.`, "warn");
           }
 
           // Process stocks in this group
           const batch = grouped[letter];
           for (const item of batch) {
               try {
-                  const rawHistory = historyMap.get(item.symbol);
-                  
-                  // Convert raw history to candles
-                  // Check if history exists and is array
+                  // [HYBRID DATA FETCH]
+                  // 1. Try Drive Map
+                  let rawHistory = historyMap.get(item.symbol);
                   let candles: any[] = [];
+                  let dataSrc = 'DRIVE';
+
                   if (Array.isArray(rawHistory) && rawHistory.length > 50) {
-                       // Sort by date ascending if needed, usually history is desc or asc. 
-                       // We need ASC for technical calcs (oldest -> newest)
-                       // Assumption: rawHistory has { date, close, volume, ... }
+                       // Sort by date ascending if needed
                        candles = rawHistory.map((h: any) => ({
-                           c: Number(h.close),
-                           h: Number(h.high),
-                           l: Number(h.low),
-                           o: Number(h.open),
-                           v: Number(h.volume),
-                           t: h.date // string date
+                           c: Number(h.close), h: Number(h.high), l: Number(h.low), o: Number(h.open), v: Number(h.volume), t: h.date 
                        })).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+                  }
+
+                  // 2. Fallback to API if Drive Empty
+                  if (candles.length < 50) {
+                      const apiCandles = await fetchApiCandles(item.symbol);
+                      if (apiCandles) {
+                          candles = apiCandles;
+                          dataSrc = 'API';
+                          // Throttling for API usage
+                          await new Promise(r => setTimeout(r, 200)); 
+                      }
                   }
 
                   // Default Metrics
@@ -325,8 +374,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   let isBlueSky = false;
                   let goldenSetup = false;
                   let trendScore = 50;
+                  let techScore = 0;
 
-                  if (candles.length > 50) {
+                  // Perform Analysis if Data Exists
+                  if (candles.length > 30) {
                       const closes = candles.map((c: any) => c.c);
                       const volumes = candles.map((c: any) => c.v);
                       const currentPrice = closes[closes.length - 1];
@@ -378,17 +429,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       
                       const priceChange = (currentPrice - closes[closes.length - 2]) / closes[closes.length - 2];
                       goldenSetup = rvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
-                  }
 
-                  // [COMPOSITE SCORING]
-                  let techScore = rsRating * 0.4;
-                  techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
-                  techScore += (rvol > 1.5 ? 10 : 0) + (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
-                  if (goldenSetup || isBlueSky) techScore += 10;
-                  techScore = Math.min(99, Math.max(1, techScore));
-                  
-                  // Penalize missing data hard
-                  if (candles.length < 50) techScore = 0;
+                      // Scoring
+                      techScore = rsRating * 0.4;
+                      techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
+                      techScore += (rvol > 1.5 ? 10 : 0) + (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
+                      if (goldenSetup || isBlueSky) techScore += 10;
+                      techScore = Math.min(99, Math.max(1, techScore));
+                  }
 
                   results.push({
                       ...item, 
@@ -407,11 +455,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           isBlueSky,
                           goldenSetup
                       },
-                      // Save last 120 candles for next stage visualization & calc
                       priceHistory: candles.slice(-120).map((c: any) => ({
-                          date: c.t, close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
+                          date: new Date(c.t).toISOString().split('T')[0], close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
                       })),
-                      lastUpdate: new Date().toISOString()
+                      lastUpdate: new Date().toISOString(),
+                      dataSource: dataSrc
                   });
 
               } catch (e) {
@@ -420,7 +468,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
           
           setProgress(prev => ({ ...prev, current: results.length }));
-          await new Promise(r => setTimeout(r, 50)); // Small yield
+          await new Promise(r => setTimeout(r, 10)); 
       }
 
       results.sort((a, b) => b.technicalScore - a.technicalScore);
@@ -435,7 +483,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.0.0", count: results.length, strategy: "Drive_First_Tech_Analysis" },
+        manifest: { version: "6.2.0", count: results.length, strategy: "Hybrid_Drive_API_Fusion" },
         technical_universe: results
       };
 
@@ -448,7 +496,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed via Drive.`, "ok");
+      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed.`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -480,11 +528,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v6.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Drive-First Architecture Ready'}
+                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Hybrid Data Engine Ready'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
