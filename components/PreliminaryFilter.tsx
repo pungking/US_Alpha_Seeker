@@ -69,7 +69,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiError, setAiError] = useState<string | null>(null);
   
   // Logs & UI
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.0: Context-Aware Sieve Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.1: Direct-Pass Logic Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -141,18 +141,21 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
+          // CRITICAL: Capture data in local scope to avoid State Race Conditions
           const data: MasterTicker[] = content.universe || [];
-          setRawUniverse(data);
+          setRawUniverse(data); // State update for UI
           addLog(`Matrix Synced: ${data.length} rich assets loaded.`, "ok");
 
           // 3. AI Analysis for Thresholds
           addLog("Phase 3: Calculating Optimal Thresholds via AI...", "info");
-          await runAiAnalysis(data, context);
+          
+          // CRITICAL: Pass data directly, receive proposal directly
+          const proposal = await runAiAnalysis(data, context);
 
           // 4. Auto Commit if requested
-          if (autoCommit) {
-              // Slight delay to ensure state updates
-              setTimeout(() => commitPurification(), 2000);
+          if (autoCommit && proposal) {
+              // Pass EXPLICIT values to commit, don't rely on state
+              await commitPurification(data, proposal.suggestedPrice, proposal.suggestedVolume, proposal);
           } else {
               setLoading(false);
               setIsAnalyzing(false);
@@ -187,7 +190,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }
   };
 
-  const runAiAnalysis = async (universe: MasterTicker[], context: MarketContext) => {
+  // [MODIFIED] Now returns the proposal object for immediate use
+  const runAiAnalysis = async (universe: MasterTicker[], context: MarketContext): Promise<AiProposal | null> => {
       const prices = universe.map(s => s.price).filter(p => p > 0).sort((a, b) => a - b);
       const volumes = universe.map(s => s.volume).filter(v => v > 0).sort((a, b) => a - b);
       
@@ -220,7 +224,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       Return JSON ONLY: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean Markdown)" }
       `;
 
-      let aiResult = null;
+      let aiResult: AiProposal | null = null;
 
       // Try Gemini First
       try {
@@ -267,22 +271,47 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       if (aiResult) {
           if (aiResult.reasoning) aiResult.reasoning = removeCitations(aiResult.reasoning);
           setAiProposal(aiResult);
+          // Set UI State (for visual feedback)
           setMinPrice(aiResult.suggestedPrice);
           setMinVolume(aiResult.suggestedVolume);
           addLog(`Strategy Adopted: [${aiResult.regime}] P>$${aiResult.suggestedPrice} V>${(aiResult.suggestedVolume/1000).toFixed(0)}k`, "ok");
+          return aiResult;
       } else {
           setAiError("AI Offline. Applying Default Safety Filters.");
+          // Default Fallback
           setMinPrice(2.0);
           setMinVolume(500000);
+          return { suggestedPrice: 2.0, suggestedVolume: 500000, regime: "Default_Safe_Mode", reasoning: "AI Failure Fallback" };
       }
   };
 
-  const commitPurification = async () => {
+  // [CRITICAL FIX] Accept direct data arguments to bypass State Async lag
+  const commitPurification = async (
+      explicitData?: MasterTicker[], 
+      explicitPrice?: number, 
+      explicitVolume?: number,
+      explicitProposal?: AiProposal
+  ) => {
     if (!accessToken) return;
+    
+    // Use explicit args if provided (Auto-Pilot path), otherwise use State (Manual path)
+    const dataToFilter = explicitData || rawUniverse;
+    const targetPrice = explicitPrice !== undefined ? explicitPrice : minPrice;
+    const targetVolume = explicitVolume !== undefined ? explicitVolume : minVolume;
+    const activeProposal = explicitProposal || aiProposal;
+
+    if (!dataToFilter || dataToFilter.length === 0) {
+        addLog("Commit Failed: No universe data available.", "err");
+        setLoading(false);
+        return;
+    }
+
     setLoading(true);
 
-    const filteredList = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume);
+    const filteredList = dataToFilter.filter(s => s.price >= targetPrice && s.volume >= targetVolume);
+    
     addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
+    addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume}`, "info");
 
     try {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
@@ -294,11 +323,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       
       const payload = {
         manifest: { 
-            version: "11.0.0", 
-            regime: aiProposal?.regime || "Manual", 
-            filters: { minPrice, minVolume }, 
+            version: "11.1.0", 
+            regime: activeProposal?.regime || "Manual", 
+            filters: { minPrice: targetPrice, minVolume: targetVolume }, 
             timestamp: new Date().toISOString(), 
-            note: "Stage 0 Data Passed Through (No Injection Needed)" 
+            note: "Stage 0 Data Passed Through via Direct Logic" 
         },
         investable_universe: filteredList
       };
@@ -350,7 +379,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.1</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Strategies via ${activeAi}...` : 'System Standby'}
@@ -361,7 +390,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             </div>
             <div className="flex gap-4 w-full lg:w-auto">
               <button 
-                onClick={() => handleSyncAndAnalyze(true)} 
+                onClick={() => handleSyncAndAnalyze(false)} 
                 disabled={loading}
                 className={`flex-1 lg:flex-none px-6 py-4 md:px-8 md:py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
               >
