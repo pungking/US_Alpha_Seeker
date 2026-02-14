@@ -286,6 +286,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
+          // [TUNING] Increased to 300 to match Stage 2 output
           const candidates = stage2Content.elite_universe || [];
           addLog(`Target Acquired: ${candidates.length} Elite Assets.`, "ok");
           setProgress({ current: 0, total: candidates.length, file: 'Initializing...' });
@@ -348,11 +349,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
                   const merged = { ...stage2Item, ...dailyData, fullHistory: fullHistory };
                   
+                  // [CORE CHANGE] Execute Valuation & Moat Logic
                   const analysis = performFinancialEngineering(merged);
                   
                   const qualityScore = stage2Item.qualityScore || 50;
                   const fundamentalScore = analysis.fundamentalScore;
                   
+                  // Composite Alpha: Blend Stage 2 (Quality) and Stage 3 (Valuation)
+                  // 40% Quality (Past Performance) + 60% Valuation (Future Upside)
                   const compositeAlpha = (qualityScore * 0.4) + (fundamentalScore * 0.6);
 
                   results.push({
@@ -423,7 +427,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.1.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                        {loading ? `Auditing: ${progress.msg}` : 'Deep Fundamental Audit Ready'}
+                        {loading ? `Auditing: ${progress.file}` : 'Deep Fundamental Audit Ready'}
                     </span>
                     {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse w-fit">AUTO PILOT</span>}
                 </div>
