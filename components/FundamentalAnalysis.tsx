@@ -58,6 +58,14 @@ const safeNum = (val: any) => {
     return Number.isFinite(n) ? n : 0;
 };
 
+// [FIX] Auto-scaler for ratios
+const toPercent = (val: number) => {
+    if (val !== 0 && Math.abs(val) <= 5.0) {
+        return val * 100;
+    }
+    return val;
+};
+
 // [ENGINE v4.2] Advanced Valuation & Moat Calculator
 const performFinancialEngineering = (data: any) => {
     // 1. Extract Metrics
@@ -71,11 +79,16 @@ const performFinancialEngineering = (data: any) => {
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
     const totalAssets = safeNum(data.totalAssets);
     
-    // Growth Rates (Simple approximation if not provided)
-    const revenueGrowth = safeNum(data.revenueGrowth || 10); // Default fallback 10% if missing, to avoid 0 punishment on data gaps
+    // Growth Rates & Margins
+    const revenueGrowth = safeNum(data.revenueGrowth || 10); 
     const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 0;
-    const grossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) * 100 : 0));
     
+    const rawGrossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) : 0));
+    const grossMargin = toPercent(rawGrossMargin);
+    
+    const rawRoe = safeNum(data.roe || data.returnOnEquity || 0);
+    const roe = toPercent(rawRoe);
+
     // 2. Intrinsic Value (Benjamin Graham Approximation)
     // V = EPS * (8.5 + 2g) * (4.4 / Y)  -- Assuming Y (Bond Yield) ~ 4.4 for neutralization
     const g = Math.min(revenueGrowth, 20); // Cap growth at 20% for safety
@@ -91,26 +104,36 @@ const performFinancialEngineering = (data: any) => {
     // 3. Efficiency Metrics
     const investedCapital = totalEquity + totalDebt;
     const nopat = netIncome; // Simplified
-    const roic = investedCapital > 0 ? (nopat / investedCapital) * 100 : safeNum(data.roe) * 0.8;
+    let roic = 0;
+    if (investedCapital > 0) {
+        roic = (nopat / investedCapital) * 100;
+    } else {
+        roic = roe * 0.8; // Proxy if invested capital missing
+    }
     
     const ruleOf40 = revenueGrowth + (opCashflow > 0 && sales > 0 ? (opCashflow / sales) * 100 : profitMargin);
     
-    // 4. Financial Health (Altman Z-Score Proxy)
-    // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E (Simplified)
-    const workingCapital = safeNum(data.totalCurrentAssets) - safeNum(data.totalCurrentLiabilities);
-    const retainedEarnings = safeNum(data.retainedEarnings);
-    const ebit = safeNum(data.operatingIncome);
-    const marketCap = safeNum(data.marketCap);
+    // 4. Financial Health (Altman Z-Score)
+    // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E 
+    const currentAssets = safeNum(data.totalCurrentAssets || data.currentAssets);
+    const currentLiabilities = safeNum(data.totalCurrentLiabilities || data.currentLiabilities);
+    const workingCapital = currentAssets - currentLiabilities;
+    const retainedEarnings = safeNum(data.retainedEarnings || data.accumulatedRetainedEarningsDeficit);
+    const ebit = safeNum(data.operatingIncome || data.ebit);
+    const marketCap = safeNum(data.marketCap || data.marketValue);
     
     let zScore = 0;
     if (totalAssets > 0) {
-        zScore = 1.2 * (workingCapital / totalAssets) +
-                 1.4 * (retainedEarnings / totalAssets) +
-                 3.3 * (ebit / totalAssets) +
-                 0.6 * (marketCap / totalDebt) +
-                 1.0 * (sales / totalAssets);
+        const A = workingCapital / totalAssets;
+        const B = retainedEarnings / totalAssets;
+        const C = ebit / totalAssets;
+        const D = marketCap / (safeNum(data.totalLiabilities) || (totalAssets * 0.5));
+        const E = sales / totalAssets;
+
+        zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
     } else {
-        zScore = 3.0; // Assume stable if no data (Optimistic default for Stage 3 candidates)
+        // Fallback Proxy if BS data missing
+        zScore = (roe > 10 && totalDebt < totalEquity) ? 3.5 : 1.5;
     }
 
     // Piotroski F-Score (0-9) - Heuristic Estimation based on available data
@@ -129,9 +152,6 @@ const performFinancialEngineering = (data: any) => {
     if (!totalDebt) missingDataPoints++;
     
     // 5. Final Scoring (Refined for Stage 3 Differentiation)
-    // Stage 2 already handled Basic Quality (ROE, Debt). 
-    // Stage 3 focuses on VALUATION (Is it cheap?) and MOAT (Is it defensible?).
-    
     const valScore = normalizeScore(fairValueGap, -20, 100); // Higher gap = Better
     const moatScore = (normalizeScore(grossMargin, 20, 90) * 0.6) + (normalizeScore(roic, 5, 25) * 0.4);
     const growthEfficiency = normalizeScore(ruleOf40, 10, 60);
@@ -520,16 +540,16 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                           
                           <div className="grid grid-cols-3 gap-2 mt-2">
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Rule of 40</p>
-                                   <p className={`text-xs font-black ${selectedTicker.ruleOf40 > 40 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.ruleOf40.toFixed(1)}</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">ROIC</p>
+                                   <p className={`text-xs font-black ${selectedTicker.roic > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.roic.toFixed(1)}%</p>
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">F-Score</p>
-                                   <p className={`text-xs font-black ${selectedTicker.fScore >= 7 ? 'text-emerald-400' : 'text-amber-400'}`}>{selectedTicker.fScore}/9</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Z-Score</p>
+                                   <p className={`text-xs font-black ${selectedTicker.zScoreProxy > 2.9 ? 'text-emerald-400' : selectedTicker.zScoreProxy < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScoreProxy.toFixed(2)}</p>
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Safe Margin</p>
-                                   <p className={`text-xs font-black ${selectedTicker.fairValueGap > 20 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.fairValueGap.toFixed(1)}%</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">FCF Yield</p>
+                                   <p className={`text-xs font-black ${selectedTicker.fcfMargin > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.fcfMargin.toFixed(1)}%</p>
                                </div>
                           </div>
                        </div>
