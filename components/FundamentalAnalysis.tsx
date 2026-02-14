@@ -59,11 +59,12 @@ const safeNum = (val: any) => {
 };
 
 // [FIX] Auto-scaler for ratios
+// Handles case where previous stages might have saved decimals (0.15) instead of percent (15.0)
 const toPercent = (val: number) => {
     if (val !== 0 && Math.abs(val) <= 5.0) {
-        return val * 100;
+        return Number((val * 100).toFixed(2));
     }
-    return val;
+    return Number(val.toFixed(2));
 };
 
 // [ENGINE v4.2] Advanced Valuation & Moat Calculator
@@ -133,7 +134,11 @@ const performFinancialEngineering = (data: any) => {
         zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
     } else {
         // Fallback Proxy if BS data missing
-        zScore = (roe > 10 && totalDebt < totalEquity) ? 3.5 : 1.5;
+        let proxy = 3.0; // Base score
+        if (totalDebt > totalEquity) proxy -= 1.0;
+        if (roe > 20) proxy += 0.5;
+        if (marketCap < 1000000000) proxy -= 0.3; // Small cap risk
+        zScore = proxy;
     }
 
     // Piotroski F-Score (0-9) - Heuristic Estimation based on available data
