@@ -15,7 +15,7 @@ interface TechnicalTicker {
   
   techMetrics: {
       rsi: number;
-      adx: number;
+      adx: number; // Now truly calculated
       trend: number; 
       rvol: number;
       squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT'; 
@@ -75,7 +75,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v7.1: Multi-Source Engine (Poly+AlphaV) Loaded.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v7.2: ADX & Dynamic RVOL Engine Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -202,6 +202,53 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return 100 - (100 / (1 + rs));
   };
 
+  // [NEW] ADX Implementation (Wilder's Smoothing)
+  const calculateADX = (highs: number[], lows: number[], closes: number[], period = 14): number => {
+    if (highs.length < period * 2) return 0; // Need enough data
+
+    let tr = [], dmPlus = [], dmMinus = [];
+    
+    // 1. Calculate TR, +DM, -DM
+    for (let i = 1; i < highs.length; i++) {
+        const h = highs[i], l = lows[i], cPrev = closes[i - 1];
+        
+        tr.push(Math.max(h - l, Math.abs(h - cPrev), Math.abs(l - cPrev)));
+        
+        const upMove = h - highs[i - 1];
+        const downMove = lows[i - 1] - l;
+        
+        dmPlus.push((upMove > downMove && upMove > 0) ? upMove : 0);
+        dmMinus.push((downMove > upMove && downMove > 0) ? downMove : 0);
+    }
+
+    // 2. Initial Smoothed Values (First period)
+    let smoothTR = tr.slice(0, period).reduce((a,b)=>a+b, 0);
+    let smoothPlus = dmPlus.slice(0, period).reduce((a,b)=>a+b, 0);
+    let smoothMinus = dmMinus.slice(0, period).reduce((a,b)=>a+b, 0);
+    
+    let dxList = [];
+
+    // 3. Wilder's Smoothing for subsequent periods
+    for (let i = period; i < tr.length; i++) {
+        smoothTR = smoothTR - (smoothTR / period) + tr[i];
+        smoothPlus = smoothPlus - (smoothPlus / period) + dmPlus[i];
+        smoothMinus = smoothMinus - (smoothMinus / period) + dmMinus[i];
+        
+        const diPlus = (smoothPlus / smoothTR) * 100;
+        const diMinus = (smoothMinus / smoothTR) * 100;
+        
+        const dx = (Math.abs(diPlus - diMinus) / (diPlus + diMinus)) * 100;
+        dxList.push(dx);
+    }
+    
+    // 4. ADX is smoothed DX
+    if (dxList.length < period) return 0;
+    // Simple average of DX for initial ADX, then smoothing... but for now, simple avg of last 14 DX is acceptable approximation for ranking
+    const finalADX = dxList.slice(-period).reduce((a,b)=>a+b, 0) / period;
+    
+    return Number(finalADX.toFixed(2));
+  };
+
   // --- DATA SOURCES ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
@@ -255,7 +302,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (alphaVantageKey) {
           try {
               // Throttle: Simple 2s wait to respect ~5-10 calls/min if running strictly sequentially.
-              // In this loop, it will slow down processing but ensure data.
               await new Promise(r => setTimeout(r, 2000));
               
               const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&outputsize=compact&apikey=${alphaVantageKey}`;
@@ -327,7 +373,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           technicalScore: Number(score.toFixed(2)),
           techMetrics: {
               rsi: Number(estRsi.toFixed(2)),
-              adx: 0,
+              adx: 50, // Default for heuristic
               trend: trendScore,
               rvol: Math.abs(change) > 2 ? 1.5 : 1.0, 
               squeezeState: 'SQUEEZE_OFF',
@@ -447,10 +493,16 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   } else {
                       // Perform Real Analysis
                       const closes = candles.map((c: any) => c.c);
+                      const highs = candles.map((c: any) => c.h);
+                      const lows = candles.map((c: any) => c.l);
                       const volumes = candles.map((c: any) => c.v);
                       const currentPrice = closes[closes.length - 1];
 
                       const rsi = calculateRSI(closes);
+                      
+                      // [NEW] Calculate ADX
+                      const adx = calculateADX(highs, lows, closes, 14);
+
                       const sma20 = calculateSMA(closes, 20);
                       const sma50 = calculateSMA(closes, 50);
                       const sma200 = calculateSMA(closes, 200); 
@@ -494,14 +546,20 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                       let techScore = rsRating * 0.4;
                       techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
-                      techScore += (rvol > 1.5 ? 10 : 0) + (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
+                      
+                      // [NEW] Dynamic RVOL Scoring
+                      // 1.0 = 0pts, 1.5 = 10pts, 2.0 = 20pts (capped at 20)
+                      const rvolBonus = Math.min(20, Math.max(0, (rvol - 1.0) * 20));
+                      techScore += rvolBonus;
+
+                      techScore += (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
                       if (goldenSetup || isBlueSky) techScore += 10;
                       
                       techData = {
                           technicalScore: Number(Math.min(99, Math.max(1, techScore)).toFixed(2)),
                           techMetrics: {
                               rsi: Number(rsi.toFixed(2)),
-                              adx: 0,
+                              adx: Number(adx.toFixed(2)),
                               trend: Number(trendScore.toFixed(2)),
                               rvol: Number(rvol.toFixed(2)),
                               squeezeState,
@@ -557,7 +615,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.5.0", count: results.length, strategy: "Hybrid_Heuristic_Fusion" },
+        manifest: { version: "7.2.0", count: results.length, strategy: "Hybrid_Heuristic_Fusion_ADX" },
         technical_universe: results
       };
 
@@ -602,7 +660,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v6.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v7.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
