@@ -28,12 +28,41 @@ const winsorize = (val: number, min: number, max: number): number => {
 // 3. Score Normalizer (0-100)
 const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
 
+// [NEW] Data Sanitizer (Unit Correction)
+const sanitizeData = (item: any) => {
+    let { dividendYield, roe, operatingMargins, pbr, debtToEquity } = item;
+    
+    // Fix Dividend Yield (e.g. 458 -> 4.58)
+    // Rule: Yield > 50% is extremely suspicious for non-distressed assets. Likely raw bps or scaled x100.
+    if (dividendYield > 50) {
+        dividendYield = dividendYield / 100;
+    }
+    
+    // Fix ROE (e.g. 2500 -> 25.00)
+    // Rule: ROE > 200% is rare (unless extremely high leverage).
+    if (roe > 200) {
+        roe = roe / 100;
+    }
+    
+    // Fix Margins (e.g. 480 -> 48.0)
+    if (operatingMargins > 100) {
+        operatingMargins = operatingMargins / 100;
+    }
+    
+    // Fix PBR Outliers (e.g. > 1000 is likely data error or near-bankruptcy equity)
+    if (pbr > 500) {
+        pbr = 0; // Treat as invalid/high-risk
+    }
+
+    return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
+};
+
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.0: Threshold Scoring & Target Price Logic Applied.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.1: Data Sanitizer Active (Unit Correction).']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -160,9 +189,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               }
 
               const batch = groupedByLetter[letter];
-              for (const item of batch) {
-                  let fullHistory = historyDataMap.get(item.symbol) || [];
+              for (const rawItem of batch) {
+                  let fullHistory = historyDataMap.get(rawItem.symbol) || [];
                   if (!Array.isArray(fullHistory)) fullHistory = [];
+
+                  // [V5.6.1] Apply Data Sanitizer First
+                  const item = sanitizeData(rawItem);
 
                   // --- QUANT LOGIC IMPLEMENTATION (V5.6.0) ---
 
@@ -271,10 +303,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const payload = {
               manifest: { 
-                  version: "5.6.0", 
+                  version: "5.6.1", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Threshold" 
+                  engine: "3-Factor_Quant_Model_Sanitized" 
               },
               elite_universe: eliteCandidates
           };
@@ -302,10 +334,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-emerald-400 text-emerald-400 animate-pulse' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                        {loading ? `Scanning: ${progress.msg}` : 'Robust Quant Logic Active'}
+                        {loading ? `Scanning: ${progress.msg}` : 'Quant Sanitizer Active'}
                     </span>
                 </div>
               </div>
