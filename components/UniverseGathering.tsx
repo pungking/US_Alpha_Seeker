@@ -1,7 +1,7 @@
 
-import React, { useState, useEffect, useRef, useMemo } from 'react';
+import React, { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { ApiProvider, ApiStatus } from '../types';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from '../constants';
 
 declare global {
   interface Window {
@@ -10,7 +10,7 @@ declare global {
 }
 
 interface Props {
-  onAuthSuccess?: (status: boolean) => void;
+  onAuthSuccess: (status: boolean) => void;
   isActive: boolean;
   apiStatuses: ApiStatus[];
   onStockSelected?: (stock: any) => void;
@@ -18,609 +18,983 @@ interface Props {
   onComplete?: () => void;
 }
 
+// [V13 ENGINE] Expanded Data Structure for Hedge Fund Grade Metrics (28 Fields)
 interface MasterTicker {
+  // 1. Basic Info & Price
   symbol: string;
-  name?: string;
+  name: string;
   price: number;
-  volume: number;
-  change: number;
+  currency: string;
+  marketCap: number;
   updated: string;
-  type?: string; 
-  marketCap?: number;
-  sector?: string;
-  industry?: string;
-  pe?: number;
-  eps?: number;
-  roe?: number;
-  debtToEquity?: number;
-  pb?: number;
-  source?: string;
+  source: string;
+  
+  // 2. Valuation (Value) - Multiples (x)
+  pe: number;             // per
+  pbr: number;            // pbr
+  psr: number;            // psr
+  pegRatio: number;       // pegRatio
+  targetMeanPrice: number;// targetMeanPrice
+  
+  // 3. Quality & Efficiency (Quality) - Percentages (%)
+  roe: number;            // roe
+  roa: number;            // roa
+  eps: number;            // eps (Currency)
+  operatingMargins: number; // operatingMargins
+  debtToEquity: number;   // debtToEquity (Ratio)
+  
+  // 4. Growth & Cash (Growth)
+  revenueGrowth: number;  // revenueGrowth (%)
+  operatingCashflow: number; // operatingCashflow (Currency)
+  
+  // 5. Dividend
+  dividendRate: number;   // dividendRate (Currency)
+  dividendYield: number;  // dividendYield (%)
+  
+  // 6. Momentum & Sentiment
+  volume: number;
+  beta: number;
+  heldPercentInstitutions: number; // heldPercentInstitutions (%)
+  shortRatio: number;     // shortRatio
+  fiftyDayAverage: number;
+  twoHundredDayAverage: number;
+  fiftyTwoWeekHigh: number;
+  fiftyTwoWeekLow: number;
+  
+  // 7. Meta Data
+  sector: string;
+  industry: string;
+
+  // System Fields
+  change: number;
+  changeAmount: number;
+  prevClose: number;
+  dataQuality: 'HIGH' | 'MEDIUM' | 'LOW';
+  
+  // Index Signature for dynamic expansion
+  [key: string]: any;
 }
 
+interface EngineTelemetry {
+  fps: number;
+  latency: number;
+  packetLoss: number;
+  bufferSize: number;
+  activeThreads: number;
+}
+
+// [HELPER] Smart Ratio Normalizer (Auto-Scaling)
+// Handles mixed data sources (e.g., 0.15 vs 15.0)
+const normalizePercent = (val: any): number => {
+    if (val === null || val === undefined || val === '') return 0;
+    let num = Number(val);
+    if (isNaN(num)) return 0;
+    
+    // Heuristic: If value is small (e.g. < 5.0) and logically likely to be a decimal ratio (0.20 = 20%)
+    // But allowing for negative growth (e.g. -0.5 = -50%)
+    // Threshold: 5.0 (500%). Most ratios like ROE, Growth are rarely > 500% in decimal (5.0).
+    // Exception: If source explicitly confirms unit, use that. Here we guess.
+    if (Math.abs(num) <= 5.0 && num !== 0) {
+        return parseFloat((num * 100).toFixed(2));
+    }
+    return parseFloat(num.toFixed(2));
+};
+
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
-  const [isEngineRunning, setIsEngineRunning] = useState(false);
+  // --- CORE ENGINE STATE ---
+  const [isGathering, setIsGathering] = useState(false);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.5.0: Smart Scaling Logic Active.']);
+  const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
-  const [cooldown, setCooldown] = useState(0);
-  const [clientId, setClientId] = useState<string>(() => 
-    localStorage.getItem('gdrive_client_id') || '274071737753-4993td0fv4un5l8lv2eiqp0utc7co6q9.apps.googleusercontent.com'
-  );
-  const [accessToken, setAccessToken] = useState<string | null>(sessionStorage.getItem('gdrive_access_token'));
-  const [googleScriptLoaded, setGoogleScriptLoaded] = useState(false);
-  
-  // API Keys
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  
-  const [registry, setRegistry] = useState<Map<string, MasterTicker>>(new Map());
-  const [searchTerm, setSearchTerm] = useState('');
-  
-  const [stats, setStats] = useState({
-    found: 0,
-    synced: 0,
-    target: 24000,
-    elapsed: 0,
-    provider: 'Idle',
-    phase: 'Idle' as 'Idle' | 'Discovery' | 'Fusion' | 'Validation' | 'Commit' | 'Finalized' | 'Cooldown'
-  });
+  const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
 
-  const [logs, setLogs] = useState<string[]>(['> Engine v3.5.2: Triple Hybrid Fusion Mode.']);
+  // --- DATA & REGISTRY ---
+  const [searchQuery, setSearchQuery] = useState('');
+  const [searchResult, setSearchResult] = useState<MasterTicker | null>(null);
+  const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, MasterTicker>>(new Map());
+  
+  // --- REAL-TIME FEED SYSTEM ---
+  const [isLive, setIsLive] = useState(false);
+  const [liveSource, setLiveSource] = useState<string>('');
+  const [connectionHealth, setConnectionHealth] = useState<'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL'>('GOOD');
+  const [priceFlash, setPriceFlash] = useState<'up' | 'down' | null>(null);
+  const [telemetry, setTelemetry] = useState<EngineTelemetry>({ fps: 60, latency: 0, packetLoss: 0, bufferSize: 0, activeThreads: 0 });
+  
+  // --- SYSTEM REFS ---
   const logRef = useRef<HTMLDivElement>(null);
-  const timerRef = useRef<number | null>(null);
+  const startTimeRef = useRef<number>(0);
+  const cleanupRef = useRef<() => void>(() => {}); 
+  const prevPriceRef = useRef<number>(0);
+  const healthCheckRef = useRef<any>(null);
+  const searchDebounceRef = useRef<any>(null);
+  
+  // --- SECURE KEYS ---
+  const accessToken = sessionStorage.getItem('gdrive_access_token');
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
 
+  // --- UI EFFECTS ---
+
+  // Auto-scroll logs
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Google Script Check
+  // Elapsed Time & Telemetry Simulation
   useEffect(() => {
-    const checkGoogle = setInterval(() => {
-        if (window.google && window.google.accounts) {
-            setGoogleScriptLoaded(true);
-            clearInterval(checkGoogle);
-        }
-    }, 500);
-    return () => clearInterval(checkGoogle);
-  }, []);
-
-  useEffect(() => {
-    if (cooldown > 0) {
-      const timer = setTimeout(() => setCooldown(cooldown - 1), 1000);
-      return () => clearTimeout(timer);
+    let interval: any;
+    if (isGathering && startTimeRef.current > 0) {
+      interval = setInterval(() => {
+        const now = Date.now();
+        const elapsed = Math.floor((now - startTimeRef.current) / 1000);
+        setProgress(prev => ({ ...prev, elapsed }));
+        
+        setTelemetry(prev => ({
+            ...prev,
+            fps: Math.max(30, 60 - Math.random() * 10),
+            latency: Math.floor(Math.random() * 50) + 10,
+            activeThreads: Math.floor(Math.random() * 4) + 1
+        }));
+      }, 1000);
     }
-  }, [cooldown]);
+    return () => clearInterval(interval);
+  }, [isGathering]);
 
+  // Auto-Pilot
   useEffect(() => {
-    if (autoStart && isActive && !isEngineRunning && cooldown === 0) {
-        if (!accessToken) {
-             addLog("AUTO-PILOT: Auth Token Missing. Halting.", "err");
+    if (autoStart && isActive && !isGathering) {
+        if (accessToken) {
+            addLog("AUTO-PILOT: Engaging V13 Heavy Engine Ignition...", "signal");
+            startGathering(accessToken);
         } else {
-             addLog("AUTO-PILOT: Engaging Triple Fusion Sequence...", "signal");
-             startEngine();
+            addLog("AUTO-PILOT: Critical - Auth Token Missing. Aborting.", "err");
         }
     }
   }, [autoStart, isActive]);
 
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
-  };
-
-  const getRecentBusinessDays = (count: number = 6): string[] => {
-    const dates: string[] = [];
-    const now = new Date();
+  // [RESTORED] Robust Hybrid Search Logic (Local Registry -> External API)
+  useEffect(() => {
+    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
     
-    const nyOptions: Intl.DateTimeFormatOptions = {
-        timeZone: "America/New_York",
-        year: 'numeric',
-        month: 'numeric', 
-        day: 'numeric'
-    };
-    const nyFormatter = new Intl.DateTimeFormat('en-US', nyOptions);
-    const parts = nyFormatter.formatToParts(now);
-    
-    const part = (type: string) => parts.find(p => p.type === type)?.value;
-    const year = parseInt(part('year')!);
-    const month = parseInt(part('month')!) - 1; 
-    const day = parseInt(part('day')!);
-
-    let cursorDate = new Date(year, month, day);
-
-    let attempts = 0;
-    while (dates.length < count && attempts < 15) {
-        const dayOfWeek = cursorDate.getDay(); 
-        
-        if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-            const y = cursorDate.getFullYear();
-            const m = String(cursorDate.getMonth() + 1).padStart(2, '0');
-            const d = String(cursorDate.getDate()).padStart(2, '0');
-            dates.push(`${y}-${m}-${d}`);
-        }
-        cursorDate.setDate(cursorDate.getDate() - 1);
-        attempts++;
-    }
-    return dates;
-  };
-
-  const startEngine = async () => {
-    if (isEngineRunning || cooldown > 0) return;
-    
-    if (!clientId) {
-      addLog("Missing Client ID. Open ⚙ Config.", "err");
-      setShowConfig(true);
-      return;
+    // Cleanup previous streams when query changes
+    if (cleanupRef.current) {
+        cleanupRef.current();
+        cleanupRef.current = () => {};
     }
 
-    if (!accessToken) {
-      if (!googleScriptLoaded) {
-          addLog("Google Scripts loading... please wait.", "warn");
-          return;
-      }
-      document.body.setAttribute('data-engine-running', 'true'); 
-      try {
-        const client = window.google.accounts.oauth2.initTokenClient({
-          client_id: clientId.trim(),
-          scope: 'https://www.googleapis.com/auth/drive',
-          callback: (res: any) => {
-            if (res.access_token) {
-              setAccessToken(res.access_token);
-              sessionStorage.setItem('gdrive_access_token', res.access_token);
-              onAuthSuccess?.(true);
-              addLog("Cloud Vault Linked. Ready to Execute Fusion.", "ok");
-              document.body.removeAttribute('data-engine-running'); 
+    if (!searchQuery) {
+        resetMonitorState();
+        return;
+    }
+
+    const query = searchQuery.trim().toUpperCase();
+    
+    searchDebounceRef.current = setTimeout(async () => {
+        // 1. Check Local Registry First (Instant Access)
+        if (gatheredRegistry.has(query)) {
+            const staticData = gatheredRegistry.get(query);
+            if (staticData) {
+                setSearchResult(staticData);
+                prevPriceRef.current = staticData.price;
+                addLog(`Registry Hit: ${staticData.symbol} loaded from local memory.`, "info");
+                startRealTimeEngine(staticData.symbol);
+                return;
             }
-          },
-        });
-        client.requestAccessToken({ prompt: 'consent' });
-      } catch (e: any) {
-        addLog(`Auth Error: ${e.message}`, "err");
-        setShowConfig(true);
-        document.body.removeAttribute('data-engine-running');
-      }
-      return;
-    }
-
-    document.body.setAttribute('data-engine-running', 'true');
-    runTripleFusionPipeline(accessToken);
-  };
-
-  const executeTVScanner = async (): Promise<MasterTicker[]> => {
-      addLog("Source A: TradingView Omni-Scanner (Rich Data)...", "info");
-      const res = await fetch('/api/nasdaq'); 
-      if (!res.ok) throw new Error(`TV Proxy Failed: ${res.status}`);
-      
-      const text = await res.text();
-      // Handle NaN/Infinity in response text before parsing
-      const safeText = text
-        .replace(/:\s*NaN/g, ': null')
-        .replace(/:\s*Infinity/g, ': null')
-        .replace(/:\s*-Infinity/g, ': null');
-      const data = JSON.parse(safeText);
-
-      if (!Array.isArray(data)) throw new Error("Invalid TV Data");
-      addLog(`TV Scanner: Retrieved ${data.length} rich-data assets.`, "ok");
-      return data.map((item: any) => ({
-          symbol: item.symbol, name: item.name, price: item.price, volume: item.volume, 
-          change: item.change, marketCap: item.marketCap, sector: item.sector || "Unclassified", 
-          industry: item.industry || "Unknown", pe: item.pe, roe: item.roe, eps: item.eps,
-          type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'TV_Scanner'
-      }));
-  };
-
-  const executeFMPScreener = async (): Promise<MasterTicker[]> => {
-    if (!fmpKey) {
-        addLog("FMP Key missing. Skipping FMP Source.", "warn");
-        return [];
-    }
-    addLog("Source B: FMP Screener (Metadata Backup)...", "info");
-    try {
-        const url = `https://financialmodelingprep.com/api/v3/stock-screener?marketCapMoreThan=1000000&volumeMoreThan=100&isEtf=false&isActivelyTrading=true&exchange=NASDAQ,NYSE,AMEX&limit=30000&apikey=${fmpKey}`;
-        const res = await fetch(url);
-        if (res.status === 429) throw new Error("FMP_LIMIT_HIT");
-        if (!res.ok) throw new Error(`FMP Status ${res.status}`);
-        
-        const data = await res.json();
-        addLog(`FMP Screener: Retrieved ${data.length} assets (Daily Limit Consumed).`, "ok");
-        
-        return data.map((item: any) => ({
-            symbol: item.symbol, name: item.companyName, price: item.price, volume: item.volume, 
-            change: item.changesPercentage || 0, marketCap: item.marketCap, sector: item.sector, industry: item.industry,
-            type: 'Common Stock', updated: new Date().toISOString().split('T')[0], source: 'FMP_Screener'
-        }));
-    } catch (e: any) {
-        if (e.message === "FMP_LIMIT_HIT") {
-            addLog("FMP Daily Limit Reached. Skipping FMP Source.", "warn");
-        } else {
-            addLog(`FMP Error: ${e.message}`, "warn");
         }
-        return [];
-    }
-  };
-
-  const executePolygonAggs = async (): Promise<MasterTicker[]> => {
-    if (!polygonKey) throw new Error("Polygon Key missing");
-    addLog("Source C: Polygon Deep Discovery (Quantity Max)...", "info");
-    
-    let polyResults: any[] = [];
-    let success = false;
-    let foundDate = '';
-    
-    const targetDates = getRecentBusinessDays(6); 
-    
-    for (const targetDate of targetDates) {
-        addLog(`Scanning Market Date: ${targetDate}...`, "info");
-
+        
+        // 2. Fallback: Fetch from External API (Yahoo Proxy)
+        setLiveSource('SEARCHING EXTERNAL...');
         try {
-            const polyRes = await fetch(`https://api.polygon.io/v2/aggs/grouped/locale/us/market/stocks/${targetDate}?adjusted=true&apiKey=${polygonKey}`);
-            
-            if (polyRes.status === 429) { 
-                addLog("Polygon Rate Limit. Retrying...", "warn");
-                await new Promise(r => setTimeout(r, 15000)); 
-                continue; 
+            const externalData = await fetchExternalStock(query);
+            if (externalData) {
+                setSearchResult(externalData);
+                prevPriceRef.current = externalData.price;
+                addLog(`External Hit: ${externalData.symbol} retrieved via Global Feed.`, "ok");
+                
+                // Add to temporary registry to avoid re-fetching
+                setGatheredRegistry(prev => new Map(prev).set(externalData.symbol, externalData));
+                
+                startRealTimeEngine(externalData.symbol);
+            } else {
+                setSearchResult(null);
+                setLiveSource('NOT FOUND');
+                addLog(`Search failed for ${query} in all networks.`, "warn");
             }
-            
-            if (polyRes.ok) {
-                const data = await polyRes.json();
-                if (data.results && data.results.length > 5000) { 
-                    polyResults = data.results; 
-                    foundDate = targetDate;
-                    addLog(`Polygon: Data Acquired! (${polyResults.length} tickers on ${targetDate}).`, "ok");
-                    success = true;
-                    break; 
-                } else {
-                    addLog(`Market Closed or Data Incomplete on ${targetDate}. Backtracking...`, "warn");
-                }
-            }
-        } catch (e) { }
-        
-        await new Promise(r => setTimeout(r, 300));
-    }
-    
-    if (!success) throw new Error("Polygon failed after checking last 6 business days.");
-
-    return polyResults.map((p: any) => ({
-        symbol: p.T, name: p.T, type: 'Common Stock', price: p.c, volume: p.v,
-        change: p.o ? ((p.c - p.o) / p.o) * 100 : 0,
-        updated: foundDate, source: 'Polygon_Aggs'
-    }));
-  };
-
-  const validateWithYahoo = async (candidates: MasterTicker[]) => {
-      addLog("Auxiliary Source: Initiating Yahoo Finance Sample Check...", "info");
-      
-      const sample = candidates.sort((a,b) => b.volume - a.volume).slice(0, 5);
-      const symbolString = sample.map(c => c.symbol).join(',');
-      
-      try {
-          const res = await fetch(`/api/yahoo?symbols=${symbolString}`);
-          if(res.ok) {
-              const data = await res.json();
-              if(data && data.length > 0) {
-                  let matchCount = 0;
-                  data.forEach((yItem: any) => {
-                      const candidate = sample.find(s => s.symbol === yItem.symbol);
-                      if (candidate) {
-                          const diff = Math.abs((candidate.price - yItem.price) / yItem.price);
-                          if (diff < 0.05) matchCount++;
-                      }
-                  });
-                  addLog(`Validation: ${matchCount}/${data.length} Sampled Assets match external feed.`, "ok");
-              } else {
-                  addLog("Validation Warning: Yahoo returned empty data.", "warn");
-              }
-          } else {
-              addLog("Validation Skipped: Yahoo API unreachable.", "warn");
-          }
-      } catch (e) {
-          addLog("Validation Error: Yahoo Proxy failed.", "warn");
-      }
-  };
-
-  const fuseDatasets = (tv: MasterTicker[], fmp: MasterTicker[], poly: MasterTicker[]): MasterTicker[] => {
-      const map = new Map<string, MasterTicker>();
-
-      tv.forEach(item => map.set(item.symbol, item));
-      
-      let fmpAdded = 0;
-      fmp.forEach(item => {
-          if (map.has(item.symbol)) {
-              const existing = map.get(item.symbol)!;
-              if (existing.sector === "Unclassified" && item.sector) {
-                  map.set(item.symbol, { ...existing, sector: item.sector, industry: item.industry });
-              }
-          } else {
-              map.set(item.symbol, item);
-              fmpAdded++;
-          }
-      });
-
-      let polyAdded = 0;
-      poly.forEach(item => {
-          if (map.has(item.symbol)) {
-              const existing = map.get(item.symbol)!;
-              if (item.volume > existing.volume * 1.1) { 
-                  map.set(item.symbol, { ...existing, volume: item.volume, price: item.price });
-              }
-          } else {
-              map.set(item.symbol, item);
-              polyAdded++;
-          }
-      });
-
-      addLog(`Fusion Result: ${tv.length} TV + ${fmpAdded} FMP + ${polyAdded} Poly = ${map.size} Total.`, "ok");
-      return Array.from(map.values());
-  };
-
-  const runTripleFusionPipeline = async (token: string) => {
-    setIsEngineRunning(true);
-    const startTime = Date.now();
-    setStats(prev => ({ ...prev, found: 0, synced: 0, phase: 'Discovery', elapsed: 0 }));
-    
-    const discoveryTimer = setInterval(() => {
-        setStats(prev => ({ 
-            ...prev, 
-            found: prev.found + Math.floor(Math.random() * 500) 
-        }));
-    }, 200);
-
-    timerRef.current = window.setInterval(() => {
-      setStats(prev => ({ ...prev, elapsed: Math.floor((Date.now() - startTime) / 1000) }));
-    }, 1000);
-
-    try {
-        const [tvData, fmpData, polyData] = await Promise.allSettled([
-            executeTVScanner(),
-            executeFMPScreener(),
-            executePolygonAggs()
-        ]);
-
-        clearInterval(discoveryTimer);
-
-        const tv = tvData.status === 'fulfilled' ? tvData.value : [];
-        const fmp = fmpData.status === 'fulfilled' ? fmpData.value : [];
-        const poly = polyData.status === 'fulfilled' ? polyData.value : [];
-
-        if (tv.length === 0 && poly.length === 0) {
-            throw new Error("Critical Failure: TV and Polygon both failed.");
+        } catch (e) {
+            setLiveSource('ERROR');
         }
 
-        if (tvData.status === 'rejected') addLog(`TV Scanner Failed: ${tvData.reason}`, "err");
-        if (polyData.status === 'rejected') addLog(`Polygon Failed: ${polyData.reason}`, "err");
+    }, 500); // 500ms Debounce
 
-        setStats(prev => ({ ...prev, phase: 'Fusion' }));
-        addLog("Executing Triple Hybrid Fusion...", "info");
-        
-        let masterList = fuseDatasets(tv, fmp, poly);
+    return () => clearTimeout(searchDebounceRef.current);
+  }, [searchQuery, gatheredRegistry]); 
 
-        setStats(prev => ({ ...prev, phase: 'Validation' }));
-        await validateWithYahoo(masterList);
+  // --- HELPER METHODS ---
 
-        const minPrice = 0.01;
-        let viableCandidates = masterList.filter(t => t.price >= minPrice && t.volume > 0);
-        viableCandidates.sort((a, b) => b.volume - a.volume);
-        
-        const newRegistry = new Map<string, MasterTicker>();
-        viableCandidates.forEach(t => newRegistry.set(t.symbol, t));
-        setRegistry(newRegistry); 
-        addLog("System Registry Updated. Global Validator Active.", "ok");
-
-        setStats(prev => ({ ...prev, found: viableCandidates.length, provider: "Triple_Hybrid" }));
-        addLog(`Final Universe: ${viableCandidates.length} assets ready for Stage 1.`, "ok");
-
-        setStats(prev => ({ ...prev, phase: 'Commit' }));
-        const fileName = `STAGE0_MASTER_UNIVERSE_v3.5.0.json`;
-        const payload = { 
-            manifest: { 
-                version: "3.5.0", 
-                provider: "Triple_Fusion (TV+FMP+Poly)", 
-                auxiliary: "Yahoo_Cross_Validation",
-                date: new Date().toISOString(), 
-                count: viableCandidates.length,
-                note: "Fused Data: TV Richness + FMP Metadata + Polygon Coverage"
-            }, 
-            universe: viableCandidates 
-        };
-
-        const folderId = await ensureFolder(token);
-        if (folderId) {
-            await uploadFile(token, folderId, fileName, payload);
-            setStats(prev => ({ ...prev, synced: viableCandidates.length, phase: 'Finalized' }));
-            addLog(`System: Cloud Vault Sync Complete.`, "ok");
-            if (onComplete) onComplete(); 
-        }
-
-    } catch (e: any) {
-      clearInterval(discoveryTimer);
-      addLog(`Fatal Error: ${e.message}`, "err");
-      setStats(prev => ({ ...prev, phase: 'Idle' }));
-    } finally {
-      if (timerRef.current) clearInterval(timerRef.current);
-      setIsEngineRunning(false);
-      document.body.removeAttribute('data-engine-running');
-    }
+  const resetMonitorState = () => {
+      setSearchResult(null);
+      setIsLive(false);
+      setPriceFlash(null);
+      setLiveSource('');
+      prevPriceRef.current = 0;
+      setConnectionHealth('GOOD');
+      setTelemetry({ fps: 60, latency: 0, packetLoss: 0, bufferSize: 0, activeThreads: 0 });
   };
 
-  const ensureFolder = async (token: string) => {
-    let rootId = GOOGLE_DRIVE_TARGET.rootFolderId; 
-    const q = encodeURIComponent(`name = '${GOOGLE_DRIVE_TARGET.targetSubFolder}' and '${rootId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    });
-    
-    if (res.ok) {
-        const data = await res.json();
-        if (data.files?.length > 0) return data.files[0].id;
-    }
-
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-      method: 'POST',
-      headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: GOOGLE_DRIVE_TARGET.targetSubFolder, parents: [rootId], mimeType: 'application/vnd.google-apps.folder' })
-    });
-    const createData = await create.json();
-    return createData.id;
+  const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
+      const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
+      setLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-60));
   };
-
-  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
-    const meta = { name, parents: [folderId], mimeType: 'application/json' };
-    const form = new FormData();
-    form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-    
-    const res = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-      method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
-    });
-    return res.json();
-  };
-
-  const searchResult = useMemo(() => {
-    if (!searchTerm) return null;
-    return registry.get(searchTerm.toUpperCase());
-  }, [searchTerm, registry]);
 
   const handleSetTarget = () => {
       if (searchResult && onStockSelected) {
           onStockSelected(searchResult);
-          addLog(`Target Set: ${searchResult.symbol}. Auditing Matrix Triggered.`, "ok");
+          addLog(`Target Locked: ${searchResult.symbol}. Handover to Deep Analysis.`, "ok");
       }
+  };
+
+  const handleAuth = () => {
+      if (!gdriveClientId) {
+          addLog("Missing Client ID. Open ⚙ Config.", "err");
+          setShowConfig(true);
+          return;
+      }
+      
+      try {
+          // @ts-ignore
+          const client = google.accounts.oauth2.initTokenClient({
+              client_id: gdriveClientId.trim(),
+              scope: 'https://www.googleapis.com/auth/drive',
+              callback: (tokenResponse: any) => {
+                  if (tokenResponse.access_token) {
+                      sessionStorage.setItem('gdrive_access_token', tokenResponse.access_token);
+                      onAuthSuccess(true);
+                      addLog("Cloud Vault Linked. Neural Link Established.", "ok");
+                  }
+              },
+          });
+          client.requestAccessToken({ prompt: 'consent' });
+      } catch (e: any) {
+          addLog(`Auth Error: ${e.message}`, "err");
+          setShowConfig(true);
+      }
+  };
+
+  // [RESTORED] External API Fetcher (Yahoo)
+  // [FIX] Ratios normalized using Smart Scaler
+  const fetchExternalStock = async (symbol: string): Promise<MasterTicker | null> => {
+      try {
+          const res = await fetch(`/api/yahoo?symbols=${symbol}`);
+          if (!res.ok) return null;
+          const data = await res.json();
+          if (!Array.isArray(data) || data.length === 0) return null;
+          
+          const raw = data[0];
+          // Map to MasterTicker interface
+          return {
+              symbol: raw.symbol,
+              name: raw.name || raw.shortName || raw.longName || "Unknown",
+              price: raw.price || raw.regularMarketPrice || 0,
+              change: raw.change || raw.regularMarketChangePercent || 0,
+              changeAmount: raw.changeAmount || raw.regularMarketChange || 0,
+              prevClose: raw.prevClose || raw.regularMarketPreviousClose || 0,
+              currency: raw.currency || 'USD',
+              marketCap: raw.marketCap || 0,
+              volume: raw.volume || raw.averageVolume || 0,
+              
+              pe: raw.trailingPE || 0,
+              pbr: raw.priceToBook || 0,
+              psr: raw.priceToSales || 0,
+              pegRatio: raw.pegRatio || 0,
+              targetMeanPrice: 0,
+              
+              // Normalize Ratios to Percentages (Smart Scaler)
+              roe: normalizePercent(raw.returnOnEquity),
+              roa: normalizePercent(raw.returnOnAssets),
+              eps: raw.eps || raw.trailingEps || 0,
+              operatingMargins: normalizePercent(raw.operatingMargins),
+              debtToEquity: raw.debtToEquity || 0, // Debt is ratio, keep as is
+              
+              revenueGrowth: normalizePercent(raw.revenueGrowth),
+              operatingCashflow: 0,
+              dividendRate: raw.dividendRate || 0,
+              dividendYield: normalizePercent(raw.dividendYield),
+              
+              beta: raw.beta || 0,
+              heldPercentInstitutions: normalizePercent(raw.heldPercentInstitutions),
+              shortRatio: 0,
+              fiftyDayAverage: raw.fiftyDayAverage || 0,
+              twoHundredDayAverage: raw.twoHundredDayAverage || 0,
+              fiftyTwoWeekHigh: raw.fiftyTwoWeekHigh || 0,
+              fiftyTwoWeekLow: raw.fiftyTwoWeekLow || 0,
+              
+              sector: raw.sector || "Unknown",
+              industry: raw.industry || "Unknown",
+              
+              updated: new Date().toISOString(),
+              source: 'External_Yahoo',
+              dataQuality: 'MEDIUM'
+          };
+      } catch (e) {
+          return null;
+      }
+  };
+
+  // --- V13 REAL-TIME ENGINE (WebSocket + Polling) ---
+
+  const startRealTimeEngine = (symbol: string) => {
+      let isCleanedUp = false;
+      let heartbeatCount = 0;
+      
+      // Heartbeat Monitor
+      const pulseCheck = setInterval(() => {
+          heartbeatCount++;
+          if (heartbeatCount > 10) {
+              setConnectionHealth('POOR');
+          }
+      }, 1000);
+      healthCheckRef.current = pulseCheck;
+
+      // Central Update Handler
+      const updatePrice = (price: number, source: string, bid?: number, ask?: number) => {
+          if (isCleanedUp) return;
+          
+          heartbeatCount = 0;
+          setConnectionHealth('EXCELLENT');
+
+          setSearchResult((prev: any) => {
+              if (!prev || prev.symbol !== symbol) return prev;
+              
+              if (price !== prev.price) {
+                  const direction = price > prev.price ? 'up' : 'down';
+                  setPriceFlash(direction);
+                  setTimeout(() => setPriceFlash(null), 300); // Reset flash
+                  
+                  // Dynamic Change Calculation
+                  let change = prev.change;
+                  let changeAmount = prev.changeAmount;
+                  if (prev.prevClose && prev.prevClose > 0) {
+                      changeAmount = price - prev.prevClose;
+                      change = (changeAmount / prev.prevClose) * 100;
+                  }
+
+                  return { 
+                      ...prev, 
+                      price, 
+                      change, 
+                      changeAmount,
+                      bid: bid || prev.bid,
+                      ask: ask || prev.ask
+                  };
+              }
+              return prev;
+          });
+          
+          setIsLive(true);
+          setLiveSource(source);
+          prevPriceRef.current = price;
+      };
+
+      // Protocol B: Polling (Yahoo/Polygon) - Define first to be used in WS fallback
+      const connectPolling = () => {
+          addLog("Switched to Polling Mode (Yahoo/Polygon)", "warn");
+          const fetchPoll = async () => {
+              if (isCleanedUp) return;
+              let success = false;
+              
+              // 1. Yahoo (Fastest Proxy)
+              if (!success) {
+                  try {
+                      const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
+                      if (res.ok) {
+                          const data = await res.json();
+                          if (data && data.length > 0) {
+                              updatePrice(data[0].price, 'Yahoo Finance');
+                              success = true;
+                          }
+                      }
+                  } catch(e) {}
+              }
+
+              // 2. Polygon (Fallback)
+              if (!success) {
+                  const polyKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+                  if (polyKey) {
+                      try {
+                          const res = await fetch(`https://api.polygon.io/v2/snapshot/locale/us/markets/stocks/tickers/${symbol}?apiKey=${polyKey}`);
+                          if (res.ok) {
+                              const data = await res.json();
+                              if (data.ticker) {
+                                  const p = data.ticker.lastTrade?.p || data.ticker.min?.c;
+                                  if (p) {
+                                      updatePrice(p, 'Polygon.io');
+                                      success = true;
+                                  }
+                              }
+                          }
+                      } catch(e) {}
+                  }
+              }
+
+              if (!success) {
+                  setConnectionHealth('POOR');
+              }
+          };
+
+          fetchPoll(); // Initial
+          const interval = setInterval(fetchPoll, 2000); // 2s Loop
+          return () => clearInterval(interval);
+      };
+
+      // Protocol A: Finnhub WebSocket
+      const connectWS = () => {
+          if (!finnhubKey) {
+              return connectPolling();
+          }
+
+          try {
+              const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
+              
+              ws.onopen = () => {
+                  ws.send(JSON.stringify({ type: 'subscribe', symbol }));
+                  addLog(`WS Stream: Connected to ${symbol}`, "info");
+              };
+
+              ws.onmessage = (event) => {
+                  try {
+                      const msg = JSON.parse(event.data);
+                      if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
+                          const trade = msg.data[msg.data.length - 1];
+                          updatePrice(trade.p, 'Finnhub WS (Live)');
+                          
+                          setTelemetry(prev => ({
+                              ...prev,
+                              latency: Date.now() - trade.t < 1000 ? Date.now() - trade.t : 20,
+                              packetLoss: 0
+                          }));
+                      }
+                  } catch (e) {
+                      setTelemetry(prev => ({ ...prev, packetLoss: prev.packetLoss + 1 }));
+                  }
+              };
+
+              ws.onerror = (e) => {
+                  if (!isCleanedUp) {
+                      setConnectionHealth('CRITICAL');
+                      ws.close();
+                      cleanupRef.current = connectPolling(); // Switch to polling
+                  }
+              };
+              
+              ws.onclose = () => {
+                  if (!isCleanedUp) {
+                      cleanupRef.current = connectPolling(); // Switch to polling
+                  }
+              };
+
+              return () => ws.close();
+          } catch (e) {
+              return connectPolling();
+          }
+      };
+
+      const cleanup = connectWS();
+      cleanupRef.current = () => {
+          isCleanedUp = true;
+          if (cleanup) cleanup();
+          if (healthCheckRef.current) clearInterval(healthCheckRef.current);
+      };
+  };
+
+  // --- V13 ENGINE DATA PROCESSOR ---
+
+  const startGathering = async (token: string) => {
+      setIsGathering(true);
+      startTimeRef.current = Date.now();
+      setProgress({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'V13_Engine', phase: 'Discovery', integrity: 100 });
+      setGatheredRegistry(new Map()); 
+      
+      try {
+          const assets = await mountFinancialEngine(token);
+          
+          if (assets.length === 0) throw new Error("Engine Stall: Zero assets loaded from Drive.");
+
+          setProgress(prev => ({ ...prev, found: assets.length, phase: 'Mapping' }));
+          addLog(`Engine Ignition Successful. ${assets.length} HP Generated.`, "ok");
+          
+          const invalidAssets = assets.filter(a => !a.price || a.price === 0).length;
+          const integrityScore = Math.max(0, 100 - (invalidAssets / assets.length * 100));
+          setProgress(prev => ({ ...prev, integrity: Math.floor(integrityScore) }));
+          addLog(`Data Integrity: ${integrityScore.toFixed(1)}%. Valid Assets: ${assets.length - invalidAssets}`, integrityScore > 90 ? "ok" : "warn");
+
+          addLog(`Phase 2: Recording Telemetry to Stage 0...`, "info");
+          setProgress(prev => ({ ...prev, phase: 'Commit' }));
+
+          const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
+          
+          const timestamp = getFormattedTimestamp();
+          const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
+          
+          const payload = {
+              manifest: { 
+                  version: "13.5.0", 
+                  provider: "Drive_V13_HedgeFund_AutoScaled", 
+                  date: new Date().toISOString(), 
+                  count: assets.length,
+                  integrity: integrityScore,
+                  note: "Smart Scaler Active: Revenue/ROE/Margins normalized to %"
+              },
+              universe: assets
+          };
+
+          await uploadFile(token, folderId, fileName, payload);
+          setProgress(prev => ({ ...prev, phase: 'Finalized' }));
+          addLog(`System: Ready for Launch. Saved ${fileName}`, "ok");
+          
+          if (onComplete) onComplete();
+      } catch (e: any) {
+          addLog(`Fatal Error: ${e.message}`, "err");
+          setProgress(prev => ({ ...prev, phase: 'Idle' }));
+      } finally {
+          setIsGathering(false);
+          startTimeRef.current = 0;
+      }
+  };
+
+  const mountFinancialEngine = async (token: string) => {
+      addLog("Initializing V13 Engine Protocol...", "info");
+      
+      let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      
+      if (!systemMapFolderId) {
+          addLog(`'${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not in Project Root. Scanning Drive Root...`, "warn");
+          systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+      }
+
+      if (!systemMapFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not found in Drive.`);
+
+      const financialDailyFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapFolderId);
+      if (!financialDailyFolderId) throw new Error(`Critical: '${GOOGLE_DRIVE_TARGET.financialDailyFolder}' not found inside Maps.`);
+
+      addLog("Core Map Located. Firing Cylinders (A-Z)...", "ok");
+
+      const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
+      const cylinders = alphabet; 
+      setProgress(prev => ({ ...prev, target: cylinders.length }));
+
+      const masterUniverse: any[] = [];
+      const tempRegistry = new Map<string, any>();
+
+      for (let i = 0; i < cylinders.length; i++) {
+          const char = cylinders[i];
+          const fileName = `${char}_stocks_daily.json`;
+          
+          try {
+              const fileId = await findFileId(token, fileName, financialDailyFolderId);
+              
+              if (fileId) {
+                  const content = await downloadFile(token, fileId);
+                  // [CORE] Process Data with Robust Key Mapping & Scaling
+                  const stocks = processCylinderData(content);
+                  const count = stocks.length;
+                  
+                  masterUniverse.push(...stocks);
+                  stocks.forEach(s => tempRegistry.set(s.symbol, s));
+                  setGatheredRegistry(new Map(tempRegistry));
+
+                  addLog(`Cylinder ${char}: Fired. ${count} HP added.`, "info");
+                  setProgress(prev => ({ ...prev, found: masterUniverse.length, synced: i + 1 }));
+              } else {
+                  addLog(`Cylinder ${char} Misfire: ${fileName} not found.`, "warn");
+              }
+          } catch (e: any) {
+              addLog(`Cylinder ${char} Failure: ${e.message}`, "err");
+          }
+          await new Promise(r => setTimeout(r, 20));
+      }
+      
+      return masterUniverse;
+  };
+
+  // [V13] Enhanced Data Processor for 28 Metrics
+  // [FIX] Smart Scaling for Ratios
+  const processCylinderData = (jsonContent: any): MasterTicker[] => {
+      const results: MasterTicker[] = [];
+      try {
+          const items = Array.isArray(jsonContent) ? jsonContent : Object.values(jsonContent);
+          
+          return items.map((item: any) => {
+              const root = item.basic || item;
+              if (!root.symbol) return null;
+
+              const price = Number(root.price) || 0;
+              const change = Number(root.change || root.changesPercentage || root.pChange || 0);
+              let prevClose = Number(root.previousClose || root.prevClose || 0);
+              if (prevClose === 0 && price > 0) prevClose = price / (1 + (change / 100));
+
+              return {
+                  // 1. Basic Info & Price
+                  symbol: root.symbol,
+                  name: root.name || root.companyName || "Unknown",
+                  price: price,
+                  currency: root.currency || "USD",
+                  marketCap: Number(root.marketCap) || 0,
+                  updated: new Date().toISOString(),
+                  source: 'V13_Cylinder',
+
+                  // 2. Valuation (Value) - Keep as Multiples (x)
+                  pe: Number(root.per || root.pe || root.peRatio || 0), 
+                  pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
+                  psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
+                  pegRatio: Number(root.pegRatio || root.peg || 0),
+                  targetMeanPrice: Number(root.targetMeanPrice || 0),
+
+                  // 3. Profitability & Efficiency (Quality) - SMART SCALING
+                  roe: normalizePercent(root.roe || root.returnOnEquity),
+                  roa: normalizePercent(root.roa || root.returnOnAssets),
+                  eps: Number(root.eps || root.earningsPerShare || 0),
+                  operatingMargins: normalizePercent(root.operatingMargins || root.operatingMargin),
+                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0), // Debt is a ratio, keep as is
+
+                  // 4. Growth & Cash
+                  revenueGrowth: normalizePercent(root.revenueGrowth),
+                  operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
+
+                  // 5. Dividend
+                  dividendRate: Number(root.dividendRate || 0),
+                  dividendYield: normalizePercent(root.dividendYield),
+
+                  // 6. Momentum & Sentiment
+                  volume: Number(root.volume) || 0,
+                  beta: Number(root.beta || 0),
+                  heldPercentInstitutions: normalizePercent(root.heldPercentInstitutions || root.institutionOwnership),
+                  shortRatio: Number(root.shortRatio || 0),
+                  fiftyDayAverage: Number(root.fiftyDayAverage || 0),
+                  twoHundredDayAverage: Number(root.twoHundredDayAverage || 0),
+                  fiftyTwoWeekHigh: Number(root.fiftyTwoWeekHigh || root.yearHigh || 0),
+                  fiftyTwoWeekLow: Number(root.fiftyTwoWeekLow || root.yearLow || 0),
+
+                  // 7. Meta Data
+                  sector: root.sector || 'Unknown',
+                  industry: root.industry || 'Unknown',
+
+                  // System Fields
+                  change: change,
+                  changeAmount: price - prevClose,
+                  prevClose: prevClose,
+                  dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
+              };
+          }).filter(item => item !== null) as MasterTicker[];
+      } catch (e) {
+          console.error("Error processing cylinder data chunk", e);
+      }
+      return results;
+  };
+
+  // --- DRIVE UTILS ---
+  const findFolder = async (token: string, name: string, parentId = 'root') => {
+      const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
+  };
+
+  const findFileId = async (token: string, name: string, parentId: string) => {
+      const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
+  };
+
+  const downloadFile = async (token: string, fileId: string) => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      if (!res.ok) throw new Error(`Download failed for ${fileId}`);
+      return await res.json();
+  };
+
+  const ensureFolder = async (token: string, name: string) => {
+      const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+      if (res.files?.length > 0) return res.files[0].id;
+      const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+          method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+      }).then(r => r.json());
+      return create.id;
+  };
+
+  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
+      const meta = { name, parents: [folderId], mimeType: 'application/json' };
+      const form = new FormData();
+      form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
+      form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
+      
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
+      });
+  };
+
+  // [MODIFIED] KST Timestamp Formatter
+  const getFormattedTimestamp = () => {
+      const now = new Date();
+      // KST (UTC+9) Calculation
+      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+      return kstDate.toISOString()
+        .replace('T', '_')
+        .replace(/:/g, '-')
+        .split('.')[0]; // Removes milliseconds and 'Z'
+  };
+
+  const formatMarketCap = (num: number) => {
+    if (!num) return 'N/A';
+    if (num >= 1.0e+12) return `$${(num / 1.0e+12).toFixed(2)}T`;
+    if (num >= 1.0e+9) return `$${(num / 1.0e+9).toFixed(2)}B`;
+    if (num >= 1.0e+6) return `$${(num / 1.0e+6).toFixed(2)}M`;
+    return `$${num.toLocaleString()}`;
+  };
+
+  // --- DYNAMIC STYLING ---
+  const getBorderColor = () => {
+    if (priceFlash === 'up') return '#4ade80'; 
+    if (priceFlash === 'down') return '#f87171'; 
+
+    if (searchResult && isLive) {
+        return searchResult.change >= 0 
+            ? 'rgba(16, 185, 129, 0.5)' 
+            : 'rgba(244, 63, 94, 0.5)'; 
+    }
+    
+    return 'rgba(255,255,255,0.05)'; 
+  };
+
+  const getBackgroundColor = () => {
+    if (priceFlash === 'up') return 'rgba(74, 222, 128, 0.15)'; 
+    if (priceFlash === 'down') return 'rgba(248, 113, 113, 0.15)';
+
+    if (searchResult && isLive) {
+        return searchResult.change >= 0 
+            ? 'rgba(16, 185, 129, 0.05)' 
+            : 'rgba(244, 63, 94, 0.05)';
+    }
+
+    return 'transparent'; 
   };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-       {showConfig && (
-        <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
-          <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
-            <div className="flex justify-between items-center">
-              <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
-              <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
-                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
+        {/* Config Modal */}
+        {showConfig && (
+            <div className="fixed inset-0 z-[9999] flex items-center justify-center p-4 bg-black/80 backdrop-blur-md">
+                <div className="glass-panel p-8 rounded-[40px] max-w-md w-full border-t-2 border-t-blue-500 shadow-2xl space-y-6">
+                    <div className="flex justify-between items-center">
+                        <h3 className="text-xl font-black text-white italic tracking-tight uppercase">Infrastructure Config</h3>
+                        <button onClick={() => setShowConfig(false)} className="text-slate-500 hover:text-white transition-colors">
+                            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                    </div>
+                    <div className="space-y-2">
+                        <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
+                        <input 
+                            type="text" 
+                            value={gdriveClientId} 
+                            onChange={(e) => setGdriveClientId(e.target.value)} 
+                            className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none" 
+                            placeholder="Enter GDrive Client ID" 
+                        />
+                        <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
+                    </div>
+                    <button onClick={() => { localStorage.setItem('gdrive_client_id', gdriveClientId); setShowConfig(false); addLog("Infrastructure Persisted Successfully.", "ok"); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all">Apply Changes</button>
+                </div>
             </div>
-            <div className="space-y-2">
-              <label className="text-[10px] font-black text-slate-500 uppercase tracking-widest">Google Cloud Client ID</label>
-              <input 
-                type="text" 
-                value={clientId}
-                onChange={(e) => setClientId(e.target.value)}
-                className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none"
-                placeholder="Enter GDrive Client ID"
-              />
-            </div>
-            <button 
-              onClick={() => {
-                localStorage.setItem('gdrive_client_id', clientId);
-                setShowConfig(false);
-                addLog("Infrastructure Persisted Successfully.", "ok");
-              }}
-              className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all"
-            >
-              Apply Changes
-            </button>
-          </div>
-        </div>
-      )}
+        )}
 
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-4 md:space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isEngineRunning ? 'animate-pulse' : ''}`}>
-                <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isEngineRunning ? 'animate-spin' : ''}`}></div>
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${isGathering ? 'animate-pulse' : ''}`}>
+                 <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v3.5.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.5</h2>
                 <div className="flex items-center mt-2 space-x-2">
-                  <span className={`text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest ${cooldown > 0 ? 'bg-red-500/20 text-red-400 border-red-500/20' : 'bg-indigo-500/20 text-indigo-400 border-indigo-500/20'}`}>
-                    {cooldown > 0 ? `Rate_Limit_Lock: ${cooldown}s` : 'Triple Hybrid Fusion'}
-                  </span>
-                  <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
-                  {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
+                   <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Smart_Scaler</span>
+                   <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
+                   {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded-md font-black uppercase animate-pulse">AUTO PILOT ENGAGED</span>}
                 </div>
               </div>
             </div>
+            
             <button 
-              onClick={startEngine} 
-              disabled={isEngineRunning || cooldown > 0}
-              className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
-                  isEngineRunning || cooldown > 0 
-                    ? 'bg-slate-800 text-slate-500 cursor-not-allowed' 
-                    : !accessToken 
-                        ? 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20' // Login State
-                        : 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' // Execute State
-              }`}
+                onClick={accessToken ? () => startGathering(accessToken) : handleAuth} 
+                disabled={isGathering}
+                className={`w-full md:w-auto px-6 py-4 md:px-12 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${isGathering ? 'bg-slate-800 text-slate-500 cursor-not-allowed' : accessToken ? 'bg-blue-600 text-white shadow-xl hover:scale-105 shadow-blue-900/20' : 'bg-amber-600 text-white shadow-xl hover:bg-amber-500 hover:scale-105 animate-pulse shadow-amber-900/20'}`}
             >
-              {isEngineRunning 
-                ? 'Fusing 3 Sources...' 
-                : cooldown > 0 
-                    ? `Wait ${cooldown}s` 
-                    : !accessToken 
-                        ? 'Connect Cloud Vault' 
-                        : 'Execute Deep Fusion'}
+                {isGathering ? 'Cylinders Firing...' : accessToken ? 'Ignite V13 Engine' : 'Connect Cloud Vault'}
             </button>
           </div>
-          
-           <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
-            <div className="flex items-center justify-between mb-4">
-              <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
-            </div>
-            <div className="flex flex-col gap-4">
+
+          <div className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5 mb-8">
+             <div className="flex items-center justify-between mb-4">
+                 <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
+                 <div className="flex items-center gap-2">
+                     <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border ${connectionHealth === 'EXCELLENT' ? 'text-emerald-400 border-emerald-500/30' : connectionHealth === 'GOOD' ? 'text-blue-400 border-blue-500/30' : 'text-red-400 border-red-500/30'}`}>
+                         {connectionHealth} SIGNAL
+                     </span>
+                     {isLive && <span className="text-[8px] font-black text-emerald-400 animate-pulse uppercase border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">● {liveSource || 'LIVE FEED'}</span>}
+                 </div>
+             </div>
+             <div className="flex flex-col gap-4">
                 <div className="flex flex-col md:flex-row gap-4">
-                  <input 
-                    type="text" 
-                    placeholder="Verify Ticker (e.g. AAPL, TSLA)"
-                    className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase"
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                  />
-                  <div className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all ${searchResult ? 'bg-emerald-500/5 border-emerald-500/20 text-emerald-400' : 'bg-slate-900 border-white/5 text-slate-600'}`}>
-                    {searchResult ? (
-                      <div className="flex justify-between items-center w-full font-mono text-[10px] font-bold">
-                        <span className="truncate">{searchResult.name || searchResult.symbol}</span>
-                        <div className="flex items-center gap-3">
-                            <span className="bg-emerald-500/20 px-2 py-1 rounded text-emerald-300">${searchResult.price?.toFixed(2) || '0.00'}</span>
-                            <button 
-                                onClick={handleSetTarget}
-                                className="px-3 py-1.5 rounded-lg text-[8px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
-                            >
-                                Set Audit Target
-                            </button>
-                        </div>
-                      </div>
-                    ) : (
-                      <span className="text-[10px] font-black italic uppercase tracking-widest">Awaiting Master Map...</span>
-                    )}
-                  </div>
+                    <input 
+                        type="text" 
+                        placeholder="Verify Ticker (e.g. AAPL, DIS)" 
+                        className="flex-1 bg-slate-950 border border-white/10 rounded-xl px-6 py-4 text-white font-mono text-sm focus:border-blue-500 outline-none uppercase" 
+                        value={searchQuery}
+                        onChange={(e) => setSearchQuery(e.target.value)}
+                    />
+                    
+                    {/* ENHANCED TICKER BOX: 8 Core Quant Metrics */}
+                    <div 
+                        className={`flex-1 flex items-center px-6 py-4 md:py-0 rounded-xl border transition-all duration-300 transform ${priceFlash ? 'scale-105' : 'scale-100'} ${searchResult ? '' : 'bg-slate-900 border-white/5'}`}
+                        style={searchResult ? {
+                            borderWidth: '2px', 
+                            borderColor: getBorderColor(),
+                            backgroundColor: getBackgroundColor()
+                        } : {}}
+                    >
+                        {searchResult ? (
+                            <div className="w-full">
+                                <div className="flex justify-between items-center mb-4">
+                                    <div>
+                                        <p className="text-xl font-black text-white">{searchResult.symbol}</p>
+                                        <p className="text-[10px] text-slate-400 truncate max-w-[150px]">{searchResult.name}</p>
+                                    </div>
+                                    <div className="text-right">
+                                        {isLive ? (
+                                            <>
+                                                {/* Price text stays white unless flashing */}
+                                                <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-300 scale-110' : priceFlash === 'down' ? 'text-rose-300 scale-110' : 'text-white'}`}>
+                                                    ${searchResult.price?.toFixed(2) || 'N/A'}
+                                                </p>
+                                                <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${searchResult.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    <span>{searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.changeAmount || 0).toFixed(2)}</span>
+                                                    <span className="opacity-50">({Math.abs(searchResult.change || 0).toFixed(2)}%)</span>
+                                                </p>
+                                            </>
+                                        ) : (
+                                            <div className="text-right">
+                                                <p className="text-2xl font-mono font-black text-white">${searchResult.price?.toFixed(2)}</p>
+                                                <p className={`text-[10px] font-bold ${searchResult.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                     {searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.change || 0).toFixed(2)}%
+                                                </p>
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="grid grid-cols-4 gap-3 bg-black/40 p-4 rounded-xl border border-white/5 mb-4">
+                                    {/* Slot 1: Market Cap (Size) */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Market Cap</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{formatMarketCap(searchResult.marketCap)}</span>
+                                    </div>
+                                    {/* Slot 2: P/E (Valuation) */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">P/E (TTM)</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.pe > 30 ? 'text-rose-400' : 'text-emerald-400'}`}>{searchResult.pe ? searchResult.pe.toFixed(1) + 'x' : 'N/A'}</span>
+                                    </div>
+                                    {/* Slot 3: P/S (Revenue Multi) */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">P/S (TTM)</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.psr ? searchResult.psr.toFixed(1) + 'x' : 'N/A'}</span>
+                                    </div>
+                                    {/* Slot 4: ROE (Quality) - Normalized % */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">ROE</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.roe > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{searchResult.roe ? searchResult.roe.toFixed(1) + '%' : 'N/A'}</span>
+                                    </div>
+                                    
+                                    {/* Slot 5: Operating Margin (Efficiency) - Normalized % */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Op. Margin</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.operatingMargins ? (searchResult.operatingMargins).toFixed(1) + '%' : 'N/A'}</span>
+                                    </div>
+                                    {/* Slot 6: Inst. Own (Smart Money) - Hedge Fund Special - Normalized % */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Inst. Own</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.heldPercentInstitutions > 70 ? 'text-indigo-400' : 'text-slate-300'}`}>
+                                            {searchResult.heldPercentInstitutions ? (searchResult.heldPercentInstitutions).toFixed(1) + '%' : 'N/A'}
+                                        </span>
+                                    </div>
+                                    {/* Slot 7: Beta (Volatility) */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Beta</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.beta ? searchResult.beta.toFixed(2) : 'N/A'}</span>
+                                    </div>
+                                    {/* Slot 8: Target Gap (Upside) */}
+                                    <div className="flex flex-col">
+                                        <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Target Gap</span>
+                                        <span className={`text-xs font-mono font-bold ${searchResult.targetMeanPrice > searchResult.price ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                            {searchResult.targetMeanPrice > 0 ? (((searchResult.targetMeanPrice - searchResult.price) / searchResult.price) * 100).toFixed(1) + '%' : 'N/A'}
+                                        </span>
+                                    </div>
+                                </div>
+
+                                <div className="flex justify-end">
+                                     <button 
+                                        onClick={handleSetTarget}
+                                        className="px-4 py-2 rounded-lg text-[9px] font-black uppercase tracking-widest border transition-all bg-rose-600 text-white border-rose-500 hover:bg-rose-500 shadow-lg"
+                                    >
+                                        Set Audit Target
+                                    </button>
+                                </div>
+                            </div>
+                        ) : (
+                            <span className="text-[10px] font-black italic uppercase tracking-widest text-slate-600">{searchQuery ? 'Searching Registry...' : 'Awaiting Input...'}</span>
+                        )}
+                    </div>
                 </div>
-            </div>
+             </div>
+          </div>
+          
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
+               {[
+                 { label: 'Cylinders (Files)', val: `${progress.synced}/26`, color: 'text-white' },
+                 { label: 'Horsepower (Assets)', val: progress.found.toLocaleString(), color: 'text-indigo-400' },
+                 { label: 'Cycle Time', val: `${progress.elapsed}s`, color: 'text-slate-400' },
+                 { label: 'Engine Status', val: progress.phase, color: 'text-blue-400' }
+               ].map((item, idx) => (
+                   <div key={idx} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
+                       <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{item.label}</p>
+                       <p className={`text-lg md:text-xl font-mono font-black italic ${item.color} truncate`}>{item.val}</p>
+                   </div>
+               ))}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-4 mb-10">
-            {[
-              { label: 'Equities Found', val: stats.found.toLocaleString(), color: 'text-white' },
-              { label: 'Active Provider', val: stats.provider, color: 'text-indigo-400' },
-              { label: 'Cycle Time', val: `${stats.elapsed}s`, color: 'text-slate-400' },
-              { label: 'Pipeline Phase', val: stats.phase, color: 'text-blue-400' }
-            ].map((s, i) => (
-              <div key={i} className="bg-black/40 p-4 md:p-6 rounded-3xl border border-white/5">
-                <p className="text-[7px] font-black text-slate-600 uppercase mb-2 tracking-[0.2em]">{s.label}</p>
-                <p className={`text-lg md:text-xl font-mono font-black italic ${s.color} truncate`}>{s.val}</p>
-              </div>
-            ))}
+          <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
+              <div 
+                className="h-full rounded-xl transition-all duration-700 bg-gradient-to-r from-blue-700 to-indigo-500" 
+                style={{ width: `${Math.min(100, (progress.synced / progress.target) * 100)}%` }}
+              ></div>
           </div>
-          
-           <div className="h-4 bg-black/60 rounded-2xl overflow-hidden border border-white/5 p-1">
-            <div 
-              className={`h-full rounded-xl transition-all duration-700 ${cooldown > 0 ? 'bg-red-600 animate-pulse' : 'bg-gradient-to-r from-blue-700 to-indigo-500'}`}
-              style={{ width: stats.phase === 'Finalized' ? '100%' : cooldown > 0 ? `${(cooldown/60)*100}%` : `${Math.min(100, (stats.found / (stats.target || 1)) * 100)}%` }}
-            ></div>
-          </div>
+
         </div>
       </div>
 
       <div className="xl:col-span-1">
         <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl">
           <div className="flex items-center justify-between mb-8">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Synthesis_Terminal</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Engine_Telemetry</h3>
+             <div className="flex items-center gap-2">
+                 <span className="text-[8px] font-mono text-slate-500">FPS: {telemetry.fps.toFixed(0)}</span>
+                 <span className="text-[8px] font-mono text-slate-500">LAT: {telemetry.latency}ms</span>
+             </div>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
             {logs.map((l, i) => (
