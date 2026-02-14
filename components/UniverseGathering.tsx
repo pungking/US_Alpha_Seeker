@@ -29,32 +29,32 @@ interface MasterTicker {
   updated: string;
   source: string;
   
-  // 2. Valuation (Value)
+  // 2. Valuation (Value) - Multiples (x)
   pe: number;             // per
   pbr: number;            // pbr
   psr: number;            // psr
   pegRatio: number;       // pegRatio
   targetMeanPrice: number;// targetMeanPrice
   
-  // 3. Quality & Efficiency (Quality)
+  // 3. Quality & Efficiency (Quality) - Percentages (%)
   roe: number;            // roe
   roa: number;            // roa
-  eps: number;            // eps
+  eps: number;            // eps (Currency)
   operatingMargins: number; // operatingMargins
-  debtToEquity: number;   // debtToEquity
+  debtToEquity: number;   // debtToEquity (Ratio)
   
   // 4. Growth & Cash (Growth)
-  revenueGrowth: number;  // revenueGrowth
-  operatingCashflow: number; // operatingCashflow
+  revenueGrowth: number;  // revenueGrowth (%)
+  operatingCashflow: number; // operatingCashflow (Currency)
   
   // 5. Dividend
-  dividendRate: number;   // dividendRate
-  dividendYield: number;  // dividendYield
+  dividendRate: number;   // dividendRate (Currency)
+  dividendYield: number;  // dividendYield (%)
   
   // 6. Momentum & Sentiment
   volume: number;
   beta: number;
-  heldPercentInstitutions: number; // heldPercentInstitutions
+  heldPercentInstitutions: number; // heldPercentInstitutions (%)
   shortRatio: number;     // shortRatio
   fiftyDayAverage: number;
   twoHundredDayAverage: number;
@@ -86,7 +86,7 @@ interface EngineTelemetry {
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.1.5: Hybrid Search Protocol Restored.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.2.0: Ratio Normalization Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
@@ -263,6 +263,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // [RESTORED] External API Fetcher (Yahoo)
+  // [FIX] Ratios normalized to Percentages
   const fetchExternalStock = async (symbol: string): Promise<MasterTicker | null> => {
       try {
           const res = await fetch(`/api/yahoo?symbols=${symbol}`);
@@ -289,19 +290,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               pegRatio: raw.pegRatio || 0,
               targetMeanPrice: 0,
               
-              roe: raw.returnOnEquity || 0,
-              roa: 0,
+              // Normalize Ratios to Percentages (x100)
+              roe: (raw.returnOnEquity || 0) * 100,
+              roa: (raw.returnOnAssets || 0) * 100,
               eps: raw.eps || raw.trailingEps || 0,
-              operatingMargins: 0,
+              operatingMargins: (raw.operatingMargins || 0) * 100,
               debtToEquity: raw.debtToEquity || 0,
               
-              revenueGrowth: 0,
+              revenueGrowth: (raw.revenueGrowth || 0) * 100,
               operatingCashflow: 0,
               dividendRate: raw.dividendRate || 0,
-              dividendYield: raw.dividendYield || 0,
+              dividendYield: (raw.dividendYield || 0) * 100,
               
               beta: raw.beta || 0,
-              heldPercentInstitutions: 0,
+              heldPercentInstitutions: (raw.heldPercentInstitutions || 0) * 100,
               shortRatio: 0,
               fiftyDayAverage: raw.fiftyDayAverage || 0,
               twoHundredDayAverage: raw.twoHundredDayAverage || 0,
@@ -514,12 +516,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           
           const payload = {
               manifest: { 
-                  version: "13.0.0", 
-                  provider: "Drive_V13_HedgeFund", 
+                  version: "13.2.0", 
+                  provider: "Drive_V13_HedgeFund_RatioFix", 
                   date: new Date().toISOString(), 
                   count: assets.length,
                   integrity: integrityScore,
-                  note: "Full 28 Metric Expansion for Hedge Fund Analysis"
+                  note: "Ratios (ROE, Margins) normalized to percentages (x100)"
               },
               universe: assets
           };
@@ -594,6 +596,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // [V13] Enhanced Data Processor for 28 Metrics
+  // [FIX] Ratios normalized to Percentages
   const processCylinderData = (jsonContent: any): MasterTicker[] => {
       const results: MasterTicker[] = [];
       try {
@@ -618,32 +621,34 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   updated: new Date().toISOString(),
                   source: 'V13_Cylinder',
 
-                  // 2. Valuation (Value)
-                  pe: Number(root.per || root.pe || root.peRatio || 0), // Correct mapping
+                  // 2. Valuation (Value) - Keep as Multiples (x)
+                  pe: Number(root.per || root.pe || root.peRatio || 0), 
                   pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
                   psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
                   pegRatio: Number(root.pegRatio || root.peg || 0),
                   targetMeanPrice: Number(root.targetMeanPrice || 0),
 
-                  // 3. Profitability & Efficiency (Quality)
-                  roe: Number(root.roe || root.returnOnEquity || 0),
-                  roa: Number(root.roa || root.returnOnAssets || 0),
+                  // 3. Profitability & Efficiency (Quality) - Convert Ratios to Percentages
+                  // Yahoo returns 1.5 for 150%, or 0.15 for 15%. Logic expects 15.0 or 150.0 for %.
+                  // We blindly multiply by 100 assuming the source provides decimal ratios (e.g. 0.15 for 15%)
+                  roe: (Number(root.roe || root.returnOnEquity || 0)) * 100,
+                  roa: (Number(root.roa || root.returnOnAssets || 0)) * 100,
                   eps: Number(root.eps || root.earningsPerShare || 0),
-                  operatingMargins: Number(root.operatingMargins || root.operatingMargin || 0),
-                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0),
+                  operatingMargins: (Number(root.operatingMargins || root.operatingMargin || 0)) * 100,
+                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0), // Debt is a ratio, typically left as is (e.g. 1.5)
 
                   // 4. Growth & Cash
-                  revenueGrowth: Number(root.revenueGrowth || 0),
+                  revenueGrowth: (Number(root.revenueGrowth || 0)) * 100,
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
 
                   // 5. Dividend
                   dividendRate: Number(root.dividendRate || 0),
-                  dividendYield: Number(root.dividendYield || 0),
+                  dividendYield: (Number(root.dividendYield || 0)) * 100,
 
                   // 6. Momentum & Sentiment
                   volume: Number(root.volume) || 0,
                   beta: Number(root.beta || 0),
-                  heldPercentInstitutions: Number(root.heldPercentInstitutions || root.institutionOwnership || 0),
+                  heldPercentInstitutions: (Number(root.heldPercentInstitutions || root.institutionOwnership || 0)) * 100,
                   shortRatio: Number(root.shortRatio || 0),
                   fiftyDayAverage: Number(root.fiftyDayAverage || 0),
                   twoHundredDayAverage: Number(root.twoHundredDayAverage || 0),
@@ -798,7 +803,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.2</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
@@ -891,22 +896,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">P/S (TTM)</span>
                                         <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.psr ? searchResult.psr.toFixed(1) + 'x' : 'N/A'}</span>
                                     </div>
-                                    {/* Slot 4: ROE (Quality) */}
+                                    {/* Slot 4: ROE (Quality) - Normalized % */}
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">ROE</span>
                                         <span className={`text-xs font-mono font-bold ${searchResult.roe > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{searchResult.roe ? searchResult.roe.toFixed(1) + '%' : 'N/A'}</span>
                                     </div>
                                     
-                                    {/* Slot 5: Operating Margin (Efficiency) */}
+                                    {/* Slot 5: Operating Margin (Efficiency) - Normalized % */}
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Op. Margin</span>
-                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.operatingMargins ? (searchResult.operatingMargins * 100).toFixed(1) + '%' : 'N/A'}</span>
+                                        <span className="text-xs font-mono text-slate-300 font-bold">{searchResult.operatingMargins ? (searchResult.operatingMargins).toFixed(1) + '%' : 'N/A'}</span>
                                     </div>
-                                    {/* Slot 6: Inst. Own (Smart Money) - Hedge Fund Special */}
+                                    {/* Slot 6: Inst. Own (Smart Money) - Hedge Fund Special - Normalized % */}
                                     <div className="flex flex-col">
                                         <span className="text-[7px] text-slate-500 uppercase font-bold tracking-wider mb-0.5">Inst. Own</span>
                                         <span className={`text-xs font-mono font-bold ${searchResult.heldPercentInstitutions > 70 ? 'text-indigo-400' : 'text-slate-300'}`}>
-                                            {searchResult.heldPercentInstitutions ? (searchResult.heldPercentInstitutions * 100).toFixed(1) + '%' : 'N/A'}
+                                            {searchResult.heldPercentInstitutions ? (searchResult.heldPercentInstitutions).toFixed(1) + '%' : 'N/A'}
                                         </span>
                                     </div>
                                     {/* Slot 7: Beta (Volatility) */}
