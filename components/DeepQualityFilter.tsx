@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { GOOGLE_DRIVE_TARGET } from '../constants';
 
 interface Props {
   autoStart?: boolean;
@@ -9,261 +9,43 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// --- HELPER FUNCTIONS ---
-const safeNum = (val: any) => {
-    if (val === null || val === undefined || val === '') return 0;
-    if (typeof val === 'number') return isFinite(val) ? val : 0;
-    let cleanStr = String(val).replace(/,/g, '').replace(/%/g, '').trim();
-    if (cleanStr.startsWith('(') && cleanStr.endsWith(')')) {
-        cleanStr = '-' + cleanStr.slice(1, -1);
-    }
-    const n = parseFloat(cleanStr);
-    return Number.isFinite(n) ? n : 0;
-};
-
-// [FIX] Auto-scaler: Detects if value is 0.15 (decimal) vs 15.0 (percent)
-const toPercent = (val: number) => {
-    // If value is small (e.g. 0.21), assume it's a decimal and convert to 21.0
-    // Threshold set to 5.0 (500%) to avoid scaling already correct values like 15.0
-    if (val !== 0 && Math.abs(val) <= 5.0) {
-        return Number((val * 100).toFixed(2));
-    }
-    return Number(val.toFixed(2));
-};
-
+// --- SUPER NORMALIZER ---
 const findValue = (obj: any, candidates: string[]): number => {
     if (!obj || typeof obj !== 'object') return 0;
-    const keys = Object.keys(obj);
-    const normalizedMap = new Map<string, string>();
-    keys.forEach(k => normalizedMap.set(k.toLowerCase().replace(/[^a-z0-9]/g, ''), k));
-
-    for (const candidate of candidates) {
-        const lowerCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (normalizedMap.has(lowerCandidate)) {
-            const originalKey = normalizedMap.get(lowerCandidate);
-            const val = safeNum(obj[originalKey!]);
-            if (val !== 0) return val;
-        }
-        for (const [normKey, originalKey] of normalizedMap) {
-             if (normKey === lowerCandidate || (normKey.includes(lowerCandidate) && normKey.length < lowerCandidate.length + 5)) {
-                 const val = safeNum(obj[originalKey]);
-                 if(val !== 0) return val;
+    
+    // Create a flattened map of all keys (lowercase, no symbols) to values
+    const normalizedMap = new Map<string, number>();
+    
+    const recurse = (current: any) => {
+        for (const key in current) {
+             const val = current[key];
+             if (typeof val === 'number') {
+                 const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+                 normalizedMap.set(normKey, val);
+             } else if (typeof val === 'string') {
+                 const num = parseFloat(val.replace(/,/g, '').replace(/%/g, ''));
+                 if (!isNaN(num)) {
+                     const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
+                     normalizedMap.set(normKey, num);
+                 }
              }
         }
+    };
+    recurse(obj);
+
+    for (const candidate of candidates) {
+        const target = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+        if (normalizedMap.has(target)) return normalizedMap.get(target) || 0;
     }
     return 0;
 };
 
-// --- ADVANCED V-Q-H-G-M LOGIC (Reconstruction Engine) ---
-const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
-  // 0. Data Normalization
-  let history: any[] = [];
-  if (Array.isArray(rawHistory)) {
-      history = rawHistory;
-  } else if (typeof rawHistory === 'object' && rawHistory !== null) {
-      history = Object.keys(rawHistory)
-          .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())
-          .map(date => ({ ...rawHistory[date], date }));
-  }
-  
-  const latest = history[0] || {};
-  const prev = history[1] || {};
-
-  // 1. Data Extraction & Scaling Correction
-  const rawRoe = safeNum(daily.roe || latest.returnOnEquity || 0);
-  const roe = toPercent(rawRoe); // [FIX] Apply auto-scaling 0.21 -> 21.0
-
-  const rawRoa = safeNum(daily.roa || latest.returnOnAssets || 0);
-  const roa = toPercent(rawRoa);
-
-  const rawDebtEq = safeNum(daily.debtToEquity || daily.debtEquityRatio || latest.debtEquityRatio || 0);
-  const debt = rawDebtEq; // Debt/Eq is typically a ratio (e.g., 0.5 or 1.5), not percent. kept as is.
-  
-  const pe = safeNum(daily.pe || daily.per || 0);
-  const pbr = safeNum(daily.pbr || daily.priceToBook || latest.priceToBookRatio || 0);
-  const marketCap = safeNum(daily.marketCap || daily.marketValue || 0);
-
-  // --- LEVEL 1: DIRECT EXTRACTION ---
-  const revenue = findValue(latest, ['totalRevenue', 'revenue', 'sales']);
-  const prevRevenue = findValue(prev, ['totalRevenue', 'revenue', 'sales']);
-  
-  const costOfRevenue = findValue(latest, ['costOfRevenue', 'costOfGoodsSold']);
-  const grossProfit = findValue(latest, ['grossProfit']);
-  
-  const operatingIncome = findValue(latest, ['operatingIncome', 'ebit']);
-  const netIncome = findValue(latest, ['netIncome', 'netIncomeCommonStockholders']);
-  
-  // --- LEVEL 2: ARITHMETIC RECONSTRUCTION ---
-  let totalAssets = findValue(latest, ['totalAssets']);
-  const totalLiab = findValue(latest, ['totalLiabilities', 'totalLiabilitiesNetMinorityInterest']);
-  const totalEquity = findValue(latest, ['totalEquity', 'totalStockholdersEquity']);
-
-  if (totalAssets === 0) {
-      if (totalLiab !== 0 && totalEquity !== 0) {
-          totalAssets = totalLiab + totalEquity; 
-      }
-  }
-
-  // Reconstruct Current Liabilities
-  let currentLiabilities = findValue(latest, ['totalCurrentLiabilities', 'currentLiabilities']);
-  const currentAssets = findValue(latest, ['totalCurrentAssets', 'currentAssets']);
-
-  // Reconstruct Operating Cash Flow
-  let ocf = findValue(latest, ['operatingCashFlow', 'netCashProvidedByOperatingActivities']);
-  let isOcfReconstructed = false;
-
-  if (ocf === 0) {
-       const depreciation = findValue(latest, ['depreciationAndAmortization']);
-       if (netIncome !== 0) {
-           ocf = netIncome + depreciation;
-           isOcfReconstructed = true;
-       }
-  }
-
-  const capex = Math.abs(findValue(latest, ['capitalExpenditure', 'capex']));
-  
-  // EPS
-  const epsCurrent = findValue(latest, ['eps', 'earningsPerShare', 'epsDiluted']);
-  const epsPrev = findValue(prev, ['eps', 'earningsPerShare', 'epsDiluted']);
-
-  // --- DERIVED METRICS & RATIOS ---
-  
-  // 1. Margins (Apply Percent Correction)
-  let calculatedGrossProfit = grossProfit;
-  if (!calculatedGrossProfit && revenue && costOfRevenue) calculatedGrossProfit = revenue - costOfRevenue;
-  
-  const grossMargin = toPercent(revenue > 0 ? (calculatedGrossProfit / revenue) : 0);
-  const operatingMargin = toPercent(revenue > 0 ? (operatingIncome / revenue) : 0);
-  const netMargin = toPercent(revenue > 0 ? (netIncome / revenue) : 0);
-
-  // 2. Valuation
-  const fcf = ocf - capex; 
-  const pfcf = fcf > 0 ? marketCap / fcf : 0;
-  const fcfMargin = toPercent(revenue > 0 ? (fcf / revenue) : 0);
-
-  // 3. Quality (ROIC)
-  const taxRate = 0.21;
-  const nopat = operatingIncome > 0 ? operatingIncome * (1 - taxRate) : netIncome; 
-  
-  let investedCapital = 0;
-  if (totalAssets > 0 && currentLiabilities > 0) {
-      investedCapital = totalAssets - currentLiabilities;
-  } else if (marketCap > 0 && debt > 0) {
-       investedCapital = (marketCap / (pbr || 1)) + ((marketCap / (pbr || 1)) * debt); 
-  }
-  
-  let roic = 0;
-  if (investedCapital > 0) {
-      roic = (nopat / investedCapital) * 100;
-  } else {
-      // Proxy if missing data
-      roic = roe / (1 + debt);
-  }
-  roic = Number(roic.toFixed(2));
-
-  const accruals = isOcfReconstructed ? 0 : (netIncome - ocf) / (totalAssets || 1);
-
-  // 4. Health & Z-Score (Granular Calculation)
-  let currentRatio = currentLiabilities > 0 ? currentAssets / currentLiabilities : 0;
-  if (currentRatio === 0) currentRatio = debt < 0.5 ? 2.0 : 1.0; 
-
-  const workingCapital = currentAssets - currentLiabilities;
-  const retainedEarnings = findValue(latest, ['retainedEarnings', 'accumulatedRetainedEarningsDeficit']) || (netIncome * 0.5); // Fallback assumption
-  
-  // [FIX] Granular Altman Z-Score
-  // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
-  let zScore = 0;
-  if (totalAssets > 0) {
-      const A = workingCapital / totalAssets;
-      const B = retainedEarnings / totalAssets;
-      const C = operatingIncome / totalAssets;
-      const D = marketCap / (totalLiab || (totalAssets * 0.5)); // Market Value of Equity / Total Liabilities
-      const E = revenue / totalAssets;
-      
-      zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
-  } else {
-      // Dynamic Proxy if no balance sheet data
-      let proxy = 3.0; // Base score
-      
-      // Penalize for high debt
-      if (debt > 100) proxy -= 1.0;
-      else if (debt > 50) proxy -= 0.5;
-
-      // Penalize for negative ROE
-      if (roe < 0) proxy -= 1.0;
-      else if (roe > 20) proxy += 0.5;
-
-      // Penalize for small cap (volatility risk)
-      if (marketCap < 1000000000) proxy -= 0.3;
-
-      zScore = proxy; 
-  }
-
-  // 5. Growth
-  const revenueGrowth = toPercent(prevRevenue > 0 ? ((revenue - prevRevenue) / prevRevenue) : 0);
-  const epsGrowth = toPercent(epsPrev > 0 ? ((epsCurrent - epsPrev) / epsPrev) : 0);
-
-  // --- SCORING ---
-  
-  let profitScore = Math.min(100, Math.max(0, (roe / 20) * 60 + (roic / 15) * 40));
-  
-  const earningsQualityFlag = !isOcfReconstructed && netIncome > 0 && ocf < (netIncome * 0.5);
-  if (earningsQualityFlag) profitScore *= 0.8; 
-
-  let safeScore = Math.max(0, 100 - (debt * 50)); // Debt ratio 1.0 -> -50p, 0.0 -> 0p deduction. 
-  if (debt > 2.0) safeScore = 10; // High leverage penalty
-  if (currentRatio < 1.0) safeScore -= 15;
-  if (zScore < 1.8) safeScore -= 20;
-
-  let valueScore = 50;
-  if (pe > 0 && pe <= 15) valueScore = 90;
-  else if (pe > 15 && pe <= 25) valueScore = 75;
-  else if (pe > 25 && pe <= 50) valueScore = 50;
-  else valueScore = 30;
-  
-  if (pfcf > 0 && pfcf < 15) valueScore += 10;
-  
-  let growthScore = 50;
-  if (revenueGrowth > 15) growthScore += 20;
-  else if (revenueGrowth > 5) growthScore += 10;
-  if (epsGrowth > 15) growthScore += 20;
-  else if (epsGrowth > 5) growthScore += 10;
-  
-  growthScore = Math.min(100, Math.max(0, growthScore));
-
-  const qualityScore = (profitScore * 0.4) + (safeScore * 0.3) + (valueScore * 0.3);
-
-  return {
-      scores: {
-          profitScore: Math.round(profitScore),
-          safeScore: Math.round(safeScore),
-          valueScore: Math.round(valueScore),
-          growthScore: Math.round(growthScore),
-          qualityScore: Number(qualityScore.toFixed(2))
-      },
-      metrics: {
-          fcf,
-          pfcf: Number(pfcf.toFixed(2)),
-          roic: roic,
-          roe: roe, // Ensure normalized ROE is passed
-          roa: roa,
-          investedCapital,
-          nopat,
-          accruals,
-          currentRatio: Number(currentRatio.toFixed(2)),
-          zScoreProxy: Number(zScore.toFixed(2)), 
-          revenueGrowth: Number(revenueGrowth.toFixed(2)),
-          epsGrowth: Number(epsGrowth.toFixed(2)),
-          grossMargin: Number(grossMargin.toFixed(2)),
-          operatingMargin: Number(operatingMargin.toFixed(2)),
-          netMargin: Number(netMargin.toFixed(2)),
-          fcfMargin: Number(fcfMargin.toFixed(2)),
-          workingCapital,
-          retainedEarnings, 
-          earningsQualityFlag,
-          liquidityCrisisFlag: currentRatio < 1.0 && currentRatio > 0
-      }
-  };
+// Auto-scaler: Detects if value is 0.15 (decimal) vs 15.0 (percent)
+const toPercent = (val: number) => {
+    if (val !== 0 && Math.abs(val) <= 5.0) {
+        return Number((val * 100).toFixed(2));
+    }
+    return Number(val.toFixed(2));
 };
 
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
@@ -271,7 +53,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.1: Z-Score & ROE Fixed.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2: Optimized Data Mapping.']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -297,12 +79,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     if (onStockSelected) onStockSelected(ticker);
   };
 
-  const getFormattedTimestamp = () => {
-    const now = new Date();
-    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-  };
-
+  // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
@@ -326,16 +103,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(`Download failed`);
-      
-      const text = await res.text();
-      const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
-      
-      try {
-          return JSON.parse(safeText);
-      } catch (e) {
-          console.error("JSON Parse Error (Fixed):", e);
-          throw new Error("Invalid JSON in Financial Data (NaN Fixed)");
-      }
+      return await res.json();
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -354,12 +122,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-      
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
       });
   };
 
+  // --- ANALYSIS CORE ---
   const executeDeepFilter = async () => {
       if (!accessToken || loading) return;
       setLoading(true);
@@ -380,16 +148,15 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const candidates = stage1Content.investable_universe || [];
           addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
-          setProgress({ current: 0, total: candidates.length, msg: 'Initializing...' });
+          setProgress({ current: 0, total: candidates.length, msg: 'Connecting to History Vault...' });
 
+          // Find Folders
           let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
           if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
           if (!systemMapId) throw new Error("System_Identity_Maps folder not found.");
 
-          const dailyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId);
           const historyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
-
-          if (!dailyFolderId) throw new Error("Financial_Data_Daily folder not found.");
+          if (!historyFolderId) throw new Error("Financial_Data_History folder not found.");
 
           const groupedByLetter: Record<string, any[]> = {};
           candidates.forEach((c: any) => {
@@ -402,62 +169,106 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const sortedLetters = Object.keys(groupedByLetter).sort();
 
           for (const letter of sortedLetters) {
-              setProgress(prev => ({ ...prev, msg: `Loading Cylinder ${letter}...` }));
+              setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
               
-              const dailyFileName = `${letter}_stocks_daily.json`;
-              const dailyFileId = await findFileId(accessToken, dailyFileName, dailyFolderId);
-              let dailyDataMap = new Map();
-              
-              if (dailyFileId) {
-                  const content = await downloadFile(accessToken, dailyFileId);
-                  const items = Array.isArray(content) ? content : Object.values(content);
-                  items.forEach((d: any) => {
-                       const sym = d.symbol || d.basic?.symbol;
-                       if (sym) dailyDataMap.set(sym, d.basic || d);
-                  });
-              }
-
+              // Only load HISTORY files. Daily data is already in 'candidates' from Stage 1.
               let historyDataMap = new Map();
-              if (historyFolderId) {
-                  const histFileName = `${letter}_stocks_history.json`;
-                  const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
-                  if (histFileId) {
-                      const content = await downloadFile(accessToken, histFileId);
-                      if (Array.isArray(content)) {
-                          content.forEach((d: any) => { 
-                              if(d.symbol) historyDataMap.set(d.symbol, d.financials || []); 
-                          });
-                      } else {
-                          Object.keys(content).forEach(sym => historyDataMap.set(sym, content[sym]));
-                      }
+              const histFileName = `${letter}_stocks_history.json`;
+              const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
+              
+              if (histFileId) {
+                  const content = await downloadFile(accessToken, histFileId);
+                  // Flexible parsing for array or object map
+                  if (Array.isArray(content)) {
+                      content.forEach((d: any) => { 
+                          if(d.symbol) historyDataMap.set(d.symbol, d.financials || d.history || []); 
+                      });
+                  } else {
+                      Object.keys(content).forEach(sym => {
+                           historyDataMap.set(sym, content[sym].financials || content[sym] || []);
+                      });
                   }
+              } else {
+                  addLog(`History missing for letter ${letter}`, "warn");
               }
 
               const batch = groupedByLetter[letter];
               for (const item of batch) {
-                  const dailyData = dailyDataMap.get(item.symbol) || {};
+                  // Merge Stage 1 Daily Data + Loaded History Data
                   const fullHistory = historyDataMap.get(item.symbol) || [];
-                  const merged = { ...item, ...dailyData, fullHistory: fullHistory };
                   
-                  const analysis = performAdvancedAnalysis(merged, fullHistory);
+                  // Calculate Scores
+                  // 1. ROE (Return On Equity) - Ensure Percent
+                  const roe = toPercent(item.roe || findValue(item, ['returnOnEquity', 'roe']) || 0);
                   
-                  if (analysis.scores.qualityScore > 40 || (analysis.scores.valueScore > 70 && analysis.scores.safeScore > 50)) {
+                  // 2. Debt/Equity
+                  // Handle Debt=0 Anomaly: If Debt is 0 and sector is NOT Financial/Tech, assume missing data and penalize.
+                  let debt = item.debtToEquity || findValue(item, ['totalDebtToEquity', 'debtEquityRatio']) || 0;
+                  const isFinancial = (item.sector || '').includes('Financial') || (item.sector || '').includes('Bank');
+                  
+                  // Penalize missing debt data for general industries to prevent false positives
+                  if (debt === 0 && !isFinancial) {
+                      debt = 1.0; // Assume average risk instead of perfect safety
+                  }
+                  
+                  // 3. Z-Score (Altman)
+                  // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
+                  let zScore = 0;
+                  // Try to find Balance Sheet items from History or Daily snapshot
+                  const totalAssets = findValue(item, ['totalAssets']) || 1;
+                  const workingCapital = (findValue(item, ['totalCurrentAssets']) - findValue(item, ['totalCurrentLiabilities'])) || (totalAssets * 0.1);
+                  const retainedEarnings = findValue(item, ['retainedEarnings']) || (totalAssets * 0.2);
+                  const ebit = findValue(item, ['ebit', 'operatingIncome']) || (totalAssets * 0.1);
+                  const marketCap = item.marketCap || (item.price * item.volume) || 1; // Approx
+                  const totalLiab = findValue(item, ['totalLiabilities']) || (totalAssets * 0.5);
+                  const sales = findValue(item, ['totalRevenue', 'revenue']) || (totalAssets * 0.8);
+
+                  if (totalAssets > 1000) { // Ensure we have some data
+                      const A = workingCapital / totalAssets;
+                      const B = retainedEarnings / totalAssets;
+                      const C = ebit / totalAssets;
+                      const D = marketCap / totalLiab;
+                      const E = sales / totalAssets;
+                      zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
+                  } else {
+                      // Proxy Z-Score if BS data is missing
+                      zScore = (roe > 10 && debt < 1.0) ? 3.5 : 1.5; 
+                  }
+                  
+                  // Ensure Revenue Growth is normalized
+                  const revenueGrowth = toPercent(item.revenueGrowth || 0);
+
+                  // 4. Scoring Logic
+                  let profitScore = Math.min(100, Math.max(0, roe * 4));
+                  let safeScore = Math.min(100, Math.max(0, (3 - debt) * 33));
+                  let valueScore = 50; // Neutral default
+                  if (item.pe > 0 && item.pe < 20) valueScore = 90;
+                  else if (item.pe > 50) valueScore = 30;
+
+                  const qualityScore = (profitScore * 0.4) + (safeScore * 0.3) + (valueScore * 0.3);
+
+                  if (qualityScore > 40 || (valueScore > 70 && safeScore > 50)) {
                       results.push({
                           ...item,
-                          ...analysis.scores,
-                          ...analysis.metrics,
+                          roe,
+                          debtToEquity: debt,
+                          revenueGrowth, // Update with normalized value
+                          zScoreProxy: Number(zScore.toFixed(2)),
+                          profitScore: Math.round(profitScore),
+                          safeScore: Math.round(safeScore),
+                          valueScore: Math.round(valueScore),
+                          qualityScore: Number(qualityScore.toFixed(2)),
                           radarData: [
-                            { subject: 'Profit', A: analysis.scores.profitScore, fullMark: 100 },
-                            { subject: 'Health', A: analysis.scores.safeScore, fullMark: 100 },
-                            { subject: 'Value', A: analysis.scores.valueScore, fullMark: 100 },
-                            { subject: 'Growth', A: analysis.scores.growthScore, fullMark: 100 },
+                            { subject: 'Profit', A: Math.round(profitScore), fullMark: 100 },
+                            { subject: 'Safety', A: Math.round(safeScore), fullMark: 100 },
+                            { subject: 'Value', A: Math.round(valueScore), fullMark: 100 },
                           ],
-                          lastUpdate: new Date().toISOString()
+                          fullHistory: fullHistory.slice(0, 4) // Keep light
                       });
                   }
               }
               setProgress(prev => ({ ...prev, current: results.length }));
-              await new Promise(r => setTimeout(r, 10));
+              await new Promise(r => setTimeout(r, 10)); // Yield to UI
           }
 
           results.sort((a, b) => b.qualityScore - a.qualityScore);
@@ -468,14 +279,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog(`Deep Scan Complete. ${eliteCandidates.length} Elite Assets Selected.`, "ok");
           
           const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
-          const resultFileName = `STAGE2_ELITE_UNIVERSE_${getFormattedTimestamp()}.json`;
+          
+          const kstDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+          const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+          const resultFileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
 
           const payload = {
               manifest: { 
-                  version: "5.1.0", 
+                  version: "5.3.0", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_v2" 
+                  engine: "3-Factor_Quant_Model_Robust" 
               },
               elite_universe: eliteCandidates
           };
@@ -503,7 +317,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.1.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-emerald-400 text-emerald-400 animate-pulse' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                         {loading ? `Scanning: ${progress.msg}` : '3-Factor Quant Ready'}
@@ -566,8 +380,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                   </div>
                                   <div className="flex items-center gap-2 mt-2">
                                        <span className="text-[8px] font-black bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase">ROE {selectedTicker.roe.toFixed(2)}%</span>
-                                       <span className="text-[8px] font-black bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">Gross {selectedTicker.grossMargin.toFixed(1)}%</span>
-                                       {selectedTicker.currentRatio < 1 && <span className="text-[8px] font-black bg-rose-900/30 text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 uppercase">Liquidity Risk</span>}
+                                       <span className="text-[8px] font-black bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">Debt {selectedTicker.debtToEquity.toFixed(2)}</span>
                                   </div>
                               </div>
                               <div className="text-right">
@@ -590,16 +403,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           
                           <div className="grid grid-cols-3 gap-2 mt-2">
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">ROIC</p>
-                                   <p className={`text-xs font-black ${selectedTicker.roic > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.roic.toFixed(1)}%</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Profit</p>
+                                   <p className={`text-xs font-black ${selectedTicker.profitScore > 70 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.profitScore}</p>
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
                                    <p className="text-[7px] text-slate-400 uppercase font-bold">Z-Score</p>
-                                   <p className={`text-xs font-black ${selectedTicker.zScoreProxy > 2.9 ? 'text-emerald-400' : selectedTicker.zScoreProxy < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScoreProxy.toFixed(2)}</p>
+                                   <p className={`text-xs font-black ${selectedTicker.zScoreProxy > 2.9 ? 'text-emerald-400' : selectedTicker.zScoreProxy < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScoreProxy}</p>
                                </div>
                                <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">FCF Yield</p>
-                                   <p className={`text-xs font-black ${selectedTicker.fcfMargin > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.fcfMargin.toFixed(1)}%</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Safety</p>
+                                   <p className={`text-xs font-black ${selectedTicker.safeScore > 70 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.safeScore}</p>
                                </div>
                           </div>
                        </div>
