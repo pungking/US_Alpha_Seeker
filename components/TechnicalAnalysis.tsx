@@ -75,11 +75,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v6.2: Hybrid Data Engine (Drive+API).']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v7.1: Multi-Source Engine (Poly+AlphaV) Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
+  const alphaVantageKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPHA_VANTAGE)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -118,7 +118,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Hybrid Tech Scan...", "signal");
+        addLog("AUTO-PILOT: Engaging High-Throughput Tech Scan...", "signal");
         executeTechnicalScan();
     }
   }, [autoStart]);
@@ -227,14 +227,16 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const fetchCandlesFromAPI = async (symbol: string): Promise<any[] | null> => {
       const to = new Date().toISOString().split('T')[0];
       const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 200);
+      fromDate.setDate(fromDate.getDate() - 250); 
       const from = fromDate.toISOString().split('T')[0];
       
-      // 1. Polygon
+      // 1. Polygon (Primary - High Speed)
       if (polygonKey) {
           try {
               const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
               const res = await fetch(url);
+              
+              if (res.status === 429) throw new Error("RATE_LIMIT");
               if (res.ok) {
                   const json = await res.json();
                   if (json.results && json.results.length > 20) {
@@ -243,26 +245,103 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       }));
                   }
               }
-          } catch (e) { /* Ignore */ }
+          } catch (e: any) { 
+              if (e.message === "RATE_LIMIT") console.warn(`Polygon Limit for ${symbol}. Switching to Alpha Vantage.`);
+          }
       }
 
-      // 2. FMP Fallback
-      if (fmpKey) {
+      // 2. Alpha Vantage (Secondary - Accurate Adjusted Prices)
+      // Note: Free tier has 5 calls/min limit. We use throttling.
+      if (alphaVantageKey) {
           try {
-              const url = `https://financialmodelingprep.com/api/v3/historical-price-full/${symbol}?from=${from}&to=${to}&apikey=${fmpKey}`;
+              // Throttle: Simple 2s wait to respect ~5-10 calls/min if running strictly sequentially.
+              // In this loop, it will slow down processing but ensure data.
+              await new Promise(r => setTimeout(r, 2000));
+              
+              const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&outputsize=compact&apikey=${alphaVantageKey}`;
               const res = await fetch(url);
-              if (res.ok) {
-                  const json = await res.json();
-                  if (json.historical && json.historical.length > 20) {
-                      return json.historical.reverse().map((c: any) => ({
-                          c: c.close, h: c.high, l: c.low, o: c.open, v: c.volume, t: new Date(c.date).getTime()
-                      }));
-                  }
+              const json = await res.json();
+              
+              if (json["Time Series (Daily)"]) {
+                  const series = json["Time Series (Daily)"];
+                  const dates = Object.keys(series).sort();
+                  // Normalize keys
+                  return dates.map(date => {
+                      const d = series[date];
+                      return {
+                          t: new Date(date).getTime(),
+                          o: Number(d["1. open"]),
+                          h: Number(d["2. high"]),
+                          l: Number(d["3. low"]),
+                          c: Number(d["5. adjusted close"]),
+                          v: Number(d["6. volume"])
+                      };
+                  });
+              } else if (json.Note || json.Information) {
+                  // Hit AV Rate Limit
+                  console.warn(`AV Limit for ${symbol}: ${json.Note}`);
+                  throw new Error("RATE_LIMIT");
               }
-          } catch (e) { /* Ignore */ }
+          } catch (e) { /* Fall through to heuristic */ }
       }
 
       return null;
+  };
+
+  // [HEURISTIC ENGINE] Used when API fails (Rate Limit) to prevent 0 scores.
+  const generateHeuristicData = (item: any) => {
+      const price = item.price || 0;
+      // Synthesize "Technical" data from "Fundamental" snapshots if available
+      const sma50 = item.fiftyDayAverage || price;
+      const sma200 = item.twoHundredDayAverage || price * 0.9;
+      const yearHigh = item.fiftyTwoWeekHigh || price * 1.2;
+      const yearLow = item.fiftyTwoWeekLow || price * 0.8;
+      const change = item.change || 0;
+
+      let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
+      let trendScore = 50;
+      
+      if (price > sma50 && sma50 > sma200) {
+          trendAlignment = 'POWER_TREND';
+          trendScore = 90;
+      } else if (price > sma50) {
+          trendAlignment = 'BULLISH';
+          trendScore = 70;
+      } else if (price < sma50 && price > sma200) {
+          trendAlignment = 'NEUTRAL';
+          trendScore = 50;
+      } else {
+          trendAlignment = 'BEARISH';
+          trendScore = 30;
+      }
+
+      const range = yearHigh - yearLow;
+      const pos = range > 0 ? (price - yearLow) / range : 0.5;
+      let estRsi = 30 + (pos * 40); 
+      if (change > 3) estRsi += 10; 
+      if (change < -3) estRsi -= 10;
+      
+      let score = (trendScore * 0.6) + (estRsi * 0.4);
+      
+      return {
+          technicalScore: Number(score.toFixed(2)),
+          techMetrics: {
+              rsi: Number(estRsi.toFixed(2)),
+              adx: 0,
+              trend: trendScore,
+              rvol: Math.abs(change) > 2 ? 1.5 : 1.0, 
+              squeezeState: 'SQUEEZE_OFF',
+              rsRating: Math.round(score),
+              momentum: Number(estRsi.toFixed(2)),
+              wyckoffPhase: trendAlignment === 'POWER_TREND' ? 'MARKUP' : 'ACCUM',
+              trendAlignment,
+              obvSlope: 'NEUTRAL',
+              isBlueSky: price >= yearHigh * 0.98,
+              goldenSetup: trendAlignment === 'POWER_TREND'
+          },
+          priceHistory: [], 
+          dataSource: 'HEURISTIC'
+      };
   };
 
   const executeTechnicalScan = async () => {
@@ -272,7 +351,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     startTimeRef.current = Date.now();
     
     try {
-      // 1. Load Stage 3 Data
       addLog("Phase 1: Retrieving Stage 3 Candidates...", "info");
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -288,20 +366,17 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // Filter valid candidates
       const universe = content.fundamental_universe || [];
       const candidates = universe.sort((a: any, b: any) => b.fundamentalScore - a.fundamentalScore).slice(0, 300); 
       
       setProgress({ current: 0, total: candidates.length, status: 'Initializing Map...' });
 
-      // 2. Locate Data Map Folder
       let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
       
       const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
-      if (!historyFolderId) addLog("Drive History Folder Not Found. Using API Mode.", "warn");
+      if (!historyFolderId) addLog("Drive History Folder Not Found. Using Hybrid Mode.", "warn");
 
-      // 3. Group Candidates by Letter for Batch Processing
       const grouped: Record<string, any[]> = {};
       candidates.forEach((c: any) => {
           const letter = c.symbol.charAt(0).toUpperCase();
@@ -312,11 +387,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const results: TechnicalTicker[] = [];
       const letters = Object.keys(grouped).sort();
 
-      // 4. Batch Process by Letter
       for (const letter of letters) {
           setProgress(prev => ({ ...prev, status: `Scanning Sector ${letter}...` }));
           
-          // Load History File for this letter
           let historyMap = new Map();
           if (historyFolderId) {
               const fileName = `${letter}_stocks_history.json`;
@@ -328,7 +401,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       if (Array.isArray(fileData)) {
                           fileData.forEach((item: any) => historyMap.set(item.symbol, item.financials || []));
                       } else {
-                          // Handle object format { "AAPL": { financials: [...] } }
                           Object.entries(fileData).forEach(([sym, val]: [string, any]) => {
                               historyMap.set(sym, val.financials || val);
                           });
@@ -337,64 +409,54 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               }
           }
 
-          // Process stocks in this group
           const batch = grouped[letter];
           for (const item of batch) {
               try {
-                  // [HYBRID DATA FETCH]
-                  // 1. Try Drive Map
+                  // [HYBRID DATA FETCH STRATEGY]
+                  // 1. Try Drive Map (Pre-downloaded)
                   let rawHistory = historyMap.get(item.symbol);
                   let candles: any[] = [];
                   let dataSrc = 'DRIVE';
 
                   if (Array.isArray(rawHistory) && rawHistory.length > 50) {
-                       // Sort by date ascending if needed
                        candles = rawHistory.map((h: any) => ({
                            c: Number(h.close), h: Number(h.high), l: Number(h.low), o: Number(h.open), v: Number(h.volume), t: h.date 
                        })).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
                   }
 
                   // 2. Fallback to API if Drive Empty
+                  // [RATE LIMIT PROTECTION]: Polygon -> Alpha Vantage -> Heuristic
                   if (candles.length < 50) {
-                      const apiCandles = await fetchCandlesFromAPI(item.symbol);
-                      if (apiCandles) {
-                          candles = apiCandles;
-                          dataSrc = 'API';
-                          // Throttling for API usage
-                          await new Promise(r => setTimeout(r, 200)); 
+                      try {
+                          const apiCandles = await fetchCandlesFromAPI(item.symbol);
+                          if (apiCandles) {
+                              candles = apiCandles;
+                              dataSrc = 'API';
+                          }
+                      } catch (apiErr: any) {
+                          // Ignore API error, will fallback to Heuristic
                       }
                   }
 
-                  // Default Metrics
-                  let rsi = 50, rvol = 1.0, rsRating = 50;
-                  let wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN' = 'ACCUM';
-                  let squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' = 'SQUEEZE_OFF';
-                  let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
-                  let obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL' = 'NEUTRAL';
-                  let isBlueSky = false;
-                  let goldenSetup = false;
-                  let trendScore = 50;
-                  let techScore = 0;
-
-                  // Perform Analysis if Data Exists
-                  if (candles.length > 30) {
+                  let techData;
+                  
+                  // [HEURISTIC FALLBACK]
+                  // If candles are missing (API limit hit + No Drive Data), infer from Stage 3 metrics
+                  if (candles.length < 30) {
+                      techData = generateHeuristicData(item);
+                  } else {
+                      // Perform Real Analysis
                       const closes = candles.map((c: any) => c.c);
                       const volumes = candles.map((c: any) => c.v);
                       const currentPrice = closes[closes.length - 1];
 
-                      // 1. RSI (14)
-                      rsi = calculateRSI(closes);
-
-                      // 2. RS Rating (Relative Strength)
-                      const roc1m = (currentPrice - closes[Math.max(0, closes.length - 21)]) / closes[Math.max(0, closes.length - 21)];
-                      const roc3m = (currentPrice - closes[Math.max(0, closes.length - 63)]) / closes[Math.max(0, closes.length - 63)];
-                      const rocWeighted = (roc3m * 0.6) + (roc1m * 0.4);
-                      rsRating = Math.min(99, Math.max(1, (rocWeighted * 100) + 50));
-
-                      // 3. Moving Averages & Trend Alignment
+                      const rsi = calculateRSI(closes);
                       const sma20 = calculateSMA(closes, 20);
                       const sma50 = calculateSMA(closes, 50);
                       const sma200 = calculateSMA(closes, 200); 
+
+                      let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
+                      let wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN' = 'ACCUM';
 
                       if (currentPrice > sma20 && sma20 > sma50 && (sma200 === 0 || sma50 > sma200)) {
                           trendAlignment = 'POWER_TREND';
@@ -407,67 +469,79 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           wyckoffPhase = 'MARKDOWN';
                       }
 
-                      trendScore = (trendAlignment === 'POWER_TREND' ? 95 : trendAlignment === 'BULLISH' ? 70 : 30);
+                      const trendScore = (trendAlignment === 'POWER_TREND' ? 95 : trendAlignment === 'BULLISH' ? 70 : 30);
+                      
+                      const rsRating = Math.min(99, Math.max(1, (rsi * 0.5) + (trendScore * 0.5)));
 
-                      // 4. VCP / Squeeze Detection
                       const stdDev = calculateStdDev(closes, 20);
                       const bbWidth = (4 * stdDev) / sma20; 
-                      squeezeState = bbWidth < 0.12 ? 'SQUEEZE_ON' : 'SQUEEZE_OFF';
+                      const squeezeState = bbWidth < 0.12 ? 'SQUEEZE_ON' : 'SQUEEZE_OFF';
 
-                      // 5. RVOL & VSA
                       const avgVol = calculateSMA(volumes.slice(0, -1), 20);
                       const lastVol = volumes[volumes.length - 1];
-                      rvol = avgVol > 0 ? lastVol / avgVol : 1;
+                      const rvol = avgVol > 0 ? lastVol / avgVol : 1;
                       
                       const obvSlopeVal = calculateOBV(closes, volumes);
+                      let obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL' = 'NEUTRAL';
                       if (obvSlopeVal > 0) obvSlope = 'ACCUMULATION';
                       else if (obvSlopeVal < 0 && currentPrice > sma50) obvSlope = 'DIVERGENCE';
 
-                      // 6. Special Setups
                       const yearHigh = item.fiftyTwoWeekHigh || Math.max(...closes.slice(-250));
-                      isBlueSky = yearHigh > 0 && currentPrice >= yearHigh * 0.95;
+                      const isBlueSky = yearHigh > 0 && currentPrice >= yearHigh * 0.95;
                       
                       const priceChange = (currentPrice - closes[closes.length - 2]) / closes[closes.length - 2];
-                      goldenSetup = rvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
+                      const goldenSetup = rvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
 
-                      // Scoring
-                      techScore = rsRating * 0.4;
+                      let techScore = rsRating * 0.4;
                       techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
                       techScore += (rvol > 1.5 ? 10 : 0) + (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
                       if (goldenSetup || isBlueSky) techScore += 10;
-                      techScore = Math.min(99, Math.max(1, techScore));
+                      
+                      techData = {
+                          technicalScore: Number(Math.min(99, Math.max(1, techScore)).toFixed(2)),
+                          techMetrics: {
+                              rsi: Number(rsi.toFixed(2)),
+                              adx: 0,
+                              trend: Number(trendScore.toFixed(2)),
+                              rvol: Number(rvol.toFixed(2)),
+                              squeezeState,
+                              rsRating: Number(rsRating.toFixed(0)),
+                              momentum: Number(rsRating.toFixed(2)),
+                              wyckoffPhase,
+                              trendAlignment,
+                              obvSlope,
+                              isBlueSky,
+                              goldenSetup
+                          },
+                          priceHistory: candles.slice(-120).map((c: any) => ({
+                              date: new Date(c.t).toISOString().split('T')[0], close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
+                          })),
+                          dataSource: dataSrc
+                      };
                   }
 
                   results.push({
                       ...item, 
-                      technicalScore: Number(techScore.toFixed(2)),
-                      techMetrics: {
-                          rsi: Number(rsi.toFixed(2)),
-                          adx: 0,
-                          trend: Number(trendScore.toFixed(2)),
-                          rvol: Number(rvol.toFixed(2)),
-                          squeezeState,
-                          rsRating: Number(rsRating.toFixed(0)),
-                          momentum: Number(rsRating.toFixed(2)),
-                          wyckoffPhase,
-                          trendAlignment,
-                          obvSlope,
-                          isBlueSky,
-                          goldenSetup
-                      },
-                      priceHistory: candles.slice(-120).map((c: any) => ({
-                          date: new Date(c.t).toISOString().split('T')[0], close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
-                      })),
-                      lastUpdate: new Date().toISOString(),
-                      dataSource: dataSrc
+                      ...techData,
+                      lastUpdate: new Date().toISOString()
                   });
 
               } catch (e) {
                   console.error(`Tech Analysis Error for ${item.symbol}`, e);
+                  // Critical Failure Fallback
+                  results.push({
+                      ...item,
+                      technicalScore: 0,
+                      techMetrics: { rsi: 50, adx: 0, trend: 50, rvol: 1, squeezeState: 'SQUEEZE_OFF', rsRating: 50, momentum: 50, wyckoffPhase: 'ACCUM', trendAlignment: 'NEUTRAL', obvSlope: 'NEUTRAL', isBlueSky: false, goldenSetup: false },
+                      priceHistory: [],
+                      lastUpdate: new Date().toISOString(),
+                      dataSource: 'FAILURE'
+                  });
               }
           }
           
           setProgress(prev => ({ ...prev, current: results.length }));
+          // Minimal delay to keep UI responsive
           await new Promise(r => setTimeout(r, 10)); 
       }
 
@@ -483,7 +557,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.2.0", count: results.length, strategy: "Hybrid_Drive_API_Fusion" },
+        manifest: { version: "6.5.0", count: results.length, strategy: "Hybrid_Heuristic_Fusion" },
         technical_universe: results
       };
 
@@ -496,7 +570,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed.`, "ok");
+      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed (Heuristic applied where needed).`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -528,11 +602,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v6.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v6.5</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Hybrid Data Engine Ready'}
+                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Heuristic Fallback Ready'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -584,7 +658,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              <div className="text-right flex items-center gap-3">
                                  <div className="flex flex-col items-end">
                                      <p className="text-[10px] font-mono font-bold text-white">{t.technicalScore.toFixed(1)}</p>
-                                     <p className="text-[7px] text-slate-500 uppercase">Tech</p>
+                                     <p className="text-[7px] text-slate-500 uppercase">{t.dataSource === 'HEURISTIC' ? 'Est.' : 'Tech'}</p>
                                  </div>
                                  <div className={`w-1.5 h-8 rounded-full ${t.technicalScore > 80 ? 'bg-orange-500' : t.technicalScore > 50 ? 'bg-amber-500' : 'bg-slate-700'}`}></div>
                              </div>
@@ -616,6 +690,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                      )}
                                      <span className="text-[8px] font-black bg-orange-900/30 text-orange-400 px-2 py-0.5 rounded border border-orange-500/20 uppercase">RVOL {selectedTicker.techMetrics.rvol}x</span>
                                      <span className="text-[8px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-white/10 uppercase">{selectedTicker.techMetrics.trendAlignment}</span>
+                                     {selectedTicker.dataSource === 'HEURISTIC' && <span className="text-[8px] font-black bg-slate-800 text-amber-500 px-2 py-0.5 rounded border border-amber-500/30 uppercase">ESTIMATED</span>}
                                 </div>
                             </div>
                             <div className="text-right">
@@ -645,7 +720,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                     </AreaChart>
                                 </ResponsiveContainer>
                              ) : (
-                                 <div className="h-full flex items-center justify-center opacity-20 text-[8px] font-mono">NO CHART DATA</div>
+                                 <div className="h-full flex flex-col items-center justify-center opacity-20 text-[8px] font-mono">
+                                     <svg className="w-8 h-8 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                                     CHART DATA UNAVAILABLE
+                                 </div>
                              )}
                         </div>
 
