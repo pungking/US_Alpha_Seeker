@@ -8,7 +8,6 @@ import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
-// Matches the rich data structure from UniverseGathering
 interface MasterTicker {
   symbol: string;
   name: string;
@@ -69,7 +68,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiError, setAiError] = useState<string | null>(null);
   
   // Logs & UI
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.1: Direct-Pass Logic Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.2: Hard Quality Gate Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -81,6 +80,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Update filtered count when thresholds change
   useEffect(() => {
     if (rawUniverse.length > 0) {
+      // VISUAL ONLY: Shows count based on UI sliders.
+      // NOTE: Actual commit will enforce PE/ROE checks.
       const count = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume).length;
       setFilteredCount(count);
     }
@@ -308,10 +309,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     setLoading(true);
 
-    const filteredList = dataToFilter.filter(s => s.price >= targetPrice && s.volume >= targetVolume);
+    // [V11.2 UPDATE] Hard Quality Gates
+    // Added PE > 0 and ROE > 0 filters to prevent garbage data accumulation in Stage 2
+    const filteredList = dataToFilter.filter(s => 
+        s.price >= targetPrice && 
+        s.volume >= targetVolume &&
+        (s.pe > 0 || s.per > 0) && // Must have positive earnings
+        (s.roe > 0) // Must be profitable
+    );
     
     addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
-    addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume}`, "info");
+    addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume}, PE>0, ROE>0`, "info");
 
     try {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
@@ -323,11 +331,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       
       const payload = {
         manifest: { 
-            version: "11.1.0", 
+            version: "11.2.0", 
             regime: activeProposal?.regime || "Manual", 
-            filters: { minPrice: targetPrice, minVolume: targetVolume }, 
+            filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0" }, 
             timestamp: new Date().toISOString(), 
-            note: "Stage 0 Data Passed Through via Direct Logic" 
+            note: "Enhanced Quality Gate applied" 
         },
         investable_universe: filteredList
       };
@@ -379,7 +387,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.2</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Strategies via ${activeAi}...` : 'System Standby'}
