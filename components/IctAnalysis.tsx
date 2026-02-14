@@ -73,13 +73,14 @@ const MARKET_STATE_INFO: Record<string, string> = {
     'RE-ACCUMULATION': "재매집 (Re-Accumulation): 상승 도중 숨고르기. 차익 실현 물량을 세력이 다시 받아내며 2차 상승을 준비하는 건전한 조정."
 };
 
-// [QUANT ENGINE v6.8] Blind VSA Fallback & Squeeze Synergy
+// [QUANT ENGINE v6.9] Robust ICT Logic
 const calculateIctScore = (item: any) => {
     const rvol = item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
     const trendScore = item.techMetrics?.trend || 50;
     const priceHistory = item.priceHistory || [];
-    const dailyChange = Math.abs(item.change || 0);
+    const dailyChange = item.change || 0; // Keep sign for direction
+    const absChange = Math.abs(dailyChange);
 
     // --- 1. Candle Geometry Analysis (Micro-Structure) ---
     let wickScore = 0;
@@ -115,10 +116,10 @@ const calculateIctScore = (item: any) => {
         // C. Body Strength
         if (totalRange > 0) bodyStrength = (bodySize / totalRange) * 100;
     } else {
-        // [FALLBACK] Blind VSA Logic for missing history
-        // Estimate based on Daily Change % vs RVOL
-        if (dailyChange > 2.0) bodyStrength = 80; // Big move likely implies strong body
-        else if (dailyChange < 0.5) bodyStrength = 20; // Small move implies Doji/Spinning top
+        // [FALLBACK] Heuristic for missing history
+        // If high RVOL and High Daily Change -> Strong Body
+        if (absChange > 2.0 && rvol > 1.2) bodyStrength = 80; 
+        else if (absChange < 0.5) bodyStrength = 20; 
     }
 
     // --- 2. Displacement (Force of Move) ---
@@ -127,11 +128,12 @@ const calculateIctScore = (item: any) => {
     if (recentGap > 0) displacement += 15; 
     if (trendScore > 80) displacement += 10;
     
-    // Fallback normalization
-    if (!hasFullData && rvol > 1.5 && dailyChange > 1.5) displacement = Math.max(displacement, 75);
+    // Normalize Fallback: if data missing but change is high positive
+    if (!hasFullData && dailyChange > 1.5) displacement = Math.max(displacement, 70);
 
     // --- 3. Market Structure (MSS) ---
-    const mss = trendScore; 
+    // If trend is strong and displacement is high, structure is bullish
+    const mss = (trendScore + displacement) / 2; 
 
     // --- 4. Liquidity Sweep (Stop Hunt Detection) ---
     const isSqueeze = item.techMetrics?.squeezeState === 'SQUEEZE_ON';
@@ -149,24 +151,13 @@ const calculateIctScore = (item: any) => {
     else if (trendScore < 40) obScore = 30; 
 
     let smFlow = 50;
-    if (trendScore > 60) {
-        // In Uptrend
-        if (rvol > 1.5 && bodyStrength > 50) smFlow = 90; // Healthy Markup
-        else if (rvol > 2.0 && bodyStrength < 30) smFlow = 40; // Churning
-        else smFlow = 70;
+    // Effort (Volume) vs Result (Price Change)
+    if (rvol > 2.0) {
+        if (absChange < 0.5) smFlow = 90; // Absorption (Stopping Volume)
+        else if (absChange > 2.0) smFlow = 85; // Valid Breakout
+        else smFlow = 60;
     } else {
-        // In Downtrend/Base
-        // High Volume + Small Body (or Small Change) = ABSORPTION
-        if (rvol > 2.0 && bodyStrength < 40) smFlow = 95; 
-        else if (wickScore > 60 && rvol > 1.5) smFlow = 85; 
-        else if (!hasFullData && rvol > 1.5 && dailyChange < 0.5) smFlow = 85; // Blind Absorption
-        else smFlow = 40;
-    }
-
-    // [SYNERGY BONUS] Squeeze + High Flow = Explosive Potential
-    if (isSqueeze && smFlow > 70) {
-        displacement += 10;
-        smFlow += 10;
+        smFlow = trendScore; // Follow trend if vol is normal
     }
 
     // Final Composite Score weighting
@@ -201,7 +192,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.8: VSA Blind-Proxy Active.']);
+  const [logs, setLogs] = useState<string[]>(['> ICT_Node v6.9: Robust Calculation Engine.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
@@ -310,7 +301,15 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
         const ictAnalysis = calculateIctScore(item);
         const marketState = determineMarketState(ictAnalysis.metrics);
         
-        const composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
+        // Composite Alpha Calculation (Weighted)
+        // If technical score is 0 (missing data), heavily penalize composite
+        let composite = 0;
+        if (item.technicalScore > 0) {
+            composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
+        } else {
+            // Penalize missing data items to push them to bottom
+            composite = item.fundamentalScore * 0.1; 
+        }
 
         const ticker: IctScoredTicker = {
             ...item, 
@@ -326,7 +325,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'RE-ACCUMULATION' ? 'BUY DIP' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
             radarData: [],
             sector: item.sector,
-            scoringEngine: "ICT_Wyckoff_Engine_v6.8"
+            scoringEngine: "ICT_Wyckoff_Engine_v6.9"
         };
 
         results.push(ticker);
@@ -336,7 +335,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             const tempResults = [...results].sort((a,b) => b.compositeAlpha - a.compositeAlpha);
             setProcessedData(tempResults);
             if (!selectedTicker && tempResults.length > 0) handleTickerSelect(tempResults[0]);
-            await new Promise(r => setTimeout(r, 10)); 
+            await new Promise(r => setTimeout(r, 0)); 
         }
       }
 
@@ -348,14 +347,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       
-      // [TIMESTAMP UPDATED] Replaced simple date with full KST timestamp to avoid versioning conflict
       const now = new Date();
       const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
       const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
       const fileName = `STAGE5_ICT_ELITE_50_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.8.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_V2" },
+        manifest: { version: "6.9.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_V2" },
         ict_universe: finalSurvivors
       };
 
