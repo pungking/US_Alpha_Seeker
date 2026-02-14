@@ -72,13 +72,11 @@ const performFinancialEngineering = (data: any) => {
     // 1. Extract Metrics
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
-    const bookValue = safeNum(data.bookValuePerShare || (data.totalAssets - data.totalLiabilities) / (data.sharesOutstanding || 1));
     const sales = safeNum(data.revenue || data.totalRevenue);
     const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
     const opCashflow = safeNum(data.operatingCashflow || data.operatingCashFlow);
-    const totalDebt = safeNum(data.totalDebt || data.shortTermDebt + data.longTermDebt);
+    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0); // Normalized in Stage 2
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
-    const totalAssets = safeNum(data.totalAssets);
     
     // Growth Rates & Margins
     const revenueGrowth = safeNum(data.revenueGrowth || 10); 
@@ -93,12 +91,26 @@ const performFinancialEngineering = (data: any) => {
     // 2. Intrinsic Value (Benjamin Graham Approximation)
     // V = EPS * (8.5 + 2g) * (4.4 / Y)  -- Assuming Y (Bond Yield) ~ 4.4 for neutralization
     const g = Math.min(revenueGrowth, 20); // Cap growth at 20% for safety
-    let intrinsicValue = eps > 0 ? eps * (8.5 + 2 * g) : bookValue * 1.5; // Fallback to Book Value if EPS negative
+    
+    // Book Value Proxy if data missing
+    const bookValue = safeNum(data.bookValuePerShare || (totalEquity / (data.sharesOutstanding || 1)) || (price / (data.pbr || 1)));
+
+    let intrinsicValue = 0;
+    if (eps > 0) {
+        intrinsicValue = eps * (8.5 + 2 * g);
+    } else {
+        // Fallback to Book Value multiplier if EPS negative
+        intrinsicValue = bookValue * 1.5; 
+    }
     
     // Safety Margin Adjustment
     intrinsicValue = intrinsicValue * 0.8; // 20% Margin of Safety
     
-    if (intrinsicValue <= 0) intrinsicValue = price * 0.8; // Failsafe
+    // [V4.2 UPDATE] Stricter Safety Cap: Max 3x Price (200% Upside)
+    // Prevents extreme outliers from skewing the weighted average logic
+    if (intrinsicValue <= 0 || intrinsicValue > price * 3) {
+        intrinsicValue = price * 1.2; // Fallback to modest upside if calc is crazy
+    }
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
@@ -114,33 +126,9 @@ const performFinancialEngineering = (data: any) => {
     
     const ruleOf40 = revenueGrowth + (opCashflow > 0 && sales > 0 ? (opCashflow / sales) * 100 : profitMargin);
     
-    // 4. Financial Health (Altman Z-Score)
-    // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E 
-    const currentAssets = safeNum(data.totalCurrentAssets || data.currentAssets);
-    const currentLiabilities = safeNum(data.totalCurrentLiabilities || data.currentLiabilities);
-    const workingCapital = currentAssets - currentLiabilities;
-    const retainedEarnings = safeNum(data.retainedEarnings || data.accumulatedRetainedEarningsDeficit);
-    const ebit = safeNum(data.operatingIncome || data.ebit);
-    const marketCap = safeNum(data.marketCap || data.marketValue);
+    // 4. Financial Health (Passed from Stage 2)
+    const zScore = data.zScoreProxy || 1.5;
     
-    let zScore = 0;
-    if (totalAssets > 0) {
-        const A = workingCapital / totalAssets;
-        const B = retainedEarnings / totalAssets;
-        const C = ebit / totalAssets;
-        const D = marketCap / (safeNum(data.totalLiabilities) || (totalAssets * 0.5));
-        const E = sales / totalAssets;
-
-        zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
-    } else {
-        // Fallback Proxy if BS data missing
-        let proxy = 3.0; // Base score
-        if (totalDebt > totalEquity) proxy -= 1.0;
-        if (roe > 20) proxy += 0.5;
-        if (marketCap < 1000000000) proxy -= 0.3; // Small cap risk
-        zScore = proxy;
-    }
-
     // Piotroski F-Score (0-9) - Heuristic Estimation based on available data
     let fScore = 5; // Start at average
     if (netIncome > 0) fScore++;
@@ -154,13 +142,12 @@ const performFinancialEngineering = (data: any) => {
     let missingDataPoints = 0;
     if (!eps) missingDataPoints++;
     if (!opCashflow) missingDataPoints++;
-    if (!totalDebt) missingDataPoints++;
     
     // 5. Final Scoring (Refined for Stage 3 Differentiation)
     const valScore = normalizeScore(fairValueGap, -20, 100); // Higher gap = Better
     const moatScore = (normalizeScore(grossMargin, 20, 90) * 0.6) + (normalizeScore(roic, 5, 25) * 0.4);
     const growthEfficiency = normalizeScore(ruleOf40, 10, 60);
-    const safetyCheck = normalizeScore(zScore, 1.5, 5.0); // Just a sanity check
+    const safetyCheck = normalizeScore(zScore, 1.5, 5.0); 
 
     // Weighted Fundamental Score: Heavy on Valuation & Moat
     const fundamentalScore = (valScore * 0.40) + (moatScore * 0.30) + (growthEfficiency * 0.20) + (safetyCheck * 0.10);
@@ -234,42 +221,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
   };
 
-  const findFolder = async (token: string, name: string, parentId = 'root') => {
-      const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      return data.files && data.files.length > 0 ? data.files[0].id : null;
-  };
-
-  const findFileId = async (token: string, name: string, parentId: string) => {
-      const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      return data.files && data.files.length > 0 ? data.files[0].id : null;
-  };
-
-  const downloadFile = async (token: string, fileId: string) => {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error(`Download failed`);
-      
-      const text = await res.text();
-      // Safe parsing for NaN which might exist in raw financial data
-      const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
-      
-      try {
-          return JSON.parse(safeText);
-      } catch (e) {
-          console.error("JSON Parse Error:", e);
-          throw new Error("Invalid JSON in Financial Data");
-      }
-  };
-
   const ensureFolder = async (token: string, name: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
@@ -311,93 +262,42 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          // [TUNING] Increased to 300 to match Stage 2 output
           const candidates = stage2Content.elite_universe || [];
           addLog(`Target Acquired: ${candidates.length} Elite Assets.`, "ok");
-          setProgress({ current: 0, total: candidates.length, file: 'Initializing...' });
-
-          let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
-          if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
-          if (!systemMapId) throw new Error("System_Identity_Maps folder not found.");
-
-          const dailyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId);
-          const historyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
-
-          if (!dailyFolderId) throw new Error("Financial_Data_Daily folder not found.");
-
-          const groupedByLetter: Record<string, any[]> = {};
-          candidates.forEach((c: any) => {
-              const letter = c.symbol.charAt(0).toUpperCase();
-              if (!groupedByLetter[letter]) groupedByLetter[letter] = [];
-              groupedByLetter[letter].push(c);
-          });
+          setProgress({ current: 0, total: candidates.length, file: 'Processing...' });
 
           const results: FundamentalTicker[] = [];
-          const sortedLetters = Object.keys(groupedByLetter).sort();
-
-          for (const letter of sortedLetters) {
-              setProgress(prev => ({ ...prev, file: `Loading Cylinder ${letter}...` }));
+          
+          // No need to re-fetch daily/history data here. Stage 2 already aggregated it.
+          // We iterate the elite candidates directly.
+          
+          let count = 0;
+          for (const stage2Item of candidates) {
+              count++;
+              // [CORE CHANGE] Execute Valuation & Moat Logic using Stage 2 data
+              const analysis = performFinancialEngineering(stage2Item);
               
-              const dailyFileName = `${letter}_stocks_daily.json`;
-              const dailyFileId = await findFileId(accessToken, dailyFileName, dailyFolderId);
-              let dailyDataMap = new Map();
+              const qualityScore = stage2Item.qualityScore || 50;
+              const fundamentalScore = analysis.fundamentalScore;
               
-              if (dailyFileId) {
-                  const content = await downloadFile(accessToken, dailyFileId);
-                  const items = Array.isArray(content) ? content : Object.values(content);
-                  items.forEach((d: any) => {
-                       const sym = d.symbol || d.basic?.symbol;
-                       if (sym) dailyDataMap.set(sym, d.basic || d);
-                  });
+              // Composite Alpha: Blend Stage 2 (Quality) and Stage 3 (Valuation)
+              // 40% Quality (Past Performance) + 60% Valuation (Future Upside)
+              const compositeAlpha = (qualityScore * 0.4) + (fundamentalScore * 0.6);
+
+              results.push({
+                  ...stage2Item, 
+                  ...analysis,
+                  qualityScore,
+                  fundamentalScore,
+                  compositeAlpha: Number(compositeAlpha.toFixed(2)),
+                  lastUpdate: new Date().toISOString(),
+                  isDerived: true
+              });
+
+              if (count % 20 === 0) {
+                  setProgress({ current: count, total: candidates.length, file: 'Analysing...' });
+                  await new Promise(r => setTimeout(r, 0));
               }
-
-              let historyDataMap = new Map();
-              if (historyFolderId) {
-                  const histFileName = `${letter}_stocks_history.json`;
-                  const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
-                  if (histFileId) {
-                      const content = await downloadFile(accessToken, histFileId);
-                      if (Array.isArray(content)) {
-                          content.forEach((d: any) => { 
-                              if(d.symbol) historyDataMap.set(d.symbol, d.financials || []); 
-                          });
-                      } else {
-                          Object.keys(content).forEach(sym => historyDataMap.set(sym, content[sym]));
-                      }
-                  }
-              }
-
-              const batch = groupedByLetter[letter];
-              for (const stage2Item of batch) {
-                  const dailyData = dailyDataMap.get(stage2Item.symbol) || {};
-                  const fullHistory = historyDataMap.get(stage2Item.symbol) || [];
-
-                  const merged = { ...stage2Item, ...dailyData, fullHistory: fullHistory };
-                  
-                  // [CORE CHANGE] Execute Valuation & Moat Logic
-                  const analysis = performFinancialEngineering(merged);
-                  
-                  const qualityScore = stage2Item.qualityScore || 50;
-                  const fundamentalScore = analysis.fundamentalScore;
-                  
-                  // Composite Alpha: Blend Stage 2 (Quality) and Stage 3 (Valuation)
-                  // 40% Quality (Past Performance) + 60% Valuation (Future Upside)
-                  const compositeAlpha = (qualityScore * 0.4) + (fundamentalScore * 0.6);
-
-                  results.push({
-                      ...stage2Item, 
-                      ...dailyData, 
-                      ...analysis,
-                      qualityScore,
-                      fundamentalScore,
-                      compositeAlpha: Number(compositeAlpha.toFixed(2)),
-                      lastUpdate: new Date().toISOString(),
-                      isDerived: true
-                  });
-              }
-              
-              setProgress(prev => ({ ...prev, current: results.length }));
-              await new Promise(r => setTimeout(r, 10)); 
           }
 
           results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
@@ -560,7 +460,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                        </div>
                    ) : (
                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                            <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                        </div>
                    )}
