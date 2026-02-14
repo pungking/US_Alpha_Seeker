@@ -86,7 +86,7 @@ interface EngineTelemetry {
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.1.5: Hybrid Search Protocol Restored.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.0.0: Hedge Fund Protocol Loaded.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
@@ -109,7 +109,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const cleanupRef = useRef<() => void>(() => {}); 
   const prevPriceRef = useRef<number>(0);
   const healthCheckRef = useRef<any>(null);
-  const searchDebounceRef = useRef<any>(null);
   
   // --- SECURE KEYS ---
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -154,14 +153,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     }
   }, [autoStart, isActive]);
 
-  // [RESTORED] Robust Hybrid Search Logic (Local Registry -> External API)
+  // Search Logic & Registry Lookup
   useEffect(() => {
-    if (searchDebounceRef.current) clearTimeout(searchDebounceRef.current);
-    
-    // Cleanup previous streams when query changes
     if (cleanupRef.current) {
         cleanupRef.current();
         cleanupRef.current = () => {};
+    }
+    
+    if (healthCheckRef.current) {
+        clearInterval(healthCheckRef.current);
+        healthCheckRef.current = null;
     }
 
     if (!searchQuery) {
@@ -171,44 +172,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
     const query = searchQuery.trim().toUpperCase();
     
-    searchDebounceRef.current = setTimeout(async () => {
-        // 1. Check Local Registry First (Instant Access)
-        if (gatheredRegistry.has(query)) {
-            const staticData = gatheredRegistry.get(query);
-            if (staticData) {
-                setSearchResult(staticData);
-                prevPriceRef.current = staticData.price;
-                addLog(`Registry Hit: ${staticData.symbol} loaded from local memory.`, "info");
-                startRealTimeEngine(staticData.symbol);
-                return;
-            }
+    // 1. Check Local Registry First (Instant Access)
+    if (gatheredRegistry.has(query)) {
+        const staticData = gatheredRegistry.get(query);
+        if (staticData) {
+            setSearchResult(staticData);
+            prevPriceRef.current = staticData.price;
+            addLog(`Registry Hit: ${staticData.symbol} loaded from local memory.`, "info");
+            
+            // Initiate Real-Time Stream
+            startRealTimeEngine(staticData.symbol);
         }
-        
-        // 2. Fallback: Fetch from External API (Yahoo Proxy)
-        setLiveSource('SEARCHING EXTERNAL...');
-        try {
-            const externalData = await fetchExternalStock(query);
-            if (externalData) {
-                setSearchResult(externalData);
-                prevPriceRef.current = externalData.price;
-                addLog(`External Hit: ${externalData.symbol} retrieved via Global Feed.`, "ok");
-                
-                // Add to temporary registry to avoid re-fetching
-                setGatheredRegistry(prev => new Map(prev).set(externalData.symbol, externalData));
-                
-                startRealTimeEngine(externalData.symbol);
-            } else {
-                setSearchResult(null);
-                setLiveSource('NOT FOUND');
-                addLog(`Search failed for ${query} in all networks.`, "warn");
-            }
-        } catch (e) {
-            setLiveSource('ERROR');
-        }
-
-    }, 500); // 500ms Debounce
-
-    return () => clearTimeout(searchDebounceRef.current);
+    } else {
+        setSearchResult(null);
+        setIsLive(false);
+        setLiveSource('SEARCHING...');
+    }
   }, [searchQuery, gatheredRegistry]); 
 
   // --- HELPER METHODS ---
@@ -259,64 +238,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       } catch (e: any) {
           addLog(`Auth Error: ${e.message}`, "err");
           setShowConfig(true);
-      }
-  };
-
-  // [RESTORED] External API Fetcher (Yahoo)
-  const fetchExternalStock = async (symbol: string): Promise<MasterTicker | null> => {
-      try {
-          const res = await fetch(`/api/yahoo?symbols=${symbol}`);
-          if (!res.ok) return null;
-          const data = await res.json();
-          if (!Array.isArray(data) || data.length === 0) return null;
-          
-          const raw = data[0];
-          // Map to MasterTicker interface
-          return {
-              symbol: raw.symbol,
-              name: raw.name || raw.shortName || raw.longName || "Unknown",
-              price: raw.price || raw.regularMarketPrice || 0,
-              change: raw.change || raw.regularMarketChangePercent || 0,
-              changeAmount: raw.changeAmount || raw.regularMarketChange || 0,
-              prevClose: raw.prevClose || raw.regularMarketPreviousClose || 0,
-              currency: raw.currency || 'USD',
-              marketCap: raw.marketCap || 0,
-              volume: raw.volume || raw.averageVolume || 0,
-              
-              pe: raw.trailingPE || 0,
-              pbr: raw.priceToBook || 0,
-              psr: raw.priceToSales || 0,
-              pegRatio: raw.pegRatio || 0,
-              targetMeanPrice: 0,
-              
-              roe: raw.returnOnEquity || 0,
-              roa: 0,
-              eps: raw.eps || raw.trailingEps || 0,
-              operatingMargins: 0,
-              debtToEquity: raw.debtToEquity || 0,
-              
-              revenueGrowth: 0,
-              operatingCashflow: 0,
-              dividendRate: raw.dividendRate || 0,
-              dividendYield: raw.dividendYield || 0,
-              
-              beta: raw.beta || 0,
-              heldPercentInstitutions: 0,
-              shortRatio: 0,
-              fiftyDayAverage: raw.fiftyDayAverage || 0,
-              twoHundredDayAverage: raw.twoHundredDayAverage || 0,
-              fiftyTwoWeekHigh: raw.fiftyTwoWeekHigh || 0,
-              fiftyTwoWeekLow: raw.fiftyTwoWeekLow || 0,
-              
-              sector: raw.sector || "Unknown",
-              industry: raw.industry || "Unknown",
-              
-              updated: new Date().toISOString(),
-              source: 'External_Yahoo',
-              dataQuality: 'MEDIUM'
-          };
-      } catch (e) {
-          return null;
       }
   };
 
@@ -509,6 +430,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
           
+          // [UPDATED] Use KST Format (YYYY-MM-DD_HH-mm-ss)
           const timestamp = getFormattedTimestamp();
           const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
           
@@ -798,7 +720,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.0.0</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
