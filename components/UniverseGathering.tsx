@@ -86,7 +86,7 @@ interface EngineTelemetry {
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
-  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.2.0: Ratio Normalization Protocol Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.3.0: Real-Time Feed Protocol Active.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
   const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
@@ -350,7 +350,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               if (price !== prev.price) {
                   const direction = price > prev.price ? 'up' : 'down';
                   setPriceFlash(direction);
-                  setTimeout(() => setPriceFlash(null), 300);
+                  setTimeout(() => setPriceFlash(null), 300); // Reset flash
                   
                   // Dynamic Change Calculation
                   let change = prev.change;
@@ -377,58 +377,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           prevPriceRef.current = price;
       };
 
-      // Protocol A: Finnhub WebSocket
-      const connectWS = () => {
-          if (!finnhubKey) {
-              return connectPolling();
-          }
-
-          try {
-              const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
-              
-              ws.onopen = () => {
-                  ws.send(JSON.stringify({ type: 'subscribe', symbol }));
-                  addLog(`WS Stream: Connected to ${symbol}`, "info");
-              };
-
-              ws.onmessage = (event) => {
-                  try {
-                      const msg = JSON.parse(event.data);
-                      if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
-                          const trade = msg.data[msg.data.length - 1];
-                          updatePrice(trade.p, 'Finnhub WS (Live)');
-                          
-                          setTelemetry(prev => ({
-                              ...prev,
-                              latency: Date.now() - trade.t < 1000 ? Date.now() - trade.t : 20,
-                              packetLoss: 0
-                          }));
-                      }
-                  } catch (e) {
-                      setTelemetry(prev => ({ ...prev, packetLoss: prev.packetLoss + 1 }));
-                  }
-              };
-
-              ws.onerror = (e) => {
-                  setConnectionHealth('CRITICAL');
-                  ws.close();
-                  cleanupRef.current = connectPolling(); 
-              };
-              
-              ws.onclose = () => {
-                  if (!isCleanedUp) {
-                      cleanupRef.current = connectPolling();
-                  }
-              };
-
-              return () => ws.close();
-          } catch (e) {
-              return connectPolling();
-          }
-      };
-
-      // Protocol B: Polling (Yahoo/Polygon)
+      // Protocol B: Polling (Yahoo/Polygon) - Define first to be used in WS fallback
       const connectPolling = () => {
+          addLog("Switched to Polling Mode (Yahoo/Polygon)", "warn");
           const fetchPoll = async () => {
               if (isCleanedUp) return;
               let success = false;
@@ -473,8 +424,60 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           };
 
           fetchPoll(); // Initial
-          const interval = setInterval(fetchPoll, 1500); // 1.5s Loop
+          const interval = setInterval(fetchPoll, 2000); // 2s Loop
           return () => clearInterval(interval);
+      };
+
+      // Protocol A: Finnhub WebSocket
+      const connectWS = () => {
+          if (!finnhubKey) {
+              return connectPolling();
+          }
+
+          try {
+              const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
+              
+              ws.onopen = () => {
+                  ws.send(JSON.stringify({ type: 'subscribe', symbol }));
+                  addLog(`WS Stream: Connected to ${symbol}`, "info");
+              };
+
+              ws.onmessage = (event) => {
+                  try {
+                      const msg = JSON.parse(event.data);
+                      if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
+                          const trade = msg.data[msg.data.length - 1];
+                          updatePrice(trade.p, 'Finnhub WS (Live)');
+                          
+                          setTelemetry(prev => ({
+                              ...prev,
+                              latency: Date.now() - trade.t < 1000 ? Date.now() - trade.t : 20,
+                              packetLoss: 0
+                          }));
+                      }
+                  } catch (e) {
+                      setTelemetry(prev => ({ ...prev, packetLoss: prev.packetLoss + 1 }));
+                  }
+              };
+
+              ws.onerror = (e) => {
+                  if (!isCleanedUp) {
+                      setConnectionHealth('CRITICAL');
+                      ws.close();
+                      cleanupRef.current = connectPolling(); // Switch to polling
+                  }
+              };
+              
+              ws.onclose = () => {
+                  if (!isCleanedUp) {
+                      cleanupRef.current = connectPolling(); // Switch to polling
+                  }
+              };
+
+              return () => ws.close();
+          } catch (e) {
+              return connectPolling();
+          }
       };
 
       const cleanup = connectWS();
@@ -803,7 +806,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                  <div className={`w-4 h-4 md:w-5 md:h-5 bg-blue-500 rounded-lg ${isGathering ? 'animate-spin' : ''}`}></div>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Omni_Nexus v13.3</h2>
                 <div className="flex items-center mt-2 space-x-2">
                    <span className="text-[8px] px-2 py-0.5 rounded-md font-black border uppercase tracking-widest bg-indigo-500/20 text-indigo-400 border-indigo-500/20">V13_Drive_Engine</span>
                    <button onClick={() => setShowConfig(true)} className="text-[8px] px-2 py-0.5 bg-slate-800 text-slate-400 rounded-md font-black border border-white/5 uppercase hover:bg-slate-700 transition-all">⚙ Config</button>
