@@ -9,42 +9,25 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// --- SUPER NORMALIZER ---
-const findValue = (obj: any, candidates: string[]): number => {
-    if (!obj || typeof obj !== 'object') return 0;
-    
-    // Create a flattened map of all keys (lowercase, no symbols) to values
-    const normalizedMap = new Map<string, number>();
-    
-    const recurse = (current: any) => {
-        for (const key in current) {
-             const val = current[key];
-             if (typeof val === 'number') {
-                 const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-                 normalizedMap.set(normKey, val);
-             } else if (typeof val === 'string') {
-                 const num = parseFloat(val.replace(/,/g, '').replace(/%/g, ''));
-                 if (!isNaN(num)) {
-                     const normKey = key.toLowerCase().replace(/[^a-z0-9]/g, '');
-                     normalizedMap.set(normKey, num);
-                 }
-             }
-        }
-    };
-    recurse(obj);
+// --- QUANT ENGINE UTILS ---
 
-    for (const candidate of candidates) {
-        const target = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (normalizedMap.has(target)) return normalizedMap.get(target) || 0;
-    }
-    return 0;
+// 1. Zero/Null Imputation: Differentiates between 'True 0' (e.g. Dividend) and 'Missing Data' (Debt, PEG)
+const imputeValue = (val: any, fallback: number, allowZero: boolean = false): number => {
+    if (val === null || val === undefined || val === '') return fallback;
+    const num = Number(val);
+    if (isNaN(num) || !isFinite(num)) return fallback;
+    if (num === 0 && !allowZero) return fallback; // Treat 0 as missing for non-allowable fields
+    return num;
 };
 
-// Auto-scaler: Detects if value is 0.15 (decimal) vs 15.0 (percent)
+// 2. Outlier Control: Winsorize to suppress extreme values (e.g. ROE 493% -> 50%)
+const winsorize = (val: number, min: number, max: number): number => {
+    return Math.max(min, Math.min(max, val));
+};
+
+// 3. Smart Scaling (reused for safety)
 const toPercent = (val: number) => {
-    if (val !== 0 && Math.abs(val) <= 5.0) {
-        return Number((val * 100).toFixed(2));
-    }
+    if (val !== 0 && Math.abs(val) <= 5.0) return Number((val * 100).toFixed(2));
     return Number(val.toFixed(2));
 };
 
@@ -53,7 +36,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.2: Optimized Data Mapping.']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.5: Sector-Adaptive Logic Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -82,35 +65,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      return data.files && data.files.length > 0 ? data.files[0].id : null;
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+      return res.files?.[0]?.id || null;
   };
 
   const findFileId = async (token: string, name: string, parentId: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      const data = await res.json();
-      return data.files && data.files.length > 0 ? data.files[0].id : null;
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
+      return res.files?.[0]?.id || null;
   };
 
   const downloadFile = async (token: string, fileId: string) => {
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
-          headers: { 'Authorization': `Bearer ${token}` }
-      });
-      if (!res.ok) throw new Error(`Download failed`);
-      
-      // [FIX] Handle non-standard JSON (NaN, Infinity) from Python/Pandas dumps
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
       const text = await res.text();
-      const safeText = text
-        .replace(/:\s*NaN/g, ': null')
-        .replace(/:\s*Infinity/g, ': null')
-        .replace(/:\s*-Infinity/g, ': null');
-        
+      const safeText = text.replace(/:\s*NaN/g, ': null').replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
       return JSON.parse(safeText);
   };
 
@@ -130,12 +98,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
-      });
+      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form });
   };
 
-  // --- ANALYSIS CORE ---
   const executeDeepFilter = async () => {
       if (!accessToken || loading) return;
       setLoading(true);
@@ -148,7 +113,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          if (!listRes.files?.length) throw new Error("Stage 1 Data Missing. Please run Stage 1 first.");
+          if (!listRes.files?.length) throw new Error("Stage 1 Data Missing.");
 
           const stage1Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -156,15 +121,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const candidates = stage1Content.investable_universe || [];
           addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
-          setProgress({ current: 0, total: candidates.length, msg: 'Connecting to History Vault...' });
+          setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
-          // Find Folders
+          // Map System setup
           let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
           if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
-          if (!systemMapId) throw new Error("System_Identity_Maps folder not found.");
-
-          const historyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
-          if (!historyFolderId) throw new Error("Financial_Data_History folder not found.");
+          const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
+          
+          if (!historyFolderId) addLog("History folder not found. Proceeding with Snapshot data only.", "warn");
 
           const groupedByLetter: Record<string, any[]> = {};
           candidates.forEach((c: any) => {
@@ -179,111 +143,113 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           for (const letter of sortedLetters) {
               setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
               
-              // Only load HISTORY files. Daily data is already in 'candidates' from Stage 1.
               let historyDataMap = new Map();
-              const histFileName = `${letter}_stocks_history.json`;
-              const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
-              
-              if (histFileId) {
-                  const content = await downloadFile(accessToken, histFileId);
-                  // Flexible parsing for array or object map
-                  if (Array.isArray(content)) {
-                      content.forEach((d: any) => { 
-                          if(d.symbol) {
-                              const history = Array.isArray(d.financials) ? d.financials : (Array.isArray(d.history) ? d.history : []);
-                              historyDataMap.set(d.symbol, history); 
-                          }
-                      });
-                  } else {
-                      Object.keys(content).forEach(sym => {
-                           const data = content[sym];
-                           const history = Array.isArray(data.financials) ? data.financials : (Array.isArray(data) ? data : []);
-                           historyDataMap.set(sym, history);
-                      });
+              if (historyFolderId) {
+                  const histFileName = `${letter}_stocks_history.json`;
+                  const histFileId = await findFileId(accessToken, histFileName, historyFolderId);
+                  if (histFileId) {
+                      const content = await downloadFile(accessToken, histFileId);
+                      if (Array.isArray(content)) {
+                          content.forEach((d: any) => d.symbol && historyDataMap.set(d.symbol, Array.isArray(d.financials) ? d.financials : []));
+                      } else {
+                          Object.keys(content).forEach(sym => historyDataMap.set(sym, Array.isArray(content[sym].financials) ? content[sym].financials : []));
+                      }
                   }
-              } else {
-                  addLog(`History missing for letter ${letter}`, "warn");
               }
 
               const batch = groupedByLetter[letter];
               for (const item of batch) {
-                  // Merge Stage 1 Daily Data + Loaded History Data
-                  // [FIX] Ensure fullHistory is always an array
-                  let fullHistory = historyDataMap.get(item.symbol);
+                  let fullHistory = historyDataMap.get(item.symbol) || [];
                   if (!Array.isArray(fullHistory)) fullHistory = [];
-                  
-                  // Calculate Scores
-                  // 1. ROE (Return On Equity) - Ensure Percent
-                  const roe = toPercent(item.roe || findValue(item, ['returnOnEquity', 'roe']) || 0);
-                  
-                  // 2. Debt/Equity
-                  // Handle Debt=0 Anomaly: If Debt is 0 and sector is NOT Financial/Tech, assume missing data and penalize.
-                  let debt = item.debtToEquity || findValue(item, ['totalDebtToEquity', 'debtEquityRatio']) || 0;
-                  const isFinancial = (item.sector || '').includes('Financial') || (item.sector || '').includes('Bank');
-                  
-                  // Penalize missing debt data for general industries to prevent false positives
-                  if (debt === 0 && !isFinancial) {
-                      debt = 1.0; // Assume average risk instead of perfect safety
-                  }
-                  
-                  // 3. Z-Score (Altman)
-                  // Z = 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
-                  let zScore = 0;
-                  // Try to find Balance Sheet items from History or Daily snapshot
-                  const totalAssets = findValue(item, ['totalAssets']) || 1;
-                  const workingCapital = (findValue(item, ['totalCurrentAssets']) - findValue(item, ['totalCurrentLiabilities'])) || (totalAssets * 0.1);
-                  const retainedEarnings = findValue(item, ['retainedEarnings']) || (totalAssets * 0.2);
-                  const ebit = findValue(item, ['ebit', 'operatingIncome']) || (totalAssets * 0.1);
-                  const marketCap = item.marketCap || (item.price * item.volume) || 1; // Approx
-                  const totalLiab = findValue(item, ['totalLiabilities']) || (totalAssets * 0.5);
-                  const sales = findValue(item, ['totalRevenue', 'revenue']) || (totalAssets * 0.8);
 
-                  if (totalAssets > 1000) { // Ensure we have some data
-                      const A = workingCapital / totalAssets;
-                      const B = retainedEarnings / totalAssets;
-                      const C = ebit / totalAssets;
-                      const D = marketCap / totalLiab;
-                      const E = sales / totalAssets;
-                      zScore = (1.2 * A) + (1.4 * B) + (3.3 * C) + (0.6 * D) + (1.0 * E);
+                  // --- QUANT LOGIC IMPLEMENTATION ---
+
+                  // 1. Sector Logic
+                  const sector = (item.sector || '').toLowerCase();
+                  const isFinancial = sector.includes('financial') || sector.includes('bank') || sector.includes('insurance');
+                  
+                  // 2. Data Cleaning & Imputation
+                  // Impute 0 Debt: If 0, assume 1.0 (risky) unless Financial (where 0 debt is impossible but low debt is good, we treat as neutral)
+                  const rawDebt = item.debtToEquity;
+                  let debt = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, false); 
+                  if (isFinancial && debt > 10) debt = debt / 100; // Fix scale for banks if huge
+                  
+                  // ROE/ROA: Impute 0 to -5% (penalty for missing data)
+                  const roe = winsorize(toPercent(imputeValue(item.roe, -5, false)), -50, 100);
+                  const roa = winsorize(toPercent(imputeValue(item.roa, -2, false)), -20, 50);
+                  
+                  // Dividend: Allow 0
+                  const dividendYield = item.dividendYield || 0; 
+
+                  // 3. Scoring
+                  let profitScore = 0;
+                  let safeScore = 0;
+                  let valueScore = 50;
+                  
+                  // A. Profit Score
+                  if (isFinancial) {
+                      // Banks: ROA is king, ROE second
+                      profitScore = (Math.max(0, roa * 30)) + (Math.max(0, roe * 2)); 
                   } else {
-                      // Proxy Z-Score if BS data is missing
-                      zScore = (roe > 10 && debt < 1.0) ? 3.5 : 1.5; 
+                      // General: ROE + Margins
+                      profitScore = Math.max(0, roe * 4);
                   }
+                  profitScore = Math.min(100, profitScore);
+
+                  // B. Safety Score
+                  if (isFinancial) {
+                      // Banks: Debt is normal (deposits). Use P/B as safety proxy + ROA stability
+                      const pb = item.pbr || 1;
+                      safeScore = Math.max(0, 100 - (pb * 20)); // Low P/B = Safer for banks (conceptually)
+                  } else {
+                      // General: Debt/Equity is key
+                      safeScore = Math.max(0, 100 - (debt * 30));
+                  }
+
+                  // C. Value Score (PE based)
+                  const pe = item.pe || 0;
+                  if (pe > 0 && pe < 15) valueScore = 90;
+                  else if (pe >= 15 && pe < 30) valueScore = 70;
+                  else if (pe >= 30 && pe < 50) valueScore = 50;
+                  else valueScore = 30;
+
+                  // 4. Data Quality Guard
+                  let dataQuality = 'HIGH';
+                  let penalty = 0;
                   
-                  // Ensure Revenue Growth is normalized
-                  const revenueGrowth = toPercent(item.revenueGrowth || 0);
+                  // Sanity Checks
+                  if (roe === -5) { penalty += 10; dataQuality = 'MEDIUM'; } // Imputed ROE
+                  if (dividendYield > 20) { penalty += 20; dataQuality = 'SUSPECT'; } // Yield Trap
+                  if (!isFinancial && debt === 1.5) { penalty += 10; dataQuality = 'MEDIUM'; } // Imputed Debt
 
-                  // 4. Scoring Logic
-                  let profitScore = Math.min(100, Math.max(0, roe * 4));
-                  let safeScore = Math.min(100, Math.max(0, (3 - debt) * 33));
-                  let valueScore = 50; // Neutral default
-                  if (item.pe > 0 && item.pe < 20) valueScore = 90;
-                  else if (item.pe > 50) valueScore = 30;
+                  const qualityScore = Math.max(0, (profitScore * 0.4 + safeScore * 0.3 + valueScore * 0.3) - penalty);
 
-                  const qualityScore = (profitScore * 0.4) + (safeScore * 0.3) + (valueScore * 0.3);
+                  // 5. Z-Score Proxy (Simplified)
+                  // Use Imputed values
+                  const zScore = (roe > 10 && debt < 1.0) ? 3.5 : 1.5;
 
-                  if (qualityScore > 40 || (valueScore > 70 && safeScore > 50)) {
+                  if (qualityScore > 35) {
                       results.push({
                           ...item,
                           roe,
                           debtToEquity: debt,
-                          revenueGrowth, // Update with normalized value
                           zScoreProxy: Number(zScore.toFixed(2)),
                           profitScore: Math.round(profitScore),
                           safeScore: Math.round(safeScore),
                           valueScore: Math.round(valueScore),
                           qualityScore: Number(qualityScore.toFixed(2)),
+                          dataQuality,
                           radarData: [
                             { subject: 'Profit', A: Math.round(profitScore), fullMark: 100 },
                             { subject: 'Safety', A: Math.round(safeScore), fullMark: 100 },
                             { subject: 'Value', A: Math.round(valueScore), fullMark: 100 },
                           ],
-                          fullHistory: fullHistory.slice(0, 4) // Keep light, now safe from .slice error
+                          fullHistory: fullHistory.slice(0, 4) 
                       });
                   }
               }
               setProgress(prev => ({ ...prev, current: results.length }));
-              await new Promise(r => setTimeout(r, 10)); // Yield to UI
+              await new Promise(r => setTimeout(r, 0));
           }
 
           results.sort((a, b) => b.qualityScore - a.qualityScore);
@@ -295,16 +261,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
           
-          const kstDate = new Date(new Date().getTime() + 9 * 60 * 60 * 1000);
+          const now = new Date();
+          const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
           const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
           const resultFileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
 
           const payload = {
               manifest: { 
-                  version: "5.3.0", 
+                  version: "5.5.0", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Robust" 
+                  engine: "3-Factor_Quant_Model_Robust_v2" 
               },
               elite_universe: eliteCandidates
           };
@@ -328,14 +295,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-emerald-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+              <div className={`w-12 h-12 rounded-3xl bg-emerald-600/10 flex items-center justify-center border border-emerald-500/20 ${loading ? 'animate-pulse' : ''}`}>
+                 <svg className={`w-5 h-5 text-emerald-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.2.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.5.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-emerald-400 text-emerald-400 animate-pulse' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
-                        {loading ? `Scanning: ${progress.msg}` : '3-Factor Quant Ready'}
+                        {loading ? `Scanning: ${progress.msg}` : 'Robust Quant Logic Active'}
                     </span>
                 </div>
               </div>
