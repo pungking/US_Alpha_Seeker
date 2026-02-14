@@ -67,14 +67,14 @@ const normalizeScore = (val: number, min: number, max: number) => {
     return ((safeVal - min) / (max - min)) * 100;
 };
 
-// [ENGINE v4.4] Sector-Adaptive Valuation & Perfect-Score Logic
+// [ENGINE v4.5] Sector-Adaptive Valuation & Radar Fix
 const performFinancialEngineering = (data: any) => {
     // 1. Extract & Sanitize Metrics
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
     const marketCap = safeNum(data.marketCap || data.marketValue);
     const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
-    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0); // Note: This might be Ratio or Absolute
+    const totalDebt = safeNum(data.totalDebt || data.debtToEquity || 0); 
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
     const pe = safeNum(data.pe || data.per);
     const pbr = safeNum(data.pbr || data.priceToBook);
@@ -82,7 +82,7 @@ const performFinancialEngineering = (data: any) => {
     // Revenue Logic
     let sales = safeNum(data.revenue || data.totalRevenue);
     if (sales === 0 && marketCap > 0 && safeNum(data.psr) > 0) {
-        sales = marketCap / safeNum(data.psr); // Infer sales from PSR if missing
+        sales = marketCap / safeNum(data.psr); 
     }
     
     // Sector Detection
@@ -115,21 +115,18 @@ const performFinancialEngineering = (data: any) => {
     const roe = toPercent(safeNum(data.roe || data.returnOnEquity || 0));
 
     // 2. Intrinsic Value (Enhanced Benjamin Graham)
-    const g = Math.min(revenueGrowth, 15); // Cap growth
+    const g = Math.min(revenueGrowth, 15); 
     let intrinsicValue = 0;
     
     if (eps > 0) {
-        // Multiplier adjusted by sector risk
         const multiplier = isFinancial ? 1.0 : 1.5; 
         intrinsicValue = eps * (8.5 + multiplier * g); 
     } else {
-        // Fallback: Book Value Multiplier
         const bookValue = safeNum(data.bookValuePerShare) || (price / (pbr || 1));
         const roeFactor = Math.max(0.5, Math.min(3.0, roe / 10));
         intrinsicValue = bookValue * roeFactor;
     }
 
-    // Safety Cap
     if (intrinsicValue > price * 3) intrinsicValue = price * 3;
     if (intrinsicValue <= 0) intrinsicValue = price * 0.9; 
 
@@ -152,67 +149,46 @@ const performFinancialEngineering = (data: any) => {
     let fScore = 4;
     if (netIncome > 0) fScore++;
     if (opCashflow > 0) fScore++;
-    if (opCashflow > netIncome) fScore++; // Quality earnings
+    if (opCashflow > netIncome) fScore++;
     if (roic > 5) fScore++;
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
     // 5. SCORING ENGINE [CORE UPDATE]
-    
-    // A. Valuation Score (Sector Adaptive)
     let valScore = 0;
     if (isFinancial) {
-        // Financials: Low PE is normal. Don't reward PE < 8 too much.
-        // Focus on PBR and PEG.
-        // PE 10 = 50pts. PE 5 = 90pts.
         const peScore = normalizeScore(20 - pe, 0, 15); 
-        // PBR 1.0 = 50pts. PBR 0.5 = 100pts.
         const pbrScore = normalizeScore(2.0 - pbr, 0, 1.5);
         valScore = (peScore * 0.4) + (pbrScore * 0.6);
     } else {
-        // Non-Financials: Fair Value Gap is King.
         valScore = normalizeScore(fairValueGap, -20, 80);
     }
     
-    // B. Quality Score (Profitability)
     const qualScore = (normalizeScore(grossMargin, 10, 60) * 0.4) + (normalizeScore(roic, 5, 20) * 0.6);
-
-    // C. Growth Score
     const growthScore = normalizeScore(ruleOf40, 10, 60);
 
-    // D. Safety Score [FIXED: Zero Debt = Perfect]
     let safetyScore = 0;
     if (totalDebt === 0) {
-        safetyScore = 100; // Perfect Score for Zero Debt
+        safetyScore = 100; 
     } else {
-        // If totalDebt is huge, check if it's actually Debt/Equity Ratio (usually < 5.0)
-        // Or absolute debt amount. Assuming Ratio from Stage 2 normalization.
         const d2e = totalDebt; 
         if (isFinancial) {
-             // Financials run on leverage. D/E < 2.0 is safe. > 5.0 risky.
              safetyScore = normalizeScore(6 - d2e, 0, 5);
         } else {
-             // Non-Financials. D/E < 0.5 is safe. > 2.0 risky.
              safetyScore = normalizeScore(2.5 - d2e, 0, 2);
         }
     }
-    // Boost safety if Z-Score is high
     if (zScore > 2.99) safetyScore = Math.max(safetyScore, 90);
 
-    // E. Earnings Quality
-    // If Proxy used, max score is capped at 70.
     let earningsQualityScore = normalizeScore(opCashflow / (netIncome || 1), 0.5, 2.0);
     if (isCashflowProxy) earningsQualityScore = Math.min(earningsQualityScore, 70);
 
-    // 6. Weighted Fundamental Alpha
     const fundamentalScore = (valScore * 0.35) + (qualScore * 0.30) + (growthScore * 0.20) + (safetyScore * 0.15);
 
-    // Moat Label
     let economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)' = '없음 (None)';
     if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = '광폭 (Wide)';
     else if (roic > 8 && ruleOf40 > 25 && fScore >= 5) economicMoat = '협소 (Narrow)';
 
-    // Data Confidence Penalty
     let missingDataPoints = 0;
     if (!eps && !netIncome) missingDataPoints++;
     if (!sales) missingDataPoints++;
@@ -229,16 +205,16 @@ const performFinancialEngineering = (data: any) => {
         intrinsicValue: safeNum(intrinsicValue),
         upsidePotential: safeNum(fairValueGap),
         fairValueGap: safeNum(fairValueGap),
-        earningsQuality: safeNum(earningsQualityScore), // Normalized Score (0-100)
+        earningsQuality: safeNum(earningsQualityScore),
         economicMoat,
         dataConfidence,
-        // Corrected Radar Keys for UI Matching
+        // [FIX] Radar Data Visualization Floor (Prevent 0-point collapse)
         radarData: [
-            { subject: '저평가매력', A: safeNum(valScore), fullMark: 100 },
-            { subject: '경제적해자', A: safeNum(qualScore), fullMark: 100 },
-            { subject: '성장효율성', A: safeNum(growthScore), fullMark: 100 },
-            { subject: '재무안정성', A: safeNum(safetyScore), fullMark: 100 },
-            { subject: '이익의질', A: safeNum(earningsQualityScore), fullMark: 100 },
+            { subject: '저평가매력', A: Math.max(5, safeNum(valScore)), fullMark: 100 },
+            { subject: '경제적해자', A: Math.max(5, safeNum(qualScore)), fullMark: 100 },
+            { subject: '성장효율성', A: Math.max(5, safeNum(growthScore)), fullMark: 100 },
+            { subject: '재무안정성', A: Math.max(5, safeNum(safetyScore)), fullMark: 100 },
+            { subject: '이익의질', A: Math.max(5, safeNum(earningsQualityScore)), fullMark: 100 },
         ]
     };
 };
@@ -248,7 +224,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.4: Sector-Adaptive Engine Ready.']);
+  const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.5: Visual-Safe Engine Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
   
@@ -333,13 +309,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           let count = 0;
           for (const stage2Item of candidates) {
               count++;
-              // [CORE CHANGE] Execute Enhanced Logic
               const analysis = performFinancialEngineering(stage2Item);
               
               const qualityScore = safeNum(stage2Item.qualityScore || 50);
               const fundamentalScore = analysis.fundamentalScore;
               
-              // Composite Alpha: Blend 30% Past (Stage 2) + 70% Future/Safety (Stage 3)
               const compositeAlpha = (qualityScore * 0.3) + (fundamentalScore * 0.7);
 
               results.push({
@@ -369,10 +343,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
           const payload = {
               manifest: { 
-                  version: "13.5.1", 
+                  version: "13.5.2", 
                   count: results.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "Sector_Adaptive_Valuation_v4.4" 
+                  engine: "Sector_Adaptive_Valuation_v4.5" 
               },
               fundamental_universe: results
           };
@@ -403,11 +377,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
+              <div className={`w-12 h-12 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.4</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v4.5</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
                         {loading ? `Auditing: ${progress.file}` : 'Deep Fundamental Audit Ready'}
@@ -495,7 +469,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                           </div>
 
                           <div className="flex-1 w-full relative -ml-4 my-2">
-                              {/* Recharts Crash Prevention: Ensure Data is Clean */}
                               {selectedTicker.radarData && selectedTicker.radarData.length > 0 ? (
                                   <ResponsiveContainer width="100%" height="100%">
                                       <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
@@ -540,11 +513,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       <div className="xl:col-span-1">
         <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Audit_Log</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Log</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-cyan-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((log, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : log.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-cyan-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : log.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-blue-900'}`}>
                 {log}
               </div>
             ))}
