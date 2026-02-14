@@ -1,6 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 
 interface Props {
   autoStart?: boolean;
@@ -20,17 +21,33 @@ const safeNum = (val: any) => {
     return Number.isFinite(n) ? n : 0;
 };
 
-const findValue = (obj: any, keys: string[]): number => {
-    if (!obj) return 0;
-    for (const key of keys) {
-        if (obj[key] !== undefined && obj[key] !== null) {
-             return safeNum(obj[key]);
+const findValue = (obj: any, candidates: string[]): number => {
+    if (!obj || typeof obj !== 'object') return 0;
+    const keys = Object.keys(obj);
+    // Create a normalized map for case-insensitive lookup
+    const normalizedMap = new Map<string, string>();
+    keys.forEach(k => normalizedMap.set(k.toLowerCase().replace(/[^a-z0-9]/g, ''), k));
+
+    for (const candidate of candidates) {
+        const lowerCandidate = candidate.toLowerCase().replace(/[^a-z0-9]/g, '');
+        // Exact match attempt
+        if (normalizedMap.has(lowerCandidate)) {
+            const originalKey = normalizedMap.get(lowerCandidate);
+            const val = safeNum(obj[originalKey!]);
+            if (val !== 0) return val;
+        }
+        // Partial match attempt (safer to rely on specific keys, but useful fallback)
+        for (const [normKey, originalKey] of normalizedMap) {
+             if (normKey === lowerCandidate || (normKey.includes(lowerCandidate) && normKey.length < lowerCandidate.length + 5)) {
+                 const val = safeNum(obj[originalKey]);
+                 if(val !== 0) return val;
+             }
         }
     }
     return 0;
 };
 
-// --- ADVANCED V-Q-H-G-M LOGIC ---
+// --- ADVANCED V-Q-H-G-M LOGIC (Reconstruction Engine) ---
 const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   // 0. Data Normalization: Ensure history is an array sorted by date (Newest First)
   let history: any[] = [];
@@ -53,8 +70,8 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   const marketCap = safeNum(daily.marketCap || daily.marketValue || 0);
 
   // --- LEVEL 1: DIRECT EXTRACTION ---
-  const revenue = findValue(latest, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue']);
-  const prevRevenue = findValue(prev, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue']);
+  const revenue = findValue(latest, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue', 'Sales']);
+  const prevRevenue = findValue(prev, ['totalRevenue', 'Total Revenue', 'revenue', 'Revenue', 'Sales']);
   
   const costOfRevenue = findValue(latest, ['costOfRevenue', 'Cost Of Revenue', 'costOfGoodsSold']);
   const grossProfit = findValue(latest, ['grossProfit', 'Gross Profit']);
@@ -62,58 +79,75 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   const operatingIncome = findValue(latest, ['operatingIncome', 'Operating Income', 'EBIT', 'ebit']);
   const netIncome = findValue(latest, ['netIncome', 'Net Income', 'netIncomeCommonStockholders']);
   
-  // --- LEVEL 2: ARITHMETIC RECONSTRUCTION (The Fix) ---
+  // --- LEVEL 2: ARITHMETIC RECONSTRUCTION (Data Recovery) ---
 
-  // A. Reconstruct Total Assets
+  // A. Reconstruct Total Assets (Accounting Identity: Assets = Liabilities + Equity)
   let totalAssets = findValue(latest, ['totalAssets', 'Total Assets']);
+  
   if (totalAssets === 0) {
-      // Logic: Current Assets + Non-Current Assets
-      const currentAssets = findValue(latest, ['totalCurrentAssets', 'Total Current Assets']) || 
-                           (findValue(latest, ['cashAndCashEquivalents', 'Cash']) + 
-                            findValue(latest, ['inventory', 'Inventory']) + 
-                            findValue(latest, ['netReceivables', 'Receivables']));
-                            
-      const nonCurrentAssets = findValue(latest, ['totalNonCurrentAssets', 'Total Non Current Assets']) ||
-                              (findValue(latest, ['propertyPlantEquipmentNet', 'Net PPE']) + 
-                               findValue(latest, ['goodwill', 'Goodwill']) + 
-                               findValue(latest, ['intangibleAssets', 'Intangible Assets']));
+      const totalLiab = findValue(latest, ['totalLiabilities', 'Total Liabilities', 'totalLiabilitiesNetMinorityInterest']);
+      const totalEquity = findValue(latest, ['totalEquity', 'Total Equity', 'totalEquityGrossMinorityInterest', 'stockholdersEquity']);
       
-      if (currentAssets > 0 || nonCurrentAssets > 0) {
-          totalAssets = currentAssets + nonCurrentAssets;
+      if (totalLiab !== 0 && totalEquity !== 0) {
+          totalAssets = totalLiab + totalEquity; // Perfect Reconstruction
+      } else {
+          // Fallback B: Current + Non-Current
+          const currentAssets = findValue(latest, ['totalCurrentAssets', 'Current Assets']) || 
+                               (findValue(latest, ['cashAndCashEquivalents', 'Cash']) + 
+                                findValue(latest, ['netReceivables', 'Receivables']) +
+                                findValue(latest, ['inventory', 'Inventory']));
+                                
+          const nonCurrentAssets = findValue(latest, ['totalNonCurrentAssets', 'Total Non Current Assets']) ||
+                                  (findValue(latest, ['propertyPlantEquipmentNet', 'Net PPE']) + 
+                                   findValue(latest, ['goodwill', 'Goodwill']) + 
+                                   findValue(latest, ['intangibleAssets', 'Intangible Assets']));
+          
+          if (currentAssets > 0) {
+              totalAssets = currentAssets + nonCurrentAssets;
+          }
       }
   }
 
-  // B. Reconstruct Current Liabilities (Needed for Invested Capital)
+  // B. Reconstruct Current Liabilities (Crucial for Invested Capital)
   let currentLiabilities = findValue(latest, ['totalCurrentLiabilities', 'Total Current Liabilities', 'currentLiabilities']);
   if (currentLiabilities === 0) {
       currentLiabilities = findValue(latest, ['accountPayables', 'Payables']) + 
                            findValue(latest, ['shortTermDebt', 'Short Term Debt']) + 
-                           findValue(latest, ['deferredRevenue', 'Deferred Revenue']);
+                           findValue(latest, ['deferredRevenue', 'Deferred Revenue']) +
+                           findValue(latest, ['otherCurrentLiabilities', 'Other Current Liabilities']);
   }
   
-  // C. Reconstruct Operating Cash Flow (Indirect Method Approximation)
-  // Formula: Net Income + Depreciation + Amortization (ignoring working capital changes if data missing)
+  // C. Reconstruct Operating Cash Flow (Indirect Method)
+  // OCF = Net Income + D&A + SBC + Working Capital Changes
   let ocf = findValue(latest, ['operatingCashFlow', 'Operating Cash Flow', 'netCashProvidedByOperatingActivities']);
+  let isOcfReconstructed = false;
+
   if (ocf === 0) {
        const depreciation = findValue(latest, ['depreciationAndAmortization', 'Depreciation', 'Amortization']);
+       const sbc = findValue(latest, ['stockBasedCompensation', 'Stock Based Compensation']);
+       
        if (netIncome !== 0) {
-           ocf = netIncome + depreciation;
+           ocf = netIncome + depreciation + sbc;
+           isOcfReconstructed = true;
        } else {
-           // Fallback to EBITDA - Interest - Tax
+           // Fallback to EBITDA Proxy
            const ebitda = findValue(latest, ['ebitda', 'EBITDA']);
            const interest = Math.abs(findValue(latest, ['interestExpense', 'Interest Expense']));
            const tax = Math.abs(findValue(latest, ['incomeTaxExpense', 'Tax Provision']));
-           if (ebitda !== 0) ocf = ebitda - interest - tax;
+           if (ebitda !== 0) {
+               ocf = ebitda - interest - tax;
+               isOcfReconstructed = true;
+           }
        }
   }
 
   const capex = Math.abs(findValue(latest, ['capitalExpenditure', 'Capital Expenditure', 'capex']));
-  const currentAssets = findValue(latest, ['totalCurrentAssets', 'Total Current Assets']) || (totalAssets * 0.4); // Rough estimate if reconstruction failed
+  const currentAssets = findValue(latest, ['totalCurrentAssets', 'Total Current Assets', 'currentAssets']);
 
   const epsCurrent = findValue(latest, ['eps', 'earningsPerShare', 'epsDiluted']);
   const epsPrev = findValue(prev, ['eps', 'earningsPerShare', 'epsDiluted']);
 
-  // --- REVERSE ENGINEERING METRICS ---
+  // --- DERIVED METRICS ---
   
   // 1. Margins
   let calculatedGrossProfit = grossProfit;
@@ -128,19 +162,18 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   const pfcf = fcf > 0 ? marketCap / fcf : 0;
   const fcfMargin = revenue > 0 ? (fcf / revenue) * 100 : 0;
 
-  // 3. Quality (ROIC) - Now using Reconstructed Data
+  // 3. Quality (ROIC) - Utilizing Reconstructed Data
   const taxRate = 0.21;
-  const nopat = operatingIncome * (1 - taxRate);
-  let investedCapital = 0;
+  const nopat = operatingIncome > 0 ? operatingIncome * (1 - taxRate) : netIncome; // NOPAT proxy if OpInc missing
   
+  let investedCapital = 0;
   if (totalAssets > 0 && currentLiabilities > 0) {
       investedCapital = totalAssets - currentLiabilities;
-  } else if (marketCap > 0 && debt > 0) {
-       // Fallback: Equity + Debt (Approximation)
-       // Equity ~ Market Cap / PBR
-       const equityProxy = pbr > 0 ? marketCap / pbr : (roe > 0 ? (netIncome / (roe/100)) : marketCap * 0.5);
-       const debtProxy = equityProxy * (debt / 100);
-       investedCapital = equityProxy + debtProxy;
+  } else if (marketCap > 0 && debt > 0 && pbr > 0) {
+       // Fallback Level 3: Equity (Market) + Debt
+       // Estimate Book Equity via PBR
+       const bookEquity = marketCap / pbr;
+       investedCapital = bookEquity + (bookEquity * (debt / 100)); // Equity + Debt
   }
   
   let roic = 0;
@@ -152,8 +185,7 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   }
 
   // Accruals (Quality Check)
-  // Only calculate if we have confidence in OCF data (not purely reconstructed from NI)
-  const isOcfReconstructed = findValue(latest, ['operatingCashFlow', 'Operating Cash Flow']) === 0;
+  // Only calculate if we have confidence in OCF data (not purely reconstructed from NI without adjustments)
   const accruals = isOcfReconstructed ? 0 : netIncome - ocf; 
 
   // 4. Health (Z-Score Components)
@@ -161,11 +193,17 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   if (currentRatio === 0) currentRatio = debt < 50 ? 2.0 : 1.0; // Fallback default
 
   const workingCapital = currentAssets - currentLiabilities;
-  // Simplified Z-Score for non-manufacturers: 6.56X1 + 3.26X2 + 6.72X3 + 1.05X4
-  // We use a simplified proxy for ranking:
+  
+  // Z-Score Proxy
+  // 1.2A + 1.4B + 3.3C + 0.6D + 1.0E
   let zScoreProxy = 0;
   if (totalAssets > 0) {
-      zScoreProxy = (1.2 * (workingCapital / totalAssets)) + (3.3 * (operatingIncome / totalAssets));
+      const A = workingCapital / totalAssets;
+      const C = operatingIncome / totalAssets;
+      const D = (marketCap > 0 ? marketCap : totalAssets * 0.5) / (totalAssets - (marketCap/pbr || totalAssets*0.5)); // Equity/Liab
+      const E = revenue / totalAssets;
+      zScoreProxy = (1.2 * A) + (3.3 * C) + (0.6 * (D > 0 ? D : 0.5)) + (1.0 * E);
+      // Note: Retained Earnings (B) is often missing in summary data, omitted or assumed stable.
   } else {
       zScoreProxy = debt < 40 ? 3.0 : 1.5;
   }
@@ -232,6 +270,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
+  const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.0: Deep Audit Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   
@@ -251,6 +290,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-50));
+  };
+
+  const handleTickerSelect = (ticker: any) => {
+    setSelectedTicker(ticker);
+    if (onStockSelected) onStockSelected(ticker);
   };
 
   const getFormattedTimestamp = () => {
@@ -396,6 +440,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           ...item,
                           ...analysis.scores,
                           ...analysis.metrics,
+                          radarData: [
+                            { subject: 'Profit', A: analysis.scores.profitScore, fullMark: 100 },
+                            { subject: 'Health', A: analysis.scores.safeScore, fullMark: 100 },
+                            { subject: 'Value', A: analysis.scores.valueScore, fullMark: 100 },
+                            { subject: 'Growth', A: analysis.scores.growthScore || 50, fullMark: 100 },
+                          ],
                           lastUpdate: new Date().toISOString()
                       });
                   }
@@ -408,6 +458,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           // Slice top 300 for Stage 3
           const eliteCandidates = results.slice(0, 300);
           setProcessedData(eliteCandidates);
+          if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
 
           addLog(`Deep Scan Complete. ${eliteCandidates.length} Elite Assets Selected.`, "ok");
           
@@ -464,14 +515,96 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
             </button>
           </div>
 
-          <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-             <div className="flex justify-between items-center mb-6">
-                <p className="text-[9px] font-black text-emerald-400 uppercase tracking-widest">Elite Candidates Found</p>
-                <p className="text-xl font-mono font-black text-white italic">{processedData.length}</p>
-             </div>
-             <div className="h-2 bg-slate-800 rounded-full overflow-hidden">
-                <div className="h-full bg-emerald-500 transition-all duration-300" style={{ width: `${(progress.current / 300) * 100}%` }}></div>
-             </div>
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
+              {/* List */}
+              <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[400px]">
+                  <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
+                      <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Quality Rank ({processedData.length})</p>
+                      <span className="text-[8px] font-mono text-slate-500">Sorted by Quality Score</span>
+                  </div>
+                  <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
+                      {processedData.length > 0 ? processedData.map((t, i) => (
+                          <div key={i} onClick={() => handleTickerSelect(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-blue-900/30 border-blue-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
+                              <div className="flex items-center gap-3">
+                                  <span className={`text-[10px] font-black w-4 ${i < 10 ? 'text-blue-400' : 'text-slate-500'}`}>{i + 1}</span>
+                                  <div>
+                                      <p className="text-xs font-black text-white">{t.symbol}</p>
+                                      <p className="text-[8px] text-slate-400 truncate w-24">{t.name}</p>
+                                  </div>
+                              </div>
+                              <div className="text-right">
+                                  <p className="text-[10px] font-mono font-bold text-white">{t.qualityScore.toFixed(1)}</p>
+                                  <div className="flex gap-1 justify-end mt-0.5">
+                                      <span className={`w-1 h-1 rounded-full ${t.profitScore > 70 ? 'bg-emerald-500' : 'bg-slate-700'}`}></span>
+                                      <span className={`w-1 h-1 rounded-full ${t.safeScore > 70 ? 'bg-blue-500' : 'bg-slate-700'}`}></span>
+                                      <span className={`w-1 h-1 rounded-full ${t.valueScore > 70 ? 'bg-amber-500' : 'bg-slate-700'}`}></span>
+                                  </div>
+                              </div>
+                          </div>
+                      )) : (
+                          <div className="h-full flex items-center justify-center opacity-30 text-[9px] uppercase tracking-widest text-slate-400 italic">
+                              Waiting for Quant Data...
+                          </div>
+                      )}
+                  </div>
+              </div>
+
+              {/* Detail */}
+              <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[400px]">
+                   {selectedTicker ? (
+                       <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
+                          <div className="flex justify-between items-start">
+                              <div>
+                                  <div className="flex items-baseline gap-3">
+                                      <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
+                                      <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
+                                  </div>
+                                  <div className="flex items-center gap-2 mt-2">
+                                       <span className="text-[8px] font-black bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase">ROE {selectedTicker.roe}%</span>
+                                       <span className="text-[8px] font-black bg-emerald-900/30 text-emerald-400 px-2 py-0.5 rounded border border-emerald-500/20 uppercase">Gross {selectedTicker.grossMargin.toFixed(1)}%</span>
+                                       {selectedTicker.currentRatio < 1 && <span className="text-[8px] font-black bg-rose-900/30 text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 uppercase">Liquidity Risk</span>}
+                                  </div>
+                              </div>
+                              <div className="text-right">
+                                   <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Quality</p>
+                                   <p className="text-2xl font-black text-blue-400 tracking-tighter">{selectedTicker.qualityScore.toFixed(1)}</p>
+                              </div>
+                          </div>
+
+                          <div className="flex-1 w-full relative -ml-4 my-2">
+                              <ResponsiveContainer width="100%" height="100%">
+                                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
+                                      <PolarGrid stroke="#334155" opacity={0.3} />
+                                      <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
+                                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                      <Radar name={selectedTicker.symbol} dataKey="A" stroke="#3b82f6" strokeWidth={2} fill="#3b82f6" fillOpacity={0.4} />
+                                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#3b82f6', fontSize: '10px' }} />
+                                  </RadarChart>
+                              </ResponsiveContainer>
+                          </div>
+                          
+                          <div className="grid grid-cols-3 gap-2 mt-2">
+                               <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">ROIC</p>
+                                   <p className={`text-xs font-black ${selectedTicker.roic > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.roic.toFixed(1)}%</p>
+                               </div>
+                               <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Z-Score</p>
+                                   <p className={`text-xs font-black ${selectedTicker.zScoreProxy > 2.9 ? 'text-emerald-400' : selectedTicker.zScoreProxy < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScoreProxy.toFixed(2)}</p>
+                               </div>
+                               <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">FCF Yield</p>
+                                   <p className={`text-xs font-black ${selectedTicker.fcfMargin > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.fcfMargin.toFixed(1)}%</p>
+                               </div>
+                          </div>
+                       </div>
+                   ) : (
+                       <div className="h-full flex flex-col items-center justify-center opacity-20">
+                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                           <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
+                       </div>
+                   )}
+              </div>
           </div>
         </div>
       </div>
