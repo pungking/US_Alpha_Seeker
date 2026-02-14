@@ -714,7 +714,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(`Download failed for ${fileId}`);
-      return await res.json();
+      
+      // [FIX] Handle non-standard JSON (NaN, Infinity) from Python/Pandas dumps
+      const text = await res.text();
+      const safeText = text
+        .replace(/:\s*NaN/g, ': null')
+        .replace(/:\s*Infinity/g, ': null')
+        .replace(/:\s*-Infinity/g, ': null');
+        
+      return JSON.parse(safeText);
   };
 
   const ensureFolder = async (token: string, name: string) => {
