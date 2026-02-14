@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -234,6 +233,19 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
   if (pfcf > 0 && pfcf < 15) valueScore += 10;
   if (revenueGrowth > 20 && epsGrowth > 20) valueScore += 10;
 
+  // Growth Score Calculation
+  let growthScore = 50;
+  if (revenueGrowth > 15) growthScore += 20;
+  else if (revenueGrowth > 5) growthScore += 10;
+  
+  if (epsGrowth > 15) growthScore += 20;
+  else if (epsGrowth > 5) growthScore += 10;
+
+  if (revenueGrowth < 0) growthScore -= 10;
+  if (epsGrowth < 0) growthScore -= 10;
+
+  growthScore = Math.min(100, Math.max(0, growthScore));
+
   const qualityScore = (profitScore * 0.4) + (safeScore * 0.3) + (valueScore * 0.3);
 
   return {
@@ -241,6 +253,7 @@ const performAdvancedAnalysis = (daily: any, rawHistory: any) => {
           profitScore: Math.round(profitScore),
           safeScore: Math.round(safeScore),
           valueScore: Math.round(valueScore),
+          growthScore: Math.round(growthScore),
           qualityScore: Number(qualityScore.toFixed(2))
       },
       metrics: {
