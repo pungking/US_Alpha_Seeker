@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -17,10 +18,16 @@ interface TechnicalTicker {
       adx: number;
       trend: number; // ADX Trend Strength
       rvol: number;
-      squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT'; // VCP Proxy
+      squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT'; 
       rsRating: number; // Relative Strength (0-99)
       momentum: number; // Velocity
-      wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN'; // Market Cycle
+      wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN';
+      
+      // [NEW] Advanced Signals
+      trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH';
+      obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL';
+      isBlueSky: boolean; // Near 52W High
+      goldenSetup: boolean; // Volume Supported Breakout
   };
   
   // Visualization
@@ -41,25 +48,25 @@ interface Props {
 
 // [KNOWLEDGE BASE] Advanced Technical Definitions
 const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
-    'RS_RATING': {
-        title: "RS Rating (상대 강도)",
-        desc: "시장 대비 해당 종목의 상승 탄력을 0~99점으로 수치화한 지표입니다. (가중치: 최근 1개월 40%, 3개월 40%, 6개월 20%)",
-        interpretation: "80점 이상: 시장 상위 20%의 주도주입니다. 하락장에서도 버티거나 상승하는 종목을 의미합니다."
+    'POWER_TREND': {
+        title: "Power Trend (초강세 정배열)",
+        desc: "주가 > 20일 > 50일 > 200일 이평선이 완벽하게 정렬된 상태입니다. 기관이 주가를 강력하게 방어하며 끌어올리는 구간입니다.",
+        interpretation: "매수 1순위: 눌림목(Dip) 발생 시 적극 매수 구간입니다. 추세가 꺾이기 전까지 홀딩하십시오."
+    },
+    'GOLDEN_SETUP': {
+        title: "Golden Setup (거래량 동반 돌파)",
+        desc: "장기 이평선 위에서 거래량이 평소의 2배 이상 터지며 상승(Expansion)한 패턴입니다. '진짜 돈'이 들어왔다는 신호입니다.",
+        interpretation: "확률 90% 이상: 단순한 반등이 아닌 추세의 시작점일 가능성이 매우 높습니다."
     },
     'VCP': {
         title: "VCP (변동성 축소 패턴)",
         desc: "주가 변동폭이 점차 줄어들며(Tightness) 에너지가 응축되는 현상입니다. 마크 미너비니 전략의 핵심입니다.",
         interpretation: "ON: 변동성이 극도로 낮아진 상태. 세력이 물량을 장악했으며, 곧 한쪽으로 큰 시세 분출이 임박했습니다."
     },
-    'RVOL': {
-        title: "RVOL (상대 거래량)",
-        desc: "평소(20일 평균) 대비 현재 거래량의 비율입니다. 주가 움직임의 '진위 여부'를 판별하는 거래량 분석입니다.",
-        interpretation: "1.5x 이상: 기관(Smart Money)의 개입이 의심됩니다. 3.0x 이상은 강력한 매수/매도 클라이맥스입니다."
-    },
-    'WYCKOFF': {
-        title: "Wyckoff Market Phase",
-        desc: "이동평균선 배열(SMA 20/50)과 추세 강도를 기반으로 와이코프 시장 국면을 진단합니다.",
-        interpretation: "MARKUP(상승): 정배열 확산 구간. 추세 추종 전략이 가장 잘 통하는 황금기입니다."
+    'BLUE_SKY': {
+        title: "Blue Sky Zone (매물대 없음)",
+        desc: "52주 신고가 근처 또는 돌파 영역입니다. 위에 악성 매물대(본전 대기 매물)가 없어 적은 돈으로도 쉽게 오릅니다.",
+        interpretation: "저항 없음: 목표가를 높게 잡을 수 있는 '달리는 말'입니다."
     }
 };
 
@@ -72,7 +79,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v5.5: Geometry Engine Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v5.6: Golden-Cross & VSA Engine Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -138,7 +145,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  // --- MATH UTILS ---
+  // --- QUANT MATH UTILS ---
   const calculateSMA = (data: number[], period: number) => {
       if (data.length < period) return 0;
       const slice = data.slice(-period);
@@ -153,7 +160,29 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Math.sqrt(variance);
   };
 
-  // --- QUANT TECHNICAL ENGINES ---
+  // [NEW] OBV Trend Calculator
+  const calculateOBV = (closes: number[], volumes: number[]) => {
+      let obv = [0];
+      for (let i = 1; i < closes.length; i++) {
+          const prevObv = obv[i - 1];
+          if (closes[i] > closes[i - 1]) obv.push(prevObv + volumes[i]);
+          else if (closes[i] < closes[i - 1]) obv.push(prevObv - volumes[i]);
+          else obv.push(prevObv);
+      }
+      // Simple Linear Regression Slope for OBV
+      const period = Math.min(20, obv.length);
+      const recentObv = obv.slice(-period);
+      const xMean = (period - 1) / 2;
+      const yMean = recentObv.reduce((a,b) => a+b, 0) / period;
+      let numerator = 0;
+      let denominator = 0;
+      for(let i=0; i<period; i++) {
+          numerator += (i - xMean) * (recentObv[i] - yMean);
+          denominator += Math.pow(i - xMean, 2);
+      }
+      return denominator === 0 ? 0 : numerator / denominator; // Positive = Accumulation
+  };
+
   const calculateRSI = (prices: number[], period = 14) => {
       if (prices.length < period + 1) return 50;
       let gains = 0, losses = 0;
@@ -182,7 +211,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (!polygonKey) return null;
       const to = new Date().toISOString().split('T')[0];
       const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 150); // ~5 months data for RS Ranking
+      fromDate.setDate(fromDate.getDate() - 150); // ~5 months data
       const from = fromDate.toISOString().split('T')[0];
       
       try {
@@ -237,6 +266,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   let rsi = 50, rvol = 1.0, rsRating = 50;
                   let wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN' = 'ACCUM';
                   let squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' = 'SQUEEZE_OFF';
+                  let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
+                  let obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL' = 'NEUTRAL';
+                  let isBlueSky = false;
+                  let goldenSetup = false;
                   let priceHistory: any[] = [];
                   let trendScore = 50;
 
@@ -248,37 +281,55 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       // 1. RSI (14)
                       rsi = calculateRSI(closes);
 
-                      // 2. RS Rating (Relative Strength) - Proxy Calculation
-                      // Formula: 40% 3M + 20% 6M + 20% 1M (Approx)
+                      // 2. RS Rating (Relative Strength)
                       const roc1m = (currentPrice - closes[Math.max(0, closes.length - 21)]) / closes[Math.max(0, closes.length - 21)];
                       const roc3m = (currentPrice - closes[Math.max(0, closes.length - 63)]) / closes[Math.max(0, closes.length - 63)];
                       const rocWeighted = (roc3m * 0.6) + (roc1m * 0.4);
-                      // Normalize to 0-99 scale (Assuming 20% gain = 80 score approx)
                       rsRating = Math.min(99, Math.max(1, (rocWeighted * 100) + 50));
 
-                      // 3. Wyckoff / Trend Analysis
+                      // 3. Moving Averages & Trend Alignment
                       const sma20 = calculateSMA(closes, 20);
-                      const sma50 = calculateSMA(closes, 50);
-                      
-                      if (currentPrice > sma20 && sma20 > sma50) wyckoffPhase = 'MARKUP';
-                      else if (currentPrice < sma20 && sma20 < sma50) wyckoffPhase = 'MARKDOWN';
-                      else if (currentPrice > sma50) wyckoffPhase = 'ACCUM'; // Potential Accumulation
-                      else wyckoffPhase = 'DISTRIB'; // Potential Distribution
+                      const sma50 = item.fiftyDayAverage || calculateSMA(closes, 50);
+                      const sma200 = item.twoHundredDayAverage || calculateSMA(closes, 200); // 200 SMA from Stage 0/3 if avail
 
-                      trendScore = (wyckoffPhase === 'MARKUP' ? 80 : 0) + (rsi > 50 ? 20 : 0);
+                      // [POWER TREND LOGIC]
+                      // Price > 20 > 50 > 200 (Classic Mark Minervini Trend Template)
+                      if (currentPrice > sma20 && sma20 > sma50 && (sma200 === 0 || sma50 > sma200)) {
+                          trendAlignment = 'POWER_TREND';
+                          wyckoffPhase = 'MARKUP';
+                      } else if (currentPrice > sma50) {
+                          trendAlignment = 'BULLISH';
+                          wyckoffPhase = 'ACCUM';
+                      } else if (currentPrice < sma50) {
+                          trendAlignment = 'BEARISH';
+                          wyckoffPhase = 'MARKDOWN';
+                      }
 
-                      // 4. VCP / Squeeze Detection
-                      // Bollinger Band Width
+                      trendScore = (trendAlignment === 'POWER_TREND' ? 95 : trendAlignment === 'BULLISH' ? 70 : 30);
+
+                      // 4. VCP / Squeeze Detection (Tightness)
                       const stdDev = calculateStdDev(closes, 20);
-                      const bbWidth = (4 * stdDev) / sma20; // (Upper - Lower) / Middle
-                      
-                      // Minervini VCP is tighter than standard Squeeze. Look for extremely low volatility.
+                      const bbWidth = (4 * stdDev) / sma20; // Bandwidth
                       if (bbWidth < 0.12) squeezeState = 'SQUEEZE_ON'; 
 
-                      // 5. RVOL
+                      // 5. RVOL & VSA (Volume Spread Analysis)
                       const avgVol = calculateSMA(volumes.slice(0, -1), 20);
                       const lastVol = volumes[volumes.length - 1];
                       rvol = avgVol > 0 ? lastVol / avgVol : 1;
+                      
+                      // OBV Slope
+                      const obvSlopeVal = calculateOBV(closes, volumes);
+                      if (obvSlopeVal > 0) obvSlope = 'ACCUMULATION';
+                      else if (obvSlopeVal < 0 && currentPrice > sma50) obvSlope = 'DIVERGENCE'; // Price up, Vol down
+
+                      // 6. Special Setups
+                      // Blue Sky: Price within 5% of 52-Week High (or ATH)
+                      const yearHigh = item.fiftyTwoWeekHigh || 0;
+                      if (yearHigh > 0 && currentPrice >= yearHigh * 0.95) isBlueSky = true;
+
+                      // Golden Setup: 200MA Support + Volume Spike + Up Move
+                      const priceChange = (currentPrice - closes[closes.length - 2]) / closes[closes.length - 2];
+                      if (rvol > 1.5 && priceChange > 0.02 && currentPrice > sma200) goldenSetup = true;
 
                       priceHistory = candles.slice(-40).map((c: any) => ({
                           date: new Date(c.t).toISOString().split('T')[0],
@@ -286,9 +337,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       }));
                   }
 
-                  // Composite Tech Score (Weighted)
-                  let techScore = (rsRating * 0.4) + (trendScore * 0.3) + (rvol * 10) + (rsi >= 40 && rsi <= 70 ? 10 : 0);
-                  if (squeezeState === 'SQUEEZE_ON') techScore += 10;
+                  // [COMPOSITE SCORING v5.6]
+                  // Base: RS Rating (Market Leadership)
+                  let techScore = rsRating * 0.4;
+                  // Trend: Power Trend gives massive bonus
+                  techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
+                  // Momentum: Volume & Squeeze
+                  techScore += (rvol > 1.5 ? 10 : 0) + (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
+                  // Setups: Golden or Blue Sky
+                  if (goldenSetup || isBlueSky) techScore += 10;
                   
                   // Cap Score
                   techScore = Math.min(99, Math.max(1, techScore));
@@ -298,13 +355,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       technicalScore: Number(techScore.toFixed(2)),
                       techMetrics: {
                           rsi: Number(rsi.toFixed(2)),
-                          adx: 0, // Placeholder for future
+                          adx: 0,
                           trend: Number(trendScore.toFixed(2)),
                           rvol: Number(rvol.toFixed(2)),
                           squeezeState,
                           rsRating: Number(rsRating.toFixed(0)),
-                          momentum: Number(rsRating.toFixed(2)), // Momentum driven by RS
-                          wyckoffPhase
+                          momentum: Number(rsRating.toFixed(2)),
+                          wyckoffPhase,
+                          // [NEW]
+                          trendAlignment,
+                          obvSlope,
+                          isBlueSky,
+                          goldenSetup
                       },
                       priceHistory,
                       lastUpdate: new Date().toISOString()
@@ -331,7 +393,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "5.5.0", count: results.length, strategy: "VCP_RS_Wyckoff_Fusion" },
+        manifest: { version: "5.6.0", count: results.length, strategy: "PowerTrend_VSA_Fusion" },
         technical_universe: results
       };
 
@@ -376,11 +438,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v5.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v5.6</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `Calculating: ${progress.current}/${progress.total}` : 'Momentum Engine Active'}
+                            {loading ? `Calculating: ${progress.current}/${progress.total}` : 'Power Trend Engine Active'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -420,7 +482,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              <div className="flex items-center gap-3">
                                  <span className={`text-[10px] font-black w-4 ${i < 3 ? 'text-orange-400' : 'text-slate-500'}`}>{i + 1}</span>
                                  <div>
-                                     <p className="text-xs font-black text-white">{t.symbol}</p>
+                                     <p className="text-xs font-black text-white flex items-center gap-2">
+                                         {t.symbol}
+                                         {t.techMetrics.trendAlignment === 'POWER_TREND' && (
+                                             <span className="text-[6px] bg-rose-500 text-white px-1 rounded animate-pulse">POWER</span>
+                                         )}
+                                     </p>
                                      <p className="text-[8px] text-slate-400 truncate w-24">{t.name}</p>
                                  </div>
                              </div>
@@ -450,12 +517,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                     <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
                                 </div>
-                                <div className="flex items-center gap-2 mt-2">
+                                <div className="flex flex-wrap items-center gap-2 mt-2">
                                      {selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' && (
                                          <span className="text-[8px] font-black bg-rose-500 text-white px-2 py-0.5 rounded animate-pulse uppercase">VCP Squeeze Active</span>
                                      )}
+                                     {selectedTicker.techMetrics.goldenSetup && (
+                                         <span className="text-[8px] font-black bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded uppercase">Golden Setup</span>
+                                     )}
                                      <span className="text-[8px] font-black bg-orange-900/30 text-orange-400 px-2 py-0.5 rounded border border-orange-500/20 uppercase">RVOL {selectedTicker.techMetrics.rvol}x</span>
-                                     <span className="text-[8px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-white/10 uppercase">{selectedTicker.techMetrics.wyckoffPhase}</span>
+                                     <span className="text-[8px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-white/10 uppercase">{selectedTicker.techMetrics.trendAlignment}</span>
                                 </div>
                             </div>
                             <div className="text-right">
@@ -489,13 +559,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              )}
                         </div>
 
-                        {/* Interactive Metrics Grid */}
+                        {/* Interactive Metrics Grid - Updated for New Signals */}
                         <div className="grid grid-cols-4 gap-2 mt-2">
                              {[
                                 { id: 'RS_RATING', label: 'RS Rating', val: selectedTicker.techMetrics.rsRating, good: selectedTicker.techMetrics.rsRating > 80 },
                                 { id: 'VCP', label: 'VCP (Tight)', val: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'YES' : 'NO', good: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' },
-                                { id: 'RVOL', label: 'RVOL', val: `${selectedTicker.techMetrics.rvol}x`, good: selectedTicker.techMetrics.rvol > 1.5 },
-                                { id: 'WYCKOFF', label: 'Cycle', val: selectedTicker.techMetrics.wyckoffPhase, good: selectedTicker.techMetrics.wyckoffPhase === 'MARKUP' }
+                                { id: 'GOLDEN_SETUP', label: 'Golden Cross', val: selectedTicker.techMetrics.goldenSetup ? 'CONFIRMED' : 'NO', good: selectedTicker.techMetrics.goldenSetup },
+                                { id: 'POWER_TREND', label: 'Power Trend', val: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' ? 'ACTIVE' : 'WAIT', good: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' }
                              ].map((m) => (
                                  <div 
                                     key={m.id} 
