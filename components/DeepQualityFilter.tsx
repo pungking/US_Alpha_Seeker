@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -334,12 +335,24 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
+  // [HOTFIX] Robust File Downloader: Handles NaN/Infinity in JSON
   const downloadFile = async (token: string, fileId: string) => {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { 'Authorization': `Bearer ${token}` }
       });
       if (!res.ok) throw new Error(`Download failed`);
-      return await res.json();
+      
+      const text = await res.text();
+      // Regex to replace unquoted NaN, Infinity, -Infinity with null
+      const safeText = text.replace(/:\s*(?:NaN|Infinity|-Infinity)\b/g, ': null');
+      
+      try {
+          return JSON.parse(safeText);
+      } catch (e) {
+          console.error("JSON Parse Error (DeepQuality):", e);
+          // If strict parse fails, try looser fallback or throw
+          throw new Error("Invalid JSON in Financial Data");
+      }
   };
 
   const ensureFolder = async (token: string, name: string) => {
@@ -480,7 +493,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const payload = {
               manifest: { 
-                  version: "5.0.0", 
+                  version: "5.0.1", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
                   engine: "3-Factor_Quant_Model" 
