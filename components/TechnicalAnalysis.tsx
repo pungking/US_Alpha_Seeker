@@ -1,8 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
+import { GOOGLE_DRIVE_TARGET } from '../constants';
 
 interface TechnicalTicker {
   symbol: string;
@@ -11,32 +10,29 @@ interface TechnicalTicker {
   change: number;
   volume: number;
   
-  technicalScore: number; // Composite Alpha Score
+  technicalScore: number; 
   
   techMetrics: {
       rsi: number;
       adx: number;
-      trend: number; // ADX Trend Strength
+      trend: number; 
       rvol: number;
       squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT'; 
-      rsRating: number; // Relative Strength (0-99)
-      momentum: number; // Velocity
+      rsRating: number; 
+      momentum: number; 
       wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN';
       
-      // [NEW] Advanced Signals
       trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH';
       obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL';
-      isBlueSky: boolean; // Near 52W High
-      goldenSetup: boolean; // Volume Supported Breakout
+      isBlueSky: boolean;
+      goldenSetup: boolean;
   };
   
-  // Visualization
-  priceHistory: { date: string; close: number }[];
+  priceHistory: { date: string; close: number; open?: number; high?: number; low?: number; volume?: number }[];
   
   sector: string;
   lastUpdate: string;
   
-  // Data Preservation
   [key: string]: any;
 }
 
@@ -46,50 +42,47 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
-// [KNOWLEDGE BASE] Advanced Technical Definitions
 const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
     'POWER_TREND': {
         title: "Power Trend (초강세 정배열)",
-        desc: "주가 > 20일 > 50일 > 200일 이평선이 완벽하게 정렬된 상태입니다. 기관이 주가를 강력하게 방어하며 끌어올리는 구간입니다.",
-        interpretation: "매수 1순위: 눌림목(Dip) 발생 시 적극 매수 구간입니다. 추세가 꺾이기 전까지 홀딩하십시오."
+        desc: "주가 > 20일 > 50일 > 200일 이평선이 완벽하게 정렬된 상태입니다.",
+        interpretation: "매수 1순위: 눌림목(Dip) 발생 시 적극 매수 구간입니다."
     },
     'GOLDEN_SETUP': {
         title: "Golden Setup (거래량 동반 돌파)",
-        desc: "장기 이평선 위에서 거래량이 평소의 2배 이상 터지며 상승(Expansion)한 패턴입니다. '진짜 돈'이 들어왔다는 신호입니다.",
-        interpretation: "확률 90% 이상: 단순한 반등이 아닌 추세의 시작점일 가능성이 매우 높습니다."
+        desc: "장기 이평선 위에서 거래량이 평소의 2배 이상 터지며 상승(Expansion)한 패턴입니다.",
+        interpretation: "확률 90% 이상: 단순한 반등이 아닌 추세의 시작점일 가능성이 높습니다."
     },
     'VCP': {
         title: "VCP (변동성 축소 패턴)",
-        desc: "주가 변동폭이 점차 줄어들며(Tightness) 에너지가 응축되는 현상입니다. 마크 미너비니 전략의 핵심입니다.",
-        interpretation: "ON: 변동성이 극도로 낮아진 상태. 세력이 물량을 장악했으며, 곧 한쪽으로 큰 시세 분출이 임박했습니다."
+        desc: "주가 변동폭이 점차 줄어들며(Tightness) 에너지가 응축되는 현상입니다.",
+        interpretation: "ON: 곧 한쪽으로 큰 시세 분출이 임박했습니다."
     },
     'BLUE_SKY': {
         title: "Blue Sky Zone (매물대 없음)",
-        desc: "52주 신고가 근처 또는 돌파 영역입니다. 위에 악성 매물대(본전 대기 매물)가 없어 적은 돈으로도 쉽게 오릅니다.",
+        desc: "52주 신고가 근처 또는 돌파 영역입니다.",
         interpretation: "저항 없음: 목표가를 높게 잡을 수 있는 '달리는 말'입니다."
     }
 };
 
 const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0 });
+  const [progress, setProgress] = useState({ current: 0, total: 0, status: '' });
   const [processedData, setProcessedData] = useState<TechnicalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<TechnicalTicker | null>(null);
-  const [activeMetric, setActiveMetric] = useState<string | null>(null); // Interactive Explanation State
+  const [activeMetric, setActiveMetric] = useState<string | null>(null);
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v5.6: Golden-Cross & VSA Engine Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v6.0: Drive-First Architecture Loaded.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
 
-  // Click Outside Handler for Insights
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
@@ -121,7 +114,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Technical Momentum Scan...", "signal");
+        addLog("AUTO-PILOT: Engaging High-Fidelity Tech Scan...", "signal");
         executeTechnicalScan();
     }
   }, [autoStart]);
@@ -160,7 +153,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Math.sqrt(variance);
   };
 
-  // [NEW] OBV Trend Calculator
   const calculateOBV = (closes: number[], volumes: number[]) => {
       let obv = [0];
       for (let i = 1; i < closes.length; i++) {
@@ -169,7 +161,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           else if (closes[i] < closes[i - 1]) obv.push(prevObv - volumes[i]);
           else obv.push(prevObv);
       }
-      // Simple Linear Regression Slope for OBV
       const period = Math.min(20, obv.length);
       const recentObv = obv.slice(-period);
       const xMean = (period - 1) / 2;
@@ -180,7 +171,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           numerator += (i - xMean) * (recentObv[i] - yMean);
           denominator += Math.pow(i - xMean, 2);
       }
-      return denominator === 0 ? 0 : numerator / denominator; // Positive = Accumulation
+      return denominator === 0 ? 0 : numerator / denominator; 
   };
 
   const calculateRSI = (prices: number[], period = 14) => {
@@ -207,22 +198,27 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return 100 - (100 / (1 + rs));
   };
 
-  const fetchCandles = async (symbol: string) => {
-      if (!polygonKey) return null;
-      const to = new Date().toISOString().split('T')[0];
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 150); // ~5 months data
-      const from = fromDate.toISOString().split('T')[0];
-      
-      try {
-          const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
-          const res = await fetch(url);
-          if (!res.ok) return null;
-          const json = await res.json();
-          return json.results || []; // { c, h, l, o, v, t }
-      } catch (e) {
-          return null;
-      }
+  // --- DRIVE HELPERS ---
+  const findFolder = async (token: string, name: string, parentId = 'root') => {
+      const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      return data.files?.[0]?.id || null;
+  };
+
+  const findFileId = async (token: string, name: string, parentId: string) => {
+      const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      return data.files?.[0]?.id || null;
+  };
+
+  const downloadFile = async (token: string, fileId: string) => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const text = await res.text();
+      // Safe parse handling for NaN/Infinity often found in python dumps
+      const safeText = text.replace(/:\s*NaN/g, ': null').replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
+      return JSON.parse(safeText);
   };
 
   const executeTechnicalScan = async () => {
@@ -233,6 +229,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     
     try {
       // 1. Load Stage 3 Data
+      addLog("Phase 1: Retrieving Stage 3 Candidates...", "info");
       const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -247,21 +244,78 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
+      // Filter valid candidates
       const universe = content.fundamental_universe || [];
       const candidates = universe.sort((a: any, b: any) => b.fundamentalScore - a.fundamentalScore).slice(0, 300); 
       
-      setProgress({ current: 0, total: candidates.length });
-      
-      const results: TechnicalTicker[] = [];
-      const BATCH_SIZE = 5;
+      setProgress({ current: 0, total: candidates.length, status: 'Initializing Map...' });
 
-      for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-          const batch = candidates.slice(i, i + BATCH_SIZE);
+      // 2. Locate Data Map Folder
+      let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+      
+      if (!systemMapId) throw new Error("System Identity Maps not found. Cannot perform offline analysis.");
+      const historyFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
+      if (!historyFolderId) throw new Error("Financial History Map not found.");
+
+      // 3. Group Candidates by Letter for Batch Processing
+      const grouped: Record<string, any[]> = {};
+      candidates.forEach((c: any) => {
+          const letter = c.symbol.charAt(0).toUpperCase();
+          if (!grouped[letter]) grouped[letter] = [];
+          grouped[letter].push(c);
+      });
+
+      const results: TechnicalTicker[] = [];
+      const letters = Object.keys(grouped).sort();
+
+      // 4. Batch Process by Letter
+      for (const letter of letters) {
+          setProgress(prev => ({ ...prev, status: `Mounting Cylinder ${letter}...` }));
           
-          await Promise.all(batch.map(async (item: any) => {
+          // Load History File for this letter
+          const fileName = `${letter}_stocks_history.json`;
+          const fileId = await findFileId(accessToken, fileName, historyFolderId);
+          
+          let historyMap = new Map();
+          if (fileId) {
+              const fileData = await downloadFile(accessToken, fileId);
+              if (Array.isArray(fileData)) {
+                  fileData.forEach((item: any) => historyMap.set(item.symbol, item.financials || []));
+              } else {
+                  // Handle object format { "AAPL": { financials: [...] } }
+                  Object.entries(fileData).forEach(([sym, val]: [string, any]) => {
+                      historyMap.set(sym, val.financials || val);
+                  });
+              }
+              addLog(`Cylinder ${letter}: Loaded ${historyMap.size} history records.`, "info");
+          } else {
+              addLog(`Warning: Cylinder ${letter} history not found.`, "warn");
+          }
+
+          // Process stocks in this group
+          const batch = grouped[letter];
+          for (const item of batch) {
               try {
-                  const candles = await fetchCandles(item.symbol);
+                  const rawHistory = historyMap.get(item.symbol);
                   
+                  // Convert raw history to candles
+                  // Check if history exists and is array
+                  let candles: any[] = [];
+                  if (Array.isArray(rawHistory) && rawHistory.length > 50) {
+                       // Sort by date ascending if needed, usually history is desc or asc. 
+                       // We need ASC for technical calcs (oldest -> newest)
+                       // Assumption: rawHistory has { date, close, volume, ... }
+                       candles = rawHistory.map((h: any) => ({
+                           c: Number(h.close),
+                           h: Number(h.high),
+                           l: Number(h.low),
+                           o: Number(h.open),
+                           v: Number(h.volume),
+                           t: h.date // string date
+                       })).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+                  }
+
                   // Default Metrics
                   let rsi = 50, rvol = 1.0, rsRating = 50;
                   let wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN' = 'ACCUM';
@@ -270,10 +324,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   let obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL' = 'NEUTRAL';
                   let isBlueSky = false;
                   let goldenSetup = false;
-                  let priceHistory: any[] = [];
                   let trendScore = 50;
 
-                  if (candles && candles.length > 50) {
+                  if (candles.length > 50) {
                       const closes = candles.map((c: any) => c.c);
                       const volumes = candles.map((c: any) => c.v);
                       const currentPrice = closes[closes.length - 1];
@@ -289,11 +342,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                       // 3. Moving Averages & Trend Alignment
                       const sma20 = calculateSMA(closes, 20);
-                      const sma50 = item.fiftyDayAverage || calculateSMA(closes, 50);
-                      const sma200 = item.twoHundredDayAverage || calculateSMA(closes, 200); // 200 SMA from Stage 0/3 if avail
+                      const sma50 = calculateSMA(closes, 50);
+                      const sma200 = calculateSMA(closes, 200); 
 
-                      // [POWER TREND LOGIC]
-                      // Price > 20 > 50 > 200 (Classic Mark Minervini Trend Template)
                       if (currentPrice > sma20 && sma20 > sma50 && (sma200 === 0 || sma50 > sma200)) {
                           trendAlignment = 'POWER_TREND';
                           wyckoffPhase = 'MARKUP';
@@ -307,50 +358,39 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                       trendScore = (trendAlignment === 'POWER_TREND' ? 95 : trendAlignment === 'BULLISH' ? 70 : 30);
 
-                      // 4. VCP / Squeeze Detection (Tightness)
+                      // 4. VCP / Squeeze Detection
                       const stdDev = calculateStdDev(closes, 20);
-                      const bbWidth = (4 * stdDev) / sma20; // Bandwidth
-                      if (bbWidth < 0.12) squeezeState = 'SQUEEZE_ON'; 
+                      const bbWidth = (4 * stdDev) / sma20; 
+                      squeezeState = bbWidth < 0.12 ? 'SQUEEZE_ON' : 'SQUEEZE_OFF';
 
-                      // 5. RVOL & VSA (Volume Spread Analysis)
+                      // 5. RVOL & VSA
                       const avgVol = calculateSMA(volumes.slice(0, -1), 20);
                       const lastVol = volumes[volumes.length - 1];
                       rvol = avgVol > 0 ? lastVol / avgVol : 1;
                       
-                      // OBV Slope
                       const obvSlopeVal = calculateOBV(closes, volumes);
                       if (obvSlopeVal > 0) obvSlope = 'ACCUMULATION';
-                      else if (obvSlopeVal < 0 && currentPrice > sma50) obvSlope = 'DIVERGENCE'; // Price up, Vol down
+                      else if (obvSlopeVal < 0 && currentPrice > sma50) obvSlope = 'DIVERGENCE';
 
                       // 6. Special Setups
-                      // Blue Sky: Price within 5% of 52-Week High (or ATH)
-                      const yearHigh = item.fiftyTwoWeekHigh || 0;
-                      if (yearHigh > 0 && currentPrice >= yearHigh * 0.95) isBlueSky = true;
-
-                      // Golden Setup: 200MA Support + Volume Spike + Up Move
+                      const yearHigh = item.fiftyTwoWeekHigh || Math.max(...closes.slice(-250));
+                      isBlueSky = yearHigh > 0 && currentPrice >= yearHigh * 0.95;
+                      
                       const priceChange = (currentPrice - closes[closes.length - 2]) / closes[closes.length - 2];
-                      if (rvol > 1.5 && priceChange > 0.02 && currentPrice > sma200) goldenSetup = true;
-
-                      priceHistory = candles.slice(-40).map((c: any) => ({
-                          date: new Date(c.t).toISOString().split('T')[0],
-                          close: c.c
-                      }));
+                      goldenSetup = rvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
                   }
 
-                  // [COMPOSITE SCORING v5.6]
-                  // Base: RS Rating (Market Leadership)
+                  // [COMPOSITE SCORING]
                   let techScore = rsRating * 0.4;
-                  // Trend: Power Trend gives massive bonus
                   techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
-                  // Momentum: Volume & Squeeze
                   techScore += (rvol > 1.5 ? 10 : 0) + (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
-                  // Setups: Golden or Blue Sky
                   if (goldenSetup || isBlueSky) techScore += 10;
-                  
-                  // Cap Score
                   techScore = Math.min(99, Math.max(1, techScore));
+                  
+                  // Penalize missing data hard
+                  if (candles.length < 50) techScore = 0;
 
-                  const ticker: TechnicalTicker = {
+                  results.push({
                       ...item, 
                       technicalScore: Number(techScore.toFixed(2)),
                       techMetrics: {
@@ -362,23 +402,25 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           rsRating: Number(rsRating.toFixed(0)),
                           momentum: Number(rsRating.toFixed(2)),
                           wyckoffPhase,
-                          // [NEW]
                           trendAlignment,
                           obvSlope,
                           isBlueSky,
                           goldenSetup
                       },
-                      priceHistory,
+                      // Save last 120 candles for next stage visualization & calc
+                      priceHistory: candles.slice(-120).map((c: any) => ({
+                          date: c.t, close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
+                      })),
                       lastUpdate: new Date().toISOString()
-                  };
-                  
-                  results.push(ticker);
+                  });
 
-              } catch (e) { console.warn(`Tech fail ${item.symbol}`, e); }
-          }));
-
-          setProgress({ current: Math.min(i + BATCH_SIZE, candidates.length), total: candidates.length });
-          await new Promise(r => setTimeout(r, 200)); 
+              } catch (e) {
+                  console.error(`Tech Analysis Error for ${item.symbol}`, e);
+              }
+          }
+          
+          setProgress(prev => ({ ...prev, current: results.length }));
+          await new Promise(r => setTimeout(r, 50)); // Small yield
       }
 
       results.sort((a, b) => b.technicalScore - a.technicalScore);
@@ -393,7 +435,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "5.6.0", count: results.length, strategy: "PowerTrend_VSA_Fusion" },
+        manifest: { version: "6.0.0", count: results.length, strategy: "Drive_First_Tech_Analysis" },
         technical_universe: results
       };
 
@@ -406,7 +448,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Tech Analysis Complete. ${results.length} Tickers Scored & Saved.`, "ok");
+      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed via Drive.`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -438,11 +480,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v5.6</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v6.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `Calculating: ${progress.current}/${progress.total}` : 'Power Trend Engine Active'}
+                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Drive-First Architecture Ready'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -465,7 +507,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     : 'bg-orange-600 text-white shadow-xl shadow-orange-900/20 hover:scale-105 active:scale-95'
               }`}
             >
-              {loading ? 'Scanning Volatility...' : 'Execute Momentum Scan'}
+              {loading ? 'Crunching Volatility...' : 'Execute Momentum Scan'}
             </button>
           </div>
 
