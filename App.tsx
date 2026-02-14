@@ -14,7 +14,6 @@ import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
 import LegalDocs from './components/LegalDocs';
-import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
 import { sendTelegramReport } from './services/telegramService';
 
 const App: React.FC = () => {
@@ -271,6 +270,10 @@ const App: React.FC = () => {
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
     const targetBrain = auditBrain;
     const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
+    // Dynamic Import to avoid cycle or load heavy function on demand?
+    // Actually analyzePipelineStatus is in services/intelligenceService, already imported.
+    const { analyzePipelineStatus, archiveReport } = await import('./services/intelligenceService');
+
     const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
 
     try {
@@ -362,7 +365,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.5.3 (Hybrid Feed)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.5.5 (Deep Quality Fix)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
