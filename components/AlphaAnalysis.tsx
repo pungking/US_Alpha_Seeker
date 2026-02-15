@@ -1505,7 +1505,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                           <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
                                           Simulation Intelligence Insight
                                       </h5>
-                                      <div className="prose-report text-xs text-slate-300 leading-relaxed">
+                                      <div className="text-xs text-slate-300 leading-relaxed">
                                           <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                               {currentBacktest.historicalContext}
                                           </ReactMarkdown>
