@@ -551,8 +551,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
   const getSectorStyle = (sector: string) => {
     const s = (sector || '').toLowerCase();
-    if (s.includes('tech') || s.includes('software')) return 'bg-violet-500/20 text-violet-400 border-violet-500/30';
-    if (s.includes('finance')) return 'bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30';
+    if (s.includes('tech') || s.includes('software')) return 'bg-cyan-500/20 text-cyan-400 border-cyan-500/30';
+    if (s.includes('finance')) return 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30';
     if (s.includes('health')) return 'bg-rose-500/20 text-rose-400 border-rose-500/30';
     return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
   };
@@ -560,12 +560,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
-        {/* Main Panel - Violet Theme */}
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-violet-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
+        {/* Main Panel - Cyan Theme */}
+        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 rounded-3xl bg-violet-600/10 flex items-center justify-center border border-violet-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 text-violet-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+              <div className={`w-12 h-12 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
+                 <svg className={`w-5 h-5 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v5.0.0</h2>
@@ -573,8 +573,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     {/* Restored Original Glass Style Badge */}
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all ${
                         loading 
-                        ? 'bg-violet-500/20 text-violet-300 border-violet-500/40 animate-pulse' 
-                        : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
+                        ? 'bg-cyan-500/20 text-cyan-300 border-cyan-500/40 animate-pulse' 
+                        : 'bg-cyan-500/10 text-cyan-400 border-cyan-500/20'
                     }`}>
                         {loading ? `Scanning: ${progress.msg}` : 'Quant Sanitizer Active'}
                     </span>
@@ -589,7 +589,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
                   loading 
                     ? 'bg-slate-800 text-slate-500 shadow-none border border-white/5 cursor-wait opacity-80' 
-                    : 'bg-violet-600 text-white shadow-xl shadow-violet-900/30 hover:scale-105 active:scale-95 hover:bg-violet-500'
+                    : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/30 hover:scale-105 active:scale-95 hover:bg-cyan-500'
               }`}
             >
               {loading ? 'Executing Quant Scan...' : 'Start Global Fundamental Audit'}
@@ -600,14 +600,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               {/* List View */}
               <div className="bg-black/40 rounded-3xl border border-white/5 overflow-hidden flex flex-col h-[400px]">
                   <div className="p-4 border-b border-white/5 bg-white/5 flex justify-between items-center">
-                      <p className="text-[9px] font-black text-violet-400 uppercase tracking-widest">Quality Rank ({processedData.length})</p>
+                      <p className="text-[9px] font-black text-cyan-400 uppercase tracking-widest">Quality Rank ({processedData.length})</p>
                       <span className="text-[8px] font-mono text-slate-500">Sorted by Quality Score</span>
                   </div>
                   <div className="flex-1 overflow-y-auto no-scrollbar p-2 space-y-2">
                       {processedData.length > 0 ? processedData.map((t, i) => (
-                          <div key={i} onClick={() => handleTickerSelect(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-violet-900/30 border-violet-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
+                          <div key={i} onClick={() => handleTickerSelect(t)} className={`p-3 rounded-xl border flex justify-between items-center cursor-pointer transition-all ${selectedTicker?.symbol === t.symbol ? 'bg-cyan-900/30 border-cyan-500/50' : 'bg-white/5 border-transparent hover:bg-white/10'}`}>
                               <div className="flex items-center gap-3">
-                                  <span className={`text-[10px] font-black w-4 ${i < 10 ? 'text-violet-400' : 'text-slate-500'}`}>{i + 1}</span>
+                                  <span className={`text-[10px] font-black w-4 ${i < 10 ? 'text-cyan-400' : 'text-slate-500'}`}>{i + 1}</span>
                                   <div>
                                       <p className="text-xs font-black text-white">{t.symbol}</p>
                                       <p className="text-[8px] text-slate-400 truncate w-24">{t.name}</p>
@@ -658,7 +658,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                               </div>
                               <div className="text-right">
                                    <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Quality</p>
-                                   <p className="text-2xl font-black text-violet-400 tracking-tighter">{selectedTicker.qualityScore.toFixed(1)}</p>
+                                   <p className="text-2xl font-black text-cyan-400 tracking-tighter">{selectedTicker.qualityScore.toFixed(1)}</p>
                               </div>
                           </div>
 
@@ -677,8 +677,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                         }}
                                       />
                                       <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                      <Radar name={selectedTicker.symbol} dataKey="A" stroke="#8b5cf6" strokeWidth={2} fill="#8b5cf6" fillOpacity={0.4} />
-                                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#8b5cf6', fontSize: '10px' }} />
+                                      <Radar name={selectedTicker.symbol} dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
+                                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#06b6d4', fontSize: '10px' }} />
                                   </RadarChart>
                               </ResponsiveContainer>
                           </div>
@@ -711,12 +711,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                            {/* Insight Overlay */}\
                             {activeInsight && QUANT_INSIGHTS[activeInsight] && (
                                 <div className="absolute inset-x-4 bottom-4 z-20 animate-in fade-in slide-in-from-bottom-2 insight-overlay">
-                                    <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-violet-500/30 shadow-2xl relative">
+                                    <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-cyan-500/30 shadow-2xl relative">
                                         <button onClick={() => setActiveInsight(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white">
                                             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                                         </button>
-                                        <h5 className="text-[10px] font-black text-violet-400 uppercase tracking-widest mb-1 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-violet-500 animate-pulse"></span>
+                                        <h5 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
                                             {QUANT_INSIGHTS[activeInsight].title}
                                         </h5>
                                         <p className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">{QUANT_INSIGHTS[activeInsight].desc}</p>
@@ -740,13 +740,13 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-violet-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
             <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Log</h3>
           </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-violet-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-cyan-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
             {logs.map((log, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : log.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-violet-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 ${log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : log.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-cyan-900'}`}>
                 {log}
               </div>
             ))}
