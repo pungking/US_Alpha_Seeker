@@ -561,7 +561,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         'COUNCIL DEBATE', 'PRE-MORTEM', 'EXECUTION STRATEGY', 
         'RISK MANAGEMENT', 'SMART MONEY', 'FUNDAMENTAL', 
         '3인 합의', '사전 부검', '매매 전략', '리스크 관리',
-        'NEURAL INVESTMENT OUTLOOK'
+        'NEURAL INVESTMENT OUTLOOK', 'THE ALPHA THESIS'
     ];
     
     headers.forEach(h => {
@@ -595,6 +595,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             str = str.split(p).join(`\n- **${p.trim()}**`);
         }
     });
+
+    // Force bullet point structure if personas are detected but not bulleted
+    str = str.replace(/(\*\*[^*]+\*\*)\s*:/g, '\n- $1 :');
 
     // 4. Fix List Item Clumping
     // "Sentence. - List item" -> "Sentence.\n- List item"
@@ -1192,13 +1195,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                     <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
+                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore}%</p>
                     </div>
                  </div>
                  
                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                      <div className="lg:col-span-3 space-y-8">
-                         {/* Chart Section */}
+                         {/* CHART & REPORT */}
                          <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative group">
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
@@ -1333,7 +1336,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            <h4 className="text-[10px] font-black text-rose-500 uppercase tracking-[0.4em] mb-6 italic underline underline-offset-8">Neural Investment Outlook</h4>
+                            {/* REDESIGNED HEADER */}
+                            <div className="flex flex-col mb-8 border-b border-white/10 pb-6">
+                                <div className="flex items-center gap-4 mb-2">
+                                    <span className="text-xs font-black text-rose-500 uppercase tracking-[0.2em]">NEURAL INVESTMENT OUTLOOK</span>
+                                    <div className="h-px flex-1 bg-gradient-to-r from-rose-500/50 to-transparent"></div>
+                                </div>
+                                <div className="flex items-baseline gap-4">
+                                    <h2 className="text-5xl font-black text-white italic tracking-tighter leading-none">{selectedStock.symbol}</h2>
+                                    <span className="text-sm font-bold text-slate-400 bg-white/10 px-3 py-1 rounded-lg uppercase tracking-wider">{selectedStock.name}</span>
+                                </div>
+                            </div>
+                            
                             <div className="prose-report min-h-[200px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                     {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
@@ -1496,241 +1510,220 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="flex items-center gap-4">
                             <div>
                                 <h4 className="text-[11px] font-black text-emerald-500 uppercase tracking-[0.3em] mb-1 italic">Quant_Backtest_Protocol</h4>
-                                {currentBacktest && <p className="text-[9px] text-slate-500 font-mono font-bold">SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span></p>}
+                                {currentBacktest && (
+                                    <p className="text-[9px] text-slate-500 font-mono font-bold">
+                                        SIMULATION PERIOD: <span className="text-emerald-500">{currentBacktest.simulationPeriod}</span>
+                                    </p>
+                                )}
                             </div>
-                            {currentBacktest && (
-                                <div className="h-8 w-[1px] bg-white/10 mx-2"></div>
-                            )}
-                            {currentBacktest && (
-                                <span className="text-4xl font-black text-white italic tracking-tighter uppercase leading-none opacity-80">{selectedStock.symbol}</span>
-                            )}
                         </div>
+                        
                         {!currentBacktest && (
-                             <button 
+                            <button 
                                 onClick={(e) => handleRunBacktest(selectedStock, e)} 
                                 disabled={backtestLoading}
                                 className="px-6 py-3 bg-emerald-900/20 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500 hover:text-white rounded-xl text-[9px] font-black uppercase tracking-widest transition-all shadow-lg"
                             >
-                                {backtestLoading ? 'Running Simulation...' : 'Run Portfolio Simulation'}
+                                {backtestLoading ? "Running Simulation..." : "Run Portfolio Simulation"}
                             </button>
                         )}
                     </div>
 
                     {currentBacktest ? (
                         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 animate-in fade-in slide-in-from-bottom-4 duration-700">
+                             {/* Metrics Column */}
                              <div className="flex flex-col gap-4">
-                                <div className="space-y-3">
-                                    <div 
-                                        onClick={() => handleMetricClick('WIN_RATE', currentBacktest.metrics?.winRate || "N/A")}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'WIN_RATE' ? 'bg-emerald-500/20 border-emerald-500 text-white shadow-[0_0_15px_rgba(16,185,129,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">승률 (Win Rate)</span>
-                                        <span className="text-lg font-black text-emerald-400 italic">{currentBacktest.metrics?.winRate || "---"}</span>
-                                    </div>
-                                    <div 
-                                        onClick={() => handleMetricClick('PROFIT_FACTOR', currentBacktest.metrics?.profitFactor || "N/A")}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'PROFIT_FACTOR' ? 'bg-blue-500/20 border-blue-500 text-white shadow-[0_0_15px_rgba(59,130,246,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">손익비 (P.Factor)</span>
-                                        <span className="text-lg font-black text-blue-400 italic">{currentBacktest.metrics?.profitFactor || "---"}</span>
-                                    </div>
-                                    <div 
-                                        onClick={() => handleMetricClick('MAX_DRAWDOWN', currentBacktest.metrics?.maxDrawdown || "N/A")}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'MAX_DRAWDOWN' ? 'bg-rose-500/20 border-rose-500 text-white shadow-[0_0_15px_rgba(244,63,94,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">최대낙폭 (MDD)</span>
-                                        <span className="text-lg font-black text-rose-400 italic">{currentBacktest.metrics?.maxDrawdown || "---"}</span>
-                                    </div>
-                                    <div 
-                                        onClick={() => handleMetricClick('SHARPE_RATIO', currentBacktest.metrics?.sharpeRatio || "N/A")}
-                                        className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === 'SHARPE_RATIO' ? 'bg-amber-500/20 border-amber-500 text-white shadow-[0_0_15px_rgba(245,158,11,0.3)]' : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
-                                    >
-                                        <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">샤프지수 (Risk/Rtn)</span>
-                                        <span className="text-lg font-black text-amber-400 italic">{currentBacktest.metrics?.sharpeRatio || "---"}</span>
-                                    </div>
-                                </div>
+                                 <div className="space-y-3">
+                                     {[
+                                         { key: 'WIN_RATE', val: currentBacktest.metrics.winRate, color: 'text-emerald-400', bg: 'bg-emerald-500/20', border: 'border-emerald-500' },
+                                         { key: 'PROFIT_FACTOR', val: currentBacktest.metrics.profitFactor, color: 'text-blue-400', bg: 'bg-blue-500/20', border: 'border-blue-500' },
+                                         { key: 'MAX_DRAWDOWN', val: currentBacktest.metrics.maxDrawdown, color: 'text-rose-400', bg: 'bg-rose-500/20', border: 'border-rose-500' },
+                                         { key: 'SHARPE_RATIO', val: currentBacktest.metrics.sharpeRatio, color: 'text-amber-400', bg: 'bg-amber-500/20', border: 'border-amber-500' }
+                                     ].map(m => (
+                                         <div 
+                                            key={m.key}
+                                            onClick={() => setActiveOverlay(prev => prev === m.key ? null : m.key)}
+                                            className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === m.key ? `${m.bg} ${m.border} text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]` : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
+                                         >
+                                             <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{METRIC_DEFINITIONS[m.key].title}</span>
+                                             <span className={`text-lg font-black ${m.color} italic`}>{m.val}</span>
+                                         </div>
+                                     ))}
+                                 </div>
 
-                                <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
-                                    {selectedMetricInfo ? (
-                                        <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
-                                            <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
-                                                <span className={`w-1.5 h-1.5 rounded-full ${activeOverlay === selectedMetricInfo.key ? 'animate-ping' : ''} bg-emerald-500`}></span>
-                                                {selectedMetricInfo.title}
-                                                {activeOverlay === selectedMetricInfo.key && <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto font-black uppercase tracking-tighter">OVERLAY ACTIVE</span>}
-                                            </h5>
-                                            <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
-                                                <ReactMarkdown 
-                                                    remarkPlugins={[remarkGfm]}
-                                                    components={{
-                                                        ...MarkdownComponents,
-                                                        h3: ({node, ...props}) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1 uppercase tracking-wide" {...props} />,
-                                                        p: ({node, ...props}) => <p className="mb-2" {...props} />,
-                                                        ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 mb-2" {...props} />,
-                                                        li: ({node, ...props}) => <li className="pl-1 marker:text-emerald-500" {...props} />,
-                                                        strong: ({node, ...props}) => <strong className="text-white font-bold" {...props} />
-                                                    }}
-                                                >
-                                                    {selectedMetricInfo.desc}
-                                                </ReactMarkdown>
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
-                                             <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                                             <p className="text-[8px] font-black uppercase tracking-widest">Select a metric to overlay</p>
-                                        </div>
-                                    )}
-                                </div>
+                                 {/* Metric Overlay Info */}
+                                 <div className="bg-slate-900/80 p-5 rounded-[20px] border border-white/10 min-h-[160px] flex flex-col justify-start relative overflow-hidden shadow-inner">
+                                      {selectedMetricInfo ? (
+                                          <div className="animate-in fade-in slide-in-from-top-4 duration-300 relative z-10">
+                                              <h5 className="text-[10px] font-black text-white uppercase tracking-widest mb-3 border-b border-white/10 pb-2 flex items-center gap-2">
+                                                  <span className={`w-1.5 h-1.5 rounded-full ${activeOverlay === selectedMetricInfo.key ? 'animate-ping' : ''} bg-emerald-500`}></span>
+                                                  {selectedMetricInfo.title}
+                                                  {activeOverlay === selectedMetricInfo.key && <span className="text-[7px] bg-emerald-600 px-1.5 py-0.5 rounded text-white ml-auto font-black uppercase tracking-tighter">OVERLAY ACTIVE</span>}
+                                              </h5>
+                                              <div className="text-[10px] text-slate-300 leading-relaxed metric-markdown">
+                                                  <ReactMarkdown 
+                                                      remarkPlugins={[remarkGfm]}
+                                                      components={{
+                                                          ...MarkdownComponents,
+                                                          h3: ({node, ...props}) => <h3 className="text-xs font-bold text-emerald-400 mt-2 mb-1 uppercase tracking-wide" {...props} />,
+                                                          p: ({node, ...props}) => <p className="mb-2" {...props} />,
+                                                          ul: ({node, ...props}) => <ul className="list-disc pl-4 space-y-1 mb-2" {...props} />,
+                                                          li: ({node, ...props}) => <li className="pl-1 marker:text-emerald-500" {...props} />,
+                                                          strong: ({node, ...props}) => <strong className="text-white font-bold" {...props} />
+                                                      }}
+                                                  >
+                                                      {selectedMetricInfo.desc}
+                                                  </ReactMarkdown>
+                                              </div>
+                                          </div>
+                                      ) : (
+                                          <div className="flex flex-col items-center justify-center h-full opacity-30 text-center">
+                                              <svg className="w-8 h-8 text-slate-500 mb-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                              <p className="text-[8px] font-black uppercase tracking-widest">Select a metric to overlay</p>
+                                          </div>
+                                      )}
+                                 </div>
                              </div>
 
+                             {/* Chart Column */}
                              <div className="lg:col-span-3 flex flex-col gap-6">
-                                <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
-                                    <div className="flex justify-between items-start mb-4">
-                                        <div>
-                                             <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">24-Month Quant Analysis Portfolio Growth</p>
-                                             <div className="flex items-center gap-3 mt-1">
-                                                 <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length-1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
-                                                     {chartData.length > 0 ? (chartData[chartData.length-1].value >= 0 ? '+' : '') + chartData[chartData.length-1].value + '%' : '0%'}
-                                                 </span>
-                                                 <div className="flex flex-col">
-                                                     <span className="text-[8px] font-bold text-slate-400 uppercase">Total Audit Return</span>
-                                                     <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
-                                                 </div>
-                                             </div>
-                                        </div>
-                                        <div className="flex flex-col items-end gap-2">
-                                            <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
-                                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
-                                                 <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
-                                            </div>
-                                            {selectedMetricInfo?.overlayDesc && (
-                                                <div className="text-[7px] font-black text-indigo-400 uppercase bg-indigo-950/30 px-2 py-1 rounded border border-indigo-500/20 animate-in fade-in zoom-in-95">
-                                                    {selectedMetricInfo.overlayDesc}
-                                                </div>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    <div className="flex-1 w-full min-h-0">
-                                        <ResponsiveContainer width="100%" height="100%">
-                                            <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                                                <defs>
-                                                    <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                        <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
-                                                        <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                                                    </linearGradient>
-                                                </defs>
-                                                <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                                <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
-                                                <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                                                <RechartsTooltip 
-                                                    contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
-                                                    itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                                                    labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                                    formatter={(value: any, name: string) => {
-                                                        if (name === 'value') return [`${value}%`, 'Return'];
-                                                        if (name === 'drawdown') return [`${value}%`, 'Drawdown'];
-                                                        if (name === 'delta') return [`${value}%`, 'Period Change'];
-                                                        return [value, name];
-                                                    }}
-                                                />
-                                                <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                                
-                                                {/* PROFIT_FACTOR Overlay: Monthly Magnitude Bars */}
-                                                {activeOverlay === 'PROFIT_FACTOR' && (
-                                                    <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
-                                                        {chartData.map((entry, index) => (
-                                                            <Cell 
-                                                                key={`cell-${index}`} 
-                                                                fill={entry.delta >= 0 ? '#10b981' : '#ef4444'} 
-                                                            />
-                                                        ))}
-                                                    </Bar>
-                                                )}
-
-                                                {/* MAX_DRAWDOWN Overlay: Red Loss Area */}
-                                                {activeOverlay === 'MAX_DRAWDOWN' && (
-                                                    <Area 
-                                                        type="monotone" 
-                                                        dataKey="drawdown" 
-                                                        stroke="none" 
-                                                        fill="#ef4444" 
-                                                        fillOpacity={0.25} 
-                                                        animationDuration={500} 
-                                                    />
-                                                )}
-
-                                                {/* SHARPE_RATIO Overlay: Regression Path & Consistency Corridor */}
-                                                {activeOverlay === 'SHARPE_RATIO' && chartData.length > 1 && (
-                                                    <>
-                                                        <Area 
-                                                            type="monotone" 
-                                                            dataKey="idealValue" 
-                                                            stroke="#f59e0b" 
-                                                            strokeWidth={1}
-                                                            strokeDasharray="5 5"
-                                                            fill="#f59e0b"
-                                                            fillOpacity={0.08}
-                                                        />
-                                                        <ReferenceLine 
-                                                            stroke="#f59e0b" 
-                                                            strokeDasharray="3 3" 
-                                                            label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
-                                                            segment={[
-                                                                { x: chartData[0]?.period, y: 0 }, 
-                                                                { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1]?.value ?? 0 }
-                                                            ]}
-                                                        />
-                                                    </>
-                                                )}
-
-                                                {/* Main Cumulative Equity Area */}
-                                                <Area 
-                                                    type="monotone" 
-                                                    dataKey="value" 
-                                                    stroke={chartColor} 
-                                                    strokeWidth={2} 
-                                                    fillOpacity={1} 
-                                                    fill={`url(#${uniqueChartId})`} 
-                                                    animationDuration={1500}
-                                                    // Dot overlay for Win/Loss (Monthly Result)
-                                                    dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
-                                                        const { cx, cy, payload } = props;
-                                                        // Accurate logic: Is this month better than previous?
-                                                        const isWin = payload.isWin;
-                                                        return (
-                                                            <circle 
-                                                                key={`dot-${payload.period}`}
-                                                                cx={cx} cy={cy} r={3} 
-                                                                fill={isWin ? '#10b981' : '#ef4444'} 
-                                                                stroke="#020617" strokeWidth={1}
-                                                                className="animate-in fade-in duration-500"
-                                                            />
-                                                        );
-                                                    } : false}
-                                                />
-                                            </ComposedChart>
-                                        </ResponsiveContainer>
-                                    </div>
-                                </div>
-
-                                <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
-                                     <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
-                                         <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                                         Simulation Intelligence Insight
-                                     </h5>
-                                     <div className="prose-report text-xs text-slate-300 leading-relaxed">
-                                         <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                            {currentBacktest.historicalContext}
-                                         </ReactMarkdown>
+                                 <div className="bg-black/40 rounded-[30px] border border-white/5 p-6 relative h-[320px] flex flex-col">
+                                     <div className="flex justify-between items-start mb-4">
+                                          <div>
+                                              <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest">24-Month Quant Analysis Portfolio Growth</p>
+                                              <div className="flex items-center gap-3 mt-1">
+                                                  <span className={`text-3xl font-black italic tracking-tighter ${chartData.length > 0 && chartData[chartData.length - 1].value >= 0 ? 'text-white' : 'text-rose-400'}`}>
+                                                      {chartData.length > 0 ? (chartData[chartData.length - 1].value >= 0 ? '+' : '') + chartData[chartData.length - 1].value + '%' : '0%'}
+                                                  </span>
+                                                  <div className="flex flex-col">
+                                                      <span className="text-[8px] font-bold text-slate-400 uppercase">Total Audit Return</span>
+                                                      <span className="text-[8px] font-mono text-slate-600 uppercase tracking-widest">{currentBacktest.simulationPeriod}</span>
+                                                  </div>
+                                              </div>
+                                          </div>
+                                          <div className="flex flex-col items-end gap-2">
+                                               <div className="flex gap-4 text-[8px] text-slate-500 font-bold uppercase tracking-widest bg-black/20 p-2 rounded-lg border border-white/5">
+                                                   <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-emerald-500"></div>Profit Zone</div>
+                                                   <div className="flex items-center gap-1.5"><div className="w-2 h-2 rounded-full bg-rose-500"></div>Loss Zone</div>
+                                               </div>
+                                               {selectedMetricInfo?.overlayDesc && (
+                                                   <div className="text-[7px] font-black text-indigo-400 uppercase bg-indigo-950/30 px-2 py-1 rounded border border-indigo-500/20 animate-in fade-in zoom-in-95">
+                                                       {selectedMetricInfo.overlayDesc}
+                                                   </div>
+                                               )}
+                                          </div>
                                      </div>
+
+                                     <div className="flex-1 w-full min-h-0">
+                                          <ResponsiveContainer width="100%" height="100%">
+                                              <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                                                  <defs>
+                                                      <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
+                                                          <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                                                          <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                                                      </linearGradient>
+                                                  </defs>
+                                                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
+                                                  <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
+                                                  <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                                                  <RechartsTooltip 
+                                                      contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
+                                                      itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                                                      labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
+                                                      formatter={(val: number, name: string) => {
+                                                          if (name === 'value') return [`${val}%`, 'Return'];
+                                                          if (name === 'drawdown') return [`${val}%`, 'Drawdown'];
+                                                          if (name === 'delta') return [`${val}%`, 'Period Change'];
+                                                          return [val, name];
+                                                      }}
+                                                  />
+                                                  <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
+                                                  
+                                                  {/* PROFIT_FACTOR Overlay: Monthly Magnitude Bars */}
+                                                  {activeOverlay === 'PROFIT_FACTOR' && (
+                                                      <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
+                                                          {chartData.map((entry, index) => (
+                                                              <Cell 
+                                                                  key={`cell-${index}`} 
+                                                                  fill={entry.delta >= 0 ? '#10b981' : '#ef4444'} 
+                                                              />
+                                                          ))}
+                                                      </Bar>
+                                                  )}
+
+                                                  {/* MAX_DRAWDOWN Overlay: Red Loss Area */}
+                                                  {activeOverlay === 'MAX_DRAWDOWN' && (
+                                                      <Area 
+                                                          type="monotone" 
+                                                          dataKey="drawdown" 
+                                                          stroke="none" 
+                                                          fill="#ef4444" 
+                                                          fillOpacity={0.25} 
+                                                          animationDuration={500} 
+                                                      />
+                                                  )}
+
+                                                  {/* SHARPE_RATIO Overlay: Regression Path & Consistency Corridor */}
+                                                  {activeOverlay === 'SHARPE_RATIO' && chartData.length > 1 && (
+                                                      <>
+                                                          <Area 
+                                                              type="monotone" 
+                                                              dataKey="idealValue" 
+                                                              stroke="#f59e0b" 
+                                                              strokeWidth={1}
+                                                              strokeDasharray="5 5"
+                                                              fill="#f59e0b"
+                                                              fillOpacity={0.08}
+                                                          />
+                                                          <ReferenceLine 
+                                                              stroke="#f59e0b" 
+                                                              strokeDasharray="3 3" 
+                                                              label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
+                                                              segment={[
+                                                                  { x: chartData[0]?.period, y: 0 }, 
+                                                                  { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1]?.value ?? 0 }
+                                                              ]}
+                                                          />
+                                                      </>
+                                                  )}
+                                                  
+                                                  <Area 
+                                                      type="monotone" 
+                                                      dataKey="value" 
+                                                      stroke={chartColor} 
+                                                      strokeWidth={2} 
+                                                      fillOpacity={1} 
+                                                      fill={`url(#${uniqueChartId})`} 
+                                                      animationDuration={1500}
+                                                      dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
+                                                          const { cx, cy, payload } = props;
+                                                          const isWin = payload.isWin;
+                                                          return <circle cx={cx} cy={cy} r={3} fill={isWin ? "#10b981" : "#ef4444"} stroke="#020617" strokeWidth={1} key={`dot-${payload.period}`} className="animate-in fade-in duration-500" />;
+                                                      } : false}
+                                                  />
+                                              </ComposedChart>
+                                          </ResponsiveContainer>
+                                     </div>
+                                 </div>
+
+                                 {/* Historical Context */}
+                                 <div className="bg-emerald-900/10 p-6 rounded-[30px] border border-emerald-500/20 flex-1">
+                                      <h5 className="text-[9px] font-black text-emerald-500 uppercase tracking-widest mb-3 flex items-center gap-2">
+                                          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                          Simulation Intelligence Insight
+                                      </h5>
+                                      <div className="prose-report text-xs text-slate-300 leading-relaxed">
+                                          <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                              {currentBacktest.historicalContext}
+                                          </ReactMarkdown>
+                                      </div>
                                  </div>
                             </div>
                         </div>
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
@@ -1740,12 +1733,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         )}
       </div>
 
+      {/* LOG TERMINAL */}
       <div className="xl:col-span-1">
         <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
           <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
             {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : l.includes('[INFO]') ? 'border-cyan-500 text-cyan-400' : 'border-rose-900'}`}>
+              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
                 {l}
               </div>
             ))}
