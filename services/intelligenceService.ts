@@ -908,12 +908,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **riskRewardRatio**: e.g., "1:4.5".
   - **kellyWeight**: e.g., "15%".
   - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Must use the following specific **Korean Markdown** format for maximum readability:
+  - **investmentOutlook**: **CRITICAL**. Must use the following clean **Korean Markdown** format. **DO NOT USE EMOJIS**. Keep it professional.
   
   Format Template (as string):
-  "### 🧠 Neural Investment Outlook: [Symbol]\\n\\n**1. 🏛️ 전문가 3인 성향 분석 (The Council Debate)**\\n- **🧐 보수적 퀀트 (Conservative Quant)**: [Evaluation of Fundamentals, Valuation, Safety]\\n- **🚀 공격적 트레이더 (Aggressive Trader)**: [Evaluation of Momentum, News, Catalysts]\\n- **⚖️ 마켓 메이커 (Market Maker)**: [Evaluation of Liquidity, Order Blocks, Traps]\\n\\n**2. 🔮 선정 타당성 및 미래 전망 (The Alpha Thesis)**\\n[Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification in Korean.]"
+  "### Neural Investment Outlook: [Symbol]\\n\\n#### 1. 전문가 3인 성향 분석 (The Council Debate)\\n- **보수적 퀀트**: [Analysis in Korean]\\n- **공격적 트레이더**: [Analysis in Korean]\\n- **마켓 메이커**: [Analysis in Korean]\\n\\n#### 2. 선정 타당성 및 미래 전망 (The Alpha Thesis)\\n[Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification in Korean.]"
 
-  **NO EMOJIS IN JSON STRINGS EXCEPT INSIDE 'investmentOutlook' HEADER**.
+  **NO EMOJIS IN JSON STRINGS**.
   Language: Korean.
   `;
 
