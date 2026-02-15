@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -657,7 +656,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const rvol = Number(c.techMetrics?.rawRvol || 0);
           
           const isUndervaluedGrowth = gap > 100 && ict > 60;
-          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0;
+          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0; // Check isImputed property
           const isHiddenGem = isUndervaluedGrowth || isVolumeRunner;
           
           let sortScore = c.compositeAlpha || 0;
