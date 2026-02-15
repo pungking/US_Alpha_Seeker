@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
+import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, trackUsage } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
@@ -30,12 +30,9 @@ interface AlphaCandidate {
   supportLevel?: number;
   resistanceLevel?: number;
   riskRewardRatio?: string;
-  // [NEW] News Sentiment Fields
   newsSentiment?: string;
   newsScore?: number;
   kellyWeight?: string;
-  
-  // Accumulated Data
   [key: string]: any;
 }
 
@@ -81,7 +78,6 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
   }
 };
 
-// [MASTER FRAMEWORK INSIGHTS]
 const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'HALF_KELLY': {
         title: "Half-Kelly Criterion (최적 비중)",
@@ -135,7 +131,6 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
     }
 };
 
-// [ALPHA MAP INSIGHTS]
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'RISK': {
         title: "Risk Management (1.0R)",
@@ -156,14 +151,14 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 
 // [IMPROVED MARKDOWN COMPONENTS - CLEAN & PROFESSIONAL]
 const MarkdownComponents: any = {
-    // Headlines: Clean, no boxes, just text with color/underline
+    // Headlines: Clean, no boxes, just text with color
     h1: (props: any) => (
-        <h1 className="text-lg md:text-xl font-black text-rose-500 mt-6 mb-4 uppercase tracking-widest border-b-2 border-rose-500/50 pb-2">
+        <h1 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-4 uppercase tracking-widest pb-2">
             {props.children}
         </h1>
     ),
     h2: (props: any) => (
-        <h2 className="text-base md:text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide">
+        <h2 className="text-base md:text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide">
             {props.children}
         </h2>
     ),
@@ -172,11 +167,11 @@ const MarkdownComponents: any = {
     // Paragraphs: Standard readable text
     p: (props: any) => <p className="text-xs md:text-[13px] text-slate-300 leading-relaxed mb-3 font-medium tracking-wide" {...props} />,
     
-    // Lists: Clean standard bullets, no weird absolute positioning or "green dots"
-    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
+    // Lists: Clean standard bullets
+    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
-        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed" {...props}>
+        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
             {props.children}
         </li>
     ),
@@ -217,7 +212,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
 
-  // [NEW] Real-time Price State
   const [realtimePrices, setRealtimePrices] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
   const wsRef = useRef<WebSocket | null>(null);
 
@@ -227,22 +221,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
-  // [QUANT CALCULATION ENGINE]
   const quantMetrics = useMemo(() => {
       try {
           if (!selectedStock) return null;
 
-          // 1. INPUTS
           const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
           const entry = selectedStock.supportLevel || selectedStock.price * 0.98;
           const stop = selectedStock.stopLoss || selectedStock.price * 0.95;
           const target = selectedStock.resistanceLevel || selectedStock.price * 1.10;
           
-          const roe = selectedStock.roe || 15; // default fallback
+          const roe = selectedStock.roe || 15; 
           const ictScore = selectedStock.ictScore || conviction; 
           const intrinsic = selectedStock.intrinsicValue || selectedStock.price;
           
-          // 2. ODDS & PROB (Backtest or Heuristic)
           const simMetrics = backtestData[selectedStock.symbol]?.metrics;
           let P = 0; 
           let B = 0; 
@@ -251,12 +242,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               P = parseFloat(String(simMetrics.winRate).replace('%','')) / 100;
               B = parseFloat(simMetrics.profitFactor || "1.5");
           } else {
-              // [UPDATED] Heuristic: Conservative Win Rate Estimation to avoid Kelly capping
-              // Conviction 50 -> 45% WR, Conviction 90 -> 57% WR
-              // This makes the Half-Kelly result more dynamic and realistic (usually < 20%)
               P = 0.30 + (conviction / 100) * 0.30; 
-              
-              // B based on Risk Reward
               if (selectedStock.riskRewardRatio) {
                   const parts = selectedStock.riskRewardRatio.split(':');
                   B = parts.length === 2 ? parseFloat(parts[1]) : 2.0;
@@ -266,49 +252,33 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           if (isNaN(B) || B <= 0) B = 1.5;
           
-          // 3. PHASE 1: SIZING (Shield)
-          // Half-Kelly
           const Q = 1 - P;
           let kellyRaw = P - (Q / B);
           if (kellyRaw < 0) kellyRaw = 0;
           
-          // Institutional Adjustment: Cap at 20% max per position
-          // Multiply by 100 to get percentage
           const halfKelly = Math.min((kellyRaw * 0.5 * 100), 20.0);
           
-          // VAPS (Volatility Adjusted) - Assume $100k Equity, 1% Risk ($1000)
           const riskPerShare = Math.max(0.01, entry - stop);
           const vapsQty = Math.floor(1000 / riskPerShare);
-          const vapsAllocation = (vapsQty * entry) / 1000; // % of 100k
+          const vapsAllocation = (vapsQty * entry) / 1000; 
 
-          // 4. PHASE 2: SELECTION (Sword)
-          // ERCI = Upside% * log(Conviction) * (ICT/100)
           const upside = ((target - entry) / entry) * 100;
           const erci = upside * Math.log10(conviction || 10) * (ictScore / 100);
           
-          // Q-M Composite
           const qmScore = (roe * 0.4) + (ictScore * 0.6);
           
-          // Soros Ratio = (Target-Entry)/(Entry-Stop) * (ictScore/100)
           const sorosRatio = B * (ictScore / 50);
 
-          // IVG
           const ivg = selectedStock.fairValueGap || ((intrinsic - selectedStock.price)/selectedStock.price * 100);
 
-          // 5. PHASE 3: TIMING (Clock)
-          // Convexity
           const squeeze = selectedStock.techMetrics?.squeezeState === 'SQUEEZE_ON';
           const displacement = selectedStock.ictMetrics?.displacement > 60;
           const convexity = squeeze ? (displacement ? "Explosive" : "Building") : "Standard";
           
-          // IFS
           const ifs = selectedStock.ictMetrics?.smartMoneyFlow || 50;
 
-          // 6. PHASE 4: INTEGRITY (System)
-          // Expectancy (1R normalized) = (P * B) - (Q * 1)
           const expectancy = (P * B) - (Q * 1);
           
-          // AIC (Consensus)
           const aic = selectedStock.aiVerdict === 'STRONG_BUY' ? 95 : selectedStock.aiVerdict === 'BUY' ? 80 : 50;
 
           return {
@@ -341,16 +311,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
   }, [selectedStock, backtestData]);
 
-  // --- WEBSOCKET CONNECTION FOR REAL-TIME UPDATES ---
   useEffect(() => {
-      // 1. Identify symbols to track from current results
       const currentCandidates = resultsCache[selectedBrain] || [];
       const symbolsToTrack = currentCandidates.map(s => s.symbol);
 
-      // Only run if we have symbols and are in INDIVIDUAL tab
       if (activeTab === 'INDIVIDUAL' && symbolsToTrack.length > 0 && polygonKey) {
           
-          // Cleanup previous connection
           if (wsRef.current) {
               wsRef.current.close();
               wsRef.current = null;
@@ -358,7 +324,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
           console.log(`[Polygon WS] Initiating connection for: ${symbolsToTrack.join(', ')}`);
           
-          // Connect to Polygon WebSocket
           const ws = new WebSocket('wss://socket.polygon.io/stocks');
           wsRef.current = ws;
           
@@ -372,35 +337,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   const data = JSON.parse(e.data);
                   
                   data.forEach((msg: any) => {
-                      // Handle Authentication Success -> Then Subscribe
                       if (msg.ev === 'status' && msg.status === 'auth_success') {
                           console.log("[Polygon WS] Auth Success. Subscribing...");
                           const subs = symbolsToTrack.map(s => `T.${s}`).join(',');
                           ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
                       }
 
-                      // Handle Error
                       if (msg.ev === 'status' && msg.status === 'error') {
                           console.error("[Polygon WS] Error:", msg.message);
                       }
 
-                      // Handle Trade Data (T = Trade, A = Aggregate)
-                      // We prefer T for instant flashes, but A is fine too.
                       if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
-                          const price = msg.p || msg.c; // p for Trade, c for Agg
+                          const price = msg.p || msg.c; 
                           if (!price) return;
 
                           setRealtimePrices(prev => {
                               const currentData = prev[msg.sym];
                               const oldPrice = currentData?.price || 0;
                               
-                              // Determine direction
                               let direction: 'up' | 'down' | null = null;
                               if (price > oldPrice) direction = 'up';
                               else if (price < oldPrice) direction = 'down';
                               
-                              // If price is same, ignore updates to prevent unnecessary renders, 
-                              // unless it's a first update
                               if (price === oldPrice && currentData) return prev;
 
                               return { 
@@ -409,7 +367,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               };
                           });
                           
-                          // Set timeout to clear flash direction
                           if (price !== (realtimePrices[msg.sym]?.price || 0)) {
                               setTimeout(() => {
                                   setRealtimePrices(prev => {
@@ -419,7 +376,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                           [msg.sym]: { ...prev[msg.sym], direction: null } 
                                       };
                                   });
-                              }, 1000); // 1s flash duration
+                              }, 1000); 
                           }
                       }
                   });
@@ -474,7 +431,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          // Add a small delay to ensure render updates before heavy matrix op
           setTimeout(() => {
               handleRunMatrixAudit(selectedBrain);
           }, 1000);
@@ -513,7 +469,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setActiveAlphaInsight(null);
   }, [selectedStock]);
 
-  // Click Outside Handler for Alpha Insights
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
@@ -558,7 +513,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
 
     // 4. Handle "Personas" - make them bold and on new lines if they look like keys
-    const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker'];
+    const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker', '종합 분석', 'Comprehensive Analysis'];
     personas.forEach(p => {
          // Replace "Role :" or "- Role :" with "\n- **Role** :"
          const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
@@ -588,10 +543,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .trim();
   };
 
-  // Helper for KST Timestamp
   const getKstTimestamp = () => {
     const now = new Date();
-    // 9 hours offset for KST
     const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
     return kstDate.toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-');
   };
@@ -621,7 +574,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const loadStage5Data = async () => {
     if (!accessToken) return;
     try {
-      // Changed query to be broader to catch recent files
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
@@ -657,7 +609,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
-      // [CRITICAL FIX] Handle Gemini Errors Explicitly - Manual Mode Toggle
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
           setSelectedBrain(ApiProvider.PERPLEXITY);
@@ -667,7 +618,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               currentProvider = ApiProvider.PERPLEXITY; 
               response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
           } else {
-              // Manual Mode: Stop and ask user to retry
               addLog("Gemini Unavailable. System toggled to Sonar. Click Execute to retry.", "info");
               setLoading(false);
               return; 
@@ -678,7 +628,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
-      // [FIX] Sanitization & Type Coercion to prevent Black Screen
       const mergedFinal = safeAiResults.map((aiData: any) => {
         if (!aiData?.symbol) return null;
         const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
@@ -688,7 +637,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const safeEntry = Number(aiData.supportLevel) || (safePrice * 0.98);
         
         return {
-            ...item, // Accumulate Stage 5 data
+            ...item, 
             ...aiData, 
             price: safePrice,
             convictionScore: Number(aiData.convictionScore || item.compositeAlpha || 0),
@@ -706,13 +655,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           onStockSelected?.(first);
           onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
           
-          // [NEW] Save Alpha Candidates Result to Drive
           if(accessToken) {
               const timestamp = getKstTimestamp();
               const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
               const payload = {
                   manifest: { version: "9.9.9", count: mergedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
-                  alpha_candidates: mergedFinal // Full accumulated data
+                  alpha_candidates: mergedFinal 
               };
               const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
               await uploadFile(accessToken, folderId, fileName, payload);
@@ -771,7 +719,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (token) {
            const timestamp = getKstTimestamp();
            const brainLabel = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-           // [TIMESTAMP] Updated filename format per request
            const fileName = `PORTFOLIO_MATRIX_AUDIT_${brainLabel}_${timestamp}.md`;
            
            addLog(`Archiving Report: ${fileName}...`, "info");
@@ -802,7 +749,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
         const brief = await generateTelegramBrief(currentResults, selectedBrain);
         
-        // [NEW] Archive Telegram Brief to Drive (Manual)
         if(accessToken) {
             const timestamp = getKstTimestamp();
             const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
@@ -834,7 +780,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       if (!data) throw new Error("AI returned empty data structure");
 
-      // [SAFEGUARD] Ensure metrics structure exists
       const safeMetrics = {
           winRate: data.metrics?.winRate || "0%",
           profitFactor: data.metrics?.profitFactor || "0",
@@ -847,7 +792,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         ...prev, 
         [stock.symbol]: { 
             ...data, 
-            metrics: safeMetrics, // Apply safeguard
+            metrics: safeMetrics, 
             historicalContext: safeContext, 
             timestamp: Date.now(),
             isRealData: !!isRealData
@@ -907,7 +852,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let value = 0;
       const data = [];
       const now = new Date();
-      // ALWAYS 24 MONTHS for consistency
       for (let i = 24; i >= 0; i--) {
           const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
           const period = `${d.getFullYear().toString().slice(2)}.${(d.getMonth() + 1).toString().padStart(2, '0')}`;
@@ -930,7 +874,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (!currentBacktest) return [];
         let rawData: any[] = [];
         
-        // Robust check for equityCurve
         if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
             rawData = currentBacktest.equityCurve.map((item) => {
                 const valStr = String(item.value);
@@ -942,26 +885,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 };
             });
         } else if (currentBacktest.metrics) {
-            // Fallback to synthetic if equityCurve is missing but metrics exist
             rawData = generateSyntheticData(currentBacktest.metrics);
         } else {
-            // Last resort fallback
             rawData = generateSyntheticData({ winRate: "50%", profitFactor: "1.2" });
         }
 
-        // Return empty if rawData somehow failed
         if (rawData.length === 0) return [];
 
-        // Hedge-fund Advanced Logic: Full 24-month calculation
         let runningPeak = -Infinity;
         return rawData.map((d, i) => {
             if (d.value > runningPeak) runningPeak = d.value;
             const drawdown = d.value - runningPeak;
             const prevValue = i > 0 ? rawData[i-1].value : 0;
             const delta = d.value - prevValue; 
-            const isWin = d.value >= prevValue; // Winning month if equity didn't decrease
+            const isWin = d.value >= prevValue; 
             
-            // Sharpe Ideal Regression Path
             const totalPeriods = rawData.length - 1;
             const finalVal = rawData[rawData.length - 1].value;
             const idealValue = i * (finalVal / (totalPeriods || 1));
@@ -981,10 +919,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isProfitable = chartData.length > 0 && chartData[chartData.length - 1].value >= 0;
   const chartColor = isProfitable ? '#10b981' : '#ef4444';
 
-  // [TACTICAL EXECUTION] Price Positioning Logic - SAFER
   const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
       const range = target - stop;
-      if (Math.abs(range) < 0.0001) return 50; // Prevention against div by zero
+      if (Math.abs(range) < 0.0001) return 50; 
       const position = price - stop;
       let percent = (position / range) * 100;
       percent = Math.max(0, Math.min(100, percent));
@@ -997,6 +934,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       selectedStock.resistanceLevel || 0, 
       selectedStock.stopLoss || 0
   ) : 50;
+
+  const copyReport = () => {
+    if (selectedStock?.investmentOutlook) {
+      navigator.clipboard.writeText(selectedStock.investmentOutlook);
+      alert("Report copied to clipboard.");
+    }
+  };
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
@@ -1175,149 +1119,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
 
-                         {/* Tactical Execution Map - Redesigned for Clarity */}
-                         <div className="bg-slate-900/50 backdrop-blur-md p-6 rounded-[30px] border border-white/5 shadow-inner flex flex-col gap-4 animate-in fade-in slide-in-from-bottom-2 relative mt-4">
-                            
-                            {/* Header with Explanations */}
-                            <div className="flex justify-between items-end mb-2">
-                                <h4 className="text-[10px] font-black text-slate-400 uppercase tracking-widest">Tactical Range Map</h4>
-                                <div className="flex gap-3 text-[8px] font-bold uppercase tracking-wider">
-                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-rose-500/50 rounded-sm"></div>Stop Zone</div>
-                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-slate-600/50 rounded-sm"></div>Buffer</div>
-                                    <div className="flex items-center gap-1"><div className="w-2 h-2 bg-emerald-500/50 rounded-sm"></div>Profit Zone</div>
-                                </div>
-                            </div>
-
-                            {/* The Bar Visualization - Added mt-8 to prevent overlap */}
-                            <div className="relative h-16 w-full mt-8">
-                                {/* Track Line */}
-                                <div className="absolute top-1/2 left-0 right-0 h-2 bg-slate-800 rounded-full -translate-y-1/2 overflow-hidden border border-white/5">
-                                     {/* Gradient Background representing the transition from Stop to Target */}
-                                     <div className="w-full h-full bg-gradient-to-r from-rose-900 via-slate-800 to-emerald-900 opacity-50"></div>
-                                </div>
-
-                                {/* Markers Container */}
-                                {(() => {
-                                    const stop = selectedStock.stopLoss || 0;
-                                    const entry = selectedStock.supportLevel || 0;
-                                    const target = selectedStock.resistanceLevel || 0;
-                                    // Use realtime price if available, otherwise fallback to static price
-                                    const current = realtimePrices[selectedStock.symbol]?.price || selectedStock.price || 0;
-                                    
-                                    // Define Range: Min = Stop - 2%, Max = Target + 2%
-                                    const minPrice = stop * 0.98;
-                                    const maxPrice = target * 1.02;
-                                    const totalRange = maxPrice - minPrice;
-                                    
-                                    const getPos = (p: number) => {
-                                        if (totalRange <= 0) return 50;
-                                        const pct = ((p - minPrice) / totalRange) * 100;
-                                        return Math.max(0, Math.min(100, pct));
-                                    };
-
-                                    const stopPos = getPos(stop);
-                                    const entryPos = getPos(entry);
-                                    const targetPos = getPos(target);
-                                    const currentPos = getPos(current);
-
-                                    return (
-                                        <>
-                                            {/* Zones (Visualizing ranges) */}
-                                            <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-rose-500/30" style={{ left: '0%', width: `${stopPos}%` }}></div>
-                                            <div className="absolute top-1/2 -translate-y-1/2 h-2 bg-emerald-500/30" style={{ left: `${entryPos}%`, right: '0%' }}></div>
-
-                                            {/* STOP LOSS MARKER (Top Label) */}
-                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${stopPos}%` }}>
-                                                <div className="h-full w-0.5 bg-rose-500 shadow-[0_0_10px_rgba(244,63,94,0.8)]"></div>
-                                                <div className="absolute -top-10 mb-2 text-[8px] font-black text-rose-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-rose-500/30">STOP ${stop.toFixed(2)}</div>
-                                            </div>
-
-                                            {/* ENTRY MARKER (Top Label - Lowered) */}
-                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${entryPos}%` }}>
-                                                <div className="h-4 w-0.5 bg-blue-400"></div>
-                                                <div className="absolute -top-4 mb-2 text-[8px] font-black text-blue-400 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-blue-500/30">ENTRY ${entry.toFixed(2)}</div>
-                                            </div>
-
-                                            {/* TARGET MARKER (Top Label) */}
-                                            <div className="absolute top-0 bottom-0 flex flex-col items-center justify-center group" style={{ left: `${targetPos}%` }}>
-                                                <div className="h-full w-0.5 bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></div>
-                                                <div className="absolute -top-10 mb-2 text-[8px] font-black text-emerald-500 whitespace-nowrap bg-slate-900/80 px-2 py-1 rounded border border-emerald-500/30">TARGET ${target.toFixed(2)}</div>
-                                            </div>
-
-                                            {/* CURRENT PRICE PUCK (Bottom Label) */}
-                                            <div className="absolute top-1/2 -translate-y-1/2 z-20 flex flex-col items-center" style={{ left: `${currentPos}%`, transition: 'left 1s ease-out' }}>
-                                                <div className="w-4 h-4 bg-white rounded-full shadow-[0_0_15px_rgba(255,255,255,0.8)] border-2 border-slate-900 flex items-center justify-center relative">
-                                                    <div className="w-1 h-1 bg-slate-900 rounded-full"></div>
-                                                    <div className="absolute inset-0 rounded-full border border-white animate-ping opacity-50"></div>
-                                                </div>
-                                                <div className="absolute top-8 mt-1 bg-white text-slate-900 px-2 py-1 rounded text-[9px] font-black shadow-lg whitespace-nowrap flex flex-col items-center z-30">
-                                                    <div className="absolute -top-1 w-2 h-2 bg-white rotate-45"></div>
-                                                    <span>CURRENT</span>
-                                                    <span className="text-[10px]">${current.toFixed(2)}</span>
-                                                </div>
-                                            </div>
-                                        </>
-                                    );
-                                })()}
-                            </div>
-
-                            {/* Interactive Toggles */}
-                            <div className="flex justify-between items-center text-[9px] font-bold text-slate-500 uppercase tracking-wider relative z-10 mt-6 border-t border-white/5 pt-3">
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('RISK')} 
-                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    <div className="w-1.5 h-1.5 bg-rose-500 rounded-full"></div>Risk (1.0) & VAPS
-                                </span>
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('ENTRY')}
-                                    className="text-blue-300 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    Optimal Entry Zone
-                                </span>
-                                <span 
-                                    onClick={() => setActiveAlphaInsight('REWARD')}
-                                    className="flex items-center gap-1 cursor-help hover:text-white transition-colors alpha-insight-trigger p-1 rounded hover:bg-white/5"
-                                >
-                                    Reward ({selectedStock.riskRewardRatio ? selectedStock.riskRewardRatio.split(':')[1] : '3.0'})<div className="w-1.5 h-1.5 bg-emerald-500 rounded-full"></div>
-                                </span>
-                            </div>
-
-                            {/* Tactical Insight Overlay */}
-                            {activeAlphaInsight && ALPHA_INSIGHTS[activeAlphaInsight] && (
-                                <div className="alpha-insight-overlay absolute bottom-20 left-4 right-4 z-30 animate-in fade-in slide-in-from-bottom-2">
-                                    <div className="bg-slate-900/95 backdrop-blur-xl p-6 rounded-[24px] border border-blue-500/30 shadow-2xl relative">
-                                        <button onClick={() => setActiveAlphaInsight(null)} className="absolute top-3 right-3 text-slate-500 hover:text-white">
-                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                                        </button>
-                                        <h5 className="text-[10px] font-black text-blue-400 uppercase tracking-widest mb-2 flex items-center gap-2">
-                                            <span className="w-1.5 h-1.5 rounded-full bg-blue-500 animate-pulse"></span>
-                                            {ALPHA_INSIGHTS[activeAlphaInsight].title}
-                                        </h5>
-                                        <p className="text-[10px] text-slate-300 leading-relaxed font-medium mb-3">{ALPHA_INSIGHTS[activeAlphaInsight].desc}</p>
-                                        <div className="bg-blue-900/20 p-3 rounded-xl border border-blue-500/20">
-                                            <p className="text-[9px] text-emerald-400 font-bold mb-1 uppercase tracking-wider">Strategy:</p>
-                                            <p className="text-[9px] text-slate-400 leading-relaxed">{ALPHA_INSIGHTS[activeAlphaInsight].strategy}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-                        </div>
-                         
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             {/* REDESIGNED HEADER: Clean, No Boxes, Just Text */}
-                            <div className="flex flex-col border-b border-white/10 pb-4 mb-6">
-                                <div className="flex items-center gap-4">
-                                    <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.2em] underline underline-offset-4 decoration-rose-500/50">
-                                        NEURAL INVESTMENT OUTLOOK
-                                    </h4>
-                                    <h2 className="text-2xl font-black text-white italic tracking-tighter">
+                            <div className="flex items-start gap-4 border-b border-white/10 pb-4 mb-6">
+                                <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.2em] underline underline-offset-4 decoration-rose-500/50 mt-2">
+                                    NEURAL INVESTMENT OUTLOOK
+                                </h4>
+                                <div className="flex flex-col items-start">
+                                    <h2 className="text-4xl font-black text-white italic tracking-tighter leading-none">
                                         {selectedStock.symbol}
                                     </h2>
+                                    <span className="text-[10px] font-bold text-slate-300 bg-white/10 px-2 py-0.5 rounded uppercase tracking-wider mt-1">
+                                        {selectedStock.name}
+                                    </span>
                                 </div>
-                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">
-                                    {selectedStock.name}
-                                </p>
+                                <div className="ml-auto flex gap-3">
+                                    <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
+                                </div>
                             </div>
                             
                             <div className="prose-report min-h-[200px]">
@@ -1695,7 +1513,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
