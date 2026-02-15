@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
+import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, trackUsage } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
@@ -150,27 +150,27 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 const MarkdownComponents: any = {
-    // Headlines: Clean, no boxes, just text with color/underline
+    // Headlines: Clean, no boxes, no borders to fix green bar issue
     h1: (props: any) => (
-        <h1 className="text-lg md:text-xl font-black text-rose-500 mt-6 mb-4 uppercase tracking-widest border-b-2 border-rose-500/50 pb-2">
+        <h1 className="text-lg md:text-xl font-black text-rose-500 mt-6 mb-4 uppercase tracking-widest pb-2 border-none" {...props}>
             {props.children}
         </h1>
     ),
     h2: (props: any) => (
-        <h2 className="text-base md:text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide">
+        <h2 className="text-base md:text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide border-none" {...props}>
             {props.children}
         </h2>
     ),
-    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide border-none" {...props} />,
     
     // Paragraphs: Standard readable text
     p: (props: any) => <p className="text-xs md:text-[13px] text-slate-300 leading-relaxed mb-3 font-medium tracking-wide" {...props} />,
     
-    // Lists: Clean standard bullets, no weird absolute positioning or "green dots"
-    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
+    // Lists: Clean standard bullets
+    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
-        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed" {...props}>
+        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
             {props.children}
         </li>
     ),
@@ -512,6 +512,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     // 4. Handle "Personas" - make them bold and on new lines if they look like keys
     const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker', '종합 분석', 'Comprehensive Analysis'];
     personas.forEach(p => {
+         // Replace "Role :" or "- Role :" with "\n- **Role** :"
          const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
          str = str.replace(regex, `\n- **${p}** :`);
     });
@@ -1116,16 +1117,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          </div>
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* REDESIGNED HEADER: Clean, No Boxes, Just Text */}
+                            {/* REDESIGNED HEADER: Fixed Green Bar issue by removing border and padding */}
                             <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
-                                <div>
-                                    <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.25em] mb-1">
-                                        NEURAL INVESTMENT OUTLOOK
-                                    </h4>
-                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
-                                       {selectedStock.name} ({selectedStock.symbol})
-                                    </p>
-                                </div>
+                                <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.25em]">
+                                    NEURAL INVESTMENT OUTLOOK
+                                </h4>
                                 <div className="flex gap-3">
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
@@ -1325,7 +1321,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      ].map(m => (
                                          <div 
                                             key={m.key}
-                                            onClick={() => handleMetricClick(m.key, m.val)} // FIXED: Corrected click handler to pass data
+                                            onClick={() => handleMetricClick(m.key, m.val)} // Restored correct handler with parameters
                                             className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === m.key ? `${m.bg} ${m.border} text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]` : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                          >
                                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{METRIC_DEFINITIONS[m.key].title}</span>
