@@ -2,10 +2,10 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, trackUsage } from '../services/intelligenceService';
+import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
@@ -150,26 +150,32 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 const MarkdownComponents: any = {
-    // Explicitly disabling borders to prevent index.html CSS leakage
+    // Headlines: Clean, no boxes, just text with color/underline
     h1: (props: any) => (
-        <h1 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-4 uppercase tracking-widest pb-2 border-none" {...props}>
+        <h1 className="text-lg md:text-xl font-black text-rose-500 mt-6 mb-4 uppercase tracking-widest border-b-2 border-rose-500/50 pb-2">
             {props.children}
         </h1>
     ),
     h2: (props: any) => (
-        <h2 className="text-base md:text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-none" {...props}>
+        <h2 className="text-base md:text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide">
             {props.children}
         </h2>
     ),
-    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide border-none" {...props} />,
+    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    
+    // Paragraphs: Standard readable text
     p: (props: any) => <p className="text-xs md:text-[13px] text-slate-300 leading-relaxed mb-3 font-medium tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500" {...props} />,
+    
+    // Lists: Clean standard bullets, no weird absolute positioning or "green dots"
+    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
-        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
+        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed" {...props}>
             {props.children}
         </li>
     ),
+    
+    // Inline Elements
     strong: (props: any) => <strong className="text-white font-bold" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-indigo-500/50 pl-4 my-4 italic text-slate-400" {...props} />
@@ -506,7 +512,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     // 4. Handle "Personas" - make them bold and on new lines if they look like keys
     const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker', '종합 분석', 'Comprehensive Analysis'];
     personas.forEach(p => {
-         // Replace "Role :" or "- Role :" with "\n- **Role** :"
          const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
          str = str.replace(regex, `\n- **${p}** :`);
     });
@@ -1501,7 +1506,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
