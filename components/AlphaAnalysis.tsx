@@ -89,6 +89,11 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
         desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).\n\n`Qty = (Capital * 0.01) / (Entry - Stop)`",
         strategy: "수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
     },
+    'RISK_REWARD': {
+        title: "Risk:Reward Ratio (손익비)",
+        desc: "진입가 대비 목표가(수익)와 손절가(손실)의 비율입니다.\n\n`RR = (Target - Entry) / (Entry - Stop)`",
+        strategy: "수치 해석:\n- 1:3 이상: 이상적인 진입 구간 (작게 잃고 크게 범)\n- 1:2 미만: 승률이 60% 이상일 때만 진입 고려"
+    },
     'ERCI': {
         title: "ERCI (효율성 지수)",
         desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).\n\n`ERCI = Upside% * log(Conviction) * Flow`",
@@ -99,20 +104,20 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
         desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.\n\n`QM = (ROE * 0.4) + (ICT * 0.6)`",
         strategy: "수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
     },
-    'CONVEXITY': {
-        title: "Alpha Convexity (폭발력)",
-        desc: "에너지 응축(Squeeze)과 발산(Displacement)의 결합 상태입니다.",
-        strategy: "상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
-    },
-    'EXPECTANCY': {
-        title: "Expectancy (기대값)",
-        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.\n\n`Exp = (Win% * AvgWin) - (Loss% * AvgLoss)`",
-        strategy: "수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
-    },
     'IVG': {
         title: "IVG (내재가치 괴리율)",
         desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.\n\n`IVG = (Intrinsic - Price) / Price`",
         strategy: "수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
+    },
+    'SOROS': {
+        title: "Soros Ratio (변동성 대비 수익)",
+        desc: "단위 변동성당 창출되는 초과 수익입니다. 베타(Beta)가 낮을수록 점수가 높아집니다.\n\n`Soros = (ProfitFactor * ICT) / Beta`",
+        strategy: "수치 해석:\n- 2.0 이상: 시장 무관하게 수익을 내는 'Alpha' 종목\n- 1.0 미만: 시장 지수 추종형 (Beta) 종목"
+    },
+    'CONVEXITY': {
+        title: "Alpha Convexity (폭발력)",
+        desc: "에너지 응축(Squeeze)과 발산(Displacement)의 결합 상태입니다.",
+        strategy: "상태 해석:\n- 'Explosive': 에너지가 응축된 후 세력이 방향을 잡음 (곧 시세 분출)\n- 'Building': 에너지만 모이고 있음 (대기)\n- 'Standard': 일반적인 변동성"
     },
     'IFS': {
         title: "IFS (기관 수급 점수)",
@@ -124,10 +129,25 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
         desc: "해당 종목이 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
         strategy: "상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
     },
+    'PATTERN': {
+        title: "Technical Pattern (차트 패턴)",
+        desc: "현재 차트에서 식별된 주요 기술적 패턴입니다.",
+        strategy: "주요 패턴:\n- Wyckoff SOS: 강세 신호 (Sign of Strength)\n- Cup & Handle: 지속형 상승 패턴\n- Bull Flag: 급등 후 건전한 조정"
+    },
+    'EXPECTANCY': {
+        title: "Expectancy (기대값)",
+        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.\n\n`Exp = (Win% * AvgWin) - (Loss% * AvgLoss)`",
+        strategy: "수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
+    },
     'AIC': {
         title: "AIC (AI 합의)",
         desc: "여러 AI 모델(Gemini, Perplexity)간의 분석 일치도입니다.",
         strategy: "수치 해석:\n- 80% 이상: AI들의 의견이 강력하게 일치 (신뢰도 높음)\n- 50% 주변: 의견 엇갈림 (독자적 판단 필요)"
+    },
+    'SENTIMENT': {
+        title: "News Sentiment (뉴스 심리)",
+        desc: "최근 48시간 내 뉴스 기사 및 미디어의 감성을 분석한 점수입니다.",
+        strategy: "해석:\n- Positive: 호재성 재료 지배적 (모멘텀 강화)\n- Negative: 악재 발생 (기술적 지표가 좋아도 진입 보류)"
     }
 };
 
@@ -289,7 +309,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
           const qmScore = (roe * 0.4) + (ictScore * 0.6);
           
-          const sorosRatio = B * (ictScore / 50);
+          // Improved Soros Ratio calculation
+          const beta = selectedStock.beta || 1.0;
+          const sorosRatio = beta > 0 ? (B * (ictScore / 50)) / beta : B;
 
           const ivg = selectedStock.fairValueGap || ((intrinsic - selectedStock.price)/selectedStock.price * 100);
 
@@ -308,22 +330,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   kelly: halfKelly.toFixed(1),
                   vapsQty: vapsQty,
                   vapsPct: vapsAllocation.toFixed(1),
-                  riskPerShare: riskPerShare.toFixed(2)
+                  riskPerShare: riskPerShare.toFixed(2),
+                  riskReward: B.toFixed(2)
               },
               selection: {
                   erci: erci.toFixed(1),
                   qm: qmScore.toFixed(0),
                   ivg: ivg.toFixed(1),
-                  soros: sorosRatio.toFixed(1)
+                  soros: sorosRatio.toFixed(2)
               },
               timing: {
                   convexity,
                   ifs: ifs.toFixed(0),
-                  mrf: selectedStock.marketState || 'Neutral'
+                  mrf: selectedStock.marketState || 'Neutral',
+                  pattern: selectedStock.chartPattern || 'N/A'
               },
               system: {
                   expectancy: expectancy.toFixed(2),
-                  aic: aic
+                  aic: aic,
+                  sentiment: selectedStock.newsSentiment || 'Neutral'
               }
           };
 
@@ -334,8 +359,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [selectedStock, backtestData]);
 
   useEffect(() => {
-      const currentCandidates = resultsCache[selectedBrain] || [];
-      const symbolsToTrack = currentCandidates.map(s => s.symbol);
+      // Sort results by conviction score descending to ensure rank order
+      const unsorted = resultsCache[selectedBrain] || [];
+      const sorted = [...unsorted].sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+      
+      const symbolsToTrack = sorted.map(s => s.symbol);
 
       if (activeTab === 'INDIVIDUAL' && symbolsToTrack.length > 0 && finnhubKey) {
           
@@ -414,10 +442,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [logs]);
 
   useEffect(() => {
+    // Sort cached results when selectedBrain changes
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
-      if (!selectedStock || !cached.find(c => c.symbol === selectedStock.symbol)) {
-        const initialStock = cached[0];
+      const sorted = [...cached].sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+      
+      if (!selectedStock || !sorted.find(c => c.symbol === selectedStock.symbol)) {
+        const initialStock = sorted[0];
         setSelectedStock(initialStock);
         onStockSelected?.(initialStock);
       }
@@ -662,17 +693,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
       
       if (mergedFinal.length > 0) {
-          const first = mergedFinal[0];
+          // Sort by conviction score descending immediately after fetch
+          const sortedFinal = [...mergedFinal].sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+          
+          const first = sortedFinal[0];
           setSelectedStock(first);
           onStockSelected?.(first);
-          onFinalSymbolsDetected?.(mergedFinal.map(t => t.symbol), mergedFinal);
+          onFinalSymbolsDetected?.(sortedFinal.map(t => t.symbol), sortedFinal);
           
           if(accessToken) {
               const timestamp = getKstTimestamp();
               const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
               const payload = {
-                  manifest: { version: "9.9.9", count: mergedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
-                  alpha_candidates: mergedFinal 
+                  manifest: { version: "9.9.9", count: sortedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
+                  alpha_candidates: sortedFinal 
               };
               const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
               await uploadFile(accessToken, folderId, fileName, payload);
@@ -855,7 +889,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return 'bg-slate-700 text-slate-300 border-slate-600';
   };
 
-  const currentResults = resultsCache[selectedBrain] || [];
+  // Sort by conviction score for display
+  const currentResults = (resultsCache[selectedBrain] || []).sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   const generateSyntheticData = (metrics: any) => {
@@ -1167,45 +1202,45 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <div className="space-y-4 relative p-4 rounded-[30px] border border-white/5 bg-black/20">
                                 <h4 className="text-[9px] font-black text-indigo-400 uppercase tracking-[0.2em] px-2 italic">Quant Strategic Master Framework</h4>
                                 
-                                {/* PHASE 1: SIZING (SHIELD) */}
-                                <div className="grid grid-cols-2 gap-3">
+                                {/* PHASE 1: SIZING & RISK (SHIELD) - UPDATED with R:R */}
+                                <div className="grid grid-cols-3 gap-3">
                                     <div 
                                         onClick={() => setActiveAlphaInsight('HALF_KELLY')}
-                                        className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
+                                        className="p-3 bg-indigo-900/10 rounded-[20px] border border-indigo-500/20 text-center hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
                                     >
-                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            Sizing: Half-Kelly
-                                        </p>
-                                        <div className="flex items-baseline gap-1">
-                                            <span className="text-2xl font-black text-white italic">{quantMetrics.sizing.kelly}%</span>
-                                            <span className="text-[8px] text-slate-500 font-bold">Max</span>
+                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1">Kelly %</p>
+                                        <div className="flex items-baseline justify-center gap-1">
+                                            <span className="text-xl font-black text-white italic">{quantMetrics.sizing.kelly}%</span>
                                         </div>
                                     </div>
                                     <div 
                                         onClick={() => setActiveAlphaInsight('VAPS')}
-                                        className="p-4 bg-indigo-900/10 rounded-[24px] border border-indigo-500/20 hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
+                                        className="p-3 bg-indigo-900/10 rounded-[20px] border border-indigo-500/20 text-center hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
                                     >
-                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1 flex items-center gap-1">
-                                            Sizing: VAPS (1R)
-                                        </p>
-                                        <div className="flex flex-col">
-                                            <span className="text-xl font-black text-white italic">{quantMetrics.sizing.vapsQty} Shares</span>
-                                            <span className="text-[8px] text-slate-500 font-bold">Risk: ${quantMetrics.sizing.riskPerShare}/sh</span>
-                                        </div>
+                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1">VAPS Qty</p>
+                                        <span className="text-xl font-black text-white italic">{quantMetrics.sizing.vapsQty}</span>
+                                    </div>
+                                     <div 
+                                        onClick={() => setActiveAlphaInsight('RISK_REWARD')}
+                                        className="p-3 bg-indigo-900/10 rounded-[20px] border border-indigo-500/20 text-center hover:bg-indigo-900/20 cursor-help transition-all group alpha-insight-trigger"
+                                    >
+                                        <p className="text-[7px] text-indigo-300 font-bold uppercase tracking-wider mb-1">R:R Ratio</p>
+                                        <span className="text-xl font-black text-white italic">1:{quantMetrics.sizing.riskReward}</span>
                                     </div>
                                 </div>
 
-                                {/* PHASE 2: SELECTION (SWORD) */}
-                                <div className="p-4 bg-violet-900/10 rounded-[24px] border border-violet-500/20 flex justify-between items-center gap-2 hover:bg-violet-900/20 transition-all">
+                                {/* PHASE 2: SELECTION (SWORD) - UPDATED with SOROS */}
+                                <div className="p-3 bg-violet-900/10 rounded-[24px] border border-violet-500/20 grid grid-cols-4 gap-2 hover:bg-violet-900/20 transition-all">
                                     {[
                                         { id: 'ERCI', val: quantMetrics.selection.erci, label: 'ERCI' },
                                         { id: 'QM_COMP', val: quantMetrics.selection.qm, label: 'Q-M' },
                                         { id: 'IVG', val: `${quantMetrics.selection.ivg}%`, label: 'IVG' },
+                                        { id: 'SOROS', val: quantMetrics.selection.soros, label: 'SOROS' },
                                     ].map((m) => (
                                         <div 
                                             key={m.id}
                                             onClick={() => setActiveAlphaInsight(m.id)}
-                                            className="text-center cursor-help group alpha-insight-trigger flex-1"
+                                            className="text-center cursor-help group alpha-insight-trigger flex flex-col justify-center"
                                         >
                                             <p className="text-[7px] text-violet-400 font-bold uppercase mb-0.5 group-hover:text-white transition-colors">{m.label}</p>
                                             <p className="text-sm font-black text-white">{m.val}</p>
@@ -1213,39 +1248,50 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     ))}
                                 </div>
 
-                                {/* PHASE 3: TIMING (CLOCK) */}
-                                <div className="grid grid-cols-3 gap-3">
+                                {/* PHASE 3: TIMING (CLOCK) - UPDATED with PATTERN */}
+                                <div className="grid grid-cols-4 gap-2">
                                     <div 
                                         onClick={() => setActiveAlphaInsight('CONVEXITY')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
+                                        className="p-2 bg-amber-900/10 rounded-[16px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
                                     >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Convexity</p>
-                                        <p className="text-[9px] font-black text-white">{quantMetrics.timing.convexity}</p>
+                                        <p className="text-[6px] text-amber-500 font-bold uppercase mb-0.5">Convexity</p>
+                                        <p className="text-[8px] font-black text-white truncate">{quantMetrics.timing.convexity}</p>
                                     </div>
                                     <div 
                                         onClick={() => setActiveAlphaInsight('IFS')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
+                                        className="p-2 bg-amber-900/10 rounded-[16px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
                                     >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">IFS Score</p>
-                                        <p className="text-xl font-black text-white italic">{quantMetrics.timing.ifs}</p>
+                                        <p className="text-[6px] text-amber-500 font-bold uppercase mb-0.5">IFS</p>
+                                        <p className="text-sm font-black text-white italic">{quantMetrics.timing.ifs}</p>
                                     </div>
                                     <div 
                                         onClick={() => setActiveAlphaInsight('MRF')}
-                                        className="p-3 bg-amber-900/10 rounded-[20px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
+                                        className="p-2 bg-amber-900/10 rounded-[16px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
                                     >
-                                        <p className="text-[7px] text-amber-500 font-bold uppercase mb-1">Market MRF</p>
+                                        <p className="text-[6px] text-amber-500 font-bold uppercase mb-0.5">MRF</p>
                                         <p className="text-[8px] font-black text-white truncate">{quantMetrics.timing.mrf}</p>
+                                    </div>
+                                     <div 
+                                        onClick={() => setActiveAlphaInsight('PATTERN')}
+                                        className="p-2 bg-amber-900/10 rounded-[16px] border border-amber-500/20 text-center hover:bg-amber-900/20 cursor-help transition-all alpha-insight-trigger"
+                                    >
+                                        <p className="text-[6px] text-amber-500 font-bold uppercase mb-0.5">Pattern</p>
+                                        <p className="text-[8px] font-black text-white truncate">{quantMetrics.timing.pattern}</p>
                                     </div>
                                 </div>
 
-                                {/* PHASE 4: INTEGRITY (SYSTEM) */}
+                                {/* PHASE 4: INTEGRITY & SENTIMENT (SYSTEM) - UPDATED with SENTIMENT */}
                                 <div className="p-4 bg-emerald-900/10 rounded-[24px] border border-emerald-500/20 flex justify-between items-center hover:bg-emerald-900/20 transition-all cursor-help alpha-insight-trigger" onClick={() => setActiveAlphaInsight('EXPECTANCY')}>
                                     <div className="w-full">
                                         <p className="text-[7px] text-emerald-400 font-bold uppercase tracking-wider mb-2 border-b border-emerald-500/20 pb-1">System Integrity</p>
-                                        <div className="flex justify-between w-full">
+                                        <div className="flex justify-between w-full gap-2">
                                             <div className="flex flex-col">
                                                 <span className="text-[8px] text-slate-500 block mb-0.5">Expectancy</span>
                                                 <span className="text-sm font-black text-white">{quantMetrics.system.expectancy}R</span>
+                                            </div>
+                                             <div className="flex flex-col text-center" onClick={(e) => { e.stopPropagation(); setActiveAlphaInsight('SENTIMENT'); }}>
+                                                <span className="text-[8px] text-slate-500 block mb-0.5">Sentiment</span>
+                                                <span className="text-[10px] font-black text-white truncate max-w-[60px]">{quantMetrics.system.sentiment}</span>
                                             </div>
                                             <div className="flex flex-col items-end" onClick={(e) => { e.stopPropagation(); setActiveAlphaInsight('AIC'); }}>
                                                 <span className="text-[8px] text-slate-500 block mb-0.5">AI Consensus</span>
