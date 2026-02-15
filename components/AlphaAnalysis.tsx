@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport } from '../services/intelligenceService';
+import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
 interface AlphaCandidate {
@@ -156,26 +156,30 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 
 // [IMPROVED MARKDOWN COMPONENTS - ENHANCED TEXT RENDERING]
 const MarkdownComponents: any = {
-    h1: (props: any) => <h1 className="text-xl md:text-2xl font-black text-white mt-6 mb-4 uppercase tracking-widest border-b border-rose-500/50 pb-2" {...props} />,
+    h1: (props: any) => (
+        <h1 className="text-xl md:text-2xl font-black text-white mt-8 mb-6 uppercase tracking-[0.2em] border-b-2 border-rose-500 pb-3 flex items-center gap-3">
+            <span className="w-2 h-8 bg-rose-500 rounded-sm"></span>
+            {props.children}
+        </h1>
+    ),
     h2: (props: any) => (
-        <h2 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-3 uppercase tracking-wide border-b border-emerald-500/30 pb-2 flex items-center gap-2">
-            <span className="text-emerald-500 opacity-50">#</span>
+        <h2 className="text-lg md:text-xl font-bold text-white mt-8 mb-4 tracking-wide flex items-center gap-3 bg-white/5 p-3 rounded-xl border-l-4 border-emerald-500 shadow-lg">
             {props.children}
         </h2>
     ),
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide pl-2 border-l-2 border-blue-500/50" {...props} />,
-    p: (props: any) => <p className="text-sm md:text-[15px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-2 mb-6 mt-2 list-none" {...props} />,
+    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-6 mb-3 tracking-wide pl-3 border-l-2 border-blue-500/50" {...props} />,
+    p: (props: any) => <p className="text-sm text-slate-300 leading-7 mb-4 font-medium tracking-wide" {...props} />,
+    ul: (props: any) => <ul className="space-y-3 mb-6 mt-2 list-none" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
-        <li className="pl-4 relative flex items-start group mb-1" {...props}>
-             <span className="absolute left-0 top-2.5 w-1.5 h-1.5 rounded-full bg-emerald-500 group-hover:bg-emerald-400 transition-colors shadow-[0_0_8px_rgba(16,185,129,0.4)]"></span>
-             <span className="flex-1 text-slate-300 text-sm md:text-[15px] leading-relaxed group-hover:text-slate-200 transition-colors">{props.children}</span>
+        <li className="pl-2 relative flex items-start group" {...props}>
+            <span className="text-emerald-500 mr-3 mt-1.5 text-[10px] opacity-70">●</span>
+            <span className="flex-1 text-slate-300 text-sm leading-relaxed group-hover:text-white transition-colors">{props.children}</span>
         </li>
     ),
-    strong: (props: any) => <strong className="text-emerald-300 font-bold bg-emerald-900/40 px-1 rounded mx-0.5 border border-emerald-500/20" {...props} />,
+    strong: (props: any) => <strong className="text-emerald-300 font-bold bg-emerald-950/30 px-1 rounded" {...props} />,
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-emerald-500/50 bg-emerald-950/20 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
+        <blockquote className="border-l-4 border-indigo-500/50 bg-indigo-950/20 p-4 my-6 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
@@ -530,11 +534,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
-  };
-
-  const removeCitations = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text).replace(/\[\d+\]/g, '').trim();
   };
 
   const cleanInsightText = (text: any) => {
