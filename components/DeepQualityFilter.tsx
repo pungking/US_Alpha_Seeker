@@ -135,6 +135,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     if (onStockSelected) onStockSelected(ticker);
   };
 
+  // Handle Radar Chart Label Clicks
+  const handleRadarLabelClick = ({ value }: any) => {
+      if (value === 'Profit') setActiveInsight('PROFIT_SCORE');
+      if (value === 'Safety') setActiveInsight('SAFETY_SCORE');
+      if (value === 'Value') setActiveInsight('VALUE_SCORE');
+  };
+
   // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
@@ -383,10 +390,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               <div>
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
-                    {/* Improved Readability for Status Badge */}
+                    {/* Restored Original Glass Style Badge */}
                     <span className={`text-[9px] font-black px-3 py-1 rounded border uppercase tracking-widest transition-all ${
                         loading 
-                        ? 'bg-violet-900/90 text-white border-violet-400 animate-pulse shadow-lg shadow-violet-900/50' 
+                        ? 'bg-violet-500/20 text-violet-300 border-violet-500/40 animate-pulse' 
                         : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
                     }`}>
                         {loading ? `Scanning: ${progress.msg}` : 'Quant Sanitizer Active'}
@@ -396,7 +403,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               </div>
             </div>
             
-            {/* Button State Improvement: Distinct "Executing" Style */}
             <button 
               onClick={executeDeepFilter} 
               disabled={loading} 
@@ -480,7 +486,16 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               <ResponsiveContainer width="100%" height="100%">
                                   <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
                                       <PolarGrid stroke="#334155" opacity={0.3} />
-                                      <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
+                                      {/* Interactive Radar Axis Labels */}
+                                      <PolarAngleAxis 
+                                        dataKey="subject" 
+                                        tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold', cursor: 'pointer' }}
+                                        onClick={({ payload }) => {
+                                            if (payload.value === 'Profit') setActiveInsight('PROFIT_SCORE');
+                                            if (payload.value === 'Safety') setActiveInsight('SAFETY_SCORE');
+                                            if (payload.value === 'Value') setActiveInsight('VALUE_SCORE');
+                                        }}
+                                      />
                                       <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
                                       <Radar name={selectedTicker.symbol} dataKey="A" stroke="#8b5cf6" strokeWidth={2} fill="#8b5cf6" fillOpacity={0.4} />
                                       <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#8b5cf6', fontSize: '10px' }} />
