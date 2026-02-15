@@ -1,598 +1,624 @@
 
-import React, { useState, useEffect, useRef } from 'react';
-import { ResponsiveContainer, ScatterChart, Scatter, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, Cell, ReferenceLine } from 'recharts';
-import { GoogleGenAI } from "@google/genai";
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+import { ApiProvider, ApiStatus } from './types';
+import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
+import ApiStatusCard from './components/ApiStatusCard';
+import UniverseGathering from './components/UniverseGathering';
+import PreliminaryFilter from './components/PreliminaryFilter';
+import DeepQualityFilter from './components/DeepQualityFilter';
+import FundamentalAnalysis from './components/FundamentalAnalysis';
+import TechnicalAnalysis from './components/TechnicalAnalysis';
+import IctAnalysis from './components/IctAnalysis';
+import AlphaAnalysis from './components/AlphaAnalysis';
+import MarketTicker from './components/MarketTicker';
+import LegalDocs from './components/LegalDocs';
+import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
+import { sendTelegramReport } from './services/telegramService';
 
-interface DeepQualityTicker {
-  symbol: string;
-  name: string;
-  price: number;
-  volume: number;
-  marketValue: number;
-  
-  // Quant Scores
-  qualityScore: number;
-  profitabilityScore: number;
-  stabilityScore: number;
-  growthScore: number;
-  
-  // Metrics
-  roe: number;
-  debtToEquity: number;
-  per: number;
-  pbr: number;
-  
-  isValueTrap: boolean;
-  auditReason?: string;
-  
-  sector: string;
-  lastUpdate: string;
-  source?: string;
-  [key: string]: any;
-}
-
-interface Props {
-  autoStart?: boolean;
-  onComplete?: () => void;
-  onStockSelected?: (stock: any) => void;
-}
-
-// 3-Factor Quant Model Logic
-const calculateQualityScore = (metrics: { roe: number, debt: number, per: number }) => {
-    // 1. Profitability (ROE) - Max 40pts
-    const roeScore = Math.min(100, Math.max(0, (metrics.roe || 0) * 4));
-    
-    // 2. Stability (Debt) - Max 30pts
-    // Debt ratio: Lower is better. 0 = 100pts, 2.0 = 40pts, 3.3+ = 0pts
-    const debt = metrics.debt || 0;
-    const stabilityScore = Math.max(0, 100 - (debt * 30));
-    
-    // 3. Value/Growth (PER) - Max 30pts
-    // Sweet spot 5-25. Too low (<5) might be value trap. Too high (>50) is risky.
-    const per = metrics.per || 20;
-    let growthScore = 50;
-    if (per > 0 && per < 10) growthScore = 90;      // Deep Value
-    else if (per >= 10 && per < 25) growthScore = 80; // Reasonable Growth
-    else if (per >= 25 && per < 50) growthScore = 60; // Momentum
-    else growthScore = 40;                            // Overvalued or Unprofitable
-    
-    const qualityScore = Number(((roeScore * 0.4) + (stabilityScore * 0.3) + (growthScore * 0.3)).toFixed(2));
-    
-    return {
-        qualityScore,
-        profitabilityScore: roeScore,
-        stabilityScore,
-        growthScore
-    };
+// Markdown Components for ReactMarkdown
+const MarkdownComponents: any = {
+  p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[11px]" {...props} />,
+  ul: (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+  li: (props: any) => <li className="text-slate-300 text-[11px]" {...props} />,
+  strong: (props: any) => <strong className="text-emerald-400 font-bold" {...props} />,
+  h1: (props: any) => <h1 className="text-sm font-bold text-white mb-2" {...props} />,
+  h2: (props: any) => <h2 className="text-xs font-bold text-white mb-1" {...props} />,
+  h3: (props: any) => <h3 className="text-xs font-bold text-blue-400 mb-1" {...props} />,
+  blockquote: (props: any) => <blockquote className="border-l-4 border-emerald-500/50 pl-4 py-2 my-2 bg-emerald-900/10 italic text-slate-400 text-xs" {...props} />,
+  code: ({inline, ...props}: any) => inline 
+    ? <code className="bg-slate-800 text-emerald-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
+    : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>,
 };
 
-const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
-  const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, msg: 'Initializing', cacheHits: 0 });
-  const [processedData, setProcessedData] = useState<DeepQualityTicker[]>([]);
-  const [selectedTicker, setSelectedTicker] = useState<DeepQualityTicker | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.1: 3-Factor Quant Protocol Online.']);
+const App: React.FC = () => {
+  const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
+  const [currentStage, setCurrentStage] = useState(0);
+  const [isAiLoading, setIsAiLoading] = useState(false);
+  const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
+  const [isProd, setIsProd] = useState(false);
   
-  const [aiAuditStatus, setAiAuditStatus] = useState<'IDLE' | 'ANALYZING' | 'SUCCESS' | 'FAILED'>('IDLE');
-  const [aiAuditResult, setAiAuditResult] = useState<string | null>(null);
-  const [activeBrain, setActiveBrain] = useState<string>('GEMINI');
-  const [useSafeMode, setUseSafeMode] = useState(false);
+  // --- HYBRID MODE STATE ---
+  const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
+  const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
+  const [autoStatusMessage, setAutoStatusMessage] = useState("SYSTEM STANDBY");
+  
+  // Legal Docs State
+  const [showLegalDocs, setShowLegalDocs] = useState(false);
+  const [initialLegalTab, setInitialLegalTab] = useState<'privacy' | 'terms'>('privacy');
 
-  const logRef = useRef<HTMLDivElement>(null);
-  const startTimeRef = useRef<number>(0);
-  const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
+  // AI Usage State
+  const [aiUsage, setAiUsage] = useState<any>({ 
+    gemini: { tokens: 0, requests: 0, status: 'OK', lastError: '' }, 
+    perplexity: { tokens: 0, requests: 0, status: 'OK', lastError: '' } 
+  });
 
-  const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const fmpKey = API_CONFIGS.find(c => c.provider === ApiProvider.FMP)?.key;
-  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  // Drive Usage State
+  const [driveUsage, setDriveUsage] = useState<{ limit: number, usage: number, percent: number } | null>(null);
+  
+  // Data State
+  const [finalSymbols, setFinalSymbols] = useState<string[]>([]);
+  const [recommendedData, setRecommendedData] = useState<any[] | null>(null);
+  
+  // Brain State (Defaults changed to GEMINI)
+  const [selectedBrain, setSelectedBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  const [auditBrain, setAuditBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
+  // Unified Target State
+  const [selectedStock, setSelectedStock] = useState<any | null>(null);
+  const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
+  const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
+
+  // [NEW] GITHUB ACTION HOOK & LEGAL DOC HOOK
   useEffect(() => {
-    if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
-  }, [logs]);
-
-  // Timer Effect
-  useEffect(() => {
-    let interval: any;
-    if (loading && startTimeRef.current > 0) {
-      interval = setInterval(() => {
-        const now = Date.now();
-        const elapsed = Math.floor((now - startTimeRef.current) / 1000);
-        let eta = 0;
-        if (progress.current > 0 && progress.total > 0) {
-            const rate = progress.current / elapsed;
-            const remaining = progress.total - progress.current;
-            eta = rate > 0 ? Math.floor(remaining / rate) : 0;
-        }
-        setTimeStats({ elapsed, eta });
-      }, 1000);
-    }
-    return () => clearInterval(interval);
-  }, [loading, progress.current, progress.total]);
-
-  // Auto Start
-  useEffect(() => {
-    if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging Deep Quality Quant Filter...", "signal");
-        executeDeepQualityScan();
-    }
-  }, [autoStart]);
-
-  const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
-    const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
-    setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-60));
-  };
-
-  const getFormatTime = (seconds: number) => {
-    if (seconds <= 0) return "--:--";
-    const mins = Math.floor(seconds / 60);
-    const secs = seconds % 60;
-    return `${mins}:${secs.toString().padStart(2, '0')}`;
-  };
-
-  const sanitizeJson = (text: string) => {
-    try {
-      let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
-      const first = clean.indexOf('{');
-      const last = clean.lastIndexOf('}');
-      if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
-      return JSON.parse(clean);
-    } catch (e) { return null; }
-  };
-
-  const fetchTickerFinancials = async (ticker: any): Promise<DeepQualityTicker | null> => {
-    const cacheKey = `QUALITY_CACHE_v1_${ticker.symbol}_${new Date().toISOString().split('T')[0]}`;
-    const cached = sessionStorage.getItem(cacheKey);
-    if (cached) {
-        setProgress(p => ({ ...p, cacheHits: p.cacheHits + 1 }));
-        return JSON.parse(cached);
-    }
-
-    try {
-        let metrics = { per: 0, pbr: 0, debt: 0, roe: 0 };
-        let meta = { name: ticker.name, sector: ticker.sector || 'Unknown', industry: ticker.industry || 'Unknown' };
-        let source = '';
-
-        // Strategy A: FMP (Primary)
-        if (!useSafeMode && fmpKey) {
-             try {
-                 const [ratiosRes, profileRes] = await Promise.all([
-                     fetch(`https://financialmodelingprep.com/api/v3/ratios-ttm/${ticker.symbol}?apikey=${fmpKey}`),
-                     fetch(`https://financialmodelingprep.com/api/v3/profile/${ticker.symbol}?apikey=${fmpKey}`)
-                 ]);
-
-                 if (ratiosRes.status === 429 || profileRes.status === 429) {
-                     setUseSafeMode(true);
-                     throw new Error("FMP_LIMIT");
-                 }
-
-                 if (ratiosRes.ok) {
-                     const rData = await ratiosRes.json();
-                     if (rData && rData[0]) {
-                         metrics.per = Number(rData[0].peRatioTTM || 0);
-                         metrics.pbr = Number(rData[0].priceToBookRatioTTM || 0);
-                         metrics.debt = Number(rData[0].debtEquityRatioTTM || 0);
-                         metrics.roe = Number(rData[0].returnOnEquityTTM || 0) * 100;
-                         source = 'FMP';
-                     }
-                 }
-                 if (profileRes.ok) {
-                     const pData = await profileRes.json();
-                     if (pData && pData[0]) {
-                         meta.name = pData[0].companyName;
-                         meta.sector = pData[0].sector;
-                         meta.industry = pData[0].industry;
-                     }
-                 }
-             } catch (e: any) {
-                 if (e.message === "FMP_LIMIT") {
-                     addLog("FMP Limit Hit. Switching to Backup...", "warn");
-                 }
-             }
-        }
-
-        // Strategy B: Finnhub (Fallback)
-        if ((!metrics.per && !metrics.roe) && finnhubKey) {
-             try {
-                 const res = await fetch(`https://finnhub.io/api/v1/stock/metric?symbol=${ticker.symbol}&metric=all&token=${finnhubKey}`);
-                 if (res.ok) {
-                     const data = await res.json();
-                     if (data.metric) {
-                         metrics.per = Number(data.metric.peNormalized || 0);
-                         metrics.pbr = Number(data.metric.pbAnnual || 0);
-                         metrics.debt = Number(data.metric.totalDebtEquityRatioQuarterly || 0);
-                         metrics.roe = Number(data.metric.roeTTM || 0);
-                         source = 'Finnhub';
-                     }
-                 }
-             } catch (e) {}
-        }
-
-        if (!metrics.per && !metrics.roe) return null; // Not enough data
-
-        const price = Number(ticker.price) || 0;
-        const vol = Number(ticker.volume) || 0;
-        const marketVal = Number(ticker.marketValue || price * vol) || 1000000;
-
-        const scores = calculateQualityScore(metrics);
-
-        const result: DeepQualityTicker = {
-            symbol: ticker.symbol,
-            name: meta.name,
-            price,
-            volume: vol,
-            marketValue: marketVal,
-            profitabilityScore: scores.profitabilityScore,
-            stabilityScore: scores.stabilityScore,
-            growthScore: scores.growthScore,
-            qualityScore: scores.qualityScore,
-            per: metrics.per,
-            pbr: metrics.pbr,
-            debtToEquity: metrics.debt,
-            roe: metrics.roe,
-            sector: meta.sector,
-            industry: meta.industry,
-            lastUpdate: new Date().toISOString(),
-            source: source,
-            isValueTrap: false
-        };
-
-        try { sessionStorage.setItem(cacheKey, JSON.stringify(result)); } catch {}
-        return result;
-
-    } catch (e) {
-        return null;
-    }
-  };
-
-  const performAiAudit = async (candidates: DeepQualityTicker[]) => {
-      if (candidates.length === 0) return;
-      setAiAuditStatus('ANALYZING');
-      setAiAuditResult("📡 Analyzing top candidates for Value Traps & Sector Trends...");
+      const params = new URLSearchParams(window.location.search);
       
-      const topCandidates = candidates.slice(0, 5);
-      const prompt = `
-      [Role: Senior Hedge Fund Risk Manager]
-      Task: Analyze these top 5 high-quality stocks for "Value Traps" (Red Flags) and identify the dominant sector trend.
-      
-      Candidates: ${JSON.stringify(topCandidates.map(c => ({ s: c.symbol, n: c.name, qScore: c.qualityScore, roe: c.roe, debt: c.debtToEquity, per: c.per })))}
-      
-      Requirements:
-      1. **Sector**: Identify the dominant sector.
-      2. **Value Trap Check**: Are any of these companies historically known for accounting irregularities, massive lawsuits, or dying industries?
-      3. **Insight**: Provide a brief 1-sentence strategic insight in Korean.
-      
-      Return JSON: { "dominantSector": "string", "insight": "string (Korean)", "redFlags": ["symbol1 if bad", "symbol2 if bad"] }
-      `;
-
-      let aiResult: any = null;
-      let usedProvider = 'GEMINI';
-
-      try {
-          setActiveBrain(usedProvider);
-          const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
-          if (geminiKey) {
-              const ai = new GoogleGenAI({ apiKey: geminiKey });
-              const res = await ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
-                  contents: prompt,
-                  config: { responseMimeType: "application/json" }
-              });
-              trackUsage(ApiProvider.GEMINI, res.usageMetadata?.totalTokenCount || 0);
-              aiResult = sanitizeJson(res.text);
-          }
-      } catch (e: any) {
-          addLog(`Gemini Audit Failed: ${e.message}`, "warn");
-          try {
-              usedProvider = 'PERPLEXITY';
-              setActiveBrain(usedProvider);
-              const pKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
-              const res = await fetch('https://api.perplexity.ai/chat/completions', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${pKey}` },
-                  body: JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: prompt + " Return JSON." }] })
-              });
-              const json = await res.json();
-              if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-              aiResult = sanitizeJson(json.choices?.[0]?.message?.content);
-          } catch (e2: any) {
-              addLog(`Fallback Failed: ${e2.message}`, "err");
-          }
+      // 1. Check for Automation Trigger
+      if (params.get('auto') === 'true' && isGdriveConnected && viewMode === 'MANUAL') {
+          console.log("Headless Automation Triggered via URL");
+          toggleViewMode();
       }
 
-      if (aiResult && aiResult.insight) {
-          const flags = aiResult.redFlags?.length > 0 ? `⚠️ Red Flags: ${aiResult.redFlags.join(', ')}` : "✅ No Major Red Flags Detected.";
-          const summary = `[${aiResult.dominantSector}] ${aiResult.insight} | ${flags}`;
-          setAiAuditResult(summary);
-          setAiAuditStatus('SUCCESS');
-          addLog(`Deep Audit Complete via ${usedProvider === 'GEMINI' ? 'Gemini 3.0' : 'Sonar Pro'}`, "ok");
+      // 2. Check for Legal Docs Link (Google Verification Support)
+      const docType = params.get('doc');
+      if (docType === 'privacy' || docType === 'terms') {
+          setInitialLegalTab(docType);
+          setShowLegalDocs(true);
+      }
+  }, [isGdriveConnected]);
+
+  // Stage Completion Handler (Single Run Logic)
+  const handleStageComplete = async (stageId: number, reportPayload?: string) => {
+      if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
+
+      const nextStage = stageId + 1;
+      
+      // Delay transition for visual confirmation
+      setTimeout(async () => {
+          if (nextStage <= 6) {
+              setCurrentStage(nextStage);
+              setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
+          } else {
+              // ALL STAGES COMPLETED (Stage 6 finished)
+              
+              if (reportPayload) {
+                  setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
+                  const sent = await sendTelegramReport(reportPayload);
+                  setAutoStatusMessage(sent ? "ALL PIPELINES EXECUTED." : "TELEGRAM SEND FAILED.");
+              } else {
+                  setAutoStatusMessage("ALL PIPELINES EXECUTED.");
+              }
+              
+              // [UX UPDATE] Auto Disengage & Toggle Off
+              setIsAutoPilotRunning(false);
+              setViewMode('MANUAL');
+              
+              console.log("✅ Auto Pilot Complete: Alpha Report Processed.");
+          }
+      }, 3000); 
+  };
+
+  const toggleViewMode = () => {
+      if (viewMode === 'MANUAL') {
+          if (!isGdriveConnected) {
+              // [UX UPGRADE] Replaced alert with inline status warning
+              setAutoStatusMessage("⚠️ CONNECT CLOUD VAULT");
+              setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 3000);
+              return;
+          }
           
-          // Mark flags in data
-          if (aiResult.redFlags && Array.isArray(aiResult.redFlags)) {
-              return candidates.map(c => ({
-                  ...c,
-                  isValueTrap: aiResult.redFlags.includes(c.symbol)
-              }));
-          }
+          // [MODIFIED] Removed 'confirm' dialog to support seamless Headless Automation
+          setViewMode('AUTO');
+          setIsAutoPilotRunning(true);
+          setCurrentStage(0);
+          setAutoStatusMessage("AUTO PILOT ENGAGED");
+          
       } else {
-          setAiAuditResult("⚠️ AI Audit Unavailable.");
-          setAiAuditStatus('FAILED');
+          setViewMode('MANUAL');
+          setIsAutoPilotRunning(false);
+          setAutoStatusMessage("MANUAL OVERRIDE");
+          setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
       }
-      return candidates;
   };
 
-  const executeDeepQualityScan = async () => {
-    if (!accessToken) {
-        addLog("Error: Vault Disconnected.", "err");
-        return;
-    }
-    if (loading) return;
+  // Cleanup on Stage Change
+  useEffect(() => {
+    // Keep selection persistence
+  }, [currentStage]);
 
-    setLoading(true);
-    setAiAuditStatus('IDLE');
-    setAiAuditResult(null);
-    startTimeRef.current = Date.now();
-    setTimeStats({ elapsed: 0, eta: 0 });
-    setProcessedData([]);
-    setProgress({ current: 0, total: 0, msg: 'Loading Stage 1...', cacheHits: 0 });
-    setUseSafeMode(false);
+  useEffect(() => {
+    setAuditBrain(selectedBrain);
+  }, [selectedBrain]);
+
+  const loadUsageStats = () => {
+      const raw = sessionStorage.getItem('US_ALPHA_SEEKER_AI_USAGE');
+      if (raw) {
+          try {
+              setAiUsage(JSON.parse(raw));
+          } catch(e) {}
+      }
+  };
+
+  const formatBytes = (bytes: number, decimals = 1) => {
+    if (bytes === 0) return '0 B';
+    const k = 1024;
+    const dm = decimals < 0 ? 0 : decimals;
+    const sizes = ['B', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(dm)) + ' ' + sizes[i];
+  };
+
+  const fetchDriveQuota = async () => {
+      const token = sessionStorage.getItem('gdrive_access_token');
+      if (!token) {
+          setDriveUsage(null);
+          return;
+      }
+      try {
+          const res = await fetch('https://www.googleapis.com/drive/v3/about?fields=storageQuota', {
+              headers: { 'Authorization': `Bearer ${token}` }
+          });
+          if (res.ok) {
+              const data = await res.json();
+              if (data.storageQuota) {
+                  const limit = parseInt(data.storageQuota.limit || '0');
+                  const usage = parseInt(data.storageQuota.usage || '0');
+                  const percent = limit > 0 ? (usage / limit) * 100 : 0;
+                  setDriveUsage({ limit, usage, percent });
+              }
+          }
+      } catch (e) {
+          console.error("Drive Quota Fetch Error", e);
+      }
+  };
+
+  const refreshApiStatuses = useCallback(async () => {
+    const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
+    setIsGdriveConnected(hasGdriveToken);
+    let geminiActive = !!process.env.API_KEY;
+    if (window.aistudio && !geminiActive) geminiActive = await window.aistudio.hasSelectedApiKey();
+    if (!geminiActive) {
+      const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+      geminiActive = !!geminiConfig?.key;
+    }
+    
+    // Refresh Usage Stats
+    loadUsageStats();
+
+    setApiStatuses(() => {
+      const orderedConfigs = [
+        ...API_CONFIGS.filter(c => c.category === 'Acquisition'),
+        ...API_CONFIGS.filter(c => c.category === 'Intelligence'),
+        ...API_CONFIGS.filter(c => c.category === 'Infrastructure')
+      ];
+      
+      const statuses = orderedConfigs.map(config => {
+        let isConnected = config.provider === ApiProvider.GOOGLE_DRIVE ? hasGdriveToken : 
+                          config.provider === ApiProvider.GEMINI ? geminiActive : !!config.key;
+        return {
+          provider: config.provider,
+          category: config.category,
+          isConnected,
+          latency: isConnected ? Math.floor(Math.random() * 20) + 5 : 0,
+          lastChecked: new Date().toLocaleTimeString()
+        };
+      });
+
+      // [MODIFIED] Inject Hybrid Feed Status (Finnhub + Alpaca)
+      const acquisitionIndex = statuses.findIndex(s => s.category === 'Acquisition');
+      if (acquisitionIndex !== -1) {
+          const hasFinnhub = !!API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+          const hasAlpaca = !!API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
+          
+          statuses.splice(2, 0, {
+              provider: 'Hybrid Feed (FH+ALP)' as any,
+              category: 'Acquisition',
+              isConnected: hasFinnhub || hasAlpaca,
+              latency: 18, // Merged latency
+              lastChecked: 'REDUNDANT'
+          });
+      }
+      
+      return statuses;
+    });
+  }, []);
+
+  useEffect(() => {
+    setIsProd(window.location.hostname === 'us-alpha-seeker.vercel.app');
+    refreshApiStatuses();
+    fetchDriveQuota();
+    const interval = setInterval(() => {
+        refreshApiStatuses();
+        if (new Date().getSeconds() < 5) fetchDriveQuota(); 
+    }, 5000);
+    window.addEventListener('storage-usage-update', loadUsageStats);
+    return () => {
+        clearInterval(interval);
+        window.removeEventListener('storage-usage-update', loadUsageStats);
+    };
+  }, [refreshApiStatuses]);
+
+  const runStockAudit = async () => {
+    if (!selectedStock) return;
+    setIsAiLoading(true);
+    setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
+    const targetBrain = auditBrain;
+    const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
+    const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
 
     try {
-        addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
-        const q = encodeURIComponent("name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false");
-        const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).then(r => r.json());
+      const report = await analyzePipelineStatus({
+        currentStage,
+        apiStatuses,
+        symbols: [selectedStock.symbol],
+        targetStock: selectedStock,
+        mode: mode
+      }, targetBrain);
 
-        if (!listRes.files?.length) {
-            addLog("Stage 1 data missing.", "err");
-            setLoading(false);
-            return;
-        }
+      // [AUTO-TOGGLE] Robust Failover Logic
+      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing") || report.includes("QUOTA_EXCEEDED")) {
+         if (targetBrain === ApiProvider.GEMINI) {
+             setAuditBrain(ApiProvider.PERPLEXITY);
+             console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar.");
+         }
+      } else {
+         // [NEW] Automatic Report Archiving (Only on Success)
+         const token = sessionStorage.getItem('gdrive_access_token');
+         if (token) {
+             const date = new Date().toISOString().split('T')[0];
+             const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
+             const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+             const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
+             
+             archiveReport(token, fileName, report).then(ok => {
+                 if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
+                 else console.warn(`[Archive] Failed to save report: ${fileName}`);
+             });
+         }
+      }
 
-        const fileContent = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).then(r => r.json());
-
-        let universe = fileContent.investable_universe || [];
-        // Sort by liquidity to prioritize good stocks first
-        universe.sort((a: any, b: any) => (b.price * b.volume) - (a.price * a.volume));
-
-        const total = universe.length;
-        setProgress(prev => ({ ...prev, total, msg: 'Scanning...' }));
-        addLog(`Universe Loaded: ${total} Assets. Starting 3-Factor Scan...`, "info");
-
-        const results: DeepQualityTicker[] = [];
-        const batchSize = 5;
-        let processedCount = 0;
-
-        while (processedCount < total) {
-            const batch = universe.slice(processedCount, processedCount + batchSize);
-            
-            try {
-                const batchPromises = batch.map((item: any) => fetchTickerFinancials(item));
-                const batchResults = await Promise.all(batchPromises);
-                
-                batchResults.forEach(res => {
-                    if (res) results.push(res);
-                });
-
-                processedCount += batch.length;
-                setProgress(prev => ({ ...prev, current: Math.min(processedCount, total) }));
-
-                // Dynamic Delay for Rate Limits
-                const delay = useSafeMode ? 2500 : 250;
-                await new Promise(r => setTimeout(r, delay));
-
-            } catch (e: any) {
-                 addLog(`Batch Error: ${e.message}`, "err");
-                 processedCount += batchSize;
-            }
-        }
-
-        addLog(`Scan Complete. ${results.length} Qualified Assets. Validating...`, "info");
-        
-        // Sort by Quality Score
-        const topResults = results.sort((a, b) => b.qualityScore - a.qualityScore).slice(0, 300);
-        
-        // AI Audit on Top 5
-        const auditedResults = await performAiAudit(topResults) || topResults;
-        setProcessedData(auditedResults);
-        
-        if (auditedResults.length > 0) {
-            handleTickerSelect(auditedResults[0]);
-        }
-
-        // Save to Drive
-        const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
-        const now = new Date();
-        const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-        const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-        const fileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
-
-        const payload = {
-            manifest: { version: "5.6.1", strategy: "3-Factor_Quant_Model", timestamp: new Date().toISOString() },
-            elite_universe: auditedResults
-        };
-
-        const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
-        const form = new FormData();
-        form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-        form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
-
-        await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-             method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
-        });
-
-        addLog(`Vault Finalized: ${fileName}`, "ok");
-        if (onComplete) onComplete();
-
-    } catch (e: any) {
-        addLog(`Critical Error: ${e.message}`, "err");
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
+    } catch (err: any) {
+      if (targetBrain === ApiProvider.GEMINI) {
+         setAuditBrain(ApiProvider.PERPLEXITY);
+         console.warn("Critical Audit Error. Auto-switching to Sonar.");
+      }
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
-        setLoading(false);
-        startTimeRef.current = 0;
+      setIsAiLoading(false);
+      setAnalyzingStocks(prev => {
+          const next = new Set(prev);
+          next.delete(selectedStock.symbol);
+          return next;
+      });
+      loadUsageStats(); 
     }
   };
 
-  const ensureFolder = async (token: string, name: string) => {
-      const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
-      if (res.files?.length > 0) return res.files[0].id;
-      const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
-          method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-      }).then(r => r.json());
-      return create.id;
+  const handleCloseLegalDocs = () => {
+      setShowLegalDocs(false);
+      // Clean URL params to avoid re-opening on refresh if user wants to use app
+      const url = new URL(window.location.href);
+      if (url.searchParams.has('doc')) {
+          url.searchParams.delete('doc');
+          window.history.replaceState({}, '', url);
+      }
   };
 
-  const handleTickerSelect = (item: DeepQualityTicker) => {
-      setSelectedTicker(item);
-      if (onStockSelected) onStockSelected(item);
+  const currentReportKey = selectedStock ? `${selectedStock.symbol}-${auditBrain}-STAGE${currentStage}` : '';
+  const currentReport = stockAuditCache[currentReportKey];
+  const copyReport = () => {
+    if (currentReport) {
+      navigator.clipboard.writeText(currentReport);
+      alert('보고서가 클립보드에 복사되었습니다.');
+    }
   };
 
-  // Chart Data Preparation (Top 50)
-  const chartData = processedData.slice(0, 50).map(t => ({
-      symbol: t.symbol,
-      x: t.growthScore, // Value
-      y: t.qualityScore, // Quality
-      z: t.marketValue, // Size
-      fill: t.isValueTrap ? '#ef4444' : '#10b981' // Red if trap, Green if good
-  }));
+  const isMirror = viewMode === 'AUTO';
+  const showWarning = !isMirror && autoStatusMessage !== "SYSTEM STANDBY";
 
   return (
-    <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
-      <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-blue-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
-          <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
-            <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-blue-600/10 flex items-center justify-center border border-blue-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-blue-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
-              </div>
-              <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.1</h2>
-                <div className="flex flex-col mt-2 gap-1">
-                   <div className="flex flex-wrap items-center gap-2">
-                       <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-blue-400 text-blue-400 animate-pulse' : 'border-blue-500/20 bg-blue-500/10 text-blue-400'}`}>
-                           {loading ? `Scanning: ${progress.current}/${progress.total}` : '3-Factor Quant Ready'}
-                       </span>
-                       <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${useSafeMode ? 'border-amber-500/20 bg-amber-500/10 text-amber-400 animate-pulse' : 'border-purple-500/20 bg-purple-500/10 text-purple-400'}`}>
-                           {useSafeMode ? 'Safe Mode Active' : 'Ready: Adaptive Quant Engine'}
-                       </span>
-                       {progress.cacheHits > 0 && <span className="text-[8px] px-2 py-0.5 bg-emerald-900/50 text-emerald-400 border border-emerald-500/20 rounded font-black uppercase">Cache Hits: {progress.cacheHits}</span>}
-                       {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
-                   </div>
-                   {loading && (
-                     <div className="flex items-center space-x-2 mt-0.5">
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">Elapsed: <span className="text-white">{getFormatTime(timeStats.elapsed)}</span></span>
-                       <span className="text-[8px] font-mono font-bold text-slate-500">|</span>
-                       <span className="text-[8px] font-mono font-bold text-slate-400 uppercase">ETA: <span className="text-emerald-400">{getFormatTime(timeStats.eta)}</span></span>
+    <div className={`min-h-screen pb-10 p-2 sm:p-4 md:p-6 space-y-4 md:space-y-6 max-w-[1600px] mx-auto overflow-x-hidden ${isMirror ? 'border-4 border-rose-600 rounded-xl bg-slate-950' : ''}`}>
+      {/* LEGAL DOCS MODAL */}
+      {showLegalDocs && <LegalDocs onClose={handleCloseLegalDocs} initialTab={initialLegalTab} />}
+
+      {/* HEADER STATUS BAR */}
+      <div className={`flex items-center glass-panel px-4 py-2.5 rounded-xl border-white/5 text-[8px] md:text-[9px] font-black uppercase tracking-widest text-slate-500 overflow-x-auto no-scrollbar whitespace-nowrap ${isMirror ? 'bg-rose-900/10 border-rose-500/30' : ''}`}>
+        <div className="flex items-center space-x-2 mr-6 shrink-0">
+          <div className={`w-1.5 h-1.5 rounded-full ${isMirror ? 'bg-rose-500 animate-ping' : isProd ? 'bg-emerald-500' : 'bg-blue-500'}`}></div>
+          <span className={isMirror ? 'text-rose-500 font-bold' : ''}>{isMirror ? (isAutoPilotRunning ? 'AUTOMATION_RUNNING' : 'AUTOMATION_COMPLETE') : isProd ? 'Production_Node' : 'Development_Node'}</span>
+        </div>
+        <div className="flex items-center space-x-2 mr-6 shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
+          <span className="text-emerald-400 font-bold">Version: v1.5.3 (Hybrid Feed)</span>
+        </div>
+        <div className="flex items-center space-x-2 mr-6 shrink-0">
+          <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
+          <span>Cloud_Vault: {isGdriveConnected ? 'Linked' : 'Disconnected'}</span>
+        </div>
+        <div className="flex items-center space-x-2 shrink-0">
+          <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
+          <span>Pipeline: Stage_{currentStage}</span>
+        </div>
+        
+        {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
+        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
+            <a 
+                href="?doc=privacy"
+                onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
+                className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+            >
+                Privacy Policy
+            </a>
+             <span className="opacity-20 text-slate-500">/</span>
+            <a 
+                href="?doc=terms"
+                onClick={(e) => { e.preventDefault(); setInitialLegalTab('terms'); setShowLegalDocs(true); }} 
+                className="opacity-50 hover:opacity-100 transition-opacity text-slate-300 hover:text-white cursor-pointer hover:underline underline-offset-2 decoration-slate-500"
+            >
+                Terms
+            </a>
+        </div>
+
+        <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+      </div>
+
+      <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
+        <div>
+          <p className={`text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic ${isMirror ? 'text-rose-500' : 'text-blue-500'}`}>US Alpha Seeker Infrastructure</p>
+          <div className="flex items-center gap-4">
+             <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
+             {isMirror && <span className="px-3 py-1 bg-rose-600 text-white text-[10px] font-black uppercase rounded animate-pulse shadow-[0_0_15px_rgba(225,29,72,0.6)]">MIRROR ACTIVE</span>}
+          </div>
+          <p className="text-[10px] text-slate-500 mt-1 font-medium tracking-wide animate-pulse text-right">
+            © 2026. Created & Designed by Bae Sang Min
+          </p>
+        </div>
+
+        {/* AI Resource & Drive Monitor Widget */}
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border-white/5 flex items-center gap-5 w-full md:w-auto ${isMirror ? 'border-rose-500/20' : ''}`}>
+             
+             {/* Section 1: AI Brains */}
+             <div className="flex flex-col border-r border-white/5 pr-5">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Session Load</span>
+                 <div className="flex items-center gap-3">
+                     <div className="flex flex-col">
+                         <div className="flex items-center gap-1.5">
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.gemini.status === 'OK' ? 'bg-emerald-500' : 'bg-red-500 animate-ping'}`}></div>
+                             <span className="text-[8px] font-bold text-slate-300">GEMINI</span>
+                         </div>
+                         <span className={`text-[9px] font-mono ${aiUsage.gemini.status === 'OK' ? 'text-emerald-400' : 'text-red-400 font-black animate-pulse'}`}>
+                             {aiUsage.gemini.status === 'OK' ? `${aiUsage.gemini.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                         </span>
                      </div>
+                     <div className="flex flex-col">
+                         <div className="flex items-center gap-1.5">
+                             <div className={`w-1.5 h-1.5 rounded-full ${aiUsage.perplexity.status === 'OK' ? 'bg-cyan-500' : 'bg-red-500 animate-ping'}`}></div>
+                             <span className="text-[8px] font-bold text-slate-300">SONAR</span>
+                         </div>
+                         <span className={`text-[9px] font-mono ${aiUsage.perplexity.status === 'OK' ? 'text-cyan-400' : 'text-red-400 font-black animate-pulse'}`}>
+                             {aiUsage.perplexity.status === 'OK' ? `${aiUsage.perplexity.tokens.toLocaleString()} Tks` : 'API LIMIT HIT'}
+                         </span>
+                     </div>
+                 </div>
+             </div>
+
+             {/* Section 2: Vault (Drive) Storage */}
+             <div className="flex flex-col min-w-[100px]">
+                 <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest mb-1">Vault Storage</span>
+                 {driveUsage ? (
+                     <div className="flex flex-col gap-1">
+                        <div className="flex justify-between items-end">
+                            <span className="text-[9px] font-mono font-bold text-white">{formatBytes(driveUsage.usage)}</span>
+                            <span className="text-[7px] text-slate-500">/ {formatBytes(driveUsage.limit)}</span>
+                        </div>
+                        <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                            <div 
+                                className={`h-full rounded-full transition-all duration-500 ${driveUsage.percent > 90 ? 'bg-red-500' : driveUsage.percent > 75 ? 'bg-amber-500' : 'bg-blue-500'}`}
+                                style={{ width: `${driveUsage.percent}%` }}
+                            ></div>
+                        </div>
+                     </div>
+                 ) : (
+                     <span className="text-[9px] font-black text-slate-600 uppercase">Not Connected</span>
+                 )}
+             </div>
+
+        </div>
+
+        {/* HYBRID MODE CONTROLLER */}
+        <div className={`glass-panel px-4 py-2.5 rounded-xl border flex flex-col justify-center items-end min-w-[180px] transition-all ${isMirror ? 'border-rose-500 bg-rose-950/20' : showWarning ? 'border-amber-500 bg-amber-950/20' : 'border-blue-500/30'}`}>
+           <div className="flex items-center gap-2 mb-1">
+               <span className={`text-[8px] font-black uppercase ${isMirror ? (isAutoPilotRunning ? 'text-rose-400 animate-pulse' : 'text-emerald-400') : showWarning ? 'text-amber-500 animate-pulse' : 'text-slate-500'}`}>
+                   {isMirror ? autoStatusMessage : (showWarning ? autoStatusMessage : "MANUAL CONTROL")}
+               </span>
+               <button 
+                  onClick={toggleViewMode}
+                  className={`w-10 h-5 rounded-full transition-colors relative flex items-center border ${isMirror ? 'bg-rose-600 border-rose-400' : showWarning ? 'bg-amber-600 border-amber-400' : 'bg-slate-800 border-slate-600'}`}
+               >
+                   <div className={`absolute w-3 h-3 bg-white rounded-full transition-all shadow-md ${isMirror ? 'left-6' : 'left-1'}`}></div>
+               </button>
+           </div>
+           <div className="flex items-center gap-3">
+               <span className={`text-[7px] font-black uppercase ${isMirror ? 'text-rose-300' : 'text-slate-500'}`}>{isMirror ? 'Single Pass Mode' : 'Standard Mode'}</span>
+           </div>
+        </div>
+      </header>
+
+      <div className="space-y-4">
+        <div className="flex gap-2 md:gap-3 overflow-x-auto no-scrollbar pb-1 px-1 scroll-smooth">
+          {apiStatuses.map((status, idx) => (
+            <ApiStatusCard key={`${status.provider}-${idx}`} status={status} isAuthConnected={status.isConnected} />
+          ))}
+        </div>
+        <MarketTicker />
+      </div>
+
+      <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
+        {STAGES_FLOW.map((stage) => (
+          <button
+            key={stage.id}
+            onClick={() => setCurrentStage(stage.id)}
+            disabled={isMirror && isAutoPilotRunning} 
+            className={`flex-shrink-0 px-4 md:px-5 py-3 md:py-3.5 rounded-xl text-[8px] md:text-[9px] font-black uppercase tracking-widest transition-all border ${
+              isMirror && isAutoPilotRunning
+                ? 'opacity-40 cursor-not-allowed border-transparent bg-slate-900 text-slate-600'
+                : currentStage === stage.id 
+                    ? 'bg-blue-600 text-white border-blue-400 shadow-lg scale-105 z-10' 
+                    : 'bg-slate-800/20 text-slate-500 border-white/5 hover:bg-slate-800/40'
+            }`}
+          >
+            {stage.label}
+          </button>
+        ))}
+      </nav>
+
+      <main className="min-h-[450px] relative">
+        {/* REVERTED: Using CSS class toggling (hidden/block) instead of conditional rendering to preserve state */}
+        <div className={currentStage === 0 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <UniverseGathering 
+            isActive={currentStage === 0} 
+            apiStatuses={apiStatuses}
+            onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
+            onStockSelected={setSelectedStock}
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
+            onComplete={() => handleStageComplete(0)}
+          />
+        </div>
+        <div className={currentStage === 1 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <PreliminaryFilter 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
+            onComplete={() => handleStageComplete(1)}
+          />
+        </div>
+        <div className={currentStage === 2 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <DeepQualityFilter 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
+            onComplete={() => handleStageComplete(2)}
+            onStockSelected={setSelectedStock}
+          />
+        </div>
+        <div className={currentStage === 3 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <FundamentalAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
+            onComplete={() => handleStageComplete(3)}
+            onStockSelected={setSelectedStock}
+          />
+        </div>
+        <div className={currentStage === 4 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <TechnicalAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
+            onComplete={() => handleStageComplete(4)}
+            onStockSelected={setSelectedStock}
+          />
+        </div>
+        <div className={currentStage === 5 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <IctAnalysis 
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
+            onComplete={() => handleStageComplete(5)}
+            onStockSelected={setSelectedStock}
+          />
+        </div>
+        <div className={currentStage === 6 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+          <AlphaAnalysis 
+            selectedBrain={selectedBrain} 
+            setSelectedBrain={setSelectedBrain}
+            onFinalSymbolsDetected={(symbols, fullData) => {
+              setFinalSymbols(symbols);
+              setRecommendedData(fullData);
+            }}
+            onStockSelected={setSelectedStock}
+            analyzingSymbols={analyzingStocks}
+            autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
+            onComplete={(report) => handleStageComplete(6, report)}
+          />
+        </div>
+      </main>
+
+      {/* Detail Section */}
+      <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
+        <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
+           <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
+        </div>
+        <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6 md:gap-8 relative z-10">
+          <div className="flex flex-col md:flex-row items-start md:items-center space-y-4 md:space-y-0 md:space-x-8">
+             <div className="bg-emerald-500/10 p-5 rounded-[28px] border border-emerald-500/20 shadow-inner hidden md:block">
+                <svg className={`w-10 h-10 text-emerald-400 ${isAiLoading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
+             </div>
+             <div>
+                <h3 className="font-black text-white uppercase text-xl md:text-2xl tracking-tighter italic leading-none">AI Alpha Auditor Matrix</h3>
+                <div className="flex flex-wrap items-center gap-3 mt-3">
+                   <span className="text-[8px] font-black text-emerald-500 uppercase tracking-widest bg-emerald-500/10 px-3 py-1 rounded-full border border-emerald-500/20 whitespace-nowrap">
+                       {selectedStock ? `Target: ${selectedStock.symbol}` : 'System Standby'}
+                   </span>
+                   {selectedStock && (
+                       <div className="flex bg-black/40 p-1 rounded-full border border-white/10 ml-0 md:ml-4">
+                          <button onClick={() => setAuditBrain(ApiProvider.GEMINI)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.GEMINI ? 'bg-emerald-600 text-white' : 'text-slate-500'}`}>Gemini (Default)</button>
+                          <button onClick={() => setAuditBrain(ApiProvider.PERPLEXITY)} className={`px-3 py-1 rounded-full text-[7px] font-black uppercase transition-all ${auditBrain === ApiProvider.PERPLEXITY ? 'bg-cyan-600 text-white' : 'text-slate-500'}`}>Sonar</button>
+                       </div>
                    )}
                 </div>
-              </div>
+             </div>
+          </div>
+          <div className="flex gap-4 w-full lg:w-auto">
+             {currentReport && <button onClick={copyReport} className="flex-1 lg:flex-none px-6 py-4 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5">Copy Report</button>}
+             <button onClick={runStockAudit} disabled={isAiLoading || !selectedStock} className={`flex-1 lg:flex-none px-8 md:px-12 py-4 rounded-2xl text-[10px] font-black uppercase tracking-widest border transition-all ${isAiLoading ? 'opacity-50 bg-slate-900' : 'bg-emerald-600 text-white border-emerald-400 hover:bg-emerald-500 shadow-2xl shadow-emerald-600/30'}`}>
+                {isAiLoading ? 'Auditing & Archiving...' : selectedStock ? `Audit ${selectedStock.symbol}` : 'Select Stock'}
+              </button>
+          </div>
+        </div>
+        <div className="bg-black/40 rounded-[32px] md:rounded-[40px] border border-white/5 p-6 md:p-8 lg:p-12 min-h-[300px] shadow-inner relative group">
+          {isAiLoading ? (
+            <div className="absolute inset-0 flex flex-col items-center justify-center space-y-6">
+              <div className="w-16 h-16 border-4 border-emerald-500/20 border-t-emerald-500 rounded-full animate-spin"></div>
+              <p className="text-[10px] font-black text-emerald-500/60 uppercase tracking-[0.4em] animate-pulse">Running {currentStage === 0 ? 'Integrity Validation' : 'Deep Dive Audit'} Protocol...</p>
             </div>
-            <button 
-              onClick={executeDeepQualityScan} 
-              disabled={loading} 
-              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 hover:scale-105 active:scale-95 transition-all`}
-            >
-              {loading ? 'Executing Quant Scan...' : 'Start Deep Quality Filter'}
-            </button>
-          </div>
-
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 md:gap-8 mb-6 md:mb-10">
-              <div className="flex flex-col gap-6">
-                   <div className="bg-black/40 p-6 md:p-8 rounded-3xl border border-white/5">
-                        <div className="flex justify-between items-center mb-6">
-                            <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Scan Progress</p>
-                            <p className="text-xl font-mono font-black text-white italic">{loading ? `${((progress.current / (progress.total || 1)) * 100).toFixed(1)}%` : 'Idle'}</p>
-                        </div>
-                        <div className="h-2 bg-slate-800 rounded-full overflow-hidden mb-4">
-                            <div className={`h-full transition-all duration-300 ${useSafeMode ? 'bg-amber-500' : 'bg-blue-500'}`} style={{ width: `${(progress.current / (progress.total || 1)) * 100}%` }}></div>
-                        </div>
-                        <div className="flex justify-between text-[8px] uppercase font-bold text-slate-500">
-                             <span>Profitability Check</span>
-                             <span>Stability Check</span>
-                             <span>Value Check</span>
-                        </div>
-                   </div>
-                   
-                   {/* AI Value Trap Detector Box */}
-                   <div className={`bg-blue-900/10 p-6 md:p-8 rounded-3xl border relative overflow-hidden group transition-colors flex-1 ${aiAuditStatus === 'ANALYZING' ? 'border-blue-500/50' : aiAuditStatus === 'SUCCESS' ? 'border-emerald-500/50' : 'border-blue-500/10'}`}>
-                        <div className="flex justify-between items-center mb-2">
-                             <p className={`text-[9px] font-black uppercase tracking-widest ${aiAuditStatus === 'SUCCESS' ? 'text-emerald-400' : 'text-blue-400'}`}>AI Value Trap Detector</p>
-                        </div>
-                        <p className={`text-xs font-bold leading-relaxed italic ${aiAuditResult ? 'text-white' : 'text-slate-500'}`}>
-                            {aiAuditResult || "Awaiting Top-Tier Candidate Analysis..."}
-                        </p>
-                        {aiAuditStatus === 'ANALYZING' && <div className="absolute bottom-0 left-0 h-1 bg-blue-500 animate-pulse w-full"></div>}
-                        {aiAuditStatus === 'SUCCESS' && <div className="absolute bottom-0 left-0 h-1 bg-emerald-500 w-full"></div>}
-                   </div>
-              </div>
-
-              {/* Chart */}
-              <div className="bg-black/40 p-4 rounded-3xl border border-white/5 min-h-[300px] flex flex-col relative">
-                   <p className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4 absolute top-6 left-6 z-10">Quality-Value Matrix (Top 50)</p>
-                   <div className="flex-1 w-full h-full mt-4">
-                       {processedData.length > 0 ? (
-                           <ResponsiveContainer width="100%" height="100%">
-                               <ScatterChart margin={{ top: 20, right: 20, bottom: 20, left: 0 }}>
-                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.2} />
-                                    <XAxis type="number" dataKey="x" name="Value Score" stroke="#64748b" fontSize={9} label={{ value: "Value Score (Upside)", position: "bottom", fill: "#64748b", fontSize: 9 }} domain={[0, 100]} />
-                                    <YAxis type="number" dataKey="y" name="Quality Score" stroke="#64748b" fontSize={9} label={{ value: "Quality Score", angle: -90, position: "insideLeft", fill: "#64748b", fontSize: 9 }} domain={[0, 100]} />
-                                    <RechartsTooltip cursor={{ strokeDasharray: '3 3' }} content={({ active, payload }) => {
-                                        if (active && payload && payload.length) {
-                                            const data = payload[0].payload;
-                                            return (
-                                                <div className="bg-slate-900 border border-slate-700 p-2 rounded-lg shadow-xl">
-                                                    <p className="text-xs font-black text-white">{data.symbol}</p>
-                                                    <p className="text-[9px] text-emerald-400">Q: {data.y} | V: {data.x}</p>
-                                                </div>
-                                            );
-                                        }
-                                        return null;
-                                    }} />
-                                    <ReferenceLine x={50} stroke="#475569" strokeDasharray="3 3" />
-                                    <ReferenceLine y={50} stroke="#475569" strokeDasharray="3 3" />
-                                    <Scatter name="Elite Stocks" data={chartData} fill="#3b82f6">
-                                        {chartData.map((entry, index) => (
-                                            <Cell key={`cell-${index}`} fill={entry.fill} />
-                                        ))}
-                                    </Scatter>
-                               </ScatterChart>
-                           </ResponsiveContainer>
-                       ) : (
-                           <div className="flex items-center justify-center h-full opacity-20">
-                               <p className="text-[10px] font-black uppercase tracking-[0.3em]">No Data Visualization</p>
-                           </div>
-                       )}
-                   </div>
-              </div>
-          </div>
+          ) : currentReport ? (
+            <div className="prose-report animate-in fade-in slide-in-from-bottom-4 duration-700">
+               <div className="mb-4 flex items-center justify-between border-b border-emerald-500/20 pb-4">
+                  <span className="text-[9px] font-black uppercase tracking-widest text-emerald-500">
+                     {currentStage === 0 ? 'Integrity Validation' : 'Deep Audit'} for {selectedStock?.symbol || 'Target'} via {auditBrain === ApiProvider.GEMINI ? 'Gemini Pro' : 'Sonar Pro'}
+                  </span>
+                  <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
+               </div>
+               <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{String(currentReport || "")}</ReactMarkdown>
+            </div>
+          ) : (
+            <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">
+              <svg className="w-16 h-16 text-slate-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 17v-2m3 2v-4m3 4v-6m2 10H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+              <p className="text-[10px] font-black text-slate-500 uppercase tracking-[0.6em] italic text-center">
+                 {selectedStock ? `Ready to Audit ${selectedStock.symbol}. Click 'Audit ${selectedStock.symbol}' to begin.` : 
+                  currentStage === 0 
+                    ? 'Search a ticker above and click "Set Target" to verify integrity.' 
+                    : 'Select a stock from Stage 6 (Alpha Analysis) to begin Deep Audit.'}
+              </p>
+            </div>
+          )}
         </div>
-      </div>
-
-      <div className="xl:col-span-1">
-        <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-blue-600 flex flex-col p-6 shadow-2xl overflow-hidden">
-          <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Quant_Logs</h3>
-            <button onClick={() => { sessionStorage.clear(); addLog("Cache Cleared. Rescan needed.", "warn"); }} className="text-[8px] text-slate-600 hover:text-white uppercase transition-colors">Clear Cache</button>
-          </div>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-blue-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400 bg-emerald-500/5' : l.includes('[WARN]') ? 'border-amber-500 text-amber-400 bg-amber-500/5' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-blue-900'}`}>
-                {l}
-              </div>
-            ))}
-          </div>
-        </div>
-      </div>
+      </section>
     </div>
   );
 };
 
-export default DeepQualityFilter;
+export default App;
