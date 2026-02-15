@@ -2,6 +2,22 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET } from '../constants';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+// [ADDED] Markdown Components
+const MarkdownComponents: any = {
+  p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[9px]" {...props} />,
+  ul: (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+  li: (props: any) => <li className="text-slate-300 text-[9px]" {...props} />,
+  strong: (props: any) => <strong className="text-cyan-400 font-bold" {...props} />,
+  h1: (props: any) => <h1 className="text-xs font-bold text-white mb-2" {...props} />,
+  h2: (props: any) => <h2 className="text-[10px] font-bold text-white mb-1" {...props} />,
+  h3: (props: any) => <h3 className="text-[9px] font-bold text-cyan-400 mb-1" {...props} />,
+  code: ({inline, ...props}: any) => inline 
+    ? <code className="bg-slate-800 text-cyan-300 px-1 py-0.5 rounded font-mono text-[9px] border border-white/10" {...props} />
+    : <div className="overflow-x-auto my-2"><pre className="bg-slate-950 p-2 rounded-lg border border-white/10 text-[9px] text-slate-300 font-mono" {...props} /></div>,
+};
 
 interface FundamentalTicker {
   symbol: string;
@@ -24,7 +40,7 @@ interface FundamentalTicker {
   zScore: number;
   earningsQuality: number;
   
-  economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)';
+  economicMoat: 'Wide' | 'Narrow' | 'None';
   dataConfidence: number;
   
   radarData: { subject: string; A: number; fullMark: number }[];
@@ -41,6 +57,50 @@ interface Props {
   onComplete?: () => void;
   onStockSelected?: (stock: any) => void;
 }
+
+// [KNOWLEDGE BASE] Fundamental Metric Definitions
+const FUNDAMENTAL_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
+    'ROIC': {
+        title: "ROIC (투하자본이익률)",
+        desc: "기업이 영업활동에 투입한 자본 대비 얼마나 효율적으로 이익을 냈는지 나타내는 핵심 지표입니다. (Return on Invested Capital)",
+        strategy: "15% 이상: 강력한 해자(Moat)를 가진 우량 기업. 지속적인 복리 성장이 기대됩니다."
+    },
+    'Z_SCORE': {
+        title: "Altman Z-Score (파산위험)",
+        desc: "기업의 파산 가능성을 통계적으로 예측하는 모델입니다. 재무 건전성을 진단하는 가장 신뢰도 높은 지표 중 하나입니다.",
+        strategy: "2.99 이상: 재무적으로 매우 안전 (Safe Zone). 1.8 미만은 파산 위험이 있으므로 주의가 필요합니다."
+    },
+    'F_SCORE': {
+        title: "Piotroski F-Score (재무개선)",
+        desc: "기업의 수익성, 레버리지, 유동성, 효율성 등이 전년 대비 개선되었는지를 0~9점으로 평가합니다.",
+        strategy: "7점 이상: 펀더멘털이 턴어라운드하거나 강화되고 있는 기업. 매수 적기일 가능성이 높습니다."
+    },
+    'RULE_40': {
+        title: "Rule of 40 (성장+수익)",
+        desc: "매출성장률(%)과 이익률(%)의 합입니다. 주로 SaaS 및 고성장 기술주의 건전성을 평가할 때 사용합니다.",
+        strategy: "40% 이상: 초고속 성장과 수익성을 겸비한 엘리트 기술주. 프리미엄을 줄 가치가 있습니다."
+    },
+    'SAFETY': {
+        title: "Safety Score (재무안정성)",
+        desc: "부채비율, 유동비율, 이자보상배율을 종합하여 산출한 기업의 파산 저항력 점수입니다.",
+        strategy: "80점 이상: 경기 침체나 금리 인상기에도 버틸 수 있는 '망하지 않을 기업'입니다."
+    },
+    'EARNINGS_QUALITY': {
+        title: "Earnings Quality (이익의 질)",
+        desc: "회계상 순이익(Net Income)과 실제 현금흐름(Operating Cashflow)의 괴리를 분석합니다. 분식회계 가능성을 탐지합니다.",
+        strategy: "1.0 이상: 순이익보다 더 많은 현금이 들어오고 있음. 매우 건전한 흑자 구조입니다."
+    },
+    'GAP': {
+        title: "Fair Value Gap (내재가치 괴리)",
+        desc: "AI가 산출한 적정 주가(Intrinsic Value)와 현재 주가의 차이입니다. 양수(+)면 저평가, 음수(-)면 고평가 상태입니다.",
+        strategy: "20% 이상: 안전마진(Margin of Safety)이 충분히 확보된 구간. 적극 매수 고려."
+    },
+    'MOAT': {
+        title: "Economic Moat (경제적 해자)",
+        desc: "경쟁사가 넘볼 수 없는 독점적 지위나 브랜드 파워를 의미합니다. ROIC와 마진율로 판별합니다.",
+        strategy: "Wide: 10년 이상 초과 수익을 유지할 가능성이 높음. 장기 투자의 필수 조건."
+    }
+};
 
 // --- HELPER FUNCTIONS ---
 
@@ -185,9 +245,9 @@ const performFinancialEngineering = (data: any) => {
 
     const fundamentalScore = (valScore * 0.35) + (qualScore * 0.30) + (growthScore * 0.20) + (safetyScore * 0.15);
 
-    let economicMoat: '광폭 (Wide)' | '협소 (Narrow)' | '없음 (None)' = '없음 (None)';
-    if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = '광폭 (Wide)';
-    else if (roic > 8 && ruleOf40 > 25 && fScore >= 5) economicMoat = '협소 (Narrow)';
+    let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
+    if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = 'Wide';
+    else if (roic > 8 && ruleOf40 > 25 && fScore >= 5) economicMoat = 'Narrow';
 
     let missingDataPoints = 0;
     if (!eps && !netIncome) missingDataPoints++;
@@ -209,12 +269,13 @@ const performFinancialEngineering = (data: any) => {
         economicMoat,
         dataConfidence,
         // [FIX] Radar Data Visualization Floor (Prevent 0-point collapse)
+        // [UPDATE] Reverted labels to English as requested
         radarData: [
-            { subject: '저평가매력', A: Math.max(5, safeNum(valScore)), fullMark: 100 },
-            { subject: '경제적해자', A: Math.max(5, safeNum(qualScore)), fullMark: 100 },
-            { subject: '성장효율성', A: Math.max(5, safeNum(growthScore)), fullMark: 100 },
-            { subject: '재무안정성', A: Math.max(5, safeNum(safetyScore)), fullMark: 100 },
-            { subject: '이익의질', A: Math.max(5, safeNum(earningsQualityScore)), fullMark: 100 },
+            { subject: 'Valuation', A: Math.max(5, safeNum(valScore)), fullMark: 100 },
+            { subject: 'Moat', A: Math.max(5, safeNum(qualScore)), fullMark: 100 },
+            { subject: 'Growth', A: Math.max(5, safeNum(growthScore)), fullMark: 100 },
+            { subject: 'Safety', A: Math.max(5, safeNum(safetyScore)), fullMark: 100 },
+            { subject: 'Quality', A: Math.max(5, safeNum(earningsQualityScore)), fullMark: 100 },
         ]
     };
 };
@@ -224,6 +285,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
+  const [activeInsight, setActiveInsight] = useState<string | null>(null);
+  
   const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v4.5: Visual-Safe Engine Ready.']);
   const logRef = useRef<HTMLDivElement>(null);
   const startTimeRef = useRef<number>(0);
@@ -233,6 +296,18 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Handle outside click to close overlay
+  useEffect(() => {
+    const handleClickOutside = (event: MouseEvent) => {
+        const target = event.target as HTMLElement;
+        if (!target.closest('.fund-insight-trigger') && !target.closest('.fund-insight-overlay')) {
+            setActiveInsight(null);
+        }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   useEffect(() => {
     if (autoStart && !loading) {
@@ -249,6 +324,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
   const handleTickerSelect = (ticker: any) => {
     if (ticker) {
         setSelectedTicker(ticker);
+        setActiveInsight(null); // Reset insight on ticker change
         if (onStockSelected) onStockSelected(ticker);
     }
   };
@@ -288,19 +364,19 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       startTimeRef.current = Date.now();
 
       try {
-          addLog("Phase 1: Loading Stage 2 Elite Universe...", "info");
-          const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
+          addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
+          const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
           const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          if (!listRes.files?.length) throw new Error("Stage 2 Data Missing. Please run Stage 2 first.");
+          if (!listRes.files?.length) throw new Error("Stage 1 Data Missing.");
 
-          const stage2Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+          const stage1Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          const candidates = stage2Content.elite_universe || [];
+          const candidates = stage1Content.investable_universe || [];
           addLog(`Target Acquired: ${candidates.length} Elite Assets.`, "ok");
           setProgress({ current: 0, total: candidates.length, file: 'Processing...' });
 
@@ -393,7 +469,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             <button 
               onClick={executeFundamentalEngine} 
               disabled={loading} 
-              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 bg-cyan-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95 transition-all`}
+              className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${
+                  loading 
+                    ? 'bg-slate-800 text-slate-500 shadow-none border border-white/5 cursor-wait opacity-80' 
+                    : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95'
+              }`}
             >
               {loading ? 'Crunching Numbers...' : 'Start Global Fundamental Audit'}
             </button>
@@ -420,7 +500,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                   <p className="text-[10px] font-mono font-bold text-white">{t.fundamentalScore.toFixed(0)} <span className="text-[7px] text-slate-500">SCORE</span></p>
                                   <div className="flex gap-1 justify-end mt-0.5">
                                       {t.fairValueGap > 0 && <span className="w-1.5 h-1.5 rounded-full bg-emerald-500"></span>}
-                                      {t.economicMoat !== '없음 (None)' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
+                                      {t.economicMoat !== 'None' && <span className="w-1.5 h-1.5 rounded-full bg-blue-500"></span>}
                                       {t.ruleOf40 > 40 && <span className="w-1.5 h-1.5 rounded-full bg-purple-500"></span>}
                                   </div>
                               </div>
@@ -443,16 +523,22 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                       <h3 className="text-3xl font-black text-white italic tracking-tighter uppercase">{selectedTicker.symbol}</h3>
                                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
                                   </div>
-                                  <div className="flex items-center gap-2 mt-2">
+                                  <div className="flex flex-wrap items-center gap-2 mt-2">
                                        <span className={`text-[8px] font-black uppercase px-2 py-0.5 rounded border ${getSectorStyle(selectedTicker.sector)}`}>
                                            {selectedTicker.sector}
                                        </span>
-                                       <span className="text-[8px] font-black bg-cyan-900/30 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20 uppercase">
-                                            Gap {selectedTicker.fairValueGap > 0 ? '+' : ''}{selectedTicker.fairValueGap.toFixed(1)}%
+                                       <span 
+                                            onClick={() => setActiveInsight('GAP')}
+                                            className="text-[8px] font-black bg-cyan-900/30 text-cyan-400 px-2 py-0.5 rounded border border-cyan-500/20 uppercase cursor-help hover:opacity-80 transition-opacity fund-insight-trigger"
+                                       >
+                                            Gap {selectedTicker.fairValueGap > 0 ? '+' : ''}{selectedTicker.fairValueGap.toFixed(2)}%
                                        </span>
-                                       {selectedTicker.economicMoat !== '없음 (None)' && (
-                                           <span className="text-[8px] font-black bg-purple-900/30 text-purple-400 px-2 py-0.5 rounded border border-purple-500/20 uppercase">
-                                               {selectedTicker.economicMoat}
+                                       {selectedTicker.economicMoat !== 'None' && (
+                                           <span 
+                                                onClick={() => setActiveInsight('MOAT')}
+                                                className="text-[8px] font-black bg-purple-900/30 text-purple-400 px-2 py-0.5 rounded border border-purple-500/20 uppercase cursor-help hover:opacity-80 transition-opacity fund-insight-trigger"
+                                           >
+                                               Moat {selectedTicker.economicMoat}
                                            </span>
                                        )}
                                        {selectedTicker.dataConfidence < 100 && (
@@ -484,24 +570,79 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                               )}
                           </div>
                           
+                          {/* Interactive Score Cards (6 Metrics) */}
                           <div className="grid grid-cols-3 gap-2 mt-2">
-                               <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">ROIC</p>
-                                   <p className={`text-xs font-black ${selectedTicker.roic > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.roic.toFixed(1)}%</p>
+                               <div 
+                                    onClick={() => setActiveInsight('ROIC')}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'ROIC' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
+                               >
+                                   <p className={`text-[7px] uppercase font-bold ${activeInsight === 'ROIC' ? 'text-white' : 'text-slate-400'}`}>ROIC</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'ROIC' ? 'text-white' : selectedTicker.roic > 15 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.roic.toFixed(2)}%</p>
                                </div>
-                               <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Z-Score</p>
-                                   <p className={`text-xs font-black ${selectedTicker.zScore > 2.9 ? 'text-emerald-400' : selectedTicker.zScore < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScore.toFixed(2)}</p>
+                               <div 
+                                    onClick={() => setActiveInsight('Z_SCORE')}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'Z_SCORE' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
+                               >
+                                   <p className={`text-[7px] uppercase font-bold ${activeInsight === 'Z_SCORE' ? 'text-white' : 'text-slate-400'}`}>Z-Score</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'Z_SCORE' ? 'text-white' : selectedTicker.zScore > 2.9 ? 'text-emerald-400' : selectedTicker.zScore < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScore.toFixed(2)}</p>
                                </div>
-                               <div className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5">
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Safety</p>
-                                   <p className={`text-xs font-black ${selectedTicker.radarData[3].A > 80 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.radarData[3].A.toFixed(0)}</p>
+                               <div 
+                                    onClick={() => setActiveInsight('SAFETY')}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'SAFETY' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
+                               >
+                                   <p className={`text-[7px] uppercase font-bold ${activeInsight === 'SAFETY' ? 'text-white' : 'text-slate-400'}`}>Safety</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'SAFETY' ? 'text-white' : selectedTicker.radarData[3].A > 80 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.radarData[3].A.toFixed(0)}</p>
+                               </div>
+                               <div 
+                                    onClick={() => setActiveInsight('F_SCORE')}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'F_SCORE' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
+                               >
+                                   <p className={`text-[7px] uppercase font-bold ${activeInsight === 'F_SCORE' ? 'text-white' : 'text-slate-400'}`}>F-Score</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'F_SCORE' ? 'text-white' : selectedTicker.fScore >= 7 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.fScore}</p>
+                               </div>
+                               <div 
+                                    onClick={() => setActiveInsight('RULE_40')}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'RULE_40' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
+                               >
+                                   <p className={`text-[7px] uppercase font-bold ${activeInsight === 'RULE_40' ? 'text-white' : 'text-slate-400'}`}>Rule of 40</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'RULE_40' ? 'text-white' : selectedTicker.ruleOf40 >= 40 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.ruleOf40.toFixed(2)}</p>
+                               </div>
+                               <div 
+                                    onClick={() => setActiveInsight('EARNINGS_QUALITY')}
+                                    className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'EARNINGS_QUALITY' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
+                               >
+                                   <p className={`text-[7px] uppercase font-bold ${activeInsight === 'EARNINGS_QUALITY' ? 'text-white' : 'text-slate-400'}`}>Earn. Qual</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'EARNINGS_QUALITY' ? 'text-white' : selectedTicker.earningsQuality >= 1.0 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.earningsQuality.toFixed(2)}</p>
                                </div>
                           </div>
+                          
+                           {/* Insight Overlay */}
+                            {activeInsight && FUNDAMENTAL_INSIGHTS[activeInsight] && (
+                                <div className="absolute inset-x-4 bottom-4 z-20 animate-in fade-in slide-in-from-bottom-2 fund-insight-overlay">
+                                    <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-cyan-500/30 shadow-2xl relative">
+                                        <button onClick={() => setActiveInsight(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white">
+                                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                        </button>
+                                        <h5 className="text-[10px] font-black text-cyan-400 uppercase tracking-widest mb-1 flex items-center gap-2">
+                                            <span className="w-1.5 h-1.5 rounded-full bg-cyan-500 animate-pulse"></span>
+                                            {FUNDAMENTAL_INSIGHTS[activeInsight].title}
+                                        </h5>
+                                        <div className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">
+                                            <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                                {FUNDAMENTAL_INSIGHTS[activeInsight].desc}
+                                            </ReactMarkdown>
+                                        </div>
+                                        <div className="bg-white/5 p-2 rounded border border-white/5">
+                                            <p className="text-[8px] text-emerald-400 font-bold mb-0.5">💡 Strategy:</p>
+                                            <p className="text-[8px] text-slate-400">{FUNDAMENTAL_INSIGHTS[activeInsight].strategy}</p>
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
                        </div>
                    ) : (
                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                            <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                        </div>
                    )}
