@@ -85,29 +85,33 @@ export function removeCitations(text: string): string {
   return text.replace(/\[\d+(?:,\s*\d+)*\]/g, '').trim();
 }
 
+// [UPDATED] Schema to include News Sentiment and Kelly Weighting
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
   items: {
     type: Type.OBJECT,
     properties: {
       symbol: { type: Type.STRING, description: "The stock ticker symbol" },
-      aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY', 'BUY', 'HOLD'" },
+      aiVerdict: { type: Type.STRING, description: "One word verdict: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'SYSTEM OUTPUT EXAMPLE' format." },
-      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers: Fundamental, Technical, Smart Money" },
+      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'FINAL EXECUTION ORDER' format." },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers: Fundamental, Technical, News/Sentiment" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
-      expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+24.5% (6개월)')" },
+      newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
+      newsScore: { type: Type.NUMBER, description: "Sentiment score 0.0 to 1.0 (Threshold > 0.6)" },
+      expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+42% (Ten-Bagger Target)')" },
       theme: { type: Type.STRING, description: "Market narrative" },
-      aiSentiment: { type: Type.STRING, description: "Sentiment description in Korean" },
+      aiSentiment: { type: Type.STRING, description: "Overall Sentiment description in Korean" },
       analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
-      chartPattern: { type: Type.STRING, description: "Detected technical pattern name" },
-      supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone (calculated via VWAP logic)" },
+      chartPattern: { type: Type.STRING, description: "Detected technical pattern name (e.g. 'Wyckoff SOS')" },
+      supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone (Order Block High)" },
       resistanceLevel: { type: Type.NUMBER, description: "First Profit Target" },
-      stopLoss: { type: Type.NUMBER, description: "Invalidation Level (calculated via ATR logic)" },
-      riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:3.5" }
+      stopLoss: { type: Type.NUMBER, description: "Invalidation Level (MSS Break)" },
+      riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:4.5" },
+      kellyWeight: { type: Type.STRING, description: "Suggested portfolio weight based on Kelly Criterion" }
     },
-    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
+    required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "newsSentiment", "newsScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
   }
 };
 
@@ -411,7 +415,8 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       reasons: c.selectionReasons || [], 
       expReturn: c.expectedReturn,
       theme: c.sectorTheme || c.theme || "Alpha Sector",
-      score: c.compositeAlpha || c.convictionScore || 0
+      score: c.compositeAlpha || c.convictionScore || 0,
+      newsSentiment: c.newsSentiment || "Neutral"
   }));
 
   const prompt = `
@@ -445,6 +450,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   (Iterate through Top Picks)
   1. [Symbol] ([Verdict]) : [Name]
      - 🏢 Sector: [Theme]
+     - 📰 Sentiment: [NewsSentiment]
      - 🎯 Plan: 진입 $[Entry] | 목표 $[Target] | 손절 $[Stop]
      - 📈 Exp.Return: [ExpReturn]
      - 💡 Logic:
@@ -793,7 +799,7 @@ export async function analyzePipelineStatus(data: {
   }
 }
 
-export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string}> {
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
@@ -817,7 +823,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       console.warn("Regime fetch failed, defaulting to Neutral");
   }
 
-  // [ALPHA-SIEVE EXECUTION PROTOCOL v1.0]
+  // [HYPER-ALPHA INTEGRATED PIPELINE v3.0]
+  // Ingests Stage 5 Data and applies Sentiment/SOS/Correlation/Kelly Logic.
   const vectorInputs = candidates.map(c => ({
       symbol: c.symbol,
       price: c.price,
@@ -854,63 +861,62 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   }));
 
   const SYSTEM_INSTRUCTION = `
-  [SYSTEM ROLE: THE ALPHA-SIEVE ENGINE - FINAL EXECUTION NODE]
-  You are a specialized Quant-Execution Algorithm (Neural Alpha-Sieve & Wyckoff SOS Engine v1.0).
-  Your goal is to select exactly 6 "Ten-Bagger" candidates with 0% margin for error.
+  [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
+  You are the final decision-making engine for a quantitative hedge fund.
+  You are receiving the top 12-50 elite candidates from the previous ICT stage.
+  Your goal is to output a definitive "Investment Order Sheet" for exactly 6 assets.
 
   Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
 
-  [CORE ALGORITHM - MANDATORY EXECUTION]
+  [PIPELINE EXECUTION LOGIC - MANDATORY]
 
-  🚀 **Module A: SOS (Sign of Strength) Precision Engine**
-  1. **Effort vs Result (VSA)**:
-     - Calculate: \`Effort_Score = vectorB.rvol / Abs(change %)\`.
-     - Threshold: If \`Effort_Score > 2.0\` (High Volume, Low Change) => **Absorbing Supply** (Bullish).
-  2. **Volatility Thrust**:
-     - Analyze \`vectorB.squeeze\` and \`vectorC.displacement\`. High values indicate thrust potential.
+  🔥 **Step 1: Neural Sieve (Correlation & Theme Filter)**
+  - Sector Constraint: You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
+  - Theme Check: Favor stocks aligning with current strong themes (e.g., AI, Defense, Bio, Industrial).
+  - Kill correlators: Do not pick more than 2 stocks that move identically.
 
-  📊 **Module B: Portfolio Optimization**
-  1. **Correlation Matrix Filter**:
-     - You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
-     - Max 2 stocks per sector to prevent correlation risk.
-  2. **Kelly Criterion Weighting**:
-     - Use \`convictionScore\` as Probability (P) and \`upsidePotential\` as Payoff (B).
+  📰 **Step 2: News Sentiment & Real-Time Context (THE FINAL GATE)**
+  - **CRITICAL ACTION**: You MUST search for recent news (last 48h) for each shortlisted candidate.
+  - **Sentiment Filter**: Score news sentiment from 0.0 to 1.0. 
+    - If sentiment < 0.6: **REJECT** immediately, even if technicals are good.
+    - Look for: Earnings beats, M&A, FDA approvals, Contracts, Institutional Upgrades.
+  - **Rejection Logic**: Avoid stocks with recent accounting scandals, lawsuits, or dilution news.
 
-  🎯 **Execution & Timing (Exact Formulas)**
-  For each selected stock, you MUST calculate and output these specific levels:
-  1. **Entry Guideline (P_entry)**:
-     - Formula: \`min(OrderBlock, VWAP * 0.98)\`.
-     - *Note: Since real-time VWAP is not provided, estimate it as Current Price * 0.98 for the aggressive entry or use \`supportLevel\` if available.*
-  2. **Stop-Loss (P_sl)**:
-     - Formula: \`Support - (1.5 * ATR)\`.
-     - *Note: Estimate ATR based on price volatility (approx 3-5% of price) if precise ATR is missing.*
+  🚀 **Step 3: Wyckoff SOS (Sign of Strength) Verification**
+  - **Effort vs Result**: Verify if Volume > 2x Avg while Price increases (Valid Breakout).
+  - **Thrust**: Check if Price Range > 1.5x ATR (Momentum Injection).
 
-  ✨ **Alpha Add-on (Ten-Bagger Checks)**
-  - **FCF Acceleration**: Check \`fundamentals.operatingCashflow\` and \`revenueGrowth\`. Positive trend = Bonus.
-  - **Sector Theme**: Ensure \`sector\` matches current market narratives.
+  🎯 **Step 4: Execution & Risk Parameters**
+  - **Entry (P_entry)**: \`min(OrderBlock, VWAP * 0.98)\`.
+  - **Stop-Loss (P_sl)**: \`Support - (1.5 * ATR)\`.
+  - **Allocation (Kelly)**: Suggest higher weight for stocks with Sentiment > 0.8 and Conviction > 90.
 
   [OUTPUT REQUIREMENTS - JSON ONLY]
   Return a JSON Array of exactly 6 Stocks.
   Each object must strictly match this schema:
   - **symbol**: Ticker.
-  - **aiVerdict**: "STRONG_BUY" (Confidence > 90%), "BUY" (Confidence > 80%), "ACCUMULATE".
+  - **aiVerdict**: "STRONG_BUY" (Score>90 + Good News), "BUY" (Score>80), "PARTIAL_EXIT" (Bad News).
   - **convictionScore**: 0-100.
+  - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
+  - **newsScore**: 0.0 to 1.0 float.
   - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of 3 strings (e.g. "SOS: Effort 2.4x Confirmed", "FCF: Accelerating", "Wyckoff: Phase D").
-  - **expectedReturn**: e.g., "+45% (3 months)".
-  - **supportLevel**: The calculated **Entry** price.
-  - **resistanceLevel**: The calculated **Target** price.
-  - **stopLoss**: The calculated **Stop-Loss** price.
+  - **selectionReasons**: Array of 3 strings (e.g. "News: Record Earnings", "SOS: Vol 2.4x", "Theme: AI").
+  - **expectedReturn**: e.g., "+42% (Ten-Bagger Target)".
+  - **supportLevel**: Entry Price.
+  - **resistanceLevel**: Target Price.
+  - **stopLoss**: Stop Price.
   - **riskRewardRatio**: e.g., "1:4.5".
-  - **chartPattern**: e.g. "Wyckoff Spring #2", "VCP Breakout".
+  - **kellyWeight**: e.g., "15%".
+  - **chartPattern**: e.g. "Wyckoff SOS".
   - **investmentOutlook**: **CRITICAL**. Must use the following specific Markdown format:
 
   > [Symbol] 
   > 1. AI Verdict: [Verdict] (Confidence [Score]%)
-  > 2. Reason: [Summary of SOS + FCF + Moat]
-  > 3. Entry Zone: $[Entry] ~ $[Entry * 1.01]
-  > 4. Stop Loss: $[Stop]
-  > 5. Target (1st): [Target]% / Target (Ten-Bagger): Holding until Climax Volume
+  > 2. News Analysis: [Sentiment] - [Headline Summary]
+  > 3. Reason: [Summary of SOS + FCF + Moat]
+  > 4. Entry Zone: $[Entry] ~ $[Entry * 1.01]
+  > 5. Stop Loss: $[Stop]
+  > 6. Target: [Target]% / Strategy: [Trailing Stop / Holding]
 
   **NO EMOJIS IN JSON STRINGS EXCEPT INSIDE 'investmentOutlook' HEADER**.
   Language: Korean.
@@ -922,85 +928,107 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   Market Context: ${regimeContext}
   Candidates: ${JSON.stringify(vectorInputs)}
 
-  Execute the [ALPHA-SIEVE EXECUTION PROTOCOL]. 
-  Select the best 6 assets.
-  Calculate Entry/Stop levels using the mandatory formulas (VWAP/ATR).
+  Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
+  1. Filter 50 -> 15 based on Sector/Theme.
+  2. Perform NEWS SEARCH on top 15.
+  3. Filter 15 -> 6 based on Sentiment > 0.6 and Wyckoff SOS.
+  4. Calculate Entry/Stop/Kelly for the Final 6.
+  
   Output the JSON array.
   `;
 
+  // [INTERNAL FALLBACK LOGIC]
+  // If Gemini fails, switch to Perplexity (Sonar) automatically to ensure 100% completion.
+  const executePerplexityAnalysis = async () => {
+    let lastError;
+    const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+    const pKey = pConfig?.key;
+    if (!pKey) throw new Error("Perplexity API Key Missing for Fallback");
+
+    // Loop through valid models only
+    for (const model of PERPLEXITY_MODELS) {
+      try {
+          const res = await fetchWithRetry(async () => {
+              const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                  method: 'POST',
+                  headers: { 
+                      'Content-Type': 'application/json', 
+                      'Authorization': `Bearer ${pKey}`,
+                      'Accept': 'application/json' 
+                  },
+                  referrerPolicy: 'no-referrer', 
+                  body: JSON.stringify({
+                      model: model, 
+                      messages: [
+                          { role: "system", content: SYSTEM_INSTRUCTION },
+                          { role: "user", content: prompt }
+                      ],
+                      temperature: 0.1
+                  })
+              });
+              if (!r.ok) {
+                  const errText = await r.text();
+                  throw new Error(`HTTP_${r.status}: ${errText}`);
+              }
+              return r;
+          });
+
+          const data = await res.json();
+          if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+          
+          const content = data.choices?.[0]?.message?.content;
+          const parsed = sanitizeAndParseJson(content);
+          if (parsed) {
+              if (Array.isArray(parsed)) {
+                  parsed.forEach(item => {
+                      if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                  });
+              }
+              return { data: parsed, usedProvider: 'PERPLEXITY' };
+          }
+          
+      } catch (e: any) {
+          console.warn(`Perplexity Model ${model} failed: ${e.message}`);
+          lastError = e;
+          if (e.message.includes('401') || e.message.includes('402')) break;
+      }
+    }
+    return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message}` };
+  };
+
   try {
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-      const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
-        contents: prompt,
-        config: { 
-            responseMimeType: "application/json", 
-            responseSchema: ALPHA_SCHEMA,
-            systemInstruction: SYSTEM_INSTRUCTION
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { 
+              responseMimeType: "application/json", 
+              responseSchema: ALPHA_SCHEMA,
+              systemInstruction: SYSTEM_INSTRUCTION,
+              // [NEW] Enable Google Search Tool for Real-time News Sentiment
+              tools: [{ googleSearch: {} }] 
+          }
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        const parsed = sanitizeAndParseJson(result.text);
+        if (parsed && Array.isArray(parsed)) {
+            parsed.forEach(item => {
+                if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+            });
         }
-      }));
-      trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-      const parsed = sanitizeAndParseJson(result.text);
-      if (parsed && Array.isArray(parsed)) {
-          parsed.forEach(item => {
-              if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-          });
+        return { data: parsed, usedProvider: 'GEMINI' };
+      } catch (geminiError: any) {
+        console.warn("Gemini Engine Failure (Quota/Error). Initiating Auto-Fallback to Sonar...", geminiError.message);
+        trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
+        // [FAILSAFE] Auto-switch to Perplexity
+        return await executePerplexityAnalysis();
       }
-      return { data: parsed };
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-      let lastError;
-      // [FIX] Loop through valid models only
-      for (const model of PERPLEXITY_MODELS) {
-        try {
-            const res = await fetchWithRetry(async () => {
-                const r = await fetch('https://api.perplexity.ai/chat/completions', {
-                    method: 'POST',
-                    headers: { 
-                        'Content-Type': 'application/json', 
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Accept': 'application/json' 
-                    },
-                    referrerPolicy: 'no-referrer', 
-                    body: JSON.stringify({
-                        model: model, 
-                        messages: [
-                            { role: "system", content: SYSTEM_INSTRUCTION },
-                            { role: "user", content: prompt }
-                        ],
-                        temperature: 0.1
-                    })
-                });
-                if (!r.ok) {
-                    const errText = await r.text();
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                }
-                return r;
-            });
-
-            const data = await res.json();
-            if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
-            
-            const content = data.choices?.[0]?.message?.content;
-            const parsed = sanitizeAndParseJson(content);
-            if (parsed) {
-                if (Array.isArray(parsed)) {
-                    parsed.forEach(item => {
-                        if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                    });
-                }
-                return { data: parsed };
-            }
-            
-        } catch (e: any) {
-            console.warn(`Model ${model} failed: ${e.message}`);
-            lastError = e;
-            if (e.message.includes('401') || e.message.includes('402')) break;
-        }
-      }
-      return { data: null, error: `ALL_MODELS_FAILED: ${lastError?.message}` };
+        return await executePerplexityAnalysis();
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) {
