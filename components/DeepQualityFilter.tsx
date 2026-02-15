@@ -135,13 +135,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     if (onStockSelected) onStockSelected(ticker);
   };
 
-  // Handle Radar Chart Label Clicks
-  const handleRadarLabelClick = ({ value }: any) => {
-      if (value === 'Profit') setActiveInsight('PROFIT_SCORE');
-      if (value === 'Safety') setActiveInsight('SAFETY_SCORE');
-      if (value === 'Value') setActiveInsight('VALUE_SCORE');
-  };
-
   // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
