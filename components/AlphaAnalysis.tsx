@@ -81,22 +81,22 @@ const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overla
 const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'HALF_KELLY': {
         title: "Half-Kelly Criterion (최적 비중)",
-        desc: "승률과 손익비를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.",
+        desc: "승률(P)과 손익비(B)를 기반으로 파산 위험을 0으로 수렴시키는 수학적 최적 투자 비중입니다.\n\n`K% = P - (1-P)/B`",
         strategy: "이 값은 '권장 상한선(Max Cap)'입니다. \n- 20% 근접: 확신도가 매우 높음 (적극 투자)\n- 10% 미만: 일반적인 기회 (분산 투자)\n*계산된 %의 50~80%만 집행하는 것이 안전합니다."
     },
     'VAPS': {
         title: "VAPS (변동성 조정 수량)",
-        desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).",
+        desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).\n\n`Qty = (Capital * 0.01) / (Entry - Stop)`",
         strategy: "수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
     },
     'ERCI': {
         title: "ERCI (효율성 지수)",
-        desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).",
+        desc: "단위 리스크당 기대할 수 있는 수익의 효율(Efficiency)을 나타냅니다. (상승여력 × 확신도 × 수급).\n\n`ERCI = Upside% * log(Conviction) * Flow`",
         strategy: "수치 해석 (높을수록 좋음):\n- 10.0 이상: 양호 (Good)\n- 30.0 이상: 초고효율 (Elite) - 우선 순위로 편입하십시오."
     },
     'QM_COMP': {
         title: "Q-M Composite (품질+모멘텀)",
-        desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.",
+        desc: "ROE(품질)와 ICT(모멘텀)를 결합하여 '우량주가 달리기 시작하는 시점'을 포착합니다.\n\n`QM = (ROE * 0.4) + (ICT * 0.6)`",
         strategy: "수치 해석 (높을수록 좋음):\n- 50점 이상: 펀더멘털과 수급이 모두 양호함\n- 70점 이상: 강력한 주도주 후보"
     },
     'CONVEXITY': {
@@ -106,12 +106,12 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
     },
     'EXPECTANCY': {
         title: "Expectancy (기대값)",
-        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.",
+        desc: "이 매매를 100번 반복했을 때, 1회당 평균적으로 얻을 수 있는 수익(R)입니다.\n\n`Exp = (Win% * AvgWin) - (Loss% * AvgLoss)`",
         strategy: "수치 해석 (높을수록 좋음):\n- 0.5R 이상: 훌륭한 시스템 (수익 우상향)\n- 0.2R 미만: 거래 비용 고려 시 손해 가능성 높음"
     },
     'IVG': {
         title: "IVG (내재가치 괴리율)",
-        desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.",
+        desc: "현재 주가가 내재가치(Intrinsic Value) 대비 얼마나 저렴한지 나타냅니다.\n\n`IVG = (Intrinsic - Price) / Price`",
         strategy: "수치 해석:\n- 양수(+): 저평가 상태 (안전마진 확보, 매수 유리)\n- 음수(-): 고평가 상태 (프리미엄 지불, 추격 매수 주의)"
     },
     'IFS': {
@@ -150,8 +150,8 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 // [UI] FINAL CORRECTED DESIGN
-// 1. No "NEURAL INVESTMENT OUTLOOK" title.
-// 2. H2 Headers: Clean white, no borders. English text smaller.
+// 1. NEURAL INVESTMENT OUTLOOK: Restored, smaller red italic font.
+// 2. H2 Headers: Parenthesis text smaller and lighter.
 // 3. Spacing: Tight, no extra lines.
 const MarkdownComponents: any = {
     // Header 1: Use minimal style or hidden if generated
@@ -238,7 +238,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const wsRef = useRef<WebSocket | null>(null);
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const logRef = useRef<HTMLDivElement>(null);
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
@@ -337,85 +337,77 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const currentCandidates = resultsCache[selectedBrain] || [];
       const symbolsToTrack = currentCandidates.map(s => s.symbol);
 
-      if (activeTab === 'INDIVIDUAL' && symbolsToTrack.length > 0 && polygonKey) {
+      if (activeTab === 'INDIVIDUAL' && symbolsToTrack.length > 0 && finnhubKey) {
           
           if (wsRef.current) {
               wsRef.current.close();
               wsRef.current = null;
           }
 
-          console.log(`[Polygon WS] Initiating connection for: ${symbolsToTrack.join(', ')}`);
+          console.log(`[Finnhub WS] Initiating connection for: ${symbolsToTrack.join(', ')}`);
           
-          const ws = new WebSocket('wss://socket.polygon.io/stocks');
+          const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
           wsRef.current = ws;
           
           ws.onopen = () => {
-              console.log("[Polygon WS] Connected. Sending Auth...");
-              ws.send(JSON.stringify({ action: 'auth', params: polygonKey }));
+              console.log("[Finnhub WS] Connected. Subscribing...");
+              symbolsToTrack.forEach(sym => {
+                  ws.send(JSON.stringify({ type: 'subscribe', symbol: sym }));
+              });
           };
 
           ws.onmessage = (e) => {
               try {
-                  const data = JSON.parse(e.data);
+                  const msg = JSON.parse(e.data);
                   
-                  data.forEach((msg: any) => {
-                      if (msg.ev === 'status' && msg.status === 'auth_success') {
-                          console.log("[Polygon WS] Auth Success. Subscribing...");
-                          const subs = symbolsToTrack.map(s => `T.${s}`).join(',');
-                          ws.send(JSON.stringify({ action: 'subscribe', params: subs }));
-                      }
-
-                      if (msg.ev === 'status' && msg.status === 'error') {
-                          console.error("[Polygon WS] Error:", msg.message);
-                      }
-
-                      if ((msg.ev === 'T' || msg.ev === 'A') && msg.sym) {
-                          const price = msg.p || msg.c; 
-                          if (!price) return;
-
+                  if (msg.type === 'trade' && msg.data) {
+                      msg.data.forEach((trade: any) => {
+                          const price = trade.p;
+                          const sym = trade.s;
+                          
                           setRealtimePrices(prev => {
-                              const currentData = prev[msg.sym];
+                              const currentData = prev[sym];
                               const oldPrice = currentData?.price || 0;
                               
                               let direction: 'up' | 'down' | null = null;
                               if (price > oldPrice) direction = 'up';
                               else if (price < oldPrice) direction = 'down';
                               
+                              // If price hasn't changed, don't update state to avoid re-renders
                               if (price === oldPrice && currentData) return prev;
 
                               return { 
                                   ...prev, 
-                                  [msg.sym]: { price: price, direction } 
+                                  [sym]: { price: price, direction } 
                               };
                           });
-                          
-                          if (price !== (realtimePrices[msg.sym]?.price || 0)) {
-                              setTimeout(() => {
-                                  setRealtimePrices(prev => {
-                                      if (!prev[msg.sym]) return prev;
-                                      return { 
-                                          ...prev, 
-                                          [msg.sym]: { ...prev[msg.sym], direction: null } 
-                                      };
-                                  });
-                              }, 1000); 
-                          }
-                      }
-                  });
+
+                          // Reset flash after delay
+                          setTimeout(() => {
+                              setRealtimePrices(prev => {
+                                  if (!prev[sym]) return prev;
+                                  return { 
+                                      ...prev, 
+                                      [sym]: { ...prev[sym], direction: null } 
+                                  };
+                              });
+                          }, 1000);
+                      });
+                  }
               } catch (err) {
-                  console.error("[Polygon WS] Message Parse Error", err);
+                  console.error("[Finnhub WS] Message Parse Error", err);
               }
           };
 
           ws.onerror = (err) => {
-              console.error("[Polygon WS] Connection Error", err);
+              console.error("[Finnhub WS] Connection Error", err);
           };
           
           return () => {
               if (wsRef.current) wsRef.current.close();
           };
       }
-  }, [activeTab, resultsCache, selectedBrain, polygonKey]); 
+  }, [activeTab, resultsCache, selectedBrain, finnhubKey]); 
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -1142,7 +1134,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             {/* RESTORED HEADER: Title + Copy Button */}
                             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-                                <h4 className="text-2xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
+                                <h4 className="text-xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
                                 <div className="flex gap-3 ml-auto">
@@ -1278,9 +1270,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                                         <div className="w-1 h-4 bg-indigo-500 rounded-full"></div>
                                                         {FRAMEWORK_INSIGHTS[activeAlphaInsight].title}
                                                     </h5>
-                                                    <p className="text-[12px] text-slate-400 leading-relaxed pl-4 border-l border-white/5 whitespace-pre-wrap">
-                                                        {FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}
-                                                    </p>
+                                                    <div className="text-[12px] text-slate-400 leading-relaxed pl-4 border-l border-white/5 whitespace-pre-wrap">
+                                                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                                            {FRAMEWORK_INSIGHTS[activeAlphaInsight].desc}
+                                                        </ReactMarkdown>
+                                                    </div>
                                                 </div>
 
                                                 {/* Strategy/Insight Box */}
