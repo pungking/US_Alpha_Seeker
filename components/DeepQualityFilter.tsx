@@ -384,7 +384,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.1</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     {/* Restored Original Glass Style Badge */}
-                    <span className={`text-[9px] font-black px-3 py-1 rounded border uppercase tracking-widest transition-all ${
+                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all ${
                         loading 
                         ? 'bg-violet-500/20 text-violet-300 border-violet-500/40 animate-pulse' 
                         : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
