@@ -277,13 +277,10 @@ const App: React.FC = () => {
       }, targetBrain);
 
       // [AUTO-TOGGLE] Robust Failover Logic
-      // Checks for various failure keywords including specific Quota errors
       if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing") || report.includes("QUOTA_EXCEEDED")) {
          if (targetBrain === ApiProvider.GEMINI) {
              setAuditBrain(ApiProvider.PERPLEXITY);
              console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar.");
-             
-             // Optional: Retry immediately with Sonar if needed, but for now we just switch toggle for user to retry or next attempt
          }
       } else {
          // [NEW] Automatic Report Archiving (Only on Success)
@@ -294,7 +291,6 @@ const App: React.FC = () => {
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
              const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
              
-             // Fire and forget
              archiveReport(token, fileName, report).then(ok => {
                  if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
                  else console.warn(`[Archive] Failed to save report: ${fileName}`);
@@ -500,7 +496,8 @@ const App: React.FC = () => {
 
       <main className="min-h-[450px]">
         {/* Pass autoStart (true only if Mirror + running + currentStage matches) and onComplete handler */}
-        <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
+        {/* FIX: Use conditional rendering instead of display:none to prevent rendering artifacts/ghosting */}
+        {currentStage === 0 && (
           <UniverseGathering 
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
@@ -509,42 +506,42 @@ const App: React.FC = () => {
             autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
             onComplete={() => handleStageComplete(0)}
           />
-        </div>
-        <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
+        )}
+        {currentStage === 1 && (
           <PreliminaryFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
             onComplete={() => handleStageComplete(1)}
           />
-        </div>
-        <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
+        )}
+        {currentStage === 2 && (
           <DeepQualityFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
             onStockSelected={setSelectedStock}
           />
-        </div>
-        <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
+        )}
+        {currentStage === 3 && (
           <FundamentalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
             onComplete={() => handleStageComplete(3)}
             onStockSelected={setSelectedStock}
           />
-        </div>
-        <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
+        )}
+        {currentStage === 4 && (
           <TechnicalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
             onComplete={() => handleStageComplete(4)}
             onStockSelected={setSelectedStock}
           />
-        </div>
-        <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
+        )}
+        {currentStage === 5 && (
           <IctAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
             onComplete={() => handleStageComplete(5)}
             onStockSelected={setSelectedStock}
           />
-        </div>
-        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
+        )}
+        {currentStage === 6 && (
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
             setSelectedBrain={setSelectedBrain}
@@ -557,7 +554,7 @@ const App: React.FC = () => {
             autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
             onComplete={(report) => handleStageComplete(6, report)}
           />
-        </div>
+        )}
       </main>
 
       {/* Detail Section */}
