@@ -895,16 +895,16 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **riskRewardRatio**: e.g., "1:4.5".
   - **kellyWeight**: e.g., "15%".
   - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
+  - **investmentOutlook**: **CRITICAL**. Use the provided strict Markdown Template. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
 
   Markdown Template for investmentOutlook:
-
+  
   ## 1. 전문가 3인 성향 분석 (The Council Debate)
   - **보수적 퀀트 (Conservative Quant)** : [Analysis of Fundamentals, Valuation, Safety in Korean]
   - **공격적 트레이더 (Aggressive Trader)** : [Analysis of Momentum, News, Catalysts in Korean]
   - **마켓 메이커 (Market Maker)** : [Analysis of Liquidity, Order Blocks, Traps in Korean]
 
-  ## 2. The Alpha Thesis: 전략적 투자 시나리오
+  ## 2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
   [Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification in Korean.]
 
   **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
@@ -1009,10 +1009,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         }
         return { data: parsed, usedProvider: 'GEMINI' };
       } catch (geminiError: any) {
-        console.warn("Gemini Engine Failure (Quota/Error). Initiating Auto-Fallback to Sonar...", geminiError.message);
-        trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
-        // [FAILSAFE] Auto-switch to Perplexity
-        return await executePerplexityAnalysis();
+        // [MODIFIED] Do not auto-fallback. Return error for UI toggle.
+        return { data: null, error: geminiError.message };
       }
     }
 
