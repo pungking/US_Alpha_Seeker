@@ -149,40 +149,50 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// [UI] Dynamic Markdown Styling
 const MarkdownComponents: any = {
-    // Headlines: Clean, no boxes, no borders to fix green bar issue
+    // Header 1 (Used for Main Title in some contexts, but mostly we use H2 for sections)
     h1: (props: any) => (
-        <h1 className="text-lg md:text-xl font-black text-rose-500 mt-6 mb-4 uppercase tracking-widest pb-2 border-none" {...props}>
+        <h1 className="text-2xl font-black text-white mt-8 mb-4 uppercase italic tracking-widest border-b-2 border-white/20 pb-2" {...props}>
             {props.children}
         </h1>
     ),
+    // Header 2 (Sections like "1. 전문가 3인...", "2. The Alpha...")
     h2: (props: any) => (
-        <h2 className="text-base md:text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide border-none" {...props}>
+        <h2 className="text-xl font-black text-white mt-10 mb-4 uppercase italic tracking-wider flex items-center gap-3 border-l-4 border-emerald-500 pl-4 bg-gradient-to-r from-emerald-900/20 to-transparent py-2 rounded-r-xl">
             {props.children}
         </h2>
     ),
-    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide border-none" {...props} />,
+    // Header 3 (Sub-sections)
+    h3: (props: any) => <h3 className="text-sm font-bold text-slate-400 mt-4 mb-2 uppercase tracking-wide border-b border-white/5 pb-1" {...props} />,
     
-    // Paragraphs: Standard readable text
-    p: (props: any) => <p className="text-xs md:text-[13px] text-slate-300 leading-relaxed mb-3 font-medium tracking-wide" {...props} />,
+    // Paragraphs
+    p: (props: any) => <p className="text-[13px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
     
-    // Lists: Clean standard bullets
-    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500" {...props} />,
+    // Lists (Bullet Points)
+    ul: (props: any) => <ul className="space-y-3 mb-6" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
+    
+    // List Items - The "Arrow" logic is removed, replaced by "Block" logic via 'strong'
     li: (props: any) => (
-        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
+        <li className="text-[13px] text-slate-300 leading-7 pl-2" {...props}>
             {props.children}
         </li>
     ),
     
-    // Inline Elements
-    strong: (props: any) => <strong className="text-white font-bold" {...props} />,
+    // Strong/Bold -> The "Square Block" Look
+    strong: (props: any) => (
+        <span className="inline-block bg-slate-800 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/30 mr-2 mb-1 shadow-sm tracking-tight">
+            {props.children}
+        </span>
+    ),
+    
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-indigo-500/50 pl-4 my-4 italic text-slate-400" {...props} />
+        <blockquote className="border-l-4 border-rose-500/50 bg-rose-950/10 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-rose-300 px-1 py-0.5 rounded font-mono text-xs" {...props} />
+        ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
     hr: () => <hr className="border-white/10 my-6" />
@@ -1117,9 +1127,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          </div>
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* REDESIGNED HEADER: Fixed Green Bar issue by removing border and padding */}
+                            {/* REDESIGNED HEADER: Dynamic and Unified */}
                             <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
-                                <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.25em]">
+                                <h4 className="text-2xl font-black italic tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 border-b-2 border-rose-500 pb-1">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
                                 <div className="flex gap-3">
@@ -1321,7 +1331,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      ].map(m => (
                                          <div 
                                             key={m.key}
-                                            onClick={() => handleMetricClick(m.key, m.val)} // Restored correct handler with parameters
+                                            onClick={() => handleMetricClick(m.key, m.val)}
                                             className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === m.key ? `${m.bg} ${m.border} text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]` : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                          >
                                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{METRIC_DEFINITIONS[m.key].title}</span>
