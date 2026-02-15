@@ -33,6 +33,9 @@ interface AlphaCandidate {
   newsSentiment?: string;
   newsScore?: number;
   kellyWeight?: string;
+  // [NEW] Hidden Gem & Imputation Flags
+  isHiddenGem?: boolean;
+  isImputed?: boolean;
   [key: string]: any;
 }
 
@@ -647,7 +650,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
     
     try {
-      const topCandidates = [...elite50].sort((a, b) => b.compositeAlpha - a.compositeAlpha).slice(0, 12);
+      // [MODIFIED] Hidden Gem & Priority Logic
+      const scoredCandidates = elite50.map((c: any) => {
+          const gap = Number(c.fairValueGap || 0);
+          const ict = Number(c.ictScore || 0);
+          const rvol = Number(c.techMetrics?.rawRvol || 0);
+          
+          const isUndervaluedGrowth = gap > 100 && ict > 60;
+          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0;
+          const isHiddenGem = isUndervaluedGrowth || isVolumeRunner;
+          
+          let sortScore = c.compositeAlpha || 0;
+          if (isHiddenGem) sortScore += 25; // Significant boost to ensure top 12
+          
+          return { ...c, isHiddenGem, sortScore };
+      });
+
+      const topCandidates = scoredCandidates
+          .sort((a: any, b: any) => b.sortScore - a.sortScore)
+          .slice(0, 12);
+          
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
@@ -687,6 +709,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             supportLevel: safeEntry,
             resistanceLevel: Number(aiData.resistanceLevel) || (safePrice * 1.25),
             stopLoss: Number(aiData.stopLoss) || (safePrice * 0.94),
+            isHiddenGem: item.isHiddenGem, // Ensure this carries over
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
@@ -1049,6 +1072,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     onClick={() => handleStockClick(item)} 
                     className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
                   >
+                    {/* [NEW] Hidden Gem Badge */}
+                    {item.isHiddenGem && (
+                        <div className="absolute top-0 right-0 z-10 p-3">
+                            <div className="bg-purple-600/90 text-white text-[8px] font-black px-2 py-0.5 rounded shadow-[0_0_10px_rgba(147,51,234,0.5)] flex items-center gap-1 animate-pulse border border-purple-400/50">
+                                💎 GEM
+                            </div>
+                        </div>
+                    )}
+
                     {((loading && isSelected) || isAuditRunning) && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
