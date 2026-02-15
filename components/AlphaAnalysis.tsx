@@ -149,25 +149,19 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [UI] CORRECTED DESIGN: Matching the "Red Header / Green Badge" Reference
-// 1. Headers (h1, h2): Rose/Red, Italic.
-// 2. Strong tags: Green Badges/Pills.
-// 3. List bullets: Green Arrows.
-// 4. Spacing: Clean.
+// [UI] CLEANED DESIGN: No Red Headers, No Title. Just content.
 const MarkdownComponents: any = {
-    // Header 1 ("NEURAL INVESTMENT OUTLOOK"): Rose Red, Italic, Underlined
+    // Header 1: Clean White, Bold
     h1: (props: any) => (
-        <div className="mb-6 border-b-2 border-rose-500 pb-2">
-             <h1 className="text-2xl md:text-3xl font-black italic tracking-tighter text-rose-500 uppercase" {...props} />
-        </div>
+        <h1 className="text-xl md:text-2xl font-bold text-white mt-6 mb-4 border-b border-white/10 pb-2 uppercase tracking-wide" {...props} />
     ),
-    // Header 2 (Section Headers): Rose Red, Italic
+    // Header 2: Clean White, Bold
     h2: (props: any) => (
-        <h2 className="text-xl md:text-2xl font-black text-rose-500 mt-8 mb-4 italic uppercase tracking-wide" {...props} />
+        <h2 className="text-lg md:text-xl font-bold text-white mt-6 mb-3 uppercase tracking-wide" {...props} />
     ),
-    // Header 3: Sub-headers (Slate/White)
+    // Header 3: Blue/Slate
     h3: (props: any) => (
-        <h3 className="text-sm font-bold text-slate-300 mt-4 mb-2 uppercase tracking-wide" {...props} />
+        <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />
     ),
     // Paragraphs
     p: (props: any) => (
@@ -185,19 +179,19 @@ const MarkdownComponents: any = {
         </li>
     ),
     
-    // Strong -> Green Badge (The specific design requested)
+    // Strong -> Green Badge (Clean Look)
     strong: (props: any) => (
-        <span className="inline-block bg-emerald-950/60 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
+        <span className="inline-block bg-emerald-950/40 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
             {props.children}
         </span>
     ),
     
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-rose-500/30 bg-rose-950/10 p-3 my-4 rounded-r-lg italic text-slate-400 text-xs" {...props} />
+        <blockquote className="border-l-4 border-emerald-500/30 bg-emerald-950/10 p-3 my-4 rounded-r-lg italic text-slate-400 text-xs" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-rose-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
+        ? <code className="bg-slate-800 text-emerald-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
         : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
     ),
     hr: () => <div className="h-4" /> 
@@ -1132,12 +1126,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          </div>
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* REDESIGNED HEADER: Matching the User's Reference exactly */}
+                            {/* CLEANED HEADER: No Title, Just Copy Button on Right */}
                             <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
-                                <h4 className="text-2xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1">
-                                    NEURAL INVESTMENT OUTLOOK
-                                </h4>
-                                <div className="flex gap-3">
+                                <div className="flex gap-3 ml-auto">
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
                             </div>
