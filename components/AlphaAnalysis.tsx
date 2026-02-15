@@ -857,9 +857,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
+  // [FIX] Robust Verdict Cleaning
   const cleanVerdict = (v?: string) => {
       if (!v) return "";
-      return v.replace(/[\*\_\[\]]/g, '').trim().toUpperCase().replace(/\s/g, '');
+      // Allow alphanumeric, underscore, and Korean characters
+      return v.replace(/[^a-zA-Z0-9_가-힣]/g, '').toUpperCase();
   };
 
   const translateVerdict = (v?: string) => {
@@ -871,6 +873,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
     if (text === 'SELL' || text === '매도') return '매도';
     if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기')) return '고위험';
+    if (text === "") return "분석 중"; // Fallback for empty
     return v || "대기";
   };
 
@@ -924,6 +927,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (currentBacktest.equityCurve && Array.isArray(currentBacktest.equityCurve) && currentBacktest.equityCurve.length >= 2) {
             rawData = currentBacktest.equityCurve.map((item) => {
                 const valStr = String(item.value);
+                // [FIX] Strict parsing for percentage strings (e.g. "+15.5%")
                 const cleanVal = valStr.replace(/[^0-9.-]/g, '');
                 const val = parseFloat(cleanVal);
                 return {
@@ -968,7 +972,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const getTacticalPosition = (price: number, entry: number, target: number, stop: number) => {
       const range = target - stop;
-      if (Math.abs(range) < 0.0001) return 50; 
+      // [FIX] Prevent Division by Zero or Invalid Range (Stop >= Target)
+      if (range <= 0.0001) return 50; 
+      
       const position = price - stop;
       let percent = (position / range) * 100;
       percent = Math.max(0, Math.min(100, percent));
