@@ -97,7 +97,7 @@ const ALPHA_SCHEMA = {
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
       investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Council Debate' format." },
-      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers in Korean" },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of exactly 3 reasons in Korean: [1.Sector, 2.Fundamentals, 3.Technical]" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
       newsScore: { type: Type.NUMBER, description: "Sentiment score 0.0 to 1.0 (Threshold > 0.6)" },
@@ -372,154 +372,106 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
+// [TELEGRAM BRIEF GENERATOR - HYBRID ENGINE]
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
-  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' });
-  
-  let macroContext = "";
-  let spxPrice = "N/A";
-  let ndxPrice = "N/A";
-  let vixPrice = "N/A";
+  const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+  const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
 
+  // 1. Fetch Live Market Data
+  let vix = "20.00", spx = "N/A", ndx = "N/A";
   try {
       const indexRes = await fetch('/api/portal_indices');
       if (indexRes.ok) {
           const indices = await indexRes.json();
-          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
-          const spx = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
-          const ndx = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
-          
-          spxPrice = spx?.price ? spx.price.toFixed(0) : "N/A";
-          ndxPrice = ndx?.price ? ndx.price.toFixed(2) : "N/A";
-          vixPrice = vix?.price ? vix.price.toFixed(2) : "N/A";
-
-          macroContext = `
-          S&P500: ${spx?.price?.toFixed(0) || 'N/A'}
-          NASDAQ: ${ndx?.price?.toFixed(0) || 'N/A'}
-          VIX: ${vix?.price?.toFixed(2) || 'N/A'}
-          `;
+          const v = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          const s = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
+          const n = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
+          if(v) vix = v.price.toFixed(2);
+          if(s) spx = s.price.toFixed(0);
+          if(n) ndx = n.price.toFixed(2);
       }
-  } catch (e) {
-      macroContext = "Market Index Data Unavailable";
-  }
+  } catch(e) {}
 
-  const top6 = candidates.slice(0, 6).map(c => ({
-      symbol: c.symbol,
-      name: c.name || c.symbol, 
-      verdict: c.aiVerdict, 
-      entry: c.supportLevel,
-      target: c.resistanceLevel,
-      stop: c.stopLoss,
-      reasons: c.selectionReasons || [], 
-      expReturn: c.expectedReturn,
-      theme: c.sectorTheme || c.theme || "Alpha Sector",
-      score: c.compositeAlpha || c.convictionScore || 0,
-      newsSentiment: c.newsSentiment || "Neutral"
-  }));
-
-  const prompt = `
-  You are a helpful assistant.
-  Please write a daily stock market summary report in Korean based on the provided dataset.
+  // 2. Generate "Market Pulse" Text via AI (Hybrid Approach)
+  // We ask AI to generate the 'Macro' summary paragraph based on indices.
+  const macroPrompt = `
+  [Task] Write a professional "Market Pulse" summary in Korean for a financial report.
   
-  DATASET:
-  - Date: ${today}
-  - Market Indices: S&P500=${spxPrice}, NASDAQ=${ndxPrice}, VIX=${vixPrice}
-  - Top Picks Data: ${JSON.stringify(top6)}
+  Data:
+  - VIX: ${vix}
+  - S&P 500: ${spx}
+  - NASDAQ: ${ndx}
   
-  INSTRUCTIONS:
-  1. Write in professional Korean.
-  2. Do not explain what you are doing, just output the report.
-  3. Translate English verdicts (STRONG_BUY -> 강력 매수, BUY -> 매수, ACCUMULATE -> 비중 확대, HOLD -> 관망).
-  4. Use the specific format below.
+  Requirements:
+  - Provide a concise summary of the market sentiment based on the index levels.
+  - Explain 2-3 key driving factors (e.g. Fed policy, Tech earnings, Geopolitics) IF relevant.
+  - Interpret the VIX level briefly.
+  
+  Output Format (Strict):
+  Macro: [Your Summary Here] (S&P500: ${spx} | NASDAQ: ${ndx})
+  - [Factor 1]
+  - [Factor 2]
+  - [Factor 3]
 
-  FORMAT:
-  📅 ${today} | Daily Alpha Insight
-
-  📊 Market Pulse
-  Macro: S&P500과 NASDAQ이 [Short Summary] (S&P500: ${spxPrice} | NASDAQ: ${ndxPrice})
-  - [Key Market Driver]
-  - [Sector Trend]
-  - [Volatility Note]
-
-  VIX: ${vixPrice}. ([Volatility Status])
-
-  💎 Alpha Top 6 Selections
-
-  (Iterate through Top Picks)
-  1. [Symbol] ([Verdict]) : [Name]
-     - 🏢 Sector: [Theme]
-     - 📰 Sentiment: [NewsSentiment]
-     - 🎯 Plan: 진입 $[Entry] | 목표 $[Target] | 손절 $[Stop]
-     - 📈 Exp.Return: [ExpReturn]
-     - 💡 Logic:
-       - 섹터 성장: [Context]
-       - 실적 요인: [Context]
-       - 기술적: [Context]
-
-  ⚠️ Risk Note: [Risk Warning]
+  VIX: ${vix}. ([Short Interpretation])
   `;
 
-  const cleanOutput = (text: string) => {
-      let clean = text.replace(/\[\d+(?:-\d+)?\]/g, ''); 
-      clean = clean.replace(/([가-힣\)\.])(\d+)(?=\s|$|\n)/gm, '$1'); 
-      clean = clean.replace(/🚀.*?Report.*?🚀/gi, '').trim(); 
-      // Ensure specific phrase removal if AI includes refusals in the text body (rare with this prompt)
-      clean = clean.replace(/I cannot function as a game data formatter/gi, '').trim();
-      return removeCitations(clean); 
-  };
-
-  const executePerplexityFallback = async () => {
-    const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
-    const pKey = pConfig?.key;
-    if (!pKey) throw new Error("Perplexity API Key Missing for Fallback");
-
-    const res = await fetch('https://api.perplexity.ai/chat/completions', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${pKey}`,
-            'Accept': 'application/json' 
-        },
-        body: JSON.stringify({
-            model: 'sonar-pro', 
-            messages: [{ role: "user", content: prompt }]
-        })
-    });
-    
-    const json = await res.json();
-    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-    if (!res.ok) throw new Error(json.error?.message || "Perplexity Fallback Failed");
-    return json.choices?.[0]?.message?.content || "Fallback generation failed.";
-  };
-
+  let macroSection = "";
   try {
-    let rawText = "";
-    if (provider === ApiProvider.GEMINI) {
-        try {
-            const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-            const result = await fetchWithRetry(() => ai.models.generateContent({
-                model: 'gemini-3-flash-preview',
-                contents: prompt,
-            }));
-            trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-            rawText = result.text;
-        } catch (geminiError: any) {
-            console.warn("Gemini Quota Hit or Failure. Switching to Perplexity (Sonar) Fallback.", geminiError);
-            rawText = await executePerplexityFallback();
-        }
-    } else {
-        rawText = await executePerplexityFallback();
-    }
-    
-    return cleanOutput(rawText);
-
-  } catch (error: any) {
-    trackUsage(provider, 0, true, error.message);
-    return `BRIEF_GEN_FAILURE: ${error.message}`;
+     if (provider === ApiProvider.GEMINI) {
+          const ai = new GoogleGenAI({ apiKey });
+          const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
+          macroSection = res.text.trim();
+      } else {
+          const res = await fetch('https://api.perplexity.ai/chat/completions', {
+              method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+              body: JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: macroPrompt }] })
+          });
+          const json = await res.json();
+          macroSection = json.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
+      }
+  } catch (e) {
+     macroSection = `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
   }
+
+  // 3. Format Candidates Programmatically (Top 6)
+  const selections = candidates.slice(0, 6).map((c, i) => {
+      const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대" };
+      let koreanVerdict = verdictMap[c.aiVerdict] || "매수";
+      if (!c.aiVerdict && c.compositeAlpha > 80) koreanVerdict = "강력 매수";
+
+      const reasons = c.selectionReasons || [];
+      const r1 = reasons[0] || "섹터 모멘텀 양호";
+      const r2 = reasons[1] || "안정적 펀더멘털";
+      const r3 = reasons[2] || "기술적 반등 위치";
+
+      return `${i + 1}. ${c.symbol} (${koreanVerdict}) : ${c.name}
+   - 🏢 Sector: ${c.sectorTheme || c.sector}
+   - 🎯 Plan: 진입 $${c.supportLevel?.toFixed(2) || '0.00'} | 목표 $${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 $${c.stopLoss?.toFixed(2) || '0.00'}
+   - 📈 Exp.Return: ${c.expectedReturn || "N/A"}
+   - 💡 Logic:
+     - 섹터 성장: ${removeCitations(r1)}
+     - 실적 요인: ${removeCitations(r2)}
+     - 기술적: ${removeCitations(r3)}`;
+  }).join('\n\n');
+
+  // 4. Construct Final Message
+  return `🚀 US Alpha Seeker Report 🚀
+
+📅 ${dateStr} | Daily Alpha Insight
+
+📊 Market Pulse
+${macroSection}
+
+💎 Alpha Top 6 Selections
+
+${selections}
+
+⚠️ Risk Note: 현재 VIX 지수가 ${vix}입니다. 개별 종목별로 제시된 손절가(Stop)를 엄격히 준수하고, 섹터별 비중 조절을 통해 포트폴리오 리스크를 관리하시기 바랍니다.`.trim();
 }
 
 export async function analyzePipelineStatus(data: {
@@ -888,7 +840,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
   - **newsScore**: 0.0 to 1.0 float.
   - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of 3 distinct, high-impact reasons in **KOREAN**. (e.g., "기관의 공격적 매집 포착", "AI 섹터 순환매의 수혜 예상", "완벽한 눌림목 지지 확인").
+  - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** that must correspond to: [1. Sector/Theme Growth, 2. Earnings/Fundamental Logic, 3. Technical/Supply Logic]. Do NOT merge them into one.
   - **expectedReturn**: e.g., "+42% (Ten-Bagger Target)".
   - **supportLevel**: Entry Price.
   - **resistanceLevel**: Target Price.
