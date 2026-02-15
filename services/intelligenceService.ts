@@ -96,7 +96,7 @@ const ALPHA_SCHEMA = {
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
       investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Council Debate' format." },
-      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers: Fundamental, Technical, News/Sentiment" },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers in Korean" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
       newsScore: { type: Type.NUMBER, description: "Sentiment score 0.0 to 1.0 (Threshold > 0.6)" },
@@ -908,21 +908,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **riskRewardRatio**: e.g., "1:4.5".
   - **kellyWeight**: e.g., "15%".
   - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Must use the following specific **Korean Markdown** format:
-
-  > [Symbol] 
-  > 1. AI Verdict: [Verdict] (Confidence [Score]%)
-  > 2. News Analysis: [Sentiment] - [Headline Summary]
-
-  ## 🧠 Neural Investment Outlook: [Symbol]
-
-  ### 1. 🏛️ 전문가 3인 성향 분석 (The Council Debate)
-  - **🧐 보수적 퀀트 (Conservative Quant)**: [Focus on Fundamentals, Valuation, Safety. Why is this safe?]
-  - **🚀 공격적 트레이더 (Aggressive Trader)**: [Focus on Momentum, News, Catalysts. Why will it explode?]
-  - **⚖️ 마켓 메이커 (Market Maker)**: [Focus on Liquidity, Order Blocks, Traps. Where are the whales?]
-
-  ### 2. 🔮 선정 이유 및 미래 전망 (The Alpha Thesis)
-  [Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification.]
+  - **investmentOutlook**: **CRITICAL**. Must use the following specific **Korean Markdown** format for maximum readability:
+  
+  Format Template (as string):
+  "### 🧠 Neural Investment Outlook: [Symbol]\\n\\n**1. 🏛️ 전문가 3인 성향 분석 (The Council Debate)**\\n- **🧐 보수적 퀀트 (Conservative Quant)**: [Evaluation of Fundamentals, Valuation, Safety]\\n- **🚀 공격적 트레이더 (Aggressive Trader)**: [Evaluation of Momentum, News, Catalysts]\\n- **⚖️ 마켓 메이커 (Market Maker)**: [Evaluation of Liquidity, Order Blocks, Traps]\\n\\n**2. 🔮 선정 타당성 및 미래 전망 (The Alpha Thesis)**\\n[Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification in Korean.]"
 
   **NO EMOJIS IN JSON STRINGS EXCEPT INSIDE 'investmentOutlook' HEADER**.
   Language: Korean.
