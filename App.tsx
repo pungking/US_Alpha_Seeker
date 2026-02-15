@@ -14,7 +14,23 @@ import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
 import LegalDocs from './components/LegalDocs';
+import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
 import { sendTelegramReport } from './services/telegramService';
+
+// Markdown Components for ReactMarkdown
+const MarkdownComponents: any = {
+  p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[11px]" {...props} />,
+  ul: (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+  li: (props: any) => <li className="text-slate-300 text-[11px]" {...props} />,
+  strong: (props: any) => <strong className="text-emerald-400 font-bold" {...props} />,
+  h1: (props: any) => <h1 className="text-sm font-bold text-white mb-2" {...props} />,
+  h2: (props: any) => <h2 className="text-xs font-bold text-white mb-1" {...props} />,
+  h3: (props: any) => <h3 className="text-xs font-bold text-blue-400 mb-1" {...props} />,
+  blockquote: (props: any) => <blockquote className="border-l-4 border-emerald-500/50 pl-4 py-2 my-2 bg-emerald-900/10 italic text-slate-400 text-xs" {...props} />,
+  code: ({inline, ...props}: any) => inline 
+    ? <code className="bg-slate-800 text-emerald-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
+    : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>,
+};
 
 const App: React.FC = () => {
   const [apiStatuses, setApiStatuses] = useState<(ApiStatus & { category: string })[]>([]);
@@ -54,9 +70,6 @@ const App: React.FC = () => {
   const [stockAuditCache, setStockAuditCache] = useState<{ [key: string]: string }>({});
   const [analyzingStocks, setAnalyzingStocks] = useState<Set<string>>(new Set());
 
-  // Clock State
-  const [time, setTime] = useState(new Date());
-
   // [NEW] GITHUB ACTION HOOK & LEGAL DOC HOOK
   useEffect(() => {
       const params = new URLSearchParams(window.location.search);
@@ -74,12 +87,6 @@ const App: React.FC = () => {
           setShowLegalDocs(true);
       }
   }, [isGdriveConnected]);
-
-  // Clock Ticker
-  useEffect(() => {
-    const timer = setInterval(() => setTime(new Date()), 1000);
-    return () => clearInterval(timer);
-  }, []);
 
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
@@ -137,12 +144,8 @@ const App: React.FC = () => {
 
   // Cleanup on Stage Change
   useEffect(() => {
-    // [UX FIX] Reset selected target when switching stages to prevent stale data in Audit Matrix
-    // Only apply in Manual Mode. In Auto Pilot, we want to preserve context flow unless specific logic overrides it.
-    if (!isAutoPilotRunning) {
-        setSelectedStock(null);
-    }
-  }, [currentStage, isAutoPilotRunning]);
+    // Keep selection persistence
+  }, [currentStage]);
 
   useEffect(() => {
     setAuditBrain(selectedBrain);
@@ -256,55 +259,60 @@ const App: React.FC = () => {
     };
   }, [refreshApiStatuses]);
 
-  // Helper for KST Timestamp
-  const getKstTimestamp = () => {
-    const now = new Date();
-    // 9 hours offset for KST
-    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-  };
-
   const runStockAudit = async () => {
     if (!selectedStock) return;
     setIsAiLoading(true);
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
-    const targetBrain = auditBrain;
-    const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
-    // Dynamic Import to avoid cycle or load heavy function on demand?
-    // Actually analyzePipelineStatus is in services/intelligenceService, already imported.
-    const { analyzePipelineStatus, archiveReport } = await import('./services/intelligenceService');
-
+    
+    // [FAILOVER LOGIC] Start with current brain, but allow switching locally
+    let activeProvider = auditBrain;
     const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
 
     try {
-      const report = await analyzePipelineStatus({
+      // 1. First Attempt
+      let report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
         symbols: [selectedStock.symbol],
         targetStock: selectedStock,
         mode: mode
-      }, targetBrain);
+      }, activeProvider);
 
-      // [AUTO-TOGGLE] Robust Failover Logic
-      // Checks for various failure keywords including specific Quota errors
-      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing") || report.includes("QUOTA_EXCEEDED")) {
-         if (targetBrain === ApiProvider.GEMINI) {
-             setAuditBrain(ApiProvider.PERPLEXITY);
-             console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar.");
-             
-             // Optional: Retry immediately with Sonar if needed, but for now we just switch toggle for user to retry or next attempt
-         }
-      } else {
-         // [NEW] Automatic Report Archiving (Only on Success)
+      // 2. Check for Failure Strings (Gemini Quota/Error)
+      const isFailure = report.includes("AUDIT_FAILURE") || 
+                        report.includes("AUDIT_NODE_ERROR") || 
+                        report.includes("AUDIT_QUOTA_EXCEEDED") || 
+                        report.includes("ERROR") || 
+                        report.includes("API Key Missing");
+
+      // 3. Immediate Retry Logic
+      if (isFailure && activeProvider === ApiProvider.GEMINI) {
+         console.warn(`Gemini Audit Failed/Quota Exceeded (${report.substring(0, 30)}...). Auto-switching to Sonar & Retrying...`);
+         
+         // Update Global State for UI (Toggle button visually)
+         setAuditBrain(ApiProvider.PERPLEXITY);
+         // Update Local State for Retry
+         activeProvider = ApiProvider.PERPLEXITY;
+         
+         // RETRY execution immediately
+         report = await analyzePipelineStatus({
+            currentStage,
+            apiStatuses,
+            symbols: [selectedStock.symbol],
+            targetStock: selectedStock,
+            mode: mode
+         }, activeProvider);
+      }
+
+      // 4. Archive (Only if valid report)
+      if (!report.includes("AUDIT_FAILURE") && !report.includes("CRITICAL_NODE_ERROR")) {
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
-             const timestamp = getKstTimestamp();
+             const date = new Date().toISOString().split('T')[0];
              const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
-             const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             // Filename format: {Type}_{Symbol}_{Brain}_{Timestamp}.md
-             const fileName = `${type}_${selectedStock.symbol}_${brain}_${timestamp}.md`;
+             const brainLabel = activeProvider === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+             const fileName = `${date}_${type}_${selectedStock.symbol}_${brainLabel}.md`;
              
-             // Fire and forget
              archiveReport(token, fileName, report).then(ok => {
                  if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
                  else console.warn(`[Archive] Failed to save report: ${fileName}`);
@@ -312,13 +320,19 @@ const App: React.FC = () => {
          }
       }
 
+      // 5. Cache Result (Use the provider that actually succeeded)
+      const cacheKey = `${selectedStock.symbol}-${activeProvider}-STAGE${currentStage}`;
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
+
     } catch (err: any) {
-      if (targetBrain === ApiProvider.GEMINI) {
+      console.error("Audit Execution Error:", err);
+      // Fallback Error Handling
+      const errorKey = `${selectedStock.symbol}-${activeProvider}-STAGE${currentStage}`;
+      if (activeProvider === ApiProvider.GEMINI) {
          setAuditBrain(ApiProvider.PERPLEXITY);
-         console.warn("Critical Audit Error. Auto-switching to Sonar.");
+         console.warn("Critical Audit Error on Gemini. Switched toggle to Sonar.");
       }
-      setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
+      setStockAuditCache(prev => ({ ...prev, [errorKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
       setAnalyzingStocks(prev => {
@@ -365,7 +379,7 @@ const App: React.FC = () => {
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-emerald-400 shadow-[0_0_8px_rgba(52,211,153,0.8)]"></div>
-          <span className="text-emerald-400 font-bold">Version: v1.5.6 (JSON Fix)</span>
+          <span className="text-emerald-400 font-bold">Version: v1.5.3 (Hybrid Feed)</span>
         </div>
         <div className="flex items-center space-x-2 mr-6 shrink-0">
           <div className={`w-1.5 h-1.5 rounded-full ${isGdriveConnected ? 'bg-emerald-500' : 'bg-slate-700'}`}></div>
@@ -376,21 +390,8 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* LEGAL LINKS & CLOCKS (Restored) */}
-        <div className="ml-auto mr-6 flex items-center gap-4 shrink-0">
-             {/* KST Clock */}
-             <div className="flex items-center gap-1.5">
-                 <div className="w-1 h-1 rounded-full bg-rose-500 animate-pulse"></div>
-                 <span className="text-slate-400">KST {time.toLocaleTimeString('en-US', { timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
-             </div>
-             {/* EST Clock */}
-             <div className="flex items-center gap-1.5">
-                 <div className="w-1 h-1 rounded-full bg-blue-500"></div>
-                 <span className="text-slate-400">NY {time.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' })}</span>
-             </div>
-             
-             <div className="h-3 w-[1px] bg-white/10 mx-2"></div>
-
+        {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
+        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
             <a 
                 href="?doc=privacy"
                 onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
@@ -543,7 +544,6 @@ const App: React.FC = () => {
           <DeepQualityFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
-            onStockSelected={setSelectedStock}
           />
         </div>
         <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
@@ -629,7 +629,7 @@ const App: React.FC = () => {
                   </span>
                   <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                </div>
-               <ReactMarkdown remarkPlugins={[remarkGfm]}>{String(currentReport || "")}</ReactMarkdown>
+               <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>{String(currentReport || "")}</ReactMarkdown>
             </div>
           ) : (
             <div className="flex flex-col items-center justify-center py-24 opacity-30 text-center space-y-4">
