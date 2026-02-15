@@ -149,40 +149,42 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [UI] Dynamic Markdown Styling
+// [UI] Dynamic Markdown Styling - User Requested "Square Block" Look
 const MarkdownComponents: any = {
-    // Header 1 (Used for Main Title in some contexts, but mostly we use H2 for sections)
+    // Header 1 (Usually Main Title, but used here for sections if MD structure varies)
     h1: (props: any) => (
-        <h1 className="text-2xl font-black text-white mt-8 mb-4 uppercase italic tracking-widest border-b-2 border-white/20 pb-2" {...props}>
+        <h1 className="text-xl font-black text-white mt-8 mb-4 border-l-4 border-emerald-500 pl-4 bg-gradient-to-r from-emerald-900/10 to-transparent py-2 rounded-r-xl uppercase italic tracking-wider" {...props}>
             {props.children}
         </h1>
     ),
-    // Header 2 (Sections like "1. 전문가 3인...", "2. The Alpha...")
+    // Header 2 (Section Headers like "1. 전문가...", "2. The Alpha...")
+    // Unified Style: Big, White, Green Accent, Italic
     h2: (props: any) => (
-        <h2 className="text-xl font-black text-white mt-10 mb-4 uppercase italic tracking-wider flex items-center gap-3 border-l-4 border-emerald-500 pl-4 bg-gradient-to-r from-emerald-900/20 to-transparent py-2 rounded-r-xl">
+        <h2 className="text-lg md:text-xl font-black text-white mt-8 mb-4 border-l-4 border-emerald-500 pl-4 bg-gradient-to-r from-emerald-900/10 to-transparent py-2 rounded-r-xl uppercase italic tracking-wider flex flex-wrap items-baseline gap-2 leading-tight" {...props}>
             {props.children}
         </h2>
     ),
     // Header 3 (Sub-sections)
-    h3: (props: any) => <h3 className="text-sm font-bold text-slate-400 mt-4 mb-2 uppercase tracking-wide border-b border-white/5 pb-1" {...props} />,
+    h3: (props: any) => <h3 className="text-sm font-bold text-slate-300 mt-4 mb-2 uppercase tracking-wide border-b border-white/5 pb-1" {...props} />,
     
     // Paragraphs
     p: (props: any) => <p className="text-[13px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
     
-    // Lists (Bullet Points)
+    // Lists (Bullet Points) - Removed default bullets
     ul: (props: any) => <ul className="space-y-3 mb-6" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     
-    // List Items - The "Arrow" logic is removed, replaced by "Block" logic via 'strong'
+    // List Items - No arrows, relying on 'strong' blocks
     li: (props: any) => (
-        <li className="text-[13px] text-slate-300 leading-7 pl-2" {...props}>
+        <li className="text-[13px] text-slate-300 leading-7 pl-1" {...props}>
             {props.children}
         </li>
     ),
     
-    // Strong/Bold -> The "Square Block" Look
+    // Strong/Bold -> The "Square Block" Look (Badge Style)
+    // Dark bg, colored text, border, padding
     strong: (props: any) => (
-        <span className="inline-block bg-slate-800 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/30 mr-2 mb-1 shadow-sm tracking-tight">
+        <span className="inline-block bg-slate-800 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/30 mr-2 mb-1 shadow-sm tracking-tight text-xs uppercase">
             {props.children}
         </span>
     ),
