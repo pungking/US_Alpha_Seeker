@@ -78,11 +78,12 @@ export async function archiveReport(token: string, fileName: string, content: st
   }
 }
 
-// [HELPER] Remove Citations like [1], [2], [1, 2], [1][2]
-export function removeCitations(text: string): string {
+// [HELPER] Remove Citations like [1], [2], [1, 2], [1][2] - SAFE VERSION
+export function removeCitations(text: any): string {
   if (!text) return "";
+  const str = typeof text === 'string' ? text : String(text);
   // Removes: [1], [1,2], [1][2] patterns globally
-  return text.replace(/\[\d+(?:,\s*\d+)*\]/g, '').trim();
+  return str.replace(/\[\d+(?:,\s*\d+)*\]/g, '').trim();
 }
 
 // [UPDATED] Schema to include News Sentiment and Kelly Weighting
@@ -895,7 +896,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **riskRewardRatio**: e.g., "1:4.5".
   - **kellyWeight**: e.g., "15%".
   - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Use the provided strict Markdown Template. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
+  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
 
   Markdown Template for investmentOutlook:
   
