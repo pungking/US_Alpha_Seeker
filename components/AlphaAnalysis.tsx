@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -29,6 +30,10 @@ interface AlphaCandidate {
   supportLevel?: number;
   resistanceLevel?: number;
   riskRewardRatio?: string;
+  // [NEW] News Sentiment Fields
+  newsSentiment?: string;
+  newsScore?: number;
+  kellyWeight?: string;
   
   // Accumulated Data
   [key: string]: any;
