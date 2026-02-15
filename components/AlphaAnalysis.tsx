@@ -149,25 +149,20 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [IMPROVED MARKDOWN COMPONENTS - CLEAN & PROFESSIONAL]
 const MarkdownComponents: any = {
-    // Headlines: Clean, no boxes, just text with color
+    // Explicitly disabling borders to prevent index.html CSS leakage
     h1: (props: any) => (
-        <h1 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-4 uppercase tracking-widest pb-2">
+        <h1 className="text-lg md:text-xl font-black text-emerald-400 mt-6 mb-4 uppercase tracking-widest pb-2 border-none" {...props}>
             {props.children}
         </h1>
     ),
     h2: (props: any) => (
-        <h2 className="text-base md:text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide">
+        <h2 className="text-base md:text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-none" {...props}>
             {props.children}
         </h2>
     ),
-    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
-    
-    // Paragraphs: Standard readable text
+    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide border-none" {...props} />,
     p: (props: any) => <p className="text-xs md:text-[13px] text-slate-300 leading-relaxed mb-3 font-medium tracking-wide" {...props} />,
-    
-    // Lists: Clean standard bullets
     ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
@@ -175,8 +170,6 @@ const MarkdownComponents: any = {
             {props.children}
         </li>
     ),
-    
-    // Inline Elements
     strong: (props: any) => <strong className="text-white font-bold" {...props} />,
     blockquote: (props: any) => (
         <blockquote className="border-l-4 border-indigo-500/50 pl-4 my-4 italic text-slate-400" {...props} />
@@ -505,11 +498,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       .replace(/\[\d+\]/g, '');
 
     // 2. Formatting Fix: Ensure Headers have space before them
-    // Matches # Header or ## Header and ensures double newline before if not at start
     str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n\n$2');
 
     // 3. Formatting Fix: Ensure Lists are clean
-    // Fix "Sentence. - Item" -> "Sentence.\n- Item"
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
 
     // 4. Handle "Personas" - make them bold and on new lines if they look like keys
@@ -521,7 +512,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     });
 
     // 5. Remove empty list items or double bullets
-    str = str.replace(/^\s*-\s*$/gm, ''); // Remove lines with just "-"
+    str = str.replace(/^\s*-\s*$/gm, ''); 
     str = str.replace(/- -/g, '-');
     
     // 6. Final Trim and Spacing
@@ -1121,19 +1112,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             {/* REDESIGNED HEADER: Clean, No Boxes, Just Text */}
-                            <div className="flex items-start gap-4 border-b border-white/10 pb-4 mb-6">
-                                <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.2em] underline underline-offset-4 decoration-rose-500/50 mt-2">
-                                    NEURAL INVESTMENT OUTLOOK
-                                </h4>
-                                <div className="flex flex-col items-start">
-                                    <h2 className="text-4xl font-black text-white italic tracking-tighter leading-none">
-                                        {selectedStock.symbol}
-                                    </h2>
-                                    <span className="text-[10px] font-bold text-slate-300 bg-white/10 px-2 py-0.5 rounded uppercase tracking-wider mt-1">
-                                        {selectedStock.name}
-                                    </span>
+                            <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+                                <div>
+                                    <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.25em] mb-1">
+                                        NEURAL INVESTMENT OUTLOOK
+                                    </h4>
+                                    <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider">
+                                       {selectedStock.name} ({selectedStock.symbol})
+                                    </p>
                                 </div>
-                                <div className="ml-auto flex gap-3">
+                                <div className="flex gap-3">
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
                             </div>
@@ -1332,7 +1320,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      ].map(m => (
                                          <div 
                                             key={m.key}
-                                            onClick={() => setActiveOverlay(prev => prev === m.key ? null : m.key)}
+                                            onClick={() => handleMetricClick(m.key, m.val)} // FIXED: Corrected click handler to pass data
                                             className={`p-4 rounded-2xl border cursor-pointer transition-all hover:scale-105 active:scale-95 flex justify-between items-center ${activeOverlay === m.key ? `${m.bg} ${m.border} text-white shadow-[0_0_15px_rgba(255,255,255,0.1)]` : 'bg-black/40 border-white/5 hover:bg-white/5'}`}
                                          >
                                              <span className="text-[8px] font-black text-slate-500 uppercase tracking-widest">{METRIC_DEFINITIONS[m.key].title}</span>
@@ -1513,7 +1501,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
