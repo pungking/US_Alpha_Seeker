@@ -904,6 +904,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **보수적 퀀트 (Conservative Quant)** : [Analysis of Fundamentals, Valuation, Safety in Korean]
   - **공격적 트레이더 (Aggressive Trader)** : [Analysis of Momentum, News, Catalysts in Korean]
   - **마켓 메이커 (Market Maker)** : [Analysis of Liquidity, Order Blocks, Traps in Korean]
+  - **종합 분석 (Comprehensive Analysis)** : [Synthesis of all 3 views into a final verdict in Korean]
 
   ## 2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
   [Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification in Korean.]
