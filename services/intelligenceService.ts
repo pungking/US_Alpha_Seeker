@@ -548,7 +548,7 @@ export async function analyzePipelineStatus(data: {
   }
 
   if (isIntegrityCheck) {
-      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자이자 수석 퀀트 분석가입니다. 투자 전 '무결성 검증(Integrity Check)' 단계에서 기업의 펀더멘털, 밸류에이션, 수급 데이터를 종합적으로 분석하여 스캠 및 상장폐지 위험을 차단하고 투자가치를 판단합니다. 보고서는 금융 전문가를 위한 것이므로 이모티콘을 절대 사용하지 않으며, 건조하고 전문적인 한국어 문체를 유지해야 합니다.";
+      systemPrompt = "당신은 월가 헤지펀드의 컴플라이언스(Compliance) 담당자입니다. 투자 전 '무결성 검증(Integrity Check)' 단계에서 스캠, 상장폐지 위험, 페이퍼 컴퍼니 가능성을 냉철하게 차단하는 역할을 수행합니다. 보고서는 금융 전문가를 위한 것이므로 이모티콘을 절대 사용하지 않으며, 건조하고 전문적인 한국어 문체를 유지해야 합니다.";
       
       const formatVal = (val: any, suffix = '') => val !== undefined && val !== null ? `${Number(val).toLocaleString()}${suffix}` : 'N/A';
       
@@ -619,17 +619,15 @@ export async function analyzePipelineStatus(data: {
       ### 검증 일자: ${today}
       ### 무결성 및 밸류에이션 감사 (Comprehensive Integrity Audit)
       
-      1. **펀더멘털 및 재무 건전성 (Fundamental Health)**:
-         - 수익성(ROE, Operating Margin)과 재무 안정성(Debt/Equity)을 평가하십시오.
-         - 현금흐름(Operating Cashflow)이 건전한지 확인하십시오.
+      1. **기업 실체 및 펀더멘털 (Corporate Reality)**:
+         - 동사가 실질적인 비즈니스를 영위하고 있는지, 페이퍼 컴퍼니 리스크는 없는지 진단하십시오.
          
-      2. **밸류에이션 및 적정 주가 분석 (Valuation Check)**:
-         - PER, PBR, PEG 등을 고려할 때 현재 주가가 고평가/저평가 상태인지 진단하십시오.
-         - Target Price와 현재가와의 괴리를 분석하십시오.
+      2. **핵심 위험 신호 (Red Flags)**:
+         - 상장폐지 가능성, 잦은 유상증자/CB발행(희석), 회계 이슈 등을 점검하십시오.
+         - '동전주(Penny Stock)' 여부와 투기적 위험성을 경고하십시오.
          
-      3. **기관 수급 및 모멘텀 (Institutional & Momentum)**:
-         - 기관 보유 비중(Inst. Ownership)과 공매도 비율(Short Ratio)이 시사하는 바를 해석하십시오.
-         - 이동평균선(50/200 MA) 대비 현재 주가 위치를 통한 추세 판단.
+      3. **시장 신뢰도 (Market Consensus)**:
+         - 기관 투자자 참여도 및 시장의 평판을 요약하십시오.
          
       4. **최종 판정 (Gatekeeper Verdict)**:
          - **[분석 승인]** 또는 **[부적격(반려)]** 중 하나를 선택하여 명시하십시오.
@@ -711,17 +709,6 @@ export async function analyzePipelineStatus(data: {
 
       당신은 헤지펀드의 수석 리스크 관리자(CRO)이자 베테랑 트레이더입니다.
       이 종목에 대해 개인 투자자가 실전에서 즉시 활용할 수 있는 심층 분석 보고서를 작성하십시오.
-      
-      **사용 가능한 모든 데이터([STAGE 2] ~ [STAGE 5])를 종합하여 입체적인 분석을 제공하십시오.**
-      특히 STAGE 2의 품질 점수(Quality Scores)가 있다면, 이를 기반으로 기업의 기초 체력을 먼저 진단하십시오.
-      
-      **[STAGE 3 FUNDAMENTAL DATA]**, **[STAGE 4 TECHNICAL MOMENTUM DATA]**, 그리고 **[STAGE 5 INSTITUTIONAL FOOTPRINT (ICT) DATA]** 섹션이 존재할 경우, 해당 수치들을 반드시 분석에 인용하여 펀더멘털, 기술적 모멘텀, 그리고 기관 수급(ICT)의 조화를 종합적으로 평가하십시오.
-      
-      **특히 다음 4가지 핵심 기술적 지표(Tech Momentum)를 반드시 분석에 포함하십시오:**
-      1. **RSI (14)**: 현재 과열권(70+)인지 침체권(30-)인지 판단.
-      2. **TTM Squeeze**: 변동성 폭발(Squeeze Fired) 가능성 진단.
-      3. **Relative Volume (RVOL)**: 기관 수급의 강도 평가 (1.5x 이상 여부).
-      4. **Trend (EMA)**: 추세의 방향성(정배열/역배열) 확인.
       
       **작성 원칙**:
       1. **이모티콘(🚀, 💎, 🚨, 📅 등) 사용 절대 금지**. 오직 텍스트, 숫자, Markdown 기호(##, -, **)만 사용하십시오.
@@ -911,15 +898,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
 
   Markdown Template for investmentOutlook:
-  
-  # Neural Investment Outlook: [Symbol]
 
   ## 1. 전문가 3인 성향 분석 (The Council Debate)
-  - **보수적 퀀트 (Conservative Quant)**: [Analysis of Fundamentals, Valuation, Safety in Korean]
-  - **공격적 트레이더 (Aggressive Trader)**: [Analysis of Momentum, News, Catalysts in Korean]
-  - **마켓 메이커 (Market Maker)**: [Analysis of Liquidity, Order Blocks, Traps in Korean]
+  - **보수적 퀀트 (Conservative Quant)** : [Analysis of Fundamentals, Valuation, Safety in Korean]
+  - **공격적 트레이더 (Aggressive Trader)** : [Analysis of Momentum, News, Catalysts in Korean]
+  - **마켓 메이커 (Market Maker)** : [Analysis of Liquidity, Order Blocks, Traps in Korean]
 
-  ## 2. 선정 타당성 및 미래 전망 (The Alpha Thesis)
+  ## 2. The Alpha Thesis: 전략적 투자 시나리오
   [Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification in Korean.]
 
   **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
