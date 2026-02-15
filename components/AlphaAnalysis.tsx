@@ -555,8 +555,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '');
 
-    // 2. Force Newlines for Headers
-    // Detect patterns like "Content ## Header" and fix to "Content\n\n## Header"
+    // 2. Force Newlines for Headers (Updated with strict checks)
     const headers = [
         'COUNCIL DEBATE', 'PRE-MORTEM', 'EXECUTION STRATEGY', 
         'RISK MANAGEMENT', 'SMART MONEY', 'FUNDAMENTAL', 
@@ -579,7 +578,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         });
     });
 
-    // 3. Force Personas to new lines (Enhanced)
+    // 3. Force Newlines for Numbered Lists like "1. ", "2. " if they follow text immediately
+    str = str.replace(/([^\n])\s*(\d+\.)\s+/g, '$1\n\n$2 ');
+
+    // 4. Force Personas to new lines (Enhanced)
     const personas = [
         '보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', '마켓 메이커:', '모멘텀 트레이더:',
         'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:', 'Momentum Trader:',
@@ -587,7 +589,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     ];
     personas.forEach(p => {
         // Use trim() to ensure clean formatting inside the bold tags (e.g. "Role :" -> "Role:")
-        // Check identifying regex with lookbehind support
+        // Check identifying regex with lookbehind support if possible, else fallback
         try {
             str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p.replace(/\s+/g, '\\s*')}`, 'g'), `\n- **${p.trim()}**`);
         } catch (e) {
@@ -599,11 +601,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     // Force bullet point structure if personas are detected but not bulleted
     str = str.replace(/(\*\*[^*]+\*\*)\s*:/g, '\n- $1 :');
 
-    // 4. Fix List Item Clumping
+    // 5. Fix List Item Clumping
     // "Sentence. - List item" -> "Sentence.\n- List item"
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
     
-    // 5. Enhance spacing
+    // 6. Enhance spacing
     str = str.replace(/\n\n\n+/g, '\n\n'); 
     
     return str.trim();
@@ -691,15 +693,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       let response = await generateAlphaSynthesis(topCandidates, currentProvider);
       
+      // [CRITICAL FIX] Handle Gemini Errors Explicitly - Manual Mode Toggle
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
           setSelectedBrain(ApiProvider.PERPLEXITY);
+          
           if (autoStart) {
               addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
               currentProvider = ApiProvider.PERPLEXITY; 
               response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
           } else {
-              addLog("Switched to Sonar. Please click Execute to try again.", "info");
+              // Manual Mode: Stop and ask user to retry
+              addLog("Gemini Unavailable. System toggled to Sonar. Click Execute to retry.", "info");
               setLoading(false);
               return; 
           }
@@ -1195,13 +1200,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                     <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore || selectedStock.compositeAlpha || 0}%</p>
+                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore}%</p>
                     </div>
                  </div>
                  
                  <div className="grid grid-cols-1 lg:grid-cols-5 gap-8">
                      <div className="lg:col-span-3 space-y-8">
-                         {/* Chart Section */}
+                         {/* CHART & REPORT */}
                          <div className="bg-black rounded-[40px] border border-white/5 aspect-video overflow-hidden shadow-2xl relative group">
                             <iframe title="TradingView" src={`https://s.tradingview.com/widgetembed/?symbol=${selectedStock.symbol}&interval=D&theme=dark&style=1`} className="w-full h-full opacity-90 border-none" />
                          </div>
@@ -1336,15 +1341,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* REDESIGNED HEADER */}
-                            <div className="flex flex-col mb-8 border-b border-white/10 pb-6">
-                                <div className="flex items-center gap-4 mb-2">
-                                    <span className="text-xs font-black text-rose-500 uppercase tracking-[0.2em]">NEURAL INVESTMENT OUTLOOK</span>
-                                    <div className="h-px flex-1 bg-gradient-to-r from-rose-500/50 to-transparent"></div>
+                            {/* REDESIGNED HEADER: FLEX LAYOUT FOR ALIGNMENT */}
+                            <div className="flex flex-col border-b border-white/10 pb-6 mb-6">
+                                <div className="flex items-baseline gap-4 mb-2">
+                                    <h2 className="text-sm font-black text-rose-500 tracking-[0.2em] uppercase shrink-0">NEURAL INVESTMENT OUTLOOK</h2>
+                                    <div className="flex-1 h-px bg-rose-500/20 self-center"></div>
+                                    <h1 className="text-4xl md:text-5xl font-black text-white italic tracking-tighter leading-none">{selectedStock.symbol}</h1>
                                 </div>
-                                <div className="flex items-baseline gap-4">
-                                    <h2 className="text-5xl font-black text-white italic tracking-tighter leading-none">{selectedStock.symbol}</h2>
-                                    <span className="text-sm font-bold text-slate-400 bg-white/10 px-3 py-1 rounded-lg uppercase tracking-wider">{selectedStock.name}</span>
+                                <div className="w-fit bg-white/10 px-3 py-1 rounded text-[10px] font-bold text-slate-300 tracking-wider uppercase">
+                                    {selectedStock.name}
                                 </div>
                             </div>
                             
@@ -1723,7 +1728,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ) : (
                         <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
-                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
