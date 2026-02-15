@@ -149,57 +149,58 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [UI] Finalized Markdown Styling - Clean, Tight, Blocky, No Weird Borders
-// Removed 'prose-report' class dependence to fix style bleeding.
+// [UI] CORRECTED DESIGN: Based on the FIRST user image.
+// 1. Headers (h2) are WHITE/Light Grey, Italic. (Not Red)
+// 2. Strong tags are Green Badges/Pills.
+// 3. List bullets are Green Arrows.
+// 4. Spacing is tight and clean.
 const MarkdownComponents: any = {
-    // Header 1 (Used for Main Title or similar)
+    // Header 1 ("NEURAL INVESTMENT OUTLOOK" etc): Red/Rose Gradient, Italic, Underlined.
     h1: (props: any) => (
-        <div className="mb-8 mt-4 pb-2 border-b-4 border-rose-600">
-             <h1 className="text-3xl md:text-4xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 uppercase" {...props} />
+        <div className="mb-6 border-b-2 border-rose-500 pb-2">
+             <h1 className="text-2xl md:text-3xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 uppercase" {...props} />
         </div>
     ),
-    // Header 2 (Section Headers like "1. 전문가...", "2. The Alpha...")
-    // Unified Style: Big, White, Clean.
+    // Header 2 ("1. 전문가...", "2. The Alpha..."): WHITE, Italic, Bold.
     h2: (props: any) => (
-        <h2 className="text-xl font-bold text-white mt-10 mb-4 flex items-center gap-3" {...props}>
-            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></span>
-            {props.children}
-        </h2>
+        <h2 className="text-lg md:text-xl font-black text-white mt-8 mb-4 italic uppercase tracking-wide" {...props} />
     ),
-    // Header 3 (Sub-sections)
-    h3: (props: any) => <h3 className="text-sm font-bold text-slate-400 mt-5 mb-2 uppercase tracking-wide" {...props} />,
+    // Header 3: Sub-headers
+    h3: (props: any) => (
+        <h3 className="text-sm font-bold text-blue-400 mt-4 mb-2 uppercase tracking-wide" {...props} />
+    ),
+    // Paragraphs: Clean, no borders, tight spacing
+    p: (props: any) => (
+        <p className="text-[13px] text-slate-300 leading-relaxed mb-2 font-medium" {...props} />
+    ),
+    // Lists: Spacing
+    ul: (props: any) => <ul className="space-y-2 mb-4" {...props} />,
+    ol: (props: any) => <ol className="space-y-2 mb-4" {...props} />,
     
-    // Paragraphs - Reduced spacing, NO BORDERS
-    p: (props: any) => <p className="text-[13px] text-slate-300 leading-7 mb-2" {...props} />,
-    
-    // Lists (Bullet Points) - Custom spacing
-    ul: (props: any) => <ul className="space-y-3 mb-6 list-none" {...props} />,
-    ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
-    
-    // List Items - No arrows, pure layout
+    // List Items: Green Arrow
     li: (props: any) => (
-        <li className="text-[13px] text-slate-300 leading-7 pl-1" {...props}>
-            {props.children}
+        <li className="flex items-start gap-2 text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
+            <span className="text-emerald-500 mt-1 shrink-0 font-bold">→</span>
+            <span className="flex-1">{props.children}</span>
         </li>
     ),
     
-    // Strong/Bold -> The "Block" Badge Style
-    // Solid background, colored text, rounded.
+    // Strong -> THE GREEN BADGE (e.g., [보수적 퀀트])
     strong: (props: any) => (
-        <span className="inline-block bg-[#1e293b] text-emerald-400 font-bold px-2.5 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-2 align-middle">
+        <span className="inline-block bg-emerald-900/40 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/30 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
             {props.children}
         </span>
     ),
     
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-rose-500/50 bg-rose-950/10 p-4 my-4 rounded-r-xl italic text-slate-400 text-xs" {...props} />
+        <blockquote className="border-l-4 border-rose-500/30 bg-rose-950/10 p-3 my-4 rounded-r-lg italic text-slate-400 text-xs" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
         ? <code className="bg-slate-800 text-rose-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
         : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
     ),
-    hr: () => <div className="h-6" /> // Spacer instead of line
+    hr: () => <div className="h-4" /> 
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
@@ -1131,9 +1132,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          </div>
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* REDESIGNED HEADER: Dynamic and Unified */}
+                            {/* REDESIGNED HEADER: Matching the User's Reference exactly */}
                             <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
-                                <h4 className="text-2xl font-black italic tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 border-b-2 border-rose-500 pb-1">
+                                <h4 className="text-2xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
                                 <div className="flex gap-3">
