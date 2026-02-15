@@ -75,7 +75,7 @@ const MARKET_STATE_INFO: Record<string, string> = {
 
 // [QUANT ENGINE v6.9] Robust ICT Logic
 const calculateIctScore = (item: any) => {
-    const rvol = item.techMetrics?.rvol || 1.0;
+    const rvol = item.techMetrics?.rawRvol || item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
     const trendScore = item.techMetrics?.trend || 50;
     const priceHistory = item.priceHistory || [];
@@ -104,17 +104,19 @@ const calculateIctScore = (item: any) => {
         const lowerWick = Math.min(open, close) - low;
         
         // A. Sweep Detection (Long Lower Wick relative to Body)
+        // [SAFETY] Prevent Division by Zero
         if (totalRange > 0) {
             const wickRatio = lowerWick / totalRange;
             if (wickRatio > 0.4) wickScore = 80; // Hammer pattern / Stop Hunt
             else if (wickRatio > 0.25) wickScore = 50;
+            
+            // C. Body Strength
+            bodyStrength = (bodySize / totalRange) * 100;
         }
 
         // B. Gap Detection (FVG Proxy)
         if (prevCandle && low > prevCandle.high) recentGap = 100; // Gap Up
         
-        // C. Body Strength
-        if (totalRange > 0) bodyStrength = (bodySize / totalRange) * 100;
     } else {
         // [FALLBACK] Heuristic for missing history
         // If high RVOL and High Daily Change -> Strong Body
@@ -123,7 +125,10 @@ const calculateIctScore = (item: any) => {
     }
 
     // --- 2. Displacement (Force of Move) ---
-    let displacement = Math.min(100, (rvol * 20) + (momentum * 0.4));
+    // Log normalized RVOL is already in item.techMetrics.rvol (0-100 scale), rawRvol is the ratio
+    const rvolScore = item.techMetrics?.rvol || 50;
+    
+    let displacement = Math.min(100, (rvolScore * 0.4) + (momentum * 0.4));
     if (bodyStrength > 60) displacement += 15; 
     if (recentGap > 0) displacement += 15; 
     if (trendScore > 80) displacement += 10;
@@ -164,7 +169,7 @@ const calculateIctScore = (item: any) => {
     const finalScore = (displacement * 0.25) + (mss * 0.2) + (sweepScore * 0.15) + (obScore * 0.15) + (smFlow * 0.25);
 
     return {
-        score: Number(Math.min(100, finalScore).toFixed(2)),
+        score: Number(Math.min(100, Math.max(0, finalScore)).toFixed(2)),
         metrics: {
             displacement: Number(Math.min(100, displacement).toFixed(2)),
             liquiditySweep: Number(Math.min(100, sweepScore).toFixed(2)),
@@ -289,7 +294,15 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      const targets = (content.technical_universe || []).sort((a: any, b: any) => b.totalAlpha - a.totalAlpha);
+      // [CHECK] Sort by technical score to prioritize momentum, but also respect Fundamental
+      const targets = (content.technical_universe || [])
+         .map((t: any) => ({
+             ...t,
+             // Create a temporary Total Alpha for pre-sorting
+             tempScore: (t.technicalScore * 0.6) + (t.fundamentalScore * 0.4) 
+         }))
+         .sort((a: any, b: any) => b.tempScore - a.tempScore);
+         
       const total = targets.length;
       setProgress({ current: 0, total });
 
@@ -308,16 +321,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
         } else {
             // Penalize missing data items to push them to bottom
-            composite = item.fundamentalScore * 0.1; 
+            composite = (item.fundamentalScore || 0) * 0.1; 
         }
 
+        // [PERSISTENCE] Pass all previous metrics for Stage 6
         const ticker: IctScoredTicker = {
             ...item, 
             symbol: item.symbol, 
             name: item.name, 
             price: item.price,
-            fundamentalScore: item.fundamentalScore, 
-            technicalScore: item.technicalScore,
+            fundamentalScore: item.fundamentalScore || 0, 
+            technicalScore: item.technicalScore || 0,
             ictScore: ictAnalysis.score, 
             compositeAlpha: Number(composite.toFixed(2)),
             ictMetrics: ictAnalysis.metrics,
