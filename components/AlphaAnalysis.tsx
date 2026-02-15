@@ -149,35 +149,35 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [UI] CORRECTED DESIGN: Based on the FIRST user image.
-// 1. Headers (h2) are WHITE/Light Grey, Italic. (Not Red)
-// 2. Strong tags are Green Badges/Pills.
-// 3. List bullets are Green Arrows.
-// 4. Spacing is tight and clean.
+// [UI] CORRECTED DESIGN: Matching the "Red Header / Green Badge" Reference
+// 1. Headers (h1, h2): Rose/Red, Italic.
+// 2. Strong tags: Green Badges/Pills.
+// 3. List bullets: Green Arrows.
+// 4. Spacing: Clean.
 const MarkdownComponents: any = {
-    // Header 1 ("NEURAL INVESTMENT OUTLOOK" etc): Red/Rose Gradient, Italic, Underlined.
+    // Header 1 ("NEURAL INVESTMENT OUTLOOK"): Rose Red, Italic, Underlined
     h1: (props: any) => (
         <div className="mb-6 border-b-2 border-rose-500 pb-2">
-             <h1 className="text-2xl md:text-3xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 uppercase" {...props} />
+             <h1 className="text-2xl md:text-3xl font-black italic tracking-tighter text-rose-500 uppercase" {...props} />
         </div>
     ),
-    // Header 2 ("1. 전문가...", "2. The Alpha..."): WHITE, Italic, Bold.
+    // Header 2 (Section Headers): Rose Red, Italic
     h2: (props: any) => (
-        <h2 className="text-lg md:text-xl font-black text-white mt-8 mb-4 italic uppercase tracking-wide" {...props} />
+        <h2 className="text-xl md:text-2xl font-black text-rose-500 mt-8 mb-4 italic uppercase tracking-wide" {...props} />
     ),
-    // Header 3: Sub-headers
+    // Header 3: Sub-headers (Slate/White)
     h3: (props: any) => (
-        <h3 className="text-sm font-bold text-blue-400 mt-4 mb-2 uppercase tracking-wide" {...props} />
+        <h3 className="text-sm font-bold text-slate-300 mt-4 mb-2 uppercase tracking-wide" {...props} />
     ),
-    // Paragraphs: Clean, no borders, tight spacing
+    // Paragraphs
     p: (props: any) => (
-        <p className="text-[13px] text-slate-300 leading-relaxed mb-2 font-medium" {...props} />
+        <p className="text-[13px] text-slate-300 leading-7 mb-3 font-medium" {...props} />
     ),
-    // Lists: Spacing
+    // Lists
     ul: (props: any) => <ul className="space-y-2 mb-4" {...props} />,
     ol: (props: any) => <ol className="space-y-2 mb-4" {...props} />,
     
-    // List Items: Green Arrow
+    // List Items with Green Arrow
     li: (props: any) => (
         <li className="flex items-start gap-2 text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
             <span className="text-emerald-500 mt-1 shrink-0 font-bold">→</span>
@@ -185,9 +185,9 @@ const MarkdownComponents: any = {
         </li>
     ),
     
-    // Strong -> THE GREEN BADGE (e.g., [보수적 퀀트])
+    // Strong -> Green Badge (The specific design requested)
     strong: (props: any) => (
-        <span className="inline-block bg-emerald-900/40 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/30 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
+        <span className="inline-block bg-emerald-950/60 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
             {props.children}
         </span>
     ),
