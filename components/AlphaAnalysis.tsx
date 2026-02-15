@@ -149,55 +149,55 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [UI] Dynamic Markdown Styling - User Requested "Square Block" Look
+// [UI] Finalized Markdown Styling - Clean, Tight, Blocky, No Weird Borders
 const MarkdownComponents: any = {
-    // Header 1 (Usually Main Title, but used here for sections if MD structure varies)
+    // Header 1 (Used for Main Title or similar)
     h1: (props: any) => (
-        <h1 className="text-xl font-black text-white mt-8 mb-4 border-l-4 border-emerald-500 pl-4 bg-gradient-to-r from-emerald-900/10 to-transparent py-2 rounded-r-xl uppercase italic tracking-wider" {...props}>
+        <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 italic uppercase tracking-widest border-b-2 border-rose-500 pb-2 mb-6" {...props}>
             {props.children}
         </h1>
     ),
-    // Header 2 (Section Headers like "1. 전문가...", "2. The Alpha...")
-    // Unified Style: Big, White, Green Accent, Italic
+    // Header 2 (Sections like "1. 전문가 3인...", "2. The Alpha...")
+    // CLEANED UP: No background, no weird left border. Just big, bold, white text.
     h2: (props: any) => (
-        <h2 className="text-lg md:text-xl font-black text-white mt-8 mb-4 border-l-4 border-emerald-500 pl-4 bg-gradient-to-r from-emerald-900/10 to-transparent py-2 rounded-r-xl uppercase italic tracking-wider flex flex-wrap items-baseline gap-2 leading-tight" {...props}>
+        <h2 className="text-lg md:text-xl font-black text-white mt-8 mb-3 uppercase tracking-wide flex items-baseline gap-2 leading-tight" {...props}>
             {props.children}
         </h2>
     ),
     // Header 3 (Sub-sections)
-    h3: (props: any) => <h3 className="text-sm font-bold text-slate-300 mt-4 mb-2 uppercase tracking-wide border-b border-white/5 pb-1" {...props} />,
+    h3: (props: any) => <h3 className="text-sm font-bold text-slate-400 mt-4 mb-2 uppercase tracking-wide" {...props} />,
     
-    // Paragraphs
-    p: (props: any) => <p className="text-[13px] text-slate-300 leading-7 mb-3 font-medium tracking-wide" {...props} />,
+    // Paragraphs - Reduced spacing, removed borders
+    p: (props: any) => <p className="text-[12px] md:text-[13px] text-slate-300 leading-snug mb-1 font-medium tracking-wide" {...props} />,
     
-    // Lists (Bullet Points) - Removed default bullets
-    ul: (props: any) => <ul className="space-y-3 mb-6" {...props} />,
+    // Lists (Bullet Points) - Tighter spacing
+    ul: (props: any) => <ul className="space-y-2 mb-4" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     
-    // List Items - No arrows, relying on 'strong' blocks
+    // List Items - No arrows, just clean layout
     li: (props: any) => (
-        <li className="text-[13px] text-slate-300 leading-7 pl-1" {...props}>
+        <li className="text-[12px] md:text-[13px] text-slate-300 leading-snug pl-1" {...props}>
             {props.children}
         </li>
     ),
     
-    // Strong/Bold -> The "Square Block" Look (Badge Style)
-    // Dark bg, colored text, border, padding
+    // Strong/Bold -> The "Block" Badge Style
+    // Solid background, colored text, rounded.
     strong: (props: any) => (
-        <span className="inline-block bg-slate-800 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/30 mr-2 mb-1 shadow-sm tracking-tight text-xs uppercase">
+        <span className="inline-block bg-emerald-950 text-emerald-400 font-bold px-2 py-0.5 rounded mr-2 mb-0.5 shadow-sm text-xs tracking-tight border border-emerald-500/20">
             {props.children}
         </span>
     ),
     
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-rose-500/50 bg-rose-950/10 p-4 my-4 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
+        <blockquote className="border-l-2 border-rose-500/50 bg-rose-950/10 p-3 my-3 rounded-r-lg italic text-slate-400 text-xs" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
-        : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
+        ? <code className="bg-slate-800 text-rose-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
+        : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
     ),
-    hr: () => <hr className="border-white/10 my-6" />
+    hr: () => <hr className="border-white/5 my-4" /> // Very subtle separator
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
