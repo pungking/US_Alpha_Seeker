@@ -322,7 +322,7 @@ const normalizeScore = (val: number, min: number, max: number) => {
 
 const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
   const [loading, setLoading] = useState(false);
-  const [progress, setProgress] = useState({ current: 0, total: 0, file: '' });
+  const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<FundamentalTicker[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<FundamentalTicker | null>(null);
   const [activeInsight, setActiveInsight] = useState<string | null>(null);
@@ -379,14 +379,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
-      return data.files?.[0]?.id || null;
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
   const findFileId = async (token: string, name: string, parentId: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
       const data = await res.json();
-      return data.files?.[0]?.id || null;
+      return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
 
   const downloadFile = async (token: string, fileId: string) => {
@@ -424,22 +424,22 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       setProcessedData([]);
 
       try {
-          addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
-          const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
+          addLog("Phase 1: Loading Stage 2 Elite Universe...", "info");
+          const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
           const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
           const listData = await listRes.json();
 
-          if (!listData.files?.length) throw new Error("Stage 1 Data Missing.");
+          if (!listData.files?.length) throw new Error("Stage 2 Data Missing. Please run Stage 2 first.");
 
-          const stage1Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listData.files[0].id}?alt=media`, {
+          const stage2Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listData.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           }).then(r => r.json());
 
-          const candidates = stage1Content.investable_universe || [];
-          addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
-          setProgress({ current: 0, total: candidates.length, file: 'Initializing History Vault...' });
+          const candidates = stage2Content.elite_universe || [];
+          addLog(`Targets Acquired: ${candidates.length} elite assets.`, "ok");
+          setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
           // Map System setup
           let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
@@ -459,7 +459,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           const sortedLetters = Object.keys(groupedByLetter).sort();
 
           for (const letter of sortedLetters) {
-              setProgress(prev => ({ ...prev, file: `Scanning Cylinder ${letter}...` }));
+              setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
               
               let historyDataMap = new Map();
               if (historyFolderId) {
@@ -483,110 +483,57 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                   // [V5.6.1] Apply Data Sanitizer First
                   const item = sanitizeData(rawItem);
 
-                  // --- QUANT LOGIC IMPLEMENTATION (V5.6.0) ---
-
-                  // 1. Sector Logic
-                  const sector = (item.sector || '').toLowerCase();
-                  const isFinancial = sector.includes('financial') || sector.includes('bank') || sector.includes('insurance');
+                  // Run Analysis
+                  const analysis = performFinancialEngineering(item);
                   
-                  // 2. Data Cleaning & Imputation
-                  const roe = winsorize(imputeValue(item.roe, -5, false), -50, 100);
-                  const roa = winsorize(imputeValue(item.roa, -2, false), -20, 50);
-                  const rawDebt = item.debtToEquity;
+                  const qualityScore = safeNum(analysis.qualityScore);
+                  const fundamentalScore = analysis.fundamentalScore;
                   
-                  // [LOGIC] Negative Debt/Equity means Negative Equity (Insolvency Risk)
-                  let debtScore = 0;
-                  if (rawDebt < 0) {
-                      debtScore = 0; // Insolvency
-                  } else {
-                      const debtVal = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, false);
-                      debtScore = Math.max(0, 100 - (debtVal * 50)); 
-                  }
-                  
-                  // 3. Value Score (Thresholds instead of 1/PE)
-                  let valueScore = 0;
-                  const pe = item.pe || 0;
-                  
-                  if (pe <= 0) valueScore = 0; // Loss making or error
-                  else if (pe < 10) valueScore = 100; // Deep Value
-                  else if (pe < 20) valueScore = 80;  // Good Value
-                  else if (pe < 35) valueScore = 60;  // Fair Value
-                  else if (pe < 50) valueScore = 40;  // Premium
-                  else valueScore = 20;               // Bubble
-                  
-                  // 4. Profit Score
-                  let profitScore = 0;
-                  if (isFinancial) {
-                      // ROA is key for financials
-                      profitScore = (Math.max(0, roa * 30)) + (Math.max(0, roe * 2)); 
-                  } else {
-                      profitScore = Math.max(0, roe * 3);
-                  }
-                  profitScore = clampScore(profitScore);
-
-                  // 5. Data Quality Guard
-                  let dataQuality = 'HIGH';
-                  let penalty = 0;
-                  
-                  if (roe === -5) { penalty += 10; dataQuality = 'MEDIUM'; }
-                  if (!item.targetMeanPrice || item.targetMeanPrice <= 0) {
-                      penalty += 20;
-                      dataQuality = 'LOW_VISIBILITY';
+                  // Score Filter
+                  if (fundamentalScore < 30 && qualityScore < 30) {
+                      // Low score assets dropped silently or log if needed
+                      continue;
                   }
 
-                  // 6. Final Quality Score
-                  const rawQuality = (profitScore * 0.4 + debtScore * 0.3 + valueScore * 0.3) - penalty;
-                  const qualityScore = clampScore(rawQuality);
+                  const compositeAlpha = (qualityScore * 0.3) + (fundamentalScore * 0.7);
 
-                  // 7. Z-Score Proxy
-                  const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 2.0 : 1.0;
-
-                  if (qualityScore > 35) {
-                      results.push({
-                          ...item,
-                          roe,
-                          debtToEquity: rawDebt, 
-                          zScoreProxy: Number(zScore.toFixed(2)),
-                          profitScore: Math.round(profitScore),
-                          safeScore: Math.round(debtScore),
-                          valueScore: Math.round(valueScore),
-                          qualityScore: Number(qualityScore.toFixed(2)),
-                          dataQuality,
-                          radarData: [
-                            { subject: 'Profit', A: Math.round(profitScore), fullMark: 100 },
-                            { subject: 'Safety', A: Math.round(debtScore), fullMark: 100 },
-                            { subject: 'Value', A: Math.round(valueScore), fullMark: 100 },
-                          ],
-                          fullHistory: fullHistory.slice(0, 4) 
-                      });
-                  }
+                  results.push({
+                      ...item, 
+                      ...analysis,
+                      qualityScore,
+                      fundamentalScore,
+                      compositeAlpha: safeNum(compositeAlpha),
+                      fullHistory: fullHistory.slice(0, 4),
+                      lastUpdate: new Date().toISOString(),
+                      isDerived: true
+                  });
               }
               setProgress(prev => ({ ...prev, current: results.length }));
               await new Promise(r => setTimeout(r, 0));
           }
 
-          results.sort((a, b) => b.qualityScore - a.qualityScore);
+          results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
           const eliteCandidates = results.slice(0, 300);
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
 
-          addLog(`Deep Scan Complete. ${eliteCandidates.length} Elite Assets Selected.`, "ok");
+          addLog(`Deep Scan Complete. ${eliteCandidates.length} Fundamental Leaders Selected.`, "ok");
           
-          const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
+          const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
           
           const now = new Date();
           const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
           const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-          const resultFileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
+          const resultFileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
           const payload = {
               manifest: { 
-                  version: "5.6.1", 
+                  version: "5.0.0", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Sanitized" 
+                  engine: "3-Factor_Quant_Model_Robust" 
               },
-              elite_universe: eliteCandidates
+              fundamental_universe: eliteCandidates
           };
 
           await uploadFile(accessToken, saveFolderId, resultFileName, payload);
@@ -598,7 +545,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
           addLog(`Engine Failure: ${e.message}`, "err");
       } finally {
           setLoading(false);
-          setProgress({ current: 0, total: 0, file: '' });
+          setProgress({ current: 0, total: 0, msg: '' });
       }
   };
 
@@ -621,7 +568,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                  <svg className={`w-5 h-5 text-violet-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Fundamental_Node v5.0.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                     {/* Restored Original Glass Style Badge */}
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all ${
@@ -629,7 +576,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         ? 'bg-violet-500/20 text-violet-300 border-violet-500/40 animate-pulse' 
                         : 'bg-violet-500/10 text-violet-400 border-violet-500/20'
                     }`}>
-                        {loading ? `Scanning: ${progress.file}` : 'Quant Sanitizer Active'}
+                        {loading ? `Scanning: ${progress.msg}` : 'Quant Sanitizer Active'}
                     </span>
                     {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse w-fit">AUTO PILOT</span>}
                 </div>
@@ -637,7 +584,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             </div>
             
             <button 
-              onClick={executeDeepFilter} 
+              onClick={executeFundamentalEngine} 
               disabled={loading} 
               className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${
                   loading 
@@ -645,7 +592,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     : 'bg-violet-600 text-white shadow-xl shadow-violet-900/30 hover:scale-105 active:scale-95 hover:bg-violet-500'
               }`}
             >
-              {loading ? 'Executing Quant Scan...' : 'Start Deep Quality Filter'}
+              {loading ? 'Executing Quant Scan...' : 'Start Global Fundamental Audit'}
             </button>
           </div>
 
@@ -761,7 +708,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                </div>
                           </div>
                           
-                           {/* Insight Overlay */}
+                           {/* Insight Overlay */}\
                             {activeInsight && QUANT_INSIGHTS[activeInsight] && (
                                 <div className="absolute inset-x-4 bottom-4 z-20 animate-in fade-in slide-in-from-bottom-2 insight-overlay">
                                     <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-violet-500/30 shadow-2xl relative">
