@@ -3,6 +3,16 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
+import ReactMarkdown from 'react-markdown';
+import remarkGfm from 'remark-gfm';
+
+// [ADDED] Markdown Components
+const MarkdownComponents: any = {
+  p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[9px]" {...props} />,
+  ul: (props: any) => <ul className="list-disc pl-4 mb-2 space-y-1" {...props} />,
+  li: (props: any) => <li className="text-slate-300 text-[9px]" {...props} />,
+  strong: (props: any) => <strong className="text-orange-400 font-bold" {...props} />,
+};
 
 interface TechnicalTicker {
   symbol: string;
@@ -43,26 +53,72 @@ interface Props {
   onStockSelected?: (stock: any) => void;
 }
 
+// [KNOWLEDGE BASE] Expanded Technical Definitions
 const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
     'POWER_TREND': {
         title: "Power Trend (초강세 정배열)",
-        desc: "주가 > 20일 > 50일 > 200일 이평선이 완벽하게 정렬된 상태입니다.",
+        desc: "주가 > 20일 > 50일 > 200일 이평선이 완벽하게 정렬된 상태입니다. 기관의 강력한 매수세가 지속되고 있음을 의미합니다.",
         interpretation: "매수 1순위: 눌림목(Dip) 발생 시 적극 매수 구간입니다."
+    },
+    'BULLISH': {
+        title: "Bullish Trend (상승 추세)",
+        desc: "주가가 50일 이동평균선 위에 위치하며 상승 기조를 유지하고 있습니다.",
+        interpretation: "긍정적: 추세가 꺾이지 않는 한 보유(Hold) 또는 추가 매수 관점입니다."
+    },
+    'NEUTRAL': {
+        title: "Neutral Trend (중립/횡보)",
+        desc: "주가가 이평선 사이에 갇혀있거나 방향성이 뚜렷하지 않은 구간입니다.",
+        interpretation: "관망: 방향성이 결정될 때까지 기다리는 것이 좋습니다."
+    },
+    'BEARISH': {
+        title: "Bearish Trend (하락 추세)",
+        desc: "주가가 주요 이평선 아래에 위치하며 하방 압력을 받고 있습니다.",
+        interpretation: "위험: 저점 매수보다는 공매도나 현금 보유가 유리합니다."
     },
     'GOLDEN_SETUP': {
         title: "Golden Setup (거래량 동반 돌파)",
         desc: "장기 이평선 위에서 거래량이 평소의 2배 이상 터지며 상승(Expansion)한 패턴입니다.",
-        interpretation: "확률 90% 이상: 단순한 반등이 아닌 추세의 시작점일 가능성이 높습니다."
+        interpretation: "확률 90% 이상: 단순한 반등이 아닌 거대 추세의 시작점일 가능성이 높습니다."
     },
     'VCP': {
         title: "VCP (변동성 축소 패턴)",
-        desc: "주가 변동폭이 점차 줄어들며(Tightness) 에너지가 응축되는 현상입니다.",
-        interpretation: "ON: 곧 한쪽으로 큰 시세 분출이 임박했습니다."
+        desc: "주가 변동폭이 점차 줄어들며(Tightness) 에너지가 응축되는 현상입니다 (Volatility Contraction Pattern).",
+        interpretation: "ON: 용수철처럼 에너지가 모였습니다. 곧 한쪽으로 큰 시세 분출이 임박했습니다."
     },
     'BLUE_SKY': {
-        title: "Blue Sky Zone (매물대 없음)",
-        desc: "52주 신고가 근처 또는 돌파 영역입니다.",
+        title: "Blue Sky Zone (신고가 영역)",
+        desc: "52주 신고가 근처 또는 역사적 신고가를 돌파한 영역입니다. 위에 악성 매물대(Resistance)가 없습니다.",
         interpretation: "저항 없음: 목표가를 높게 잡을 수 있는 '달리는 말'입니다."
+    },
+    'RS_RATING': {
+        title: "RS Rating (상대 강도)",
+        desc: "전체 시장(S&P500) 대비 해당 종목의 지난 1년간 퍼포먼스 순위입니다. (99점 = 상위 1%)",
+        interpretation: "80점 이상: 시장 주도주(Market Leader)일 확률이 높습니다. 하락장에서도 잘 버팁니다."
+    },
+    'RVOL': {
+        title: "RVOL (상대 거래량)",
+        desc: "평소 거래량 대비 현재 거래량의 비율입니다. (Relative Volume)",
+        interpretation: "1.5x 이상: 기관이나 세력의 자금이 평소보다 강하게 유입되고 있다는 신호입니다."
+    },
+    'MOMENTUM': {
+        title: "Momentum (상승 탄력)",
+        desc: "가격 변화의 속도와 가속도를 측정한 복합 지표입니다.",
+        interpretation: "높을수록 강한 추세: 단기 트레이딩에 유리합니다."
+    },
+    'ADX': {
+        title: "ADX (추세 강도 지수)",
+        desc: "현재 진행 중인 추세의 강도를 나타냅니다. 방향성(상승/하락)과는 무관하게 '얼마나 센가'를 보여줍니다.",
+        interpretation: "25 이상: 추세장(Trend) 진행 중. 20 미만: 횡보장(Box)이므로 추세 매매 금지."
+    },
+    'OBV': {
+        title: "OBV (거래량 매집 분석)",
+        desc: "주가 상승일의 거래량은 더하고 하락일은 빼서 누적한 지표입니다. (On-Balance Volume)",
+        interpretation: "DIVERGENCE: 주가는 횡보/하락하는데 OBV가 상승한다면 '스마트 머니'의 매집 신호입니다."
+    },
+    'ESTIMATED': {
+        title: "Estimated Data (추정치)",
+        desc: "실시간 데이터 API 한도 도달 또는 데이터 누락으로 인해, 최근 펀더멘털 및 기술적 스냅샷을 기반으로 추정된 데이터입니다.",
+        interpretation: "주의: 정확도가 다소 떨어질 수 있으므로 보조 지표로만 활용하십시오."
     }
 };
 
@@ -90,7 +146,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
         const target = event.target as HTMLElement;
-        if (!target.closest('.tech-insight-card') && !target.closest('.tech-insight-overlay')) {
+        if (!target.closest('.tech-insight-trigger') && !target.closest('.tech-insight-overlay')) {
             setActiveMetric(null);
         }
     };
@@ -741,19 +797,51 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2 mt-2">
                                      {selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' && (
-                                         <span className="text-[8px] font-black bg-rose-500 text-white px-2 py-0.5 rounded animate-pulse uppercase">VCP Squeeze Active</span>
+                                         <span 
+                                            onClick={() => setActiveMetric('VCP')}
+                                            className="text-[8px] font-black bg-rose-500 text-white px-2 py-0.5 rounded animate-pulse uppercase cursor-help hover:opacity-80 transition-opacity tech-insight-trigger"
+                                         >
+                                             VCP Squeeze Active
+                                         </span>
                                      )}
                                      {selectedTicker.techMetrics.goldenSetup && (
-                                         <span className="text-[8px] font-black bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded uppercase">Golden Setup</span>
+                                         <span 
+                                            onClick={() => setActiveMetric('GOLDEN_SETUP')}
+                                            className="text-[8px] font-black bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 px-2 py-0.5 rounded uppercase cursor-help hover:opacity-80 transition-opacity tech-insight-trigger"
+                                         >
+                                             Golden Setup
+                                         </span>
                                      )}
-                                     <span className="text-[8px] font-black bg-orange-900/30 text-orange-400 px-2 py-0.5 rounded border border-orange-500/20 uppercase">RVOL {selectedTicker.techMetrics.rvol}x</span>
-                                     <span className="text-[8px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-white/10 uppercase">{selectedTicker.techMetrics.trendAlignment}</span>
-                                     {selectedTicker.dataSource === 'HEURISTIC' && <span className="text-[8px] font-black bg-slate-800 text-amber-500 px-2 py-0.5 rounded border border-amber-500/30 uppercase">ESTIMATED</span>}
+                                     <span 
+                                        onClick={() => setActiveMetric('RVOL')}
+                                        className="text-[8px] font-black bg-orange-900/30 text-orange-400 px-2 py-0.5 rounded border border-orange-500/20 uppercase cursor-help hover:opacity-80 transition-opacity tech-insight-trigger"
+                                     >
+                                         RVOL {selectedTicker.techMetrics.rvol}x
+                                     </span>
+                                     <span 
+                                        onClick={() => setActiveMetric(selectedTicker.techMetrics.trendAlignment)}
+                                        className="text-[8px] font-black bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-white/10 uppercase cursor-help hover:opacity-80 transition-opacity tech-insight-trigger"
+                                     >
+                                         {selectedTicker.techMetrics.trendAlignment}
+                                     </span>
+                                     {selectedTicker.dataSource === 'HEURISTIC' && (
+                                        <span 
+                                            onClick={() => setActiveMetric('ESTIMATED')}
+                                            className="text-[8px] font-black bg-slate-800 text-amber-500 px-2 py-0.5 rounded border border-amber-500/30 uppercase cursor-help hover:opacity-80 transition-opacity tech-insight-trigger"
+                                        >
+                                            ESTIMATED
+                                        </span>
+                                     )}
                                 </div>
                             </div>
                             <div className="text-right">
                                  <p className="text-[8px] text-slate-500 uppercase font-bold mb-1">Momentum</p>
-                                 <p className="text-2xl font-black text-orange-400 tracking-tighter">{selectedTicker.techMetrics.momentum}</p>
+                                 <p 
+                                    onClick={() => setActiveMetric('MOMENTUM')}
+                                    className="text-2xl font-black text-orange-400 tracking-tighter cursor-help hover:scale-105 transition-transform tech-insight-trigger"
+                                 >
+                                     {selectedTicker.techMetrics.momentum}
+                                 </p>
                             </div>
                         </div>
 
@@ -785,18 +873,20 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              )}
                         </div>
 
-                        {/* Interactive Metrics Grid - Updated for New Signals */}
-                        <div className="grid grid-cols-4 gap-2 mt-2">
+                        {/* Interactive Metrics Grid - Expanded to 6 items */}
+                        <div className="grid grid-cols-3 gap-2 mt-2">
                              {[
                                 { id: 'RS_RATING', label: 'RS Rating', val: selectedTicker.techMetrics.rsRating, good: selectedTicker.techMetrics.rsRating > 80 },
                                 { id: 'VCP', label: 'VCP (Tight)', val: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'YES' : 'NO', good: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' },
                                 { id: 'GOLDEN_SETUP', label: 'Golden Cross', val: selectedTicker.techMetrics.goldenSetup ? 'CONFIRMED' : 'NO', good: selectedTicker.techMetrics.goldenSetup },
-                                { id: 'POWER_TREND', label: 'Power Trend', val: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' ? 'ACTIVE' : 'WAIT', good: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' }
+                                { id: 'POWER_TREND', label: 'Power Trend', val: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' ? 'ACTIVE' : 'WAIT', good: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' },
+                                { id: 'ADX', label: 'ADX Strength', val: selectedTicker.techMetrics.adx, good: selectedTicker.techMetrics.adx > 25 },
+                                { id: 'OBV', label: 'OBV Trend', val: selectedTicker.techMetrics.obvSlope, good: selectedTicker.techMetrics.obvSlope === 'ACCUMULATION' }
                              ].map((m) => (
                                  <div 
                                     key={m.id} 
                                     onClick={() => setActiveMetric(m.id)}
-                                    className={`tech-insight-card p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 group ${activeMetric === m.id ? 'bg-orange-600 border-orange-400 text-white shadow-lg' : m.good ? 'bg-orange-900/20 border-orange-500/30' : 'bg-slate-800 border-white/5 hover:bg-slate-700'}`}
+                                    className={`tech-insight-card p-2 rounded-lg text-center border cursor-pointer transition-all hover:scale-105 active:scale-95 group tech-insight-trigger ${activeMetric === m.id ? 'bg-orange-600 border-orange-400 text-white shadow-lg' : m.good ? 'bg-orange-900/20 border-orange-500/30' : 'bg-slate-800 border-white/5 hover:bg-slate-700'}`}
                                  >
                                      <div className="flex items-center justify-center gap-1 mb-0.5">
                                         <p className={`text-[7px] uppercase font-bold ${activeMetric === m.id ? 'text-white' : 'text-slate-500 group-hover:text-slate-400'}`}>{m.label}</p>
@@ -808,7 +898,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                         {/* Tech Insight Overlay */}
                         {activeMetric && TECH_DEFINITIONS[activeMetric] && (
-                            <div className="tech-insight-overlay absolute bottom-20 left-6 right-6 z-20 animate-in fade-in slide-in-from-bottom-2">
+                            <div className="tech-insight-overlay absolute inset-x-4 bottom-4 z-20 animate-in fade-in slide-in-from-bottom-2">
                                 <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-orange-500/30 shadow-2xl relative">
                                     <button onClick={() => setActiveMetric(null)} className="absolute top-2 right-2 text-slate-500 hover:text-white">
                                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
@@ -817,7 +907,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                         <span className="w-1.5 h-1.5 rounded-full bg-orange-500 animate-pulse"></span>
                                         {TECH_DEFINITIONS[activeMetric].title}
                                     </h5>
-                                    <p className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">{TECH_DEFINITIONS[activeMetric].desc}</p>
+                                    <div className="text-[9px] text-slate-300 leading-relaxed font-medium mb-2">
+                                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                            {TECH_DEFINITIONS[activeMetric].desc}
+                                        </ReactMarkdown>
+                                    </div>
                                     <div className="bg-white/5 p-2 rounded border border-white/5">
                                         <p className="text-[8px] text-emerald-400 font-bold mb-0.5">💡 Strategy:</p>
                                         <p className="text-[8px] text-slate-400">{TECH_DEFINITIONS[activeMetric].interpretation}</p>
