@@ -167,9 +167,9 @@ const MarkdownComponents: any = {
         const sub = parts.length > 1 ? '(' + parts.slice(1).join('(') : '';
         
         return (
-            <h2 className="text-[17px] font-bold text-white mt-5 mb-3 leading-snug" {...props}>
+            <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props}>
                 {main}
-                {sub && <span className="text-[13px] font-medium text-slate-400 ml-1.5">{sub}</span>}
+                {sub && <span className="text-[11px] font-medium text-slate-500 ml-1.5">{sub}</span>}
             </h2>
         );
     },
@@ -1140,8 +1140,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                          </div>
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* CLEANED HEADER: No Title, Just Copy Button on Right */}
-                            <div className="flex items-center justify-between border-b border-white/10 pb-4 mb-6">
+                            {/* RESTORED HEADER: Title + Copy Button */}
+                            <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
+                                <h4 className="text-2xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
+                                    NEURAL INVESTMENT OUTLOOK
+                                </h4>
                                 <div className="flex gap-3 ml-auto">
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
