@@ -927,9 +927,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           const parsed = sanitizeAndParseJson(content);
           if (parsed) {
               if (Array.isArray(parsed)) {
+                  const uniqueMap = new Map();
                   parsed.forEach(item => {
                       if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                      // [DEDUPLICATION] Ensure unique symbols only
+                      if (item.symbol && !uniqueMap.has(item.symbol)) {
+                          uniqueMap.set(item.symbol, item);
+                      }
                   });
+                  return { data: Array.from(uniqueMap.values()), usedProvider: 'PERPLEXITY' };
               }
               return { data: parsed, usedProvider: 'PERPLEXITY' };
           }
@@ -960,11 +966,19 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         }));
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         const parsed = sanitizeAndParseJson(result.text);
+        
         if (parsed && Array.isArray(parsed)) {
+            const uniqueMap = new Map();
             parsed.forEach(item => {
                 if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                // [DEDUPLICATION] Ensure unique symbols only
+                if (item.symbol && !uniqueMap.has(item.symbol)) {
+                    uniqueMap.set(item.symbol, item);
+                }
             });
+            return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI' };
         }
+        
         return { data: parsed, usedProvider: 'GEMINI' };
       } catch (geminiError: any) {
         // [MODIFIED] Do not auto-fallback. Return error for UI toggle.
