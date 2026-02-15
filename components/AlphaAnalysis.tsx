@@ -149,27 +149,41 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [UI] CLEANED DESIGN: No Red Headers, No Title. Just content.
+// [UI] FINAL CORRECTED DESIGN
+// 1. No "NEURAL INVESTMENT OUTLOOK" title.
+// 2. H2 Headers: Clean white, no borders. English text smaller.
+// 3. Spacing: Tight, no extra lines.
 const MarkdownComponents: any = {
-    // Header 1: Clean White, Bold
+    // Header 1: Use minimal style or hidden if generated
     h1: (props: any) => (
-        <h1 className="text-xl md:text-2xl font-bold text-white mt-6 mb-4 border-b border-white/10 pb-2 uppercase tracking-wide" {...props} />
+        <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
-    // Header 2: Clean White, Bold
-    h2: (props: any) => (
-        <h2 className="text-lg md:text-xl font-bold text-white mt-6 mb-3 uppercase tracking-wide" {...props} />
-    ),
-    // Header 3: Blue/Slate
+    // Header 2: Main Section Headers (1. 전문가..., 2. The Alpha...)
+    // Custom renderer to make English part smaller
+    h2: (props: any) => {
+        const text = String(props.children || "");
+        const parts = text.split('(');
+        const main = parts[0];
+        const sub = parts.length > 1 ? '(' + parts.slice(1).join('(') : '';
+        
+        return (
+            <h2 className="text-[17px] font-bold text-white mt-5 mb-3 leading-snug" {...props}>
+                {main}
+                {sub && <span className="text-[13px] font-medium text-slate-400 ml-1.5">{sub}</span>}
+            </h2>
+        );
+    },
+    // Header 3: Sub-headers
     h3: (props: any) => (
-        <h3 className="text-base md:text-lg font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />
+        <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
     ),
-    // Paragraphs
+    // Paragraphs: Clean, tight
     p: (props: any) => (
-        <p className="text-[13px] text-slate-300 leading-7 mb-3 font-medium" {...props} />
+        <p className="text-[13px] text-slate-300 leading-relaxed mb-2" {...props} />
     ),
-    // Lists
-    ul: (props: any) => <ul className="space-y-2 mb-4" {...props} />,
-    ol: (props: any) => <ol className="space-y-2 mb-4" {...props} />,
+    // Lists: Tight spacing
+    ul: (props: any) => <ul className="space-y-1.5 mb-3" {...props} />,
+    ol: (props: any) => <ol className="space-y-1.5 mb-3" {...props} />,
     
     // List Items with Green Arrow
     li: (props: any) => (
@@ -179,7 +193,7 @@ const MarkdownComponents: any = {
         </li>
     ),
     
-    // Strong -> Green Badge (Clean Look)
+    // Strong -> Green Badge
     strong: (props: any) => (
         <span className="inline-block bg-emerald-950/40 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
             {props.children}
@@ -187,14 +201,14 @@ const MarkdownComponents: any = {
     ),
     
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-emerald-500/30 bg-emerald-950/10 p-3 my-4 rounded-r-lg italic text-slate-400 text-xs" {...props} />
+        <blockquote className="border-l-4 border-emerald-500/30 bg-emerald-950/10 p-3 my-3 rounded-r-lg italic text-slate-400 text-xs" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
         ? <code className="bg-slate-800 text-emerald-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
         : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
     ),
-    hr: () => <div className="h-4" /> 
+    hr: () => <div className="h-2" /> 
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
