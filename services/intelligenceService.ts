@@ -95,7 +95,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "One word verdict: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'FINAL EXECUTION ORDER' format." },
+      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Council Debate' format." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers: Fundamental, Technical, News/Sentiment" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
@@ -900,7 +900,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
   - **newsScore**: 0.0 to 1.0 float.
   - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of 3 strings (e.g. "News: Record Earnings", "SOS: Vol 2.4x", "Theme: AI").
+  - **selectionReasons**: Array of 3 distinct, high-impact reasons in **KOREAN**. (e.g., "기관의 공격적 매집 포착", "AI 섹터 순환매의 수혜 예상", "완벽한 눌림목 지지 확인").
   - **expectedReturn**: e.g., "+42% (Ten-Bagger Target)".
   - **supportLevel**: Entry Price.
   - **resistanceLevel**: Target Price.
@@ -908,15 +908,21 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **riskRewardRatio**: e.g., "1:4.5".
   - **kellyWeight**: e.g., "15%".
   - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Must use the following specific Markdown format:
+  - **investmentOutlook**: **CRITICAL**. Must use the following specific **Korean Markdown** format:
 
   > [Symbol] 
   > 1. AI Verdict: [Verdict] (Confidence [Score]%)
   > 2. News Analysis: [Sentiment] - [Headline Summary]
-  > 3. Reason: [Summary of SOS + FCF + Moat]
-  > 4. Entry Zone: $[Entry] ~ $[Entry * 1.01]
-  > 5. Stop Loss: $[Stop]
-  > 6. Target: [Target]% / Strategy: [Trailing Stop / Holding]
+
+  ## 🧠 Neural Investment Outlook: [Symbol]
+
+  ### 1. 🏛️ 전문가 3인 성향 분석 (The Council Debate)
+  - **🧐 보수적 퀀트 (Conservative Quant)**: [Focus on Fundamentals, Valuation, Safety. Why is this safe?]
+  - **🚀 공격적 트레이더 (Aggressive Trader)**: [Focus on Momentum, News, Catalysts. Why will it explode?]
+  - **⚖️ 마켓 메이커 (Market Maker)**: [Focus on Liquidity, Order Blocks, Traps. Where are the whales?]
+
+  ### 2. 🔮 선정 이유 및 미래 전망 (The Alpha Thesis)
+  [Synthesize the 3 views. Why this specific stock? What is the expected trajectory for the next 3 months? Conclude with a strong justification.]
 
   **NO EMOJIS IN JSON STRINGS EXCEPT INSIDE 'investmentOutlook' HEADER**.
   Language: Korean.
