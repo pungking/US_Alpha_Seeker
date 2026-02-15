@@ -23,8 +23,8 @@
         }
         .animate-pulse-soft { animation: pulse-soft 3s infinite; }
 
-        /* Markdown Styles */
-        .prose-report h1 { font-size: 1.5rem; font-weight: 900; color: #fff; margin-bottom: 1rem; border-left: 4px solid #10b981; padding-left: 1rem; text-transform: uppercase; font-style: italic; }
+        /* Markdown Styles - Cleaned up to remove unwanted borders */
+        .prose-report h1 { font-size: 1.5rem; font-weight: 900; color: #fff; margin-bottom: 1rem; margin-top: 1.5rem; text-transform: uppercase; font-style: italic; }
         .prose-report h2 { font-size: 1.1rem; font-weight: 800; color: #10b981; margin-top: 1.5rem; margin-bottom: 0.75rem; text-transform: uppercase; letter-spacing: 0.1em; }
         .prose-report h3 { font-size: 0.9rem; font-weight: 700; color: #94a3b8; margin-top: 1rem; text-transform: uppercase; }
         .prose-report p { font-size: 0.875rem; color: #cbd5e1; line-height: 1.7; margin-bottom: 1rem; }
@@ -50,7 +50,9 @@
     "vite": "https://esm.sh/vite@^7.3.1",
     "path": "https://esm.sh/path@^0.12.7",
     "@vitejs/plugin-react": "https://esm.sh/@vitejs/plugin-react@^5.1.2",
-    "url": "https://esm.sh/url@^0.11.4"
+    "url": "https://esm.sh/url@^0.11.4",
+    "puppeteer": "https://esm.sh/puppeteer@^24.36.1",
+    "crypto": "https://esm.sh/crypto@^1.0.1"
   }
 }
 </script>
