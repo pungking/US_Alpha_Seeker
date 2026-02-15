@@ -94,7 +94,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "One word verdict like 'STRONG_BUY', 'BUY', 'HOLD'" },
       marketCapClass: { type: Type.STRING, description: "Market size: 'LARGE', 'MID', or 'SMALL'" },
       sectorTheme: { type: Type.STRING, description: "Specific theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'FINAL EXECUTION ORDER' format." },
+      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'SYSTEM OUTPUT EXAMPLE' format." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 Key Drivers: Fundamental, Technical, Smart Money" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       expectedReturn: { type: Type.STRING, description: "Expected return percentage and duration (e.g. '+24.5% (6개월)')" },
@@ -102,9 +102,9 @@ const ALPHA_SCHEMA = {
       aiSentiment: { type: Type.STRING, description: "Sentiment description in Korean" },
       analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
       chartPattern: { type: Type.STRING, description: "Detected technical pattern name" },
-      supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone (Order Block High)" },
+      supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone (calculated via VWAP logic)" },
       resistanceLevel: { type: Type.NUMBER, description: "First Profit Target" },
-      stopLoss: { type: Type.NUMBER, description: "Invalidation Level (MSS Break)" },
+      stopLoss: { type: Type.NUMBER, description: "Invalidation Level (calculated via ATR logic)" },
       riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:3.5" }
     },
     required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
@@ -817,14 +817,15 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       console.warn("Regime fetch failed, defaulting to Neutral");
   }
 
-  // [ALPHA SINGULARITY PROTOCOL v2.0 - ENHANCED]
+  // [ALPHA-SIEVE EXECUTION PROTOCOL v1.0]
   const vectorInputs = candidates.map(c => ({
       symbol: c.symbol,
       price: c.price,
       sector: c.sector || "Unknown",
-      // [NEW] Added for VSA & FCF analysis
+      // [ENHANCED] Added for VSA & FCF analysis
       volume: c.volume,
       marketCap: c.marketCap,
+      change: c.change, // Daily change % for VSA calculation
       fundamentals: {
           revenueGrowth: c.revenueGrowth || c.growthScore || 0, // Fallback if direct prop missing
           operatingCashflow: c.operatingCashflow || c.metrics?.cashflow || 0,
@@ -854,61 +855,62 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   const SYSTEM_INSTRUCTION = `
   [SYSTEM ROLE: THE ALPHA-SIEVE ENGINE - FINAL EXECUTION NODE]
-  You are a specialized Quant-Execution Algorithms designed to select exactly 6 "Ten-Bagger" candidates with 0% margin for error.
-  You combine VSA (Volume Spread Analysis), Wyckoff Logic, and Fundamental Acceleration.
+  You are a specialized Quant-Execution Algorithm (Neural Alpha-Sieve & Wyckoff SOS Engine v1.0).
+  Your goal is to select exactly 6 "Ten-Bagger" candidates with 0% margin for error.
 
   Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
 
-  [EXECUTION LOGIC - MANDATORY]
-  1. **Sector Constraint (CORRELATION FILTER)**:
+  [CORE ALGORITHM - MANDATORY EXECUTION]
+
+  🚀 **Module A: SOS (Sign of Strength) Precision Engine**
+  1. **Effort vs Result (VSA)**:
+     - Calculate: \`Effort_Score = vectorB.rvol / Abs(change %)\`.
+     - Threshold: If \`Effort_Score > 2.0\` (High Volume, Low Change) => **Absorbing Supply** (Bullish).
+  2. **Volatility Thrust**:
+     - Analyze \`vectorB.squeeze\` and \`vectorC.displacement\`. High values indicate thrust potential.
+
+  📊 **Module B: Portfolio Optimization**
+  1. **Correlation Matrix Filter**:
      - You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
-     - Max 2 stocks per sector. If >2 candidates exist in Tech, pick only the top 2 by Composite Score. Kill the rest to prevent correlation risk.
+     - Max 2 stocks per sector to prevent correlation risk.
+  2. **Kelly Criterion Weighting**:
+     - Use \`convictionScore\` as Probability (P) and \`upsidePotential\` as Payoff (B).
 
-  2. **VSA Analysis (EFFORT vs RESULT)**:
-     - Analyze 'vectorB.rvol' (Relative Volume) vs Price.
-     - If RVOL > 2.0 but Price Change < 1% = **Absorbing Supply** (Bullish Accumulation).
-     - If RVOL > 2.0 and Price Change > 3% = **Displacement** (Mark-up Phase).
-     - Favor stocks in "Absorbing Supply" or "Displacement" phases.
+  🎯 **Execution & Timing (Exact Formulas)**
+  For each selected stock, you MUST calculate and output these specific levels:
+  1. **Entry Guideline (P_entry)**:
+     - Formula: \`min(OrderBlock, VWAP * 0.98)\`.
+     - *Note: Since real-time VWAP is not provided, estimate it as Current Price * 0.98 for the aggressive entry or use \`supportLevel\` if available.*
+  2. **Stop-Loss (P_sl)**:
+     - Formula: \`Support - (1.5 * ATR)\`.
+     - *Note: Estimate ATR based on price volatility (approx 3-5% of price) if precise ATR is missing.*
 
-  3. **Fundamental Acceleration (FCF/GROWTH)**:
-     - Use 'fundamentals.revenueGrowth' and 'operatingCashflow'.
-     - Favor stocks with positive growth and high Quality Score (>70).
-     - Interpret this as "FCF Acceleration" potential.
-
-  4. **Wyckoff Phase Detection**:
-     - Infer phase from 'vectorC' (Smart Money) + 'vectorA' (Quality).
-     - High Quality + High Smart Money Flow = **Accumulation/Markup**.
-     - Low Quality + High Smart Money Flow = **Manipulation**.
-     - Select stocks in **Phase C (Spring)** or **Phase D (SOS)**.
+  ✨ **Alpha Add-on (Ten-Bagger Checks)**
+  - **FCF Acceleration**: Check \`fundamentals.operatingCashflow\` and \`revenueGrowth\`. Positive trend = Bonus.
+  - **Sector Theme**: Ensure \`sector\` matches current market narratives.
 
   [OUTPUT REQUIREMENTS - JSON ONLY]
   Return a JSON Array of exactly 6 Stocks.
   Each object must strictly match this schema:
   - **symbol**: Ticker.
-  - **aiVerdict**: "STRONG_BUY" (Phase D/E), "BUY" (Phase C), "ACCUMULATE" (Phase B).
+  - **aiVerdict**: "STRONG_BUY" (Confidence > 90%), "BUY" (Confidence > 80%), "ACCUMULATE".
   - **convictionScore**: 0-100.
   - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of 3 strings (e.g. "VSA: Absorption Confirmed", "FCF: Accelerating", "Wyckoff: Phase D SOS").
+  - **selectionReasons**: Array of 3 strings (e.g. "SOS: Effort 2.4x Confirmed", "FCF: Accelerating", "Wyckoff: Phase D").
   - **expectedReturn**: e.g., "+45% (3 months)".
-  - **supportLevel**: Order Block Low (Entry).
-  - **resistanceLevel**: Liquidity Target (Exit).
-  - **stopLoss**: Invalidation Level.
+  - **supportLevel**: The calculated **Entry** price.
+  - **resistanceLevel**: The calculated **Target** price.
+  - **stopLoss**: The calculated **Stop-Loss** price.
   - **riskRewardRatio**: e.g., "1:4.5".
   - **chartPattern**: e.g. "Wyckoff Spring #2", "VCP Breakout".
   - **investmentOutlook**: **CRITICAL**. Must use the following specific Markdown format:
 
-  ### 🚀 [ALPHA-SIEVE] FINAL EXECUTION ORDER
-  **[Symbol: TICKER]**
-  1. **Wyckoff Phase:** [Phase] ([Context])
-  2. **Quantitative Validation:**
-     - FCF Acceleration: [Trend] (Inferred from Quality/Growth)
-     - VSA Status: [Analysis] (Based on RVOL)
-  3. **Execution Strategy (Entry Zone):**
-     - Ideal: $[Price] (Order Block)
-     - Aggressive: $[Price] (Momentum)
-  4. **Risk Management:**
-     - Stop-Loss: $[Price]
-     - R:R Ratio: [Ratio]
+  > [Symbol] 
+  > 1. AI Verdict: [Verdict] (Confidence [Score]%)
+  > 2. Reason: [Summary of SOS + FCF + Moat]
+  > 3. Entry Zone: $[Entry] ~ $[Entry * 1.01]
+  > 4. Stop Loss: $[Stop]
+  > 5. Target (1st): [Target]% / Target (Ten-Bagger): Holding until Climax Volume
 
   **NO EMOJIS IN JSON STRINGS EXCEPT INSIDE 'investmentOutlook' HEADER**.
   Language: Korean.
@@ -920,9 +922,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   Market Context: ${regimeContext}
   Candidates: ${JSON.stringify(vectorInputs)}
 
-  Execute the [Alpha Singularity Protocol v2.0] now. 
-  Select the best 6 assets considering Correlation, Regime, and Gamma Potential.
-  Perform the "Pre-Mortem" stress test on each.
+  Execute the [ALPHA-SIEVE EXECUTION PROTOCOL]. 
+  Select the best 6 assets.
+  Calculate Entry/Stop levels using the mandatory formulas (VWAP/ATR).
   Output the JSON array.
   `;
 
