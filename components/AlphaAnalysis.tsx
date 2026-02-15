@@ -150,33 +150,35 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 // [UI] Finalized Markdown Styling - Clean, Tight, Blocky, No Weird Borders
+// Removed 'prose-report' class dependence to fix style bleeding.
 const MarkdownComponents: any = {
     // Header 1 (Used for Main Title or similar)
     h1: (props: any) => (
-        <h1 className="text-2xl md:text-3xl font-black text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 italic uppercase tracking-widest border-b-2 border-rose-500 pb-2 mb-6" {...props}>
-            {props.children}
-        </h1>
+        <div className="mb-8 mt-4 pb-2 border-b-4 border-rose-600">
+             <h1 className="text-3xl md:text-4xl font-black italic tracking-tighter text-transparent bg-clip-text bg-gradient-to-r from-rose-400 to-red-600 uppercase" {...props} />
+        </div>
     ),
-    // Header 2 (Sections like "1. 전문가 3인...", "2. The Alpha...")
-    // CLEANED UP: No background, no weird left border. Just big, bold, white text.
+    // Header 2 (Section Headers like "1. 전문가...", "2. The Alpha...")
+    // Unified Style: Big, White, Clean.
     h2: (props: any) => (
-        <h2 className="text-lg md:text-xl font-black text-white mt-8 mb-3 uppercase tracking-wide flex items-baseline gap-2 leading-tight" {...props}>
+        <h2 className="text-xl font-bold text-white mt-10 mb-4 flex items-center gap-3" {...props}>
+            <span className="w-2 h-2 rounded-full bg-emerald-500 shadow-[0_0_10px_rgba(16,185,129,0.8)]"></span>
             {props.children}
         </h2>
     ),
     // Header 3 (Sub-sections)
-    h3: (props: any) => <h3 className="text-sm font-bold text-slate-400 mt-4 mb-2 uppercase tracking-wide" {...props} />,
+    h3: (props: any) => <h3 className="text-sm font-bold text-slate-400 mt-5 mb-2 uppercase tracking-wide" {...props} />,
     
-    // Paragraphs - Reduced spacing, removed borders
-    p: (props: any) => <p className="text-[12px] md:text-[13px] text-slate-300 leading-snug mb-1 font-medium tracking-wide" {...props} />,
+    // Paragraphs - Reduced spacing, NO BORDERS
+    p: (props: any) => <p className="text-[13px] text-slate-300 leading-7 mb-2" {...props} />,
     
-    // Lists (Bullet Points) - Tighter spacing
-    ul: (props: any) => <ul className="space-y-2 mb-4" {...props} />,
-    ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
+    // Lists (Bullet Points) - Custom spacing
+    ul: (props: any) => <ul className="space-y-3 mb-6 list-none" {...props} />,
+    ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
     
-    // List Items - No arrows, just clean layout
+    // List Items - No arrows, pure layout
     li: (props: any) => (
-        <li className="text-[12px] md:text-[13px] text-slate-300 leading-snug pl-1" {...props}>
+        <li className="text-[13px] text-slate-300 leading-7 pl-1" {...props}>
             {props.children}
         </li>
     ),
@@ -184,20 +186,20 @@ const MarkdownComponents: any = {
     // Strong/Bold -> The "Block" Badge Style
     // Solid background, colored text, rounded.
     strong: (props: any) => (
-        <span className="inline-block bg-emerald-950 text-emerald-400 font-bold px-2 py-0.5 rounded mr-2 mb-0.5 shadow-sm text-xs tracking-tight border border-emerald-500/20">
+        <span className="inline-block bg-[#1e293b] text-emerald-400 font-bold px-2.5 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-2 align-middle">
             {props.children}
         </span>
     ),
     
     blockquote: (props: any) => (
-        <blockquote className="border-l-2 border-rose-500/50 bg-rose-950/10 p-3 my-3 rounded-r-lg italic text-slate-400 text-xs" {...props} />
+        <blockquote className="border-l-4 border-rose-500/50 bg-rose-950/10 p-4 my-4 rounded-r-xl italic text-slate-400 text-xs" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
         ? <code className="bg-slate-800 text-rose-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
         : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
     ),
-    hr: () => <hr className="border-white/5 my-4" /> // Very subtle separator
+    hr: () => <div className="h-6" /> // Spacer instead of line
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
@@ -1139,7 +1141,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                             </div>
                             
-                            <div className="prose-report min-h-[200px]">
+                            <div className="min-h-[200px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                     {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
                                 </ReactMarkdown>
