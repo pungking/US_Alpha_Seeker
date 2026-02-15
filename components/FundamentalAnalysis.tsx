@@ -99,6 +99,11 @@ const FUNDAMENTAL_INSIGHTS: Record<string, { title: string; desc: string; strate
         title: "Economic Moat (경제적 해자)",
         desc: "경쟁사가 넘볼 수 없는 독점적 지위나 브랜드 파워를 의미합니다. ROIC와 마진율로 판별합니다.",
         strategy: "Wide: 10년 이상 초과 수익을 유지할 가능성이 높음. 장기 투자의 필수 조건."
+    },
+    'CONFIDENCE': {
+        title: "Data Confidence (데이터 신뢰도)",
+        desc: "일부 재무 데이터(매출, EPS, 현금흐름 등)가 누락되어 업종 평균이나 대체 지표(Proxy)를 사용하여 분석된 상태입니다.",
+        strategy: "이 상태에서는 펀더멘털 점수가 실제보다 낮거나 높게 왜곡될 수 있습니다. 기술적 분석(Stage 4) 및 수급(Stage 5) 신호를 반드시 교차 검증하십시오."
     }
 };
 
@@ -268,14 +273,14 @@ const performFinancialEngineering = (data: any) => {
         earningsQuality: safeNum(earningsQualityScore),
         economicMoat,
         dataConfidence,
-        // [FIX] Radar Data Visualization Floor (Prevent 0-point collapse)
+        // [FIX] Radar Data Visualization Floor & Precision (Decimal Fix)
         // [UPDATE] Reverted labels to English as requested
         radarData: [
-            { subject: 'Valuation', A: Math.max(5, safeNum(valScore)), fullMark: 100 },
-            { subject: 'Moat', A: Math.max(5, safeNum(qualScore)), fullMark: 100 },
-            { subject: 'Growth', A: Math.max(5, safeNum(growthScore)), fullMark: 100 },
-            { subject: 'Safety', A: Math.max(5, safeNum(safetyScore)), fullMark: 100 },
-            { subject: 'Quality', A: Math.max(5, safeNum(earningsQualityScore)), fullMark: 100 },
+            { subject: 'Valuation', A: Number(Math.max(5, safeNum(valScore)).toFixed(2)), fullMark: 100 },
+            { subject: 'Moat', A: Number(Math.max(5, safeNum(qualScore)).toFixed(2)), fullMark: 100 },
+            { subject: 'Growth', A: Number(Math.max(5, safeNum(growthScore)).toFixed(2)), fullMark: 100 },
+            { subject: 'Safety', A: Number(Math.max(5, safeNum(safetyScore)).toFixed(2)), fullMark: 100 },
+            { subject: 'Quality', A: Number(Math.max(5, safeNum(earningsQualityScore)).toFixed(2)), fullMark: 100 },
         ]
     };
 };
@@ -471,7 +476,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               disabled={loading} 
               className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${
                   loading 
-                    ? 'bg-slate-800 text-slate-500 shadow-none border border-white/5 cursor-wait opacity-80' 
+                    ? 'bg-slate-800 text-slate-500 shadow-none border border-white/5 cursor-wait opacity-50' 
                     : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95'
               }`}
             >
@@ -542,7 +547,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                            </span>
                                        )}
                                        {selectedTicker.dataConfidence < 100 && (
-                                           <span className="text-[8px] font-black bg-rose-900/30 text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 uppercase animate-pulse">
+                                           <span 
+                                                onClick={() => setActiveInsight('CONFIDENCE')}
+                                                className="text-[8px] font-black bg-rose-900/30 text-rose-400 px-2 py-0.5 rounded border border-rose-500/20 uppercase animate-pulse cursor-help hover:opacity-80 transition-opacity fund-insight-trigger"
+                                           >
                                                Low Confidence
                                            </span>
                                        )}
@@ -591,7 +599,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                     className={`p-2 rounded-lg text-center border cursor-pointer transition-all fund-insight-trigger ${activeInsight === 'SAFETY' ? 'bg-cyan-600 border-cyan-400 text-white shadow-lg' : 'bg-slate-800/50 border-white/5 hover:bg-slate-700/50'}`}
                                >
                                    <p className={`text-[7px] uppercase font-bold ${activeInsight === 'SAFETY' ? 'text-white' : 'text-slate-400'}`}>Safety</p>
-                                   <p className={`text-xs font-black ${activeInsight === 'SAFETY' ? 'text-white' : selectedTicker.radarData[3].A > 80 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.radarData[3].A.toFixed(0)}</p>
+                                   <p className={`text-xs font-black ${activeInsight === 'SAFETY' ? 'text-white' : selectedTicker.radarData[3].A > 80 ? 'text-emerald-400' : 'text-slate-300'}`}>{selectedTicker.radarData[3].A.toFixed(2)}</p>
                                </div>
                                <div 
                                     onClick={() => setActiveInsight('F_SCORE')}
@@ -642,7 +650,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                        </div>
                    ) : (
                        <div className="h-full flex flex-col items-center justify-center opacity-20">
-                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                           <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                            <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                        </div>
                    )}
