@@ -156,6 +156,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
           // 4. Auto Commit if requested
           if (autoCommit && proposal) {
+              addLog("Auto-Committing AI Proposal...", "signal");
               // Pass EXPLICIT values to commit, don't rely on state
               await commitPurification(data, proposal.suggestedPrice, proposal.suggestedVolume, proposal);
           } else {
@@ -400,11 +401,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             </div>
             <div className="flex gap-4 w-full lg:w-auto">
               <button 
-                onClick={() => handleSyncAndAnalyze(false)} 
+                onClick={() => handleSyncAndAnalyze(true)} 
                 disabled={loading}
                 className={`flex-1 lg:flex-none px-6 py-4 md:px-8 md:py-5 bg-slate-800 text-slate-300 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/5 hover:bg-slate-700 transition-all`}
               >
-                {isAnalyzing ? 'Analyzing...' : 'Sync & Analyze'}
+                {isAnalyzing ? 'Auto-Analyzing...' : 'Sync & Analyze'}
               </button>
               
               <button 
