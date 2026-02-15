@@ -154,45 +154,44 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [IMPROVED MARKDOWN COMPONENTS - ENHANCED TEXT RENDERING]
+// [IMPROVED MARKDOWN COMPONENTS - CLEAN & PROFESSIONAL]
 const MarkdownComponents: any = {
+    // Headlines: Clean, no boxes, just text with color/underline
     h1: (props: any) => (
-        <h1 className="text-xl md:text-2xl font-black text-white mt-8 mb-6 uppercase tracking-[0.2em] border-b-2 border-rose-500 pb-3 flex items-center gap-3">
-            <span className="w-2 h-8 bg-rose-500 rounded-sm"></span>
+        <h1 className="text-lg md:text-xl font-black text-rose-500 mt-6 mb-4 uppercase tracking-widest border-b-2 border-rose-500/50 pb-2">
             {props.children}
         </h1>
     ),
     h2: (props: any) => (
-        <h2 className="text-lg md:text-xl font-bold text-white mt-8 mb-4 tracking-wide flex items-center gap-3 bg-white/5 p-3 rounded-xl border-l-4 border-emerald-500 shadow-lg">
+        <h2 className="text-base md:text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide">
             {props.children}
         </h2>
     ),
-    h3: (props: any) => <h3 className="text-base md:text-lg font-bold text-blue-400 mt-6 mb-3 tracking-wide pl-3 border-l-2 border-blue-500/50" {...props} />,
-    p: (props: any) => <p className="text-sm text-slate-300 leading-7 mb-4 font-medium tracking-wide" {...props} />,
-    ul: (props: any) => <ul className="space-y-3 mb-6 mt-2 list-none" {...props} />,
+    h3: (props: any) => <h3 className="text-sm md:text-base font-bold text-blue-400 mt-4 mb-2 tracking-wide" {...props} />,
+    
+    // Paragraphs: Standard readable text
+    p: (props: any) => <p className="text-xs md:text-[13px] text-slate-300 leading-relaxed mb-3 font-medium tracking-wide" {...props} />,
+    
+    // Lists: Clean standard bullets, no weird absolute positioning or "green dots"
+    ul: (props: any) => <ul className="list-disc pl-5 space-y-2 mb-4 text-slate-300" {...props} />,
     ol: (props: any) => <ol className="list-decimal pl-5 space-y-2 mb-4 text-slate-300 marker:text-emerald-500 marker:font-bold" {...props} />,
     li: (props: any) => (
-        <li className="pl-2 relative flex items-start group" {...props}>
-            <span className="text-emerald-500 mr-3 mt-1.5 text-[10px] opacity-70">●</span>
-            <span className="flex-1 text-slate-300 text-sm leading-relaxed group-hover:text-white transition-colors">{props.children}</span>
+        <li className="text-xs md:text-[13px] text-slate-300 leading-relaxed" {...props}>
+            {props.children}
         </li>
     ),
-    strong: (props: any) => <strong className="text-emerald-300 font-bold bg-emerald-950/30 px-1 rounded" {...props} />,
+    
+    // Inline Elements
+    strong: (props: any) => <strong className="text-white font-bold" {...props} />,
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-indigo-500/50 bg-indigo-950/20 p-4 my-6 rounded-r-xl italic text-slate-400 shadow-inner" {...props} />
+        <blockquote className="border-l-4 border-indigo-500/50 pl-4 my-4 italic text-slate-400" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-rose-300 px-1.5 py-0.5 rounded font-mono text-xs border border-white/10" {...props} />
+        ? <code className="bg-slate-800 text-rose-300 px-1 py-0.5 rounded font-mono text-xs" {...props} />
         : <div className="overflow-x-auto my-4"><pre className="bg-slate-950 p-4 rounded-xl border border-white/10 text-xs text-slate-300 font-mono shadow-xl" {...props} /></div>
     ),
-    table: (props: any) => <div className="overflow-x-auto my-4 rounded-xl border border-white/10 shadow-lg"><table className="w-full text-sm text-left text-slate-300" {...props} /></div>,
-    thead: (props: any) => <thead className="text-xs text-emerald-400 uppercase bg-slate-900/80" {...props} />,
-    th: (props: any) => <th className="px-4 py-3 font-black tracking-wider border-b border-white/10" {...props} />,
-    tbody: (props: any) => <tbody {...props} />,
-    tr: (props: any) => <tr className="border-b border-white/5 hover:bg-white/5 transition-colors odd:bg-white/[0.02]" {...props} />,
-    td: (props: any) => <td className="px-4 py-3" {...props} />,
-    hr: () => <hr className="border-white/10 my-8" />
+    hr: () => <hr className="border-white/10 my-6" />
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
@@ -543,72 +542,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     // 0. Clean formatting
     str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
 
-    // 1. Remove Emojis (Preserve existing logic)
+    // 1. Remove Emojis
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
-      .replace(/[\u{1F680}-\u{1F6FF}]/gu, "") 
-      .replace(/[\u{1F900}-\u{1F9FF}]/gu, "") 
-      .replace(/[\u{2600}-\u{26FF}]/gu, "")   
-      .replace(/[\u{2700}-\u{27BF}]/gu, "")   
-      .replace(/[\u{1F1E6}-\u{1F1FF}]/gu, "") 
       .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '');
 
-    // 2. Force Newlines for Headers (Updated with strict checks)
-    const headers = [
-        'COUNCIL DEBATE', 'PRE-MORTEM', 'EXECUTION STRATEGY', 
-        'RISK MANAGEMENT', 'SMART MONEY', 'FUNDAMENTAL', 
-        '3인 합의', '사전 부검', '매매 전략', '리스크 관리',
-        'NEURAL INVESTMENT OUTLOOK', 'THE ALPHA THESIS'
-    ];
-    
-    headers.forEach(h => {
-        // Regex: (Anything not a newline) followed by optional #, then Header Name
-        // Case 1: "Something ## Header"
-        const re1 = new RegExp(`([^\\n])\\s*(#{1,3}\\s*)?(${h})`, 'gi');
-        str = str.replace(re1, '$1\n\n## $3');
+    // 2. Formatting Fix: Ensure Headers have space before them
+    // Matches # Header or ## Header and ensures double newline before if not at start
+    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n\n$2');
 
-        // Case 2: "## Header Something" (Split Header and Content)
-        // Ensure "## Title: Content" becomes "## Title:\nContent"
-        const re2 = new RegExp(`(#{1,3}\\s*${h}.*?)([\\)\\:]?)\\s*([^\\n#]+)`, 'gi');
-        str = str.replace(re2, (match, title, suffix, content) => {
-             if (content.length < 5) return match; // If content is too short, might be part of title
-             return `${title.trim()}${suffix}\n${content.trim()}\n`;
-        });
-    });
-
-    // 3. Force Newlines for Numbered Lists like "1. ", "2. " if they follow text immediately
-    str = str.replace(/([^\n])\s*(\d+\.)\s+/g, '$1\n\n$2 ');
-
-    // 4. Force Personas to new lines (Enhanced)
-    const personas = [
-        '보수적 퀀트:', '공격적 트레이더:', '마켓메이커:', '마켓 메이커:', '모멘텀 트레이더:',
-        'Conservative Quant:', 'Aggressive Trader:', 'Market Maker:', 'Momentum Trader:',
-        '보수적 퀀트 :', '공격적 트레이더 :', '마켓 메이커 :', '모멘텀 트레이더 :'
-    ];
-    personas.forEach(p => {
-        // Use trim() to ensure clean formatting inside the bold tags (e.g. "Role :" -> "Role:")
-        // Check identifying regex with lookbehind support if possible, else fallback
-        try {
-            str = str.replace(new RegExp(`(?<!\\n-\\s*\\*\\*)${p.replace(/\s+/g, '\\s*')}`, 'g'), `\n- **${p.trim()}**`);
-        } catch (e) {
-            // Fallback for browsers without lookbehind support
-            str = str.split(p).join(`\n- **${p.trim()}**`);
-        }
-    });
-
-    // Force bullet point structure if personas are detected but not bulleted
-    str = str.replace(/(\*\*[^*]+\*\*)\s*:/g, '\n- $1 :');
-
-    // 5. Fix List Item Clumping
-    // "Sentence. - List item" -> "Sentence.\n- List item"
+    // 3. Formatting Fix: Ensure Lists are clean
+    // Fix "Sentence. - Item" -> "Sentence.\n- Item"
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
+
+    // 4. Handle "Personas" - make them bold and on new lines if they look like keys
+    const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker'];
+    personas.forEach(p => {
+         // Replace "Role :" or "- Role :" with "\n- **Role** :"
+         const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
+         str = str.replace(regex, `\n- **${p}** :`);
+    });
+
+    // 5. Remove empty list items or double bullets
+    str = str.replace(/^\s*-\s*$/gm, ''); // Remove lines with just "-"
+    str = str.replace(/- -/g, '-');
     
-    // 6. Enhance spacing
-    str = str.replace(/\n\n\n+/g, '\n\n'); 
+    // 6. Final Trim and Spacing
+    str = str.replace(/\n\n\n+/g, '\n\n').trim();
     
-    return str.trim();
+    return str;
   };
 
   const cleanMarkdown = (text?: any) => {
@@ -1341,16 +1305,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                          
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
-                            {/* REDESIGNED HEADER: FLEX LAYOUT FOR ALIGNMENT */}
-                            <div className="flex flex-col border-b border-white/10 pb-6 mb-6">
-                                <div className="flex items-baseline gap-4 mb-2">
-                                    <h2 className="text-sm font-black text-rose-500 tracking-[0.2em] uppercase shrink-0">NEURAL INVESTMENT OUTLOOK</h2>
-                                    <div className="flex-1 h-px bg-rose-500/20 self-center"></div>
-                                    <h1 className="text-4xl md:text-5xl font-black text-white italic tracking-tighter leading-none">{selectedStock.symbol}</h1>
+                            {/* REDESIGNED HEADER: Clean, No Boxes, Just Text */}
+                            <div className="flex flex-col border-b border-white/10 pb-4 mb-6">
+                                <div className="flex items-center gap-4">
+                                    <h4 className="text-xs font-black text-rose-500 uppercase tracking-[0.2em] underline underline-offset-4 decoration-rose-500/50">
+                                        NEURAL INVESTMENT OUTLOOK
+                                    </h4>
+                                    <h2 className="text-2xl font-black text-white italic tracking-tighter">
+                                        {selectedStock.symbol}
+                                    </h2>
                                 </div>
-                                <div className="w-fit bg-white/10 px-3 py-1 rounded text-[10px] font-bold text-slate-300 tracking-wider uppercase">
+                                <p className="text-[10px] text-slate-500 font-bold uppercase tracking-wider mt-1">
                                     {selectedStock.name}
-                                </div>
+                                </p>
                             </div>
                             
                             <div className="prose-report min-h-[200px]">
