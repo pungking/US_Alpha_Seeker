@@ -281,6 +281,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     let smoothPlus = dmPlus.slice(0, period).reduce((a,b)=>a+b, 0);
     let smoothMinus = dmMinus.slice(0, period).reduce((a,b)=>a+b, 0);
     
+    if (smoothTR === 0) return 0; // Prevent division by zero
+
     let dxList = [];
 
     for (let i = period; i < tr.length; i++) {
@@ -288,6 +290,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         smoothPlus = smoothPlus - (smoothPlus / period) + dmPlus[i];
         smoothMinus = smoothMinus - (smoothMinus / period) + dmMinus[i];
         
+        // Prevent division by zero
+        if (smoothTR === 0) {
+            dxList.push(0);
+            continue;
+        }
+
         const diPlus = (smoothPlus / smoothTR) * 100;
         const diMinus = (smoothMinus / smoothTR) * 100;
         
@@ -309,7 +317,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (rawRvol <= 0) return 0;
       // Base 50 + 25 * log2(rvol)
       const score = 50 + (25 * Math.log2(rawRvol));
-      return Math.max(0, Math.min(100, score));
+      return Math.max(0, Math.min(100, isNaN(score) ? 0 : score));
   };
 
   // --- DATA SOURCES ---
@@ -592,22 +600,29 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       let rsRating = 50;
                       if (spyCandles.length > 50 && closes.length > 50) {
                           const spyNow = spyCandles[spyCandles.length - 1].c;
-                          const spyOld = spyCandles[Math.max(0, spyCandles.length - 63)].c; // ~3 months
-                          const spyPerf = (spyNow - spyOld) / spyOld;
+                          const spyOldIndex = Math.max(0, spyCandles.length - 63);
+                          const spyOld = spyCandles[spyOldIndex].c;
+                          
+                          let spyPerf = 0;
+                          if (spyOld > 0) spyPerf = (spyNow - spyOld) / spyOld;
 
-                          const stockOld = closes[Math.max(0, closes.length - 63)];
-                          const stockPerf = (currentPrice - stockOld) / stockOld;
+                          const stockOldIndex = Math.max(0, closes.length - 63);
+                          const stockOld = closes[stockOldIndex];
+                          
+                          let stockPerf = 0;
+                          if (stockOld > 0) stockPerf = (currentPrice - stockOld) / stockOld;
                           
                           // Alpha = Stock - SPY. Scale: 0% diff -> 50, +20% diff -> 90
                           const alpha = stockPerf - spyPerf;
                           rsRating = Math.min(99, Math.max(1, 50 + (alpha * 200)));
+                          if (isNaN(rsRating)) rsRating = 50;
                       } else {
                           // Fallback to internal strength
                           rsRating = Math.min(99, Math.max(1, (rsi * 0.5) + (trendScore * 0.5)));
                       }
 
                       const stdDev = calculateStdDev(closes, 20);
-                      const bbWidth = (4 * stdDev) / sma20; 
+                      const bbWidth = sma20 > 0 ? (4 * stdDev) / sma20 : 0; 
                       const squeezeState = bbWidth < 0.12 ? 'SQUEEZE_ON' : 'SQUEEZE_OFF';
 
                       const avgVol = calculateSMA(volumes.slice(0, -1), 20);
@@ -623,7 +638,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       const yearHigh = item.fiftyTwoWeekHigh || Math.max(...closes.slice(-250));
                       const isBlueSky = yearHigh > 0 && currentPrice >= yearHigh * 0.95;
                       
-                      const priceChange = (currentPrice - closes[closes.length - 2]) / closes[closes.length - 2];
+                      let priceChange = 0;
+                      if (closes.length >= 2) {
+                           const prev = closes[closes.length - 2];
+                           if (prev > 0) priceChange = (currentPrice - prev) / prev;
+                      }
+                      
                       const goldenSetup = rawRvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
 
                       let techScore = rsRating * 0.4;
@@ -636,8 +656,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       techScore += (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
                       if (goldenSetup || isBlueSky) techScore += 10;
                       
+                      const safeTechnicalScore = Number(Math.min(99, Math.max(1, isNaN(techScore) ? 50 : techScore)).toFixed(2));
+
                       techData = {
-                          technicalScore: Number(Math.min(99, Math.max(1, techScore)).toFixed(2)),
+                          technicalScore: safeTechnicalScore,
                           techMetrics: {
                               rsi: Number(rsi.toFixed(2)),
                               adx: Number(adx.toFixed(2)),
@@ -699,7 +721,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "7.5.0", count: results.length, strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS", survivalRate },
+        manifest: { version: "7.5.1", count: results.length, strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS", survivalRate },
         technical_universe: results
       };
 
@@ -744,7 +766,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v7.2</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v7.5</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
