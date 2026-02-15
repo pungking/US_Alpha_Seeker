@@ -263,56 +263,38 @@ const App: React.FC = () => {
     if (!selectedStock) return;
     setIsAiLoading(true);
     setAnalyzingStocks(prev => new Set(prev).add(selectedStock.symbol));
-    
-    // [FAILOVER LOGIC] Start with current brain, but allow switching locally
-    let activeProvider = auditBrain;
+    const targetBrain = auditBrain;
+    const cacheKey = `${selectedStock.symbol}-${targetBrain}-STAGE${currentStage}`;
     const mode = currentStage === 0 ? 'INTEGRITY_CHECK' : 'SINGLE_STOCK';
 
     try {
-      // 1. First Attempt
-      let report = await analyzePipelineStatus({
+      const report = await analyzePipelineStatus({
         currentStage,
         apiStatuses,
         symbols: [selectedStock.symbol],
         targetStock: selectedStock,
         mode: mode
-      }, activeProvider);
+      }, targetBrain);
 
-      // 2. Check for Failure Strings (Gemini Quota/Error)
-      const isFailure = report.includes("AUDIT_FAILURE") || 
-                        report.includes("AUDIT_NODE_ERROR") || 
-                        report.includes("AUDIT_QUOTA_EXCEEDED") || 
-                        report.includes("ERROR") || 
-                        report.includes("API Key Missing");
-
-      // 3. Immediate Retry Logic
-      if (isFailure && activeProvider === ApiProvider.GEMINI) {
-         console.warn(`Gemini Audit Failed/Quota Exceeded (${report.substring(0, 30)}...). Auto-switching to Sonar & Retrying...`);
-         
-         // Update Global State for UI (Toggle button visually)
-         setAuditBrain(ApiProvider.PERPLEXITY);
-         // Update Local State for Retry
-         activeProvider = ApiProvider.PERPLEXITY;
-         
-         // RETRY execution immediately
-         report = await analyzePipelineStatus({
-            currentStage,
-            apiStatuses,
-            symbols: [selectedStock.symbol],
-            targetStock: selectedStock,
-            mode: mode
-         }, activeProvider);
-      }
-
-      // 4. Archive (Only if valid report)
-      if (!report.includes("AUDIT_FAILURE") && !report.includes("CRITICAL_NODE_ERROR")) {
+      // [AUTO-TOGGLE] Robust Failover Logic
+      // Checks for various failure keywords including specific Quota errors
+      if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing") || report.includes("QUOTA_EXCEEDED")) {
+         if (targetBrain === ApiProvider.GEMINI) {
+             setAuditBrain(ApiProvider.PERPLEXITY);
+             console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar.");
+             
+             // Optional: Retry immediately with Sonar if needed, but for now we just switch toggle for user to retry or next attempt
+         }
+      } else {
+         // [NEW] Automatic Report Archiving (Only on Success)
          const token = sessionStorage.getItem('gdrive_access_token');
          if (token) {
              const date = new Date().toISOString().split('T')[0];
              const type = currentStage === 0 ? 'Integrity_Check' : 'Deep_Audit';
-             const brainLabel = activeProvider === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
-             const fileName = `${date}_${type}_${selectedStock.symbol}_${brainLabel}.md`;
+             const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
+             const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
              
+             // Fire and forget
              archiveReport(token, fileName, report).then(ok => {
                  if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
                  else console.warn(`[Archive] Failed to save report: ${fileName}`);
@@ -320,19 +302,13 @@ const App: React.FC = () => {
          }
       }
 
-      // 5. Cache Result (Use the provider that actually succeeded)
-      const cacheKey = `${selectedStock.symbol}-${activeProvider}-STAGE${currentStage}`;
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
-
     } catch (err: any) {
-      console.error("Audit Execution Error:", err);
-      // Fallback Error Handling
-      const errorKey = `${selectedStock.symbol}-${activeProvider}-STAGE${currentStage}`;
-      if (activeProvider === ApiProvider.GEMINI) {
+      if (targetBrain === ApiProvider.GEMINI) {
          setAuditBrain(ApiProvider.PERPLEXITY);
-         console.warn("Critical Audit Error on Gemini. Switched toggle to Sonar.");
+         console.warn("Critical Audit Error. Auto-switching to Sonar.");
       }
-      setStockAuditCache(prev => ({ ...prev, [errorKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
+      setStockAuditCache(prev => ({ ...prev, [cacheKey]: `### CRITICAL_NODE_ERROR\n> ${err.message}` }));
     } finally {
       setIsAiLoading(false);
       setAnalyzingStocks(prev => {
@@ -544,6 +520,7 @@ const App: React.FC = () => {
           <DeepQualityFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
+            onStockSelected={setSelectedStock}
           />
         </div>
         <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
