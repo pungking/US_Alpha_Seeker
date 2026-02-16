@@ -198,7 +198,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }
   };
 
-  // [MODIFIED] Now returns the proposal object for immediate use
+  // [MODIFIED] Added timeout protection and explicit fallback logic
   const runAiAnalysis = async (universe: MasterTicker[], context: MarketContext): Promise<AiProposal | null> => {
       const prices = universe.map(s => s.price).filter(p => p > 0).sort((a, b) => a - b);
       const volumes = universe.map(s => s.volume).filter(v => v > 0).sort((a, b) => a - b);
@@ -247,7 +247,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   config: { responseMimeType: "application/json" }
               });
 
-              // Race against 8s timeout
+              // Race against 8s timeout to prevent hanging
               const response: any = await Promise.race([geminiRequest, timeoutPromise(8000, "Gemini Timeout")]);
               
               trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
