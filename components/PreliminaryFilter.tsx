@@ -69,7 +69,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiError, setAiError] = useState<string | null>(null);
   
   // Logs & UI
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.5: Target Price Guard Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.6: Target Price Guard Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -237,7 +237,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       // 1. Try Gemini First with Timeout & Error Handling
       try {
           setActiveAi('Gemini 3 Pro');
-          const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
+          
+          // Explicitly search for Gemini Config
+          const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+          const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
           
           if (geminiKey) {
               const ai = new GoogleGenAI({ apiKey: geminiKey });
@@ -252,12 +255,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               
               trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
               aiResult = sanitizeJson(response.text);
+          } else {
+              addLog("Gemini Key not found. Skipping to Perplexity...", "warn");
           }
       } catch (e: any) {
           const isQuota = e.message?.includes('429') || e.message?.includes('Quota') || e.message?.includes('Resource has been exhausted');
           const isTimeout = e.message?.includes('Timeout');
           
-          // [FIX] Track error usage to update UI status
+          // [FIX] Track error usage to update UI status to ERR (Red Light)
           trackUsage(ApiProvider.GEMINI, 0, true, e.message);
 
           if (isQuota) addLog("Gemini Quota Exceeded (429). Switching to Sonar...", "warn");
@@ -273,10 +278,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               setActiveAi('Perplexity Sonar');
               addLog("Engaging Perplexity Sonar for analysis...", "info");
               
-              // Small delay to ensure UI updates and we don't spam instantly if in a tight loop
-              await new Promise(r => setTimeout(r, 500));
+              // Small delay to ensure UI updates
+              await new Promise(r => setTimeout(r, 200));
 
-              const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
+              const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+              const perplexityKey = perplexityConfig?.key || "";
               
               if (perplexityKey) {
                   const perplexityRequest = fetch('https://api.perplexity.ai/chat/completions', {
@@ -296,7 +302,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       throw new Error(`Perplexity API Error: ${res.status}`);
                   }
                   
-                  if(json.usage) {
+                  if (json.usage) {
                       trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
                   }
 
@@ -435,7 +441,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.6</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Strategies via ${activeAi}...` : 'System Standby'}
