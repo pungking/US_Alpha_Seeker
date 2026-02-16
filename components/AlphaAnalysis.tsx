@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -1146,15 +1145,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
                     className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
                   >
-                    {/* [NEW] Hidden Gem Badge */}
-                    {item.isHiddenGem && (
-                        <div className="absolute top-0 right-0 z-10 p-3">
-                            <div className="bg-purple-600/90 text-white text-[8px] font-black px-2 py-0.5 rounded shadow-[0_0_10px_rgba(147,51,234,0.5)] flex items-center gap-1 animate-pulse border border-purple-400/50">
-                                💎 GEM
-                            </div>
-                        </div>
-                    )}
-
                     {((loading && isSelected) || isAuditRunning) && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
@@ -1176,6 +1166,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               ${Number(displayPrice)?.toFixed(2)}
                           </span>
                           {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE FEED</span>}
+                          {/* [MOVED] GEM Badge */}
+                          {item.isHiddenGem && (
+                              <div className="mt-1 flex justify-end">
+                                <span className="bg-purple-600/90 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-[0_0_5px_rgba(147,51,234,0.5)] flex items-center gap-1 animate-pulse border border-purple-400/50">
+                                    💎 GEM
+                                </span>
+                              </div>
+                          )}
                       </div>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
