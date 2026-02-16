@@ -438,6 +438,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
      macroSection = `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
   }
 
+  // [FIX] Ensure no citations in Macro section
+  macroSection = removeCitations(macroSection);
+
   // 3. Format Candidates Programmatically (Top 6)
   const selections = candidates.slice(0, 6).map((c, i) => {
       const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대" };
