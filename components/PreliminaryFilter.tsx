@@ -69,7 +69,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiError, setAiError] = useState<string | null>(null);
   
   // Logs & UI
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.3: Target Price Guard Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.4: Target Price Guard Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -110,6 +110,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       return JSON.parse(clean);
     } catch (e) { return null; }
   };
+
+  // Helper for strict timeouts to prevent hanging
+  const timeoutPromise = (ms: number, msg: string) => new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(msg)), ms)
+  );
 
   const handleSyncAndAnalyze = async (autoCommit = false) => {
       if (!accessToken) {
@@ -229,31 +234,45 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       let aiResult: AiProposal | null = null;
 
-      // Try Gemini First
+      // 1. Try Gemini First with Timeout & Error Handling
       try {
           setActiveAi('Gemini 3 Pro');
           const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key || "";
+          
           if (geminiKey) {
               const ai = new GoogleGenAI({ apiKey: geminiKey });
-              const response = await ai.models.generateContent({
+              const geminiRequest = ai.models.generateContent({
                   model: 'gemini-3-flash-preview',
                   contents: prompt,
                   config: { responseMimeType: "application/json" }
               });
+
+              // Race against 8s timeout
+              const response: any = await Promise.race([geminiRequest, timeoutPromise(8000, "Gemini Timeout")]);
+              
               trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
               aiResult = sanitizeJson(response.text);
           }
       } catch (e: any) {
-          addLog(`Gemini Analysis Failed: ${e.message}`, "warn");
+          const isQuota = e.message?.includes('429') || e.message?.includes('Quota') || e.message?.includes('Resource has been exhausted');
+          const isTimeout = e.message?.includes('Timeout');
+          
+          if (isQuota) addLog("Gemini Quota Exceeded (429). Switching to Sonar...", "warn");
+          else if (isTimeout) addLog("Gemini Connection Timeout. Switching to Sonar...", "warn");
+          else addLog(`Gemini Error: ${e.message}. Switching...`, "warn");
+          
+          aiResult = null; // Ensure we fall through to next step
       }
 
-      // Fallback to Perplexity
+      // 2. Fallback to Perplexity
       if (!aiResult) {
           try {
               setActiveAi('Perplexity Sonar');
+              addLog("Engaging Perplexity Sonar for analysis...", "info");
+              
               const perplexityKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key || "";
               if (perplexityKey) {
-                  const res = await fetch('https://api.perplexity.ai/chat/completions', {
+                  const perplexityRequest = fetch('https://api.perplexity.ai/chat/completions', {
                       method: 'POST',
                       headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${perplexityKey}` },
                       body: JSON.stringify({
@@ -261,16 +280,26 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                           messages: [{ role: "user", content: prompt + " Return JSON only." }]
                       })
                   });
+
+                  // Race against 10s timeout
+                  const res: any = await Promise.race([perplexityRequest, timeoutPromise(10000, "Perplexity Timeout")]);
                   const json = await res.json();
+                  
+                  if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
+                  
                   if (json.choices && json.choices[0]) {
                       aiResult = sanitizeJson(json.choices[0].message.content);
                   }
+              } else {
+                  addLog("Perplexity Key Missing. Skipping.", "err");
               }
-          } catch (e) {
-              addLog(`Perplexity Fallback Failed`, "warn");
+          } catch (e: any) {
+              addLog(`Perplexity Fallback Failed: ${e.message}`, "warn");
+              aiResult = null;
           }
       }
 
+      // 3. Final Safety Net (Hardcoded Default)
       if (aiResult) {
           if (aiResult.reasoning) aiResult.reasoning = removeCitations(aiResult.reasoning);
           setAiProposal(aiResult);
@@ -281,10 +310,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           return aiResult;
       } else {
           setAiError("AI Offline. Applying Default Safety Filters.");
+          addLog("All AI Nodes Unresponsive. Using Default Safety Protocols.", "err");
           // Default Fallback
+          const defaultProposal = { suggestedPrice: 2.0, suggestedVolume: 500000, regime: "Default_Safe_Mode", reasoning: "AI Failure Fallback: Standard Swing Settings Applied." };
           setMinPrice(2.0);
           setMinVolume(500000);
-          return { suggestedPrice: 2.0, suggestedVolume: 500000, regime: "Default_Safe_Mode", reasoning: "AI Failure Fallback" };
+          setAiProposal(defaultProposal);
+          return defaultProposal;
       }
   };
 
@@ -366,9 +398,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
-      headers: { 'Authorization': `Bearer ${token}` }
-    }).then(r => r.json());
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
     if (res.files?.length > 0) return res.files[0].id;
     const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
@@ -390,7 +420,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.3</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.4</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Strategies via ${activeAi}...` : 'System Standby'}
