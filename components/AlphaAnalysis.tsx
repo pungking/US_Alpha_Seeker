@@ -475,15 +475,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
       const hasResults = resultsCache[selectedBrain]?.length;
       if (autoStart && autoPhase === 'ENGINE' && !loading && hasResults) {
-          addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
+          // [MODIFIED] Skip Deep Matrix Audit to save tokens during auto-pilot
+          addLog("AUTO-PILOT: Skipping Deep Matrix Audit (Token Saver)...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          
-          // [MODIFIED] Skip Matrix Audit to save tokens (User Request)
-          addLog("AUTO-PILOT: Skipping Deep Matrix Audit (Token Saver)...", "signal");
-          // setTimeout(() => {
-          //     handleRunMatrixAudit(selectedBrain);
-          // }, 1000);
+          // Removed setTimeout call to handleRunMatrixAudit
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
@@ -778,7 +774,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     apiStatuses: [],
                     recommendedData: currentResults,
                     mode: 'PORTFOLIO',
-                    targetStock: undefined
+                    targetStock: undefined 
                  }, targetBrain);
              }
         }
