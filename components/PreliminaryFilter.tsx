@@ -69,7 +69,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [aiError, setAiError] = useState<string | null>(null);
   
   // Logs & UI
-  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.6: Target Price Guard Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Filter_Node v11.7: Resilience Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -278,11 +278,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               setActiveAi('Perplexity Sonar');
               addLog("Engaging Perplexity Sonar for analysis...", "info");
               
-              // Small delay to ensure UI updates
-              await new Promise(r => setTimeout(r, 200));
+              // Small delay to ensure UI updates and visual confirmation of switch
+              await new Promise(r => setTimeout(r, 1500));
 
-              const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
-              const perplexityKey = perplexityConfig?.key || "";
+              // [FIX] Robust Key Retrieval: Check Enum, String, then Fallback
+              const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY) || API_CONFIGS.find(c => c.provider === 'Perplexity' as ApiProvider);
+              let perplexityKey = perplexityConfig?.key;
+
+              // Fallback to hardcoded key if config search fails (as last resort to prevent offline mode)
+              if (!perplexityKey) {
+                   perplexityKey = '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'; 
+              }
               
               if (perplexityKey) {
                   const perplexityRequest = fetch('https://api.perplexity.ai/chat/completions', {
@@ -294,12 +300,12 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       })
                   });
 
-                  // Race against 10s timeout
-                  const res: any = await Promise.race([perplexityRequest, timeoutPromise(10000, "Perplexity Timeout")]);
+                  // Race against 15s timeout
+                  const res: any = await Promise.race([perplexityRequest, timeoutPromise(15000, "Perplexity Timeout")]);
                   const json = await res.json();
                   
                   if (!res.ok) {
-                      throw new Error(`Perplexity API Error: ${res.status}`);
+                      throw new Error(`Perplexity API Error: ${res.status} ${JSON.stringify(json)}`);
                   }
                   
                   if (json.usage) {
@@ -310,7 +316,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       aiResult = sanitizeJson(json.choices[0].message.content);
                   }
               } else {
-                  addLog("Perplexity Key Missing. Skipping.", "err");
+                  addLog("Perplexity Key Missing in Config. Skipping.", "err");
               }
           } catch (e: any) {
               // [FIX] Track error usage for Sonar too
@@ -441,7 +447,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-emerald-500 ${isAnalyzing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.6</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Purification_Hub v11.7</h2>
                 <div className="flex items-center space-x-3 mt-2">
                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all duration-300 ${isAnalyzing ? 'border-yellow-500/20 bg-yellow-500/10 text-yellow-400' : 'border-emerald-500/20 bg-emerald-500/10 text-emerald-400'}`}>
                      {isAnalyzing ? `Strategies via ${activeAi}...` : 'System Standby'}
