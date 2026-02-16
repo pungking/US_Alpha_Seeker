@@ -1,4 +1,3 @@
-
 import { TELEGRAM_CONFIG } from "../constants";
 
 /**
@@ -27,6 +26,9 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
   // Standard 'Markdown' mode is safer but limited. We'll try to keep it simple.
   let cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*'); // Bold
   
+  // [FIX] Remove citations like [1], [2], [1][2] globally from the final message
+  cleanReport = cleanReport.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
+
   // Safety: If the AI accidentally included the header, remove it to prevent duplication
   cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
   
