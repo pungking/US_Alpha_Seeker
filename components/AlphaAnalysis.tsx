@@ -1,7 +1,8 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, AreaChart } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, trackUsage } from '../services/intelligenceService';
@@ -233,6 +234,26 @@ const MarkdownComponents: any = {
     hr: () => <div className="h-2" /> 
 };
 
+// [NEW] Probability Distribution Generator for Chart
+const generateNormalDistribution = (mean: number, stdDev: number, limit: number = 4) => {
+  const data = [];
+  const min = mean - limit * stdDev;
+  const max = mean + limit * stdDev;
+  const step = (max - min) / 60; // Resolution
+  
+  for (let x = min; x <= max; x += step) {
+    // Gaussian PDF formula
+    const y = (1 / (stdDev * Math.sqrt(2 * Math.PI))) * Math.exp(-0.5 * Math.pow((x - mean) / stdDev, 2));
+    data.push({ 
+        x: Number(x.toFixed(1)), 
+        y: y, 
+        // Color coding for visual intuition
+        isProfit: x > 0 
+    });
+  }
+  return data;
+};
+
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
@@ -264,6 +285,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const logRef = useRef<HTMLDivElement>(null);
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
+
+  // [NEW] Distribution Data Calculation Logic
+  const distributionData = useMemo(() => {
+    if (!selectedStock) return null;
+    
+    // 1. Calculate Mean (Expected Return or Conviction proxy)
+    let mean = 10; // Default baseline
+    if (selectedStock.expectedReturn) {
+        const match = selectedStock.expectedReturn.match(/([+-]?\d+\.?\d*)%/);
+        if (match) mean = parseFloat(match[1]);
+    } else {
+        mean = (selectedStock.convictionScore || 50) / 4; // 80 score -> 20% mean
+    }
+
+    // 2. Calculate StdDev (Volatility proxy based on conviction)
+    // Higher conviction = Lower risk/stdDev = Sharper curve
+    let stdDev = 15;
+    if (selectedStock.convictionScore) {
+        stdDev = Math.max(5, 30 - (selectedStock.convictionScore * 0.25)); 
+    }
+
+    return generateNormalDistribution(mean, stdDev);
+  }, [selectedStock]);
 
   const quantMetrics = useMemo(() => {
       try {
@@ -674,6 +718,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
+          
+          // Check for Quota/Rate Limit specifically
+          if (response.error.includes("429") || response.error.includes("Quota") || response.error.includes("Resource")) {
+              addLog("CRITICAL: Gemini Quota Exceeded. Execution Halted.", "err");
+              setLoading(false);
+              return;
+          }
+
           setSelectedBrain(ApiProvider.PERPLEXITY);
           
           if (autoStart) {
@@ -763,6 +815,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
+             if (report.includes("429") || report.includes("Quota")) {
+                 addLog("CRITICAL: Gemini Quota Exceeded. Cannot continue.", "err");
+                 setMatrixLoading(false);
+                 return;
+             }
+             
              setMatrixBrain(ApiProvider.PERPLEXITY);
              addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
              
@@ -794,7 +852,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
            else addLog(`Report Archive Failed.`, "err");
         }
 
-        addLog("Portfolio Matrix Audit complete.", "ok");
+        addLog("Portfolio Matrix Audit complete.","ok");
     } catch (e: any) { 
         addLog(`Matrix Error: ${e.message}`, "err"); 
     } finally { 
@@ -878,38 +936,54 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     }
   };
 
-  // [FIX] Robust Verdict Cleaning
+  // [FIX] Robust Verdict Cleaning and Korean Normalization
   const cleanVerdict = (v?: string) => {
       if (!v) return "";
-      // Allow alphanumeric, underscore, and Korean characters
-      return v.replace(/[^a-zA-Z0-9_가-힣]/g, '').toUpperCase();
+      // Remove symbols and trim
+      return v.replace(/[^a-zA-Z0-9_가-힣]/g, '').toUpperCase().trim();
   };
 
   const translateVerdict = (v?: string) => {
     const text = cleanVerdict(v);
-    if (text.includes('STRONGBUY') || text.includes('강력매수')) return '강력 매수';
-    if (text === 'BUY' || text === '매수') return '매수';
-    if (text.includes('ACCUMULATE') || text.includes('비중')) return '비중 확대';
+    if (!text) return "분석 중";
+
+    // Strong Buy
+    if (text.includes('STRONG') || text.includes('강력') || text.includes('적극')) return '강력 매수';
+    // Buy
+    if (text === 'BUY' || text === '매수' || text.includes('LONG')) return '매수';
+    // Accumulate
+    if (text.includes('ACCUMULATE') || text.includes('비중') || text.includes('확대')) return '비중 확대';
+    // Hold
     if (text.includes('HOLD') || text.includes('NEUTRAL') || text.includes('관망') || text.includes('보유')) return '관망';
+    // Sell
     if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
-    if (text === 'SELL' || text === '매도') return '매도';
-    if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기')) return '고위험';
-    if (text === "") return "분석 중"; // Fallback for empty
-    return v || "대기";
+    if (text === 'SELL' || text === '매도' || text.includes('청산') || text.includes('EXIT')) return '매도';
+    // Risk
+    if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기') || text.includes('위험')) return '고위험';
+    
+    // Default fallback if unknown (mapped to '대기' or original if it looks like Korean)
+    return /[가-힣]/.test(text) ? v! : "대기";
   };
 
   const getVerdictStyle = (v?: string) => {
     const text = cleanVerdict(v);
+    
+    // Strong Buy
     if (text.includes('STRONG') || text.includes('강력') || text.includes('적극')) 
         return 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-500 shadow-[0_0_20px_rgba(220,38,38,0.6)] font-black tracking-wider animate-pulse';
-    if (text.includes('BUY') || text.includes('매수')) 
+    // Buy
+    if (text.includes('BUY') || text.includes('매수') || text.includes('LONG')) 
         return 'bg-emerald-600 text-white border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.5)] font-black tracking-wide';
-    if (text.includes('RISK') || text.includes('고위험') || text.includes('SPECULATIVE') || text.includes('투기')) 
+    // Risk
+    if (text.includes('RISK') || text.includes('고위험') || text.includes('SPECULATIVE') || text.includes('투기') || text.includes('위험')) 
         return 'bg-violet-600 text-white border-violet-500 shadow-lg font-bold';
+    // Hold / Accumulate
     if (text.includes('ACCUMULATE') || text.includes('HOLD') || text.includes('비중') || text.includes('보유') || text.includes('관망') || text.includes('물량') || text.includes('중립')) 
         return 'bg-slate-600 text-slate-200 border-slate-500 font-bold';
-    if (text.includes('SELL') || text.includes('매도') || text.includes('청산')) 
+    // Sell
+    if (text.includes('SELL') || text.includes('매도') || text.includes('청산') || text.includes('EXIT')) 
         return 'bg-blue-700 text-white border-blue-500 font-bold';
+        
     return 'bg-slate-700 text-slate-300 border-slate-600';
   };
 
@@ -1068,6 +1142,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   <div 
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
+                    // [FLICKER FIX] Add translateZ to force GPU layer
+                    style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
                     className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
                   >
                     {/* [NEW] Hidden Gem Badge */}
@@ -1606,6 +1682,67 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Ready to Execute Backtest Protocol</p>
                         </div>
                     )}
+
+                    {/* [NEW] Probabilistic Return Distribution Chart */}
+                    <div className="mt-8 pt-8 border-t border-white/5">
+                        <div className="flex justify-between items-end mb-6">
+                            <div>
+                                <h4 className="text-[11px] font-black text-indigo-400 uppercase tracking-[0.3em] mb-1 italic">Probabilistic Alpha Distribution</h4>
+                                <p className="text-[9px] text-slate-500 font-mono font-bold">
+                                    ESTIMATED VARIANCE MODEL (Risk/Reward Probability)
+                                </p>
+                            </div>
+                        </div>
+                        {distributionData ? (
+                            <div className="h-[200px] w-full bg-black/20 rounded-[30px] border border-white/5 p-4 relative overflow-hidden">
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <AreaChart data={distributionData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                                        <defs>
+                                            <linearGradient id="distGradient" x1="0" y1="0" x2="1" y2="0">
+                                                <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.8} /> {/* Rose/Red for Loss */}
+                                                <stop offset="50%" stopColor="#f43f5e" stopOpacity={0.1} />
+                                                <stop offset="50%" stopColor="#10b981" stopOpacity={0.1} />
+                                                <stop offset="100%" stopColor="#10b981" stopOpacity={0.8} /> {/* Emerald/Green for Profit */}
+                                            </linearGradient>
+                                        </defs>
+                                        <XAxis 
+                                            dataKey="x" 
+                                            stroke="#475569" 
+                                            fontSize={9} 
+                                            tickLine={false} 
+                                            axisLine={false}
+                                            tickFormatter={(val) => `${val}%`}
+                                        />
+                                        <YAxis hide />
+                                        <RechartsTooltip 
+                                            contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '8px' }}
+                                            itemStyle={{ fontSize: '10px', color: '#fff' }}
+                                            labelStyle={{ color: '#94a3b8', fontSize: '9px' }}
+                                            formatter={(value: any) => [(Number(value) * 100).toFixed(2) + '%', "Probability Density"]}
+                                            labelFormatter={(label) => `Return: ${label}%`}
+                                        />
+                                        <ReferenceLine x={0} stroke="#64748b" strokeDasharray="3 3" />
+                                        <Area 
+                                            type="monotone" 
+                                            dataKey="y" 
+                                            stroke="url(#distGradient)" 
+                                            fill="url(#distGradient)" 
+                                            strokeWidth={2}
+                                            fillOpacity={0.6}
+                                            animationDuration={1500}
+                                        />
+                                    </AreaChart>
+                                </ResponsiveContainer>
+                                <div className="absolute top-2 right-4 text-[8px] font-black text-slate-500 uppercase tracking-widest bg-black/40 px-2 py-1 rounded">
+                                    Gaussian Projection
+                                </div>
+                            </div>
+                        ) : (
+                             <div className="h-[150px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5 opacity-50">
+                                <p className="text-[10px] text-slate-500 font-black uppercase tracking-[0.2em]">Calculating Probability Curve...</p>
+                            </div>
+                        )}
+                    </div>
                  </div>
              </div>
         )}
