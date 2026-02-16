@@ -2,24 +2,26 @@
 import puppeteer from 'puppeteer';
 
 /**
- * US_Alpha_Seeker Headless Automation Protocol v2.3
+ * US_Alpha_Seeker Headless Automation Protocol v2.4
  * 
- * Updated: User-provided Client ID integration.
- * Features: Robust Token Refresh, Offline Mode, Extended Timeouts.
- * CI Fix: Disables Web Security to allow direct Telegram API calls in Preview mode.
+ * Updates:
+ * - Synced Fallback Client ID with Frontend (UniverseGathering.tsx)
+ * - Optimized Token Refresh Logic (Removed futile retry combinations)
+ * - Prioritized Static Access Token usage on Refresh Failure
  */
 
-const FALLBACK_CLIENT_ID = '274071737753-4993td0fv4un5l8lv2eiqp0utc7co6q9.apps.googleusercontent.com';
+// Synced with UniverseGathering.tsx
+const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
 
 async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
-    if (!clientId || !refreshToken) return null;
+    if (!clientId || !refreshToken || !clientSecret) return null;
     
     const params = {
         client_id: clientId,
+        client_secret: clientSecret,
         refresh_token: refreshToken,
         grant_type: 'refresh_token'
     };
-    if (clientSecret) params.client_secret = clientSecret;
 
     try {
         const response = await fetch('https://oauth2.googleapis.com/token', {
@@ -30,7 +32,7 @@ async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
 
         if (!response.ok) {
             const txt = await response.text();
-            console.log(`⚠️ Token Refresh Failed for Client ID ...${clientId.slice(-6)}: ${txt}`);
+            console.log(`⚠️ Token Refresh Failed: ${txt}`);
             return null;
         }
         const data = await response.json();
@@ -47,29 +49,27 @@ async function getAccessToken() {
     const envRefreshToken = (process.env.GDRIVE_REFRESH_TOKEN || '').trim();
     const envAccessToken = (process.env.GDRIVE_ACCESS_TOKEN || '').trim();
 
-    console.log("🔄 [AUTH] Initiating Secure Token Exchange...");
+    console.log("🔄 [AUTH] Checking Authentication Strategies...");
 
-    if (envClientId && envRefreshToken) {
+    // Strategy 1: Refresh Token (Preferred for long-running auth)
+    if (envClientId && envClientSecret && envRefreshToken) {
+        console.log("🔄 [AUTH] Attempting Token Refresh via Secrets...");
         const token = await refreshWithCredentials(envClientId, envClientSecret, envRefreshToken);
         if (token) {
-            console.log("✅ [AUTH] Authenticated via Environment Secrets.");
+            console.log("✅ [AUTH] Authenticated via Refresh Token.");
             return token;
         }
+    } else if (envRefreshToken) {
+        console.warn("⚠️ [AUTH] Refresh Token present but Client ID/Secret missing. Skipping Refresh.");
     }
 
-    if (FALLBACK_CLIENT_ID !== envClientId && envRefreshToken) {
-        console.log("🔄 [AUTH] Retrying with System Fallback ID...");
-        let token = await refreshWithCredentials(FALLBACK_CLIENT_ID, envClientSecret, envRefreshToken);
-        if (token) return token;
-        token = await refreshWithCredentials(FALLBACK_CLIENT_ID, '', envRefreshToken);
-        if (token) return token;
-    }
-
+    // Strategy 2: Static Access Token (Short-lived, good for CI debug or one-off)
     if (envAccessToken) {
-        console.warn("⚠️ [AUTH] Refresh failed. Using static Access Token.");
+        console.log("⚠️ [AUTH] Using Static Access Token from Secrets (May expire).");
         return envAccessToken;
     }
 
+    // Strategy 3: Offline Mode
     console.warn("⚠️ [AUTH] All authentication methods failed. Proceeding in OFFLINE SIMULATION MODE.");
     return "OFFLINE_MODE_TOKEN";
 }
@@ -122,7 +122,10 @@ async function getAccessToken() {
         } else {
             sessionStorage.setItem('gdrive_access_token', accessToken);
         }
+        
+        // Inject Client ID for UI consistency
         if (clientId) localStorage.setItem('gdrive_client_id', clientId);
+        
     }, token, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
 
     console.log("🤖 Engaging Headless Auto-Pilot...");
