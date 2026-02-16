@@ -984,13 +984,19 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         
         return { data: parsed, usedProvider: 'GEMINI' };
       } catch (geminiError: any) {
-        // [MODIFIED] Do not auto-fallback. Return error for UI toggle.
+        // [MODIFIED] Track error status for UI feedback (e.g. 429 Red Light)
+        trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
         return { data: null, error: geminiError.message };
       }
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
-        return await executePerplexityAnalysis();
+        const result = await executePerplexityAnalysis();
+        // [FIX] Track usage error for Perplexity too if it failed
+        if (result.error) {
+            trackUsage(ApiProvider.PERPLEXITY, 0, true, result.error);
+        }
+        return result;
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) {
