@@ -198,7 +198,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       }
   };
 
-  // [MODIFIED] Added timeout protection and explicit fallback logic
+  // [MODIFIED] Now returns the proposal object for immediate use, with fallback logic
   const runAiAnalysis = async (universe: MasterTicker[], context: MarketContext): Promise<AiProposal | null> => {
       const prices = universe.map(s => s.price).filter(p => p > 0).sort((a, b) => a - b);
       const volumes = universe.map(s => s.volume).filter(v => v > 0).sort((a, b) => a - b);
@@ -299,7 +299,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           }
       }
 
-      // 3. Final Safety Net (Hardcoded Default)
+      // 3. Final Safety Net (Hardcoded Default) - Prevents Hanging
       if (aiResult) {
           if (aiResult.reasoning) aiResult.reasoning = removeCitations(aiResult.reasoning);
           setAiProposal(aiResult);
