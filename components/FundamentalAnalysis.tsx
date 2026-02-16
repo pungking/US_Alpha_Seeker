@@ -1,7 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
+import { GoogleGenAI } from "@google/genai";
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { ApiProvider } from '../types';
+import { trackUsage } from '../services/intelligenceService';
 
 interface Props {
   autoStart?: boolean;
@@ -50,7 +53,6 @@ const safeNum = (val: any) => {
     return isNaN(n) || !isFinite(n) ? 0 : n;
 };
 
-// 1. Zero/Null Imputation
 const imputeValue = (val: any, fallback: number, allowZero: boolean = false): number => {
     if (val === null || val === undefined || val === '') return fallback;
     const num = Number(val);
@@ -59,33 +61,21 @@ const imputeValue = (val: any, fallback: number, allowZero: boolean = false): nu
     return num;
 };
 
-// 2. Outlier Control & Scaling
 const winsorize = (val: number, min: number, max: number): number => {
     return Math.max(min, Math.min(max, val));
 };
 
-// 3. Score Normalizer (0-100)
 const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
 
 const sanitizeData = (item: any) => {
     let { dividendYield, roe, operatingMargins, pbr, debtToEquity } = item;
-    
-    // Fix Dividend Yield (e.g. 458 -> 4.58)
     if (dividendYield > 50) dividendYield = dividendYield / 100;
-    
-    // Fix ROE (e.g. 2500 -> 25.00)
     if (roe > 200) roe = roe / 100;
-    
-    // Fix Margins (e.g. 480 -> 48.0)
     if (operatingMargins > 100) operatingMargins = operatingMargins / 100;
-    
-    // Fix PBR Outliers
     if (pbr > 500) pbr = 0; 
-
     return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
 };
 
-// [NEW] Sector Median Calculator for Imputation
 const computeUniverseBaselines = (universe: any[]) => {
     const sectorMap: Record<string, { roe: number[], pe: number[], debt: number[], pbr: number[], growth: number[] }> = {};
     
@@ -93,7 +83,6 @@ const computeUniverseBaselines = (universe: any[]) => {
         const s = u.sector || 'Unknown';
         if (!sectorMap[s]) sectorMap[s] = { roe: [], pe: [], debt: [], pbr: [], growth: [] };
         
-        // Helper to push valid numbers only
         const pushValid = (arr: number[], val: any) => {
             const v = Number(val);
             if (!isNaN(v) && v !== 0) arr.push(v);
@@ -123,17 +112,12 @@ const computeUniverseBaselines = (universe: any[]) => {
         };
     });
 
-    // Global backup defaults
-    baselines['GLOBAL'] = {
-        roe: 12, pe: 20, debtToEquity: 1.0, pbr: 2.5, revenueGrowth: 8
-    };
-
+    baselines['GLOBAL'] = { roe: 12, pe: 20, debtToEquity: 1.0, pbr: 2.5, revenueGrowth: 8 };
     return baselines;
 };
 
 // [ENGINE v5.0] Robust Valuation & Radar Logic
 const performFinancialEngineering = (data: any) => {
-    // 1. Extract & Sanitize Metrics
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
     const marketCap = safeNum(data.marketCap || data.marketValue);
@@ -170,14 +154,13 @@ const performFinancialEngineering = (data: any) => {
     const revenueGrowth = safeNum(data.revenueGrowth || 5); 
     const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 5;
     const rawGrossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) : 0));
-    const grossMargin = rawGrossMargin > 1 ? rawGrossMargin : rawGrossMargin * 100; // Handle decimal vs percent
+    const grossMargin = rawGrossMargin > 1 ? rawGrossMargin : rawGrossMargin * 100;
     
     let divYield = safeNum(data.dividendYield);
     if (divYield > 100) divYield = divYield / 100;
 
     const roe = safeNum(data.roe || data.returnOnEquity || 0);
 
-    // 2. Intrinsic Value (Enhanced Benjamin Graham)
     const g = Math.min(revenueGrowth, 15); 
     let intrinsicValue = 0;
     
@@ -206,7 +189,6 @@ const performFinancialEngineering = (data: any) => {
     const cfMargin = sales > 0 ? (opCashflow / sales) * 100 : profitMargin;
     const ruleOf40 = revenueGrowth + cfMargin;
     
-    // 4. Financial Health (Piotroski F-Score)
     const zScore = safeNum(data.zScoreProxy) || 1.5;
     let fScore = 4;
     if (netIncome > 0) fScore++;
@@ -216,7 +198,6 @@ const performFinancialEngineering = (data: any) => {
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
-    // 5. SCORING ENGINE [CORE UPDATE]
     const normalizeScore = (val: number, min: number, max: number) => {
         if (val <= min) return 0;
         if (val >= max) return 100;
@@ -264,7 +245,7 @@ const performFinancialEngineering = (data: any) => {
 
     return {
         fundamentalScore: safeNum(fundamentalScore),
-        qualityScore: safeNum(qualScore), // Ensure qualityScore is available for downstream usage
+        qualityScore: safeNum(qualScore), 
         zScore: safeNum(zScore),
         fScore: safeNum(fScore),
         roic: safeNum(roic),
@@ -276,7 +257,6 @@ const performFinancialEngineering = (data: any) => {
         earningsQuality: safeNum(earningsQualityScore),
         economicMoat,
         dataConfidence,
-        // [LOGIC PATCH] Radar Data Interpolation (Safe Fallback to 50)
         radarData: [
             { subject: 'Valuation', A: Number(Math.max(5, safeNum(valScore) || 50).toFixed(2)), fullMark: 100 },
             { subject: 'Moat', A: Number(Math.max(5, safeNum(qualScore) || 50).toFixed(2)), fullMark: 100 },
@@ -284,8 +264,7 @@ const performFinancialEngineering = (data: any) => {
             { subject: 'Safety', A: Number(Math.max(5, safeNum(safetyScore) || 50).toFixed(2)), fullMark: 100 },
             { subject: 'Quality', A: Number(Math.max(5, safeNum(earningsQualityScore) || 50).toFixed(2)), fullMark: 100 },
         ],
-        // Expose component scores for list view
-        profitScore: Math.round(qualScore), // Approx
+        profitScore: Math.round(qualScore),
         safeScore: Math.round(safetyScore),
         valueScore: Math.round(valScore)
     };
@@ -297,8 +276,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const [processedData, setProcessedData] = useState<any[]>([]);
     const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
     const [activeInsight, setActiveInsight] = useState<string | null>(null);
-    const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.7.0: Imputation Engine Active.']);
+    const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.7.1: Imputation Engine Active.']);
     
+    // AI Audit State
+    const [aiEngine, setAiEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
+    const [scanDelay, setScanDelay] = useState(250);
+
     const logRef = useRef<HTMLDivElement>(null);
     const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -326,6 +309,75 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         setSelectedTicker(ticker);
         setActiveInsight(null);
         if (onStockSelected) onStockSelected(ticker);
+    };
+
+    const sanitizeJson = (text: string) => {
+        try {
+            let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
+            const first = clean.indexOf('{');
+            const last = clean.lastIndexOf('}');
+            if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
+            return JSON.parse(clean);
+        } catch { return null; }
+    };
+
+    const timeoutPromise = (ms: number, msg: string) => new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(msg)), ms)
+    );
+
+    // AI Audit Function (Robust)
+    const runAiAudit = async (item: any, provider: ApiProvider) => {
+        const prompt = `
+        [Role: Institutional Equity Analyst]
+        Task: Multi-dimensional Fundamental Audit for ${item.symbol}.
+        Data: ROE=${item.roe}%, PER=${item.pe}, Debt/Eq=${item.debtToEquity}, PBR=${item.pbr}, MktCap=$${(item.marketValue/1e9).toFixed(2)}B.
+        
+        Analysis Requirements:
+        1. Estimate Piotroski F-Score (0-9).
+        2. Estimate Altman Z-Score (Distress Prob).
+        
+        Return ONLY JSON: { "fScore": number, "zScore": number, "errorType": null }
+        `;
+
+        try {
+            if (provider === ApiProvider.GEMINI) {
+                const key = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
+                if (!key) throw new Error("API Key Missing");
+                
+                const ai = new GoogleGenAI({ apiKey: key });
+                const req = ai.models.generateContent({
+                    model: 'gemini-3-flash-preview',
+                    contents: prompt,
+                    config: { responseMimeType: "application/json" }
+                });
+                
+                const res: any = await Promise.race([req, timeoutPromise(6000, "Gemini Timeout")]);
+                trackUsage(ApiProvider.GEMINI, res.usageMetadata?.totalTokenCount || 0);
+                return sanitizeJson(res.text);
+            } else {
+                const key = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key;
+                if (!key) throw new Error("API Key Missing");
+
+                const req = fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
+                    body: JSON.stringify({
+                        model: 'sonar-pro', 
+                        messages: [{ role: "user", content: prompt + " Return JSON only." }]
+                    })
+                });
+
+                const res: any = await Promise.race([req, timeoutPromise(8000, "Sonar Timeout")]);
+                const json = await res.json();
+                if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+                return sanitizeJson(json.choices?.[0]?.message?.content);
+            }
+        } catch (e: any) {
+            if (e.message.includes('429') || e.message.includes('Quota')) {
+                return { errorType: 'RATE_LIMIT' };
+            }
+            return null;
+        }
     };
 
     // --- DRIVE UTILS ---
@@ -394,8 +446,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             addLog(`Targets Acquired: ${candidates.length} elite assets.`, "ok");
             setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
-            // [NEW] Compute Baselines for Imputation
-            addLog("Computing Sector Medians for Imputation...", "info");
             const universeBaselines = computeUniverseBaselines(candidates);
 
             let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
@@ -413,6 +463,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             const results: any[] = [];
             const sortedLetters = Object.keys(groupedByLetter).sort();
+            
+            // Limit AI Audit to top 40 to save tokens, then fallback to algo
+            const AI_AUDIT_LIMIT = 40; 
+            let auditedCount = 0;
+            let currentBrain = aiEngine;
 
             for (const letter of sortedLetters) {
                 setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
@@ -436,16 +491,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     let fullHistory = historyDataMap.get(rawItem.symbol) || [];
                     if (!Array.isArray(fullHistory)) fullHistory = [];
 
-                    // [V5.6.1] Apply Data Sanitizer First
-                    // Make shallow copy to modify
                     let itemToAnalyze = { ...rawItem };
                     let isImputed = false;
                     
-                    // [NEW] Sector Median Imputation Logic
                     const sector = itemToAnalyze.sector || 'Unknown';
                     const baseline = universeBaselines[sector] || universeBaselines['GLOBAL'];
 
-                    // Check fields and impute if missing/zero
                     if (!itemToAnalyze.roe && itemToAnalyze.roe !== 0) { 
                         itemToAnalyze.roe = baseline.roe; 
                         isImputed = true; 
@@ -473,16 +524,36 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     const qualityScore = safeNum(analysis.qualityScore);
                     const fundamentalScore = analysis.fundamentalScore;
                     
-                    // [MODIFIED] Adjust confidence if imputed
                     if (isImputed) {
                         analysis.dataConfidence = Math.min(analysis.dataConfidence, 60);
                     }
 
-                    // [CRITICAL] REMOVED THE SCORE FILTER (Keep all candidates)
-                    // The following line is deleted:
-                    // if (fundamentalScore < 30 && qualityScore < 30) continue; 
-
                     const compositeAlpha = (qualityScore * 0.3) + (fundamentalScore * 0.7);
+
+                    // --- AI AUDIT INJECTION ---
+                    let auditResult: any = null;
+                    
+                    if (auditedCount < AI_AUDIT_LIMIT) {
+                         auditResult = await runAiAudit(item, currentBrain);
+                         
+                         // Handle Rate Limit -> Switch Brain or Fallback
+                         if (auditResult?.errorType === 'RATE_LIMIT') {
+                             if (currentBrain === ApiProvider.GEMINI) {
+                                 addLog("Gemini Rate Limit. Switching Global Engine to Sonar.", "warn");
+                                 currentBrain = ApiProvider.PERPLEXITY;
+                                 setAiEngine(ApiProvider.PERPLEXITY);
+                                 setScanDelay(2500); // Slow down
+                                 auditResult = await runAiAudit(item, currentBrain);
+                             }
+                         }
+                         
+                         if (auditResult && !auditResult.errorType) {
+                             auditedCount++;
+                             // Update F/Z scores with AI precision if valid
+                             if (auditResult.fScore) analysis.fScore = auditResult.fScore;
+                             if (auditResult.zScore) analysis.zScore = auditResult.zScore;
+                         }
+                    }
 
                     results.push({
                         ...item, 
@@ -493,20 +564,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         fullHistory: fullHistory.slice(0, 4),
                         lastUpdate: new Date().toISOString(),
                         isDerived: true,
-                        isImputed: isImputed // Tag for Stage 6 Hidden Gem search
+                        isImputed: isImputed,
+                        auditSource: auditResult ? currentBrain : 'ALGO'
                     });
+                    
+                    // Throttle
+                    if (auditedCount < AI_AUDIT_LIMIT) await new Promise(r => setTimeout(r, scanDelay));
                 }
                 setProgress(prev => ({ ...prev, current: results.length }));
-                await new Promise(r => setTimeout(r, 0));
+                await new Promise(r => setTimeout(r, 10));
             }
 
             results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-            const eliteCandidates = results; // No slicing, keep all
+            const eliteCandidates = results; 
             
             setProcessedData(eliteCandidates);
             if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
 
-            addLog(`Deep Scan Complete. ${eliteCandidates.length} Assets Preserved (Imputed where necessary).`, "ok");
+            addLog(`Deep Scan Complete. ${eliteCandidates.length} Assets Preserved.`, "ok");
             
             const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
             const now = new Date();
@@ -515,7 +590,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
             const payload = {
-                manifest: { version: "5.7.0", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_Reasoning_Hybrid" },
+                manifest: { version: "5.7.1", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_AI_Hybrid" },
                 fundamental_universe: eliteCandidates
             };
 
@@ -692,7 +767,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                 </div>
                             ) : (
                                 <div className="h-full flex flex-col items-center justify-center opacity-20">
-                                    <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                                    <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                                     <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                                 </div>
                             )}
