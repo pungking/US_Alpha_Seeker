@@ -1,7 +1,10 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { ApiProvider } from '../types';
+import { GoogleGenAI } from "@google/genai"; // Ensure import
+import { trackUsage } from '../services/intelligenceService';
 
 interface Props {
   autoStart?: boolean;
@@ -45,7 +48,6 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 
 // --- QUANT ENGINE UTILS ---
 
-// 1. Zero/Null Imputation
 const imputeValue = (val: any, fallback: number, allowZero: boolean = false): number => {
     if (val === null || val === undefined || val === '') return fallback;
     const num = Number(val);
@@ -54,40 +56,18 @@ const imputeValue = (val: any, fallback: number, allowZero: boolean = false): nu
     return num;
 };
 
-// 2. Outlier Control & Scaling
 const winsorize = (val: number, min: number, max: number): number => {
     return Math.max(min, Math.min(max, val));
 };
 
-// 3. Score Normalizer (0-100)
 const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
 
-// [NEW] Data Sanitizer (Unit Correction)
 const sanitizeData = (item: any) => {
     let { dividendYield, roe, operatingMargins, pbr, debtToEquity } = item;
-    
-    // Fix Dividend Yield (e.g. 458 -> 4.58)
-    // Rule: Yield > 50% is extremely suspicious for non-distressed assets. Likely raw bps or scaled x100.
-    if (dividendYield > 50) {
-        dividendYield = dividendYield / 100;
-    }
-    
-    // Fix ROE (e.g. 2500 -> 25.00)
-    // Rule: ROE > 200% is rare (unless extremely high leverage).
-    if (roe > 200) {
-        roe = roe / 100;
-    }
-    
-    // Fix Margins (e.g. 480 -> 48.0)
-    if (operatingMargins > 100) {
-        operatingMargins = operatingMargins / 100;
-    }
-    
-    // Fix PBR Outliers (e.g. > 1000 is likely data error or near-bankruptcy equity)
-    if (pbr > 500) {
-        pbr = 0; // Treat as invalid/high-risk
-    }
-
+    if (dividendYield > 50) dividendYield = dividendYield / 100;
+    if (roe > 200) roe = roe / 100;
+    if (operatingMargins > 100) operatingMargins = operatingMargins / 100;
+    if (pbr > 500) pbr = 0;
     return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
 };
 
@@ -97,7 +77,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [processedData, setProcessedData] = useState<any[]>([]);
   const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
   const [activeInsight, setActiveInsight] = useState<string | null>(null);
-  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.1: Data Sanitizer Active (Unit Correction).']);
+  const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.2: Resilience Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -133,6 +113,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     setSelectedTicker(ticker);
     setActiveInsight(null);
     if (onStockSelected) onStockSelected(ticker);
+  };
+
+  const timeoutPromise = (ms: number, msg: string) => new Promise((_, reject) => 
+      setTimeout(() => reject(new Error(msg)), ms)
+  );
+
+  const sanitizeJson = (text: string) => {
+      try {
+        let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
+        const first = clean.indexOf('{');
+        const last = clean.lastIndexOf('}');
+        if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
+        return JSON.parse(clean);
+      } catch (e) { return null; }
   };
 
   // --- DRIVE UTILS ---
@@ -176,6 +170,89 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form });
+  };
+
+  // --- AI ANALYSIS (Value Trap Check) ---
+  const performAiAudit = async (candidates: any[]) => {
+      if (!candidates || candidates.length === 0) return null;
+
+      const topCandidates = candidates.slice(0, 5);
+      const prompt = `
+      [Role: Senior Hedge Fund Risk Manager]
+      Task: Analyze these top 5 high-quality stocks for "Value Traps" (Red Flags) and identify the dominant sector trend.
+      
+      Candidates: ${JSON.stringify(topCandidates.map(c => ({ s: c.symbol, n: c.name, qScore: c.qualityScore, roe: c.roe, debt: c.debtToEquity, per: c.per })))}
+      
+      Requirements:
+      1. **Sector**: Identify the dominant sector.
+      2. **Value Trap Check**: Are any of these companies historically known for accounting irregularities, massive lawsuits, or dying industries?
+      3. **Insight**: Provide a brief 1-sentence strategic insight in Korean.
+      
+      Return JSON: { "dominantSector": "string", "insight": "string (Korean)", "redFlags": ["symbol1 if bad", "symbol2 if bad"] }
+      `;
+
+      let aiResult = null;
+      let engineUsed = "None";
+
+      // 1. Try Gemini
+      try {
+          const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
+          if (!geminiKey) throw new Error("Gemini Key Missing");
+
+          const ai = new GoogleGenAI({ apiKey: geminiKey });
+          const req = ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: prompt,
+              config: { responseMimeType: "application/json" }
+          });
+
+          const res: any = await Promise.race([req, timeoutPromise(8000, "Gemini Timeout")]);
+          trackUsage(ApiProvider.GEMINI, res.usageMetadata?.totalTokenCount || 0);
+          aiResult = sanitizeJson(res.text);
+          engineUsed = "Gemini 3 Flash";
+      } catch (e: any) {
+          const isQuota = e.message?.includes('429') || e.message?.includes('Quota');
+          addLog(isQuota ? "Gemini Quota Exceeded. Switching to Sonar..." : `Gemini Error: ${e.message}. Switching...`, "warn");
+          
+          // 2. Fallback to Sonar
+          try {
+              const sonarKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key;
+              if (!sonarKey) throw new Error("Sonar Key Missing");
+
+              const req = fetch('https://api.perplexity.ai/chat/completions', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
+                  body: JSON.stringify({
+                      model: 'sonar-pro', 
+                      messages: [{ role: "user", content: prompt + " Return JSON only." }]
+                  })
+              });
+
+              const res: any = await Promise.race([req, timeoutPromise(10000, "Sonar Timeout")]);
+              const json = await res.json();
+              
+              if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
+              if (!res.ok) throw new Error(`Perplexity Error: ${res.status}`);
+              
+              aiResult = sanitizeJson(json.choices?.[0]?.message?.content);
+              engineUsed = "Sonar Pro";
+          } catch (err: any) {
+               addLog(`Sonar Fallback Failed: ${err.message}`, "err");
+               // 3. Final Fallback (Disconnect Mode)
+               addLog("All AI Nodes Offline. Proceeding with Quant-Only Mode.", "warn");
+               aiResult = {
+                   dominantSector: "Quant-Sector",
+                   insight: "AI Connectivity Lost. Proceeding with algorithmic quality scores.",
+                   redFlags: []
+               };
+               engineUsed = "Quant-Only (Offline)";
+          }
+      }
+
+      if (aiResult) {
+          addLog(`Audit Complete via ${engineUsed}: [${aiResult.dominantSector}]`, "ok");
+      }
+      return aiResult;
   };
 
   const executeDeepFilter = async () => {
@@ -327,6 +404,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           results.sort((a, b) => b.qualityScore - a.qualityScore);
           const eliteCandidates = results.slice(0, 300);
+          
+          // [AI AUDIT INJECTION]
+          addLog("Performing AI Audit on Top Candidates...", "info");
+          const auditResult = await performAiAudit(eliteCandidates);
+          
+          if (auditResult && auditResult.redFlags && Array.isArray(auditResult.redFlags)) {
+              eliteCandidates.forEach(c => {
+                  if (auditResult.redFlags.includes(c.symbol)) {
+                      c.qualityScore -= 20; // Penalize flagged stocks
+                      c.isValueTrap = true;
+                  }
+              });
+              // Re-sort after penalty
+              eliteCandidates.sort((a, b) => b.qualityScore - a.qualityScore);
+          }
+
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
 
@@ -341,10 +434,11 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           const payload = {
               manifest: { 
-                  version: "5.6.1", 
+                  version: "5.6.2", 
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
-                  engine: "3-Factor_Quant_Model_Sanitized" 
+                  engine: "3-Factor_Quant_Model_Sanitized",
+                  aiAudit: auditResult ? "Completed" : "Skipped/Failed"
               },
               elite_universe: eliteCandidates
           };
@@ -362,14 +456,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
-  const getSectorStyle = (sector: string) => {
-    const s = (sector || '').toLowerCase();
-    if (s.includes('tech') || s.includes('software')) return 'bg-violet-500/20 text-violet-400 border-violet-500/30';
-    if (s.includes('finance')) return 'bg-fuchsia-500/20 text-fuchsia-400 border-fuchsia-500/30';
-    if (s.includes('health')) return 'bg-rose-500/20 text-rose-400 border-rose-500/30';
-    return 'bg-slate-500/20 text-slate-400 border-slate-500/30';
-  };
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6">
       <div className="xl:col-span-3 space-y-6">
@@ -381,9 +467,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 text-violet-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.1</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Deep_Quality v5.6.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
-                    {/* Restored Original Glass Style Badge */}
                     <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all ${
                         loading 
                         ? 'bg-violet-500/20 text-violet-300 border-violet-500/40 animate-pulse' 
@@ -454,7 +539,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                       <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
                                   </div>
                                   <div className="flex items-center gap-2 mt-2">
-                                       {/* Interactive Badges */}
                                        <span 
                                             onClick={() => setActiveInsight('ROE')}
                                             className="text-[8px] font-black bg-blue-900/30 text-blue-400 px-2 py-0.5 rounded border border-blue-500/20 uppercase cursor-help hover:bg-blue-900/50 transition-colors insight-trigger"
@@ -479,7 +563,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               <ResponsiveContainer width="100%" height="100%">
                                   <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
                                       <PolarGrid stroke="#334155" opacity={0.3} />
-                                      {/* Interactive Radar Axis Labels */}
                                       <PolarAngleAxis 
                                         dataKey="subject" 
                                         tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold', cursor: 'pointer' }}
@@ -496,7 +579,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               </ResponsiveContainer>
                           </div>
                           
-                          {/* Interactive Score Cards */}
                           <div className="grid grid-cols-3 gap-2 mt-2">
                                <div 
                                     onClick={() => setActiveInsight('PROFIT_SCORE')}
@@ -521,7 +603,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                </div>
                           </div>
                           
-                           {/* Insight Overlay */}
                             {activeInsight && QUANT_INSIGHTS[activeInsight] && (
                                 <div className="absolute inset-x-4 bottom-4 z-20 animate-in fade-in slide-in-from-bottom-2 insight-overlay">
                                     <div className="bg-slate-900/95 backdrop-blur-xl p-4 rounded-xl border border-violet-500/30 shadow-2xl relative">
