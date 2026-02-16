@@ -1,3 +1,4 @@
+
 import { TELEGRAM_CONFIG } from "../constants";
 
 /**
@@ -28,7 +29,7 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
   
   // [FIX] Remove citations like [1], [2], [1][2] globally from the final message
   cleanReport = cleanReport.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
-
+  
   // Safety: If the AI accidentally included the header, remove it to prevent duplication
   cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
   
