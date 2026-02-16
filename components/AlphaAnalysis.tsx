@@ -478,9 +478,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog("AUTO-PILOT: Switching to Portfolio Matrix Audit...", "signal");
           setActiveTab('MATRIX');
           setAutoPhase('MATRIX');
-          setTimeout(() => {
-              handleRunMatrixAudit(selectedBrain);
-          }, 1000);
+          
+          // [MODIFIED] Skip Matrix Audit to save tokens (User Request)
+          addLog("AUTO-PILOT: Skipping Deep Matrix Audit (Token Saver)...", "signal");
+          // setTimeout(() => {
+          //     handleRunMatrixAudit(selectedBrain);
+          // }, 1000);
       }
   }, [autoStart, autoPhase, loading, resultsCache, selectedBrain]);
 
