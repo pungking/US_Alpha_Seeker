@@ -2,13 +2,11 @@
 import puppeteer from 'puppeteer';
 
 /**
- * US_Alpha_Seeker Headless Automation Protocol v2.5
+ * US_Alpha_Seeker Headless Automation Protocol v2.6 (Debug Mode)
  * 
  * Updates:
- * - Synced Fallback Client ID with Frontend (UniverseGathering.tsx)
- * - Optimized Token Refresh Logic (Removed futile retry combinations)
- * - Prioritized Static Access Token usage on Refresh Failure
- * - Extended Timeout to 100 minutes for deep analysis cycles
+ * - Enabled VERBOSE logging from browser console.
+ * - Added page content dump on timeout for debugging.
  */
 
 // Synced with UniverseGathering.tsx
@@ -76,7 +74,7 @@ async function getAccessToken() {
 }
 
 (async () => {
-  console.log("🚀 Starting US_Alpha_Seeker Automation Protocol...");
+  console.log("🚀 Starting US_Alpha_Seeker Automation Protocol (DEBUG MODE)...");
 
   const token = await getAccessToken();
   
@@ -85,68 +83,67 @@ async function getAccessToken() {
     args: [
         '--no-sandbox', 
         '--disable-setuid-sandbox',
-        // [CI FIX] Disable Web Security to allow direct Telegram API calls (CORS bypass)
-        // since the local Vite Preview server cannot host the /api proxy.
         '--disable-web-security',
         '--disable-features=IsolateOrigins,site-per-process'
     ],
-    protocolTimeout: 7200000 // 2 hours protocol timeout
+    protocolTimeout: 7200000 // 2 hours
   });
   
   try {
     const page = await browser.newPage();
     
-    // [CI FIX] Bypass CORS for all requests
     await page.setBypassCSP(true);
     
-    page.setDefaultNavigationTimeout(60000); 
-    page.setDefaultTimeout(7200000); // 2 hours page timeout
-    
+    // [DEBUG] Capture ALL console logs to see where it hangs
     page.on('console', msg => {
-        const text = msg.text();
-        if (text.includes('AUTO-PILOT') || text.includes('Phase') || text.includes('Complete') || text.includes('Error') || text.includes('EXECUTED') || text.includes('[AUTH]') || text.includes('Telegram')) {
-            console.log(`[BROWSER] ${text}`);
-        }
+        console.log(`[BROWSER] ${msg.type().toUpperCase()}: ${msg.text()}`);
+    });
+
+    // [DEBUG] Capture page errors
+    page.on('pageerror', err => {
+        console.error(`[BROWSER CRASH] Page Error: ${err.message}`);
     });
 
     const APP_URL = 'http://localhost:3000';
 
     console.log("🔌 Connecting to Alpha Node...");
-    // [CI FIX] Add ?auto=true to initial navigation to prevent WebSocket 429 errors on mount
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'networkidle0' });
     
     console.log("🔐 Injecting Security Context...");
     await page.evaluate((accessToken, clientId) => {
         if (accessToken === "OFFLINE_MODE_TOKEN") {
             sessionStorage.setItem('offline_mode', 'true');
-            console.log("[BROWSER] Offline Mode Flag Set");
+            console.log("[Setup] Offline Mode Flag Set");
         } else {
             sessionStorage.setItem('gdrive_access_token', accessToken);
         }
-        
-        // Inject Client ID for UI consistency
         if (clientId) localStorage.setItem('gdrive_client_id', clientId);
-        
     }, token, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
 
     console.log("🤖 Engaging Headless Auto-Pilot...");
-    // Reload with auto=true (token is now in session storage)
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded' });
 
-    console.log("⏳ Pipeline Execution in Progress...");
+    console.log("⏳ Pipeline Execution in Progress... (Waiting for 'ALL PIPELINES EXECUTED')");
     
-    // Increased timeout to 100 minutes to accommodate long analysis cycles and API rate limits
-    const TIMEOUT_MS = 100 * 60 * 1000; 
+    const TIMEOUT_MS = 100 * 60 * 1000; // 100 minutes
     
-    await page.waitForFunction(
-        () => {
-            const bodyText = document.body.innerText;
-            // Ensure we wait for the final state
-            return bodyText.includes("ALL PIPELINES EXECUTED") || 
-                   bodyText.includes("TELEGRAM SEND FAILED");
-        },
-        { timeout: TIMEOUT_MS, polling: 5000 }
-    );
+    try {
+        await page.waitForFunction(
+            () => {
+                const bodyText = document.body.innerText;
+                return bodyText.includes("ALL PIPELINES EXECUTED") || 
+                       bodyText.includes("TELEGRAM SEND FAILED");
+            },
+            { timeout: TIMEOUT_MS, polling: 5000 }
+        );
+    } catch (waitError) {
+        console.error("❌ Timeout reached! Dumping current page state for debugging...");
+        const bodyText = await page.evaluate(() => document.body.innerText);
+        console.log("--- [CURRENT PAGE TEXT START] ---");
+        console.log(bodyText.substring(0, 2000) + "... (truncated)");
+        console.log("--- [CURRENT PAGE TEXT END] ---");
+        throw waitError;
+    }
 
     const finalState = await page.evaluate(() => document.body.innerText);
     
