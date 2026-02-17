@@ -11,7 +11,7 @@ jobs:
   alpha-mining:
     name: Alpha Seeking Pipeline
     runs-on: ubuntu-latest
-    timeout-minutes: 30 # 비용 절감을 위한 타임아웃 설정
+    timeout-minutes: 60 # 비용 절감을 위한 타임아웃 설정
     
     env:
       # AI Keys
