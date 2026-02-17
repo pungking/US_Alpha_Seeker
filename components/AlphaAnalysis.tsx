@@ -719,11 +719,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
           
-          // Check for Quota/Rate Limit specifically
+          // [FIX] Do NOT halt on Quota/429. Force switch to Sonar.
           if (response.error.includes("429") || response.error.includes("Quota") || response.error.includes("Resource")) {
-              addLog("CRITICAL: Gemini Quota Exceeded. Execution Halted.", "err");
-              setLoading(false);
-              return;
+              addLog("Gemini Quota Exceeded. Engaging Sonar Failover Protocol...", "warn");
           }
 
           setSelectedBrain(ApiProvider.PERPLEXITY);
@@ -815,10 +813,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
+             // [FIX] Do NOT halt on Quota. Force failover.
              if (report.includes("429") || report.includes("Quota")) {
-                 addLog("CRITICAL: Gemini Quota Exceeded. Cannot continue.", "err");
-                 setMatrixLoading(false);
-                 return;
+                 addLog("Gemini Quota Exceeded. Switching Matrix Engine to Sonar...", "warn");
              }
              
              setMatrixBrain(ApiProvider.PERPLEXITY);
