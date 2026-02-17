@@ -136,7 +136,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v7.5: Log-Scale RVOL & Market Relative Strength Initialized.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v8.0: Pure Quant Algo-Mode Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -179,7 +179,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   useEffect(() => {
     if (autoStart && !loading) {
-        addLog("AUTO-PILOT: Engaging High-Throughput Tech Scan...", "signal");
+        addLog("AUTO-PILOT: Engaging High-Throughput Tech Scan (Algo-Only)...", "signal");
         executeTechnicalScan();
     }
   }, [autoStart]);
@@ -703,7 +703,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
           
           setProgress(prev => ({ ...prev, current: results.length }));
-          await new Promise(r => setTimeout(r, 10)); 
+          await new Promise(r => setTimeout(r, 0)); // Minimized delay
       }
 
       const survivalRate = ((results.length / candidates.length) * 100).toFixed(1);
@@ -721,7 +721,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "7.5.1", count: results.length, strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS", survivalRate },
+        manifest: { version: "8.0.0", count: results.length, strategy: "Pure_Quant_Algorithm_Scan", survivalRate },
         technical_universe: results
       };
 
@@ -734,7 +734,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed (Heuristic applied where needed).`, "ok");
+      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed (Pure Algo).`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -766,11 +766,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v7.5</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v8.0</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Heuristic Fallback Ready'}
+                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Pure Quant Algo-Mode Ready'}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -793,7 +793,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                     : 'bg-orange-600 text-white shadow-xl shadow-orange-900/20 hover:scale-105 active:scale-95'
               }`}
             >
-              {loading ? 'Crunching Volatility...' : 'Execute Momentum Scan'}
+              {loading ? 'Calculating Indicators...' : 'Execute Algo-Momentum Scan'}
             </button>
           </div>
 
@@ -822,7 +822,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              <div className="text-right flex items-center gap-3">
                                  <div className="flex flex-col items-end">
                                      <p className="text-[10px] font-mono font-bold text-white">{t.technicalScore.toFixed(1)}</p>
-                                     <p className="text-[7px] text-slate-500 uppercase">{t.dataSource === 'HEURISTIC' ? 'Est.' : 'Tech'}</p>
+                                     <p className="text-[7px] text-slate-500 uppercase">{t.dataSource === 'HEURISTIC' ? 'Est.' : 'Algo'}</p>
                                  </div>
                                  <div className={`w-1.5 h-8 rounded-full ${t.technicalScore > 80 ? 'bg-orange-500' : t.technicalScore > 50 ? 'bg-amber-500' : 'bg-slate-700'}`}></div>
                              </div>
