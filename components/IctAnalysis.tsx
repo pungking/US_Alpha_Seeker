@@ -73,7 +73,7 @@ const MARKET_STATE_INFO: Record<string, string> = {
     'RE-ACCUMULATION': "재매집 (Re-Accumulation): 상승 도중 숨고르기. 차익 실현 물량을 세력이 다시 받아내며 2차 상승을 준비하는 건전한 조정."
 };
 
-// [QUANT ENGINE v6.9] Robust ICT Logic
+// [QUANT ENGINE v6.9] Robust ICT Logic (Algorithmic)
 const calculateIctScore = (item: any) => {
     const rvol = item.techMetrics?.rawRvol || item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
@@ -311,6 +311,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
       for (let i = 0; i < total; i++) {
         const item = targets[i];
         
+        // Pure Algo Logic
         const ictAnalysis = calculateIctScore(item);
         const marketState = determineMarketState(ictAnalysis.metrics);
         
@@ -324,7 +325,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             composite = (item.fundamentalScore || 0) * 0.1; 
         }
 
-        // [PERSISTENCE] Pass all previous metrics for Stage 6
         const ticker: IctScoredTicker = {
             ...item, 
             symbol: item.symbol, 
@@ -339,16 +339,14 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
             verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'RE-ACCUMULATION' ? 'BUY DIP' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
             radarData: [],
             sector: item.sector,
-            scoringEngine: "ICT_Wyckoff_Engine_v6.9"
+            scoringEngine: "ICT_Wyckoff_Algo_Only"
         };
 
         results.push(ticker);
 
-        if (i % 20 === 0) {
+        // Update progress less frequently to reduce render load
+        if (i % 50 === 0 || i === total - 1) {
             setProgress({ current: i + 1, total });
-            const tempResults = [...results].sort((a,b) => b.compositeAlpha - a.compositeAlpha);
-            setProcessedData(tempResults);
-            if (!selectedTicker && tempResults.length > 0) handleTickerSelect(tempResults[0]);
             await new Promise(r => setTimeout(r, 0)); 
         }
       }
@@ -367,7 +365,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
       const fileName = `STAGE5_ICT_ELITE_50_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.9.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_V2" },
+        manifest: { version: "6.9.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_Algo_V2" },
         ict_universe: finalSurvivors
       };
 
