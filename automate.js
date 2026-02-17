@@ -2,12 +2,13 @@
 import puppeteer from 'puppeteer';
 
 /**
- * US_Alpha_Seeker Headless Automation Protocol v2.4
+ * US_Alpha_Seeker Headless Automation Protocol v2.5
  * 
  * Updates:
  * - Synced Fallback Client ID with Frontend (UniverseGathering.tsx)
  * - Optimized Token Refresh Logic (Removed futile retry combinations)
  * - Prioritized Static Access Token usage on Refresh Failure
+ * - Extended Timeout to 100 minutes for deep analysis cycles
  */
 
 // Synced with UniverseGathering.tsx
@@ -89,7 +90,7 @@ async function getAccessToken() {
         '--disable-web-security',
         '--disable-features=IsolateOrigins,site-per-process'
     ],
-    protocolTimeout: 3600000 // 1 hour timeout
+    protocolTimeout: 7200000 // 2 hours protocol timeout
   });
   
   try {
@@ -99,7 +100,7 @@ async function getAccessToken() {
     await page.setBypassCSP(true);
     
     page.setDefaultNavigationTimeout(60000); 
-    page.setDefaultTimeout(3600000); 
+    page.setDefaultTimeout(7200000); // 2 hours page timeout
     
     page.on('console', msg => {
         const text = msg.text();
@@ -134,7 +135,8 @@ async function getAccessToken() {
 
     console.log("⏳ Pipeline Execution in Progress...");
     
-    const TIMEOUT_MS = 45 * 60 * 1000; // Increased to 45 minutes
+    // Increased timeout to 100 minutes to accommodate long analysis cycles and API rate limits
+    const TIMEOUT_MS = 100 * 60 * 1000; 
     
     await page.waitForFunction(
         () => {
