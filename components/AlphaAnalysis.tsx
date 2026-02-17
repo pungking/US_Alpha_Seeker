@@ -129,7 +129,7 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
     },
     'MRF': {
         title: "MRF (시장 국면)",
-        desc: "해당 종목이 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
+        desc: "해당 종목의 현재 위치한 와이코프(Wyckoff) 시장 국면을 진단합니다.",
         strategy: "상태 해석:\n- 'Accumulation': 바닥권 매집 (저점 매수 기회)\n- 'Markup': 상승 추세 (비중 확대)\n- 'Distribution': 천장권 분산 (매도 관점)"
     },
     'PATTERN': {
@@ -719,20 +719,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (response.error && currentProvider === ApiProvider.GEMINI) {
           addLog(`Gemini Engine Failed: ${response.error}`, "warn");
           
-          // [FIX] Do NOT halt on Quota/429. Force switch to Sonar.
           if (response.error.includes("429") || response.error.includes("Quota") || response.error.includes("Resource")) {
               addLog("Gemini Quota Exceeded. Engaging Sonar Failover Protocol...", "warn");
           }
 
+          // 1. Toggle Brain UI
           setSelectedBrain(ApiProvider.PERPLEXITY);
           
+          // 2. Logic Split: Auto vs Manual
           if (autoStart) {
               addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
               currentProvider = ApiProvider.PERPLEXITY; 
               response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
           } else {
               addLog("Gemini Unavailable. System toggled to Sonar. Click Execute to retry.", "info");
-              setLoading(false);
+              setLoading(false); // Stop loading in manual mode
               return; 
           }
       }
@@ -793,8 +794,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
-    setMatrixBrain(brain);
-    const currentResults = resultsCache[selectedBrain] || []; 
+    setMatrixBrain(brain); // UI Update
+    
+    // Safety check: if we switched brains, we need to look up the correct cache
+    const currentResults = resultsCache[brain] || resultsCache[selectedBrain] || [];
+
     if (currentResults.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
         return;
@@ -813,15 +817,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         }, targetBrain);
         
         if ((report.includes("FAILURE") || report.includes("ERROR")) && targetBrain === ApiProvider.GEMINI) {
-             // [FIX] Do NOT halt on Quota. Force failover.
              if (report.includes("429") || report.includes("Quota")) {
                  addLog("Gemini Quota Exceeded. Switching Matrix Engine to Sonar...", "warn");
              }
              
-             setMatrixBrain(ApiProvider.PERPLEXITY);
+             setMatrixBrain(ApiProvider.PERPLEXITY); // Toggle UI
              addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
              
              if (autoStart) {
+                 // Auto-Pilot: Retry immediately
                  targetBrain = ApiProvider.PERPLEXITY;
                  addLog("AUTO-PILOT: Retrying Matrix with Sonar...", "signal");
                  report = await analyzePipelineStatus({
@@ -831,6 +835,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     mode: 'PORTFOLIO',
                     targetStock: undefined 
                  }, targetBrain);
+             } else {
+                 // Manual mode: Stop here
+                 setMatrixLoading(false);
+                 return;
              }
         }
         
