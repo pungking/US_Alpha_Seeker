@@ -117,7 +117,7 @@ const computeUniverseBaselines = (universe: any[]) => {
     return baselines;
 };
 
-// [ENGINE v5.1] Robust Valuation & Radar Logic
+// [ENGINE v5.2] Pure Quant Logic (No AI in loop)
 const performFinancialEngineering = (data: any) => {
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
@@ -164,22 +164,19 @@ const performFinancialEngineering = (data: any) => {
 
     // [INTRINSIC VALUE V2]
     let intrinsicValue = 0;
-    const g = Math.min(revenueGrowth, 15); // Cap growth rate for safety
+    const g = Math.min(revenueGrowth, 15); 
     
     if (eps > 0) {
-        // Graham Formula Variation
         const multiplier = isFinancial ? 1.0 : 1.5; 
         intrinsicValue = eps * (8.5 + multiplier * g); 
     } else {
-        // For negative EPS, fallback to Book Value
         const bookValue = safeNum(data.bookValuePerShare) || (price / (pbr || 1));
-        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 8)); // Penalize low ROE
+        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 8));
         intrinsicValue = bookValue * roeFactor;
     }
 
-    // Safety clamps
     if (intrinsicValue > price * 3) intrinsicValue = price * 3;
-    if (intrinsicValue <= 0) intrinsicValue = price * 0.8; // Floor
+    if (intrinsicValue <= 0) intrinsicValue = price * 0.8; 
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
@@ -188,7 +185,7 @@ const performFinancialEngineering = (data: any) => {
     if (investedCapital > 0) {
         roic = (netIncome / investedCapital) * 100;
     } else {
-        roic = roe * 0.7; // Proxy
+        roic = roe * 0.7; 
     }
     
     const cfMargin = sales > 0 ? (opCashflow / sales) * 100 : profitMargin;
@@ -203,8 +200,8 @@ const performFinancialEngineering = (data: any) => {
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
-    // Default Z-Score (will be updated by AI later if available)
-    const zScore = safeNum(data.zScoreProxy) || ((rawDebt < 0.5 && roe > 0) ? 3.0 : 1.5);
+    // Default Z-Score (Mathematical Proxy)
+    const zScore = safeNum(data.zScoreProxy) || ((totalDebtRatio < 0.5 && roe > 0) ? 3.0 : 1.5);
 
     let valScore = 0;
     if (isFinancial) {
@@ -212,7 +209,6 @@ const performFinancialEngineering = (data: any) => {
         const pbrScore = normalizeScore(2.0 - pbr, 0, 1.5);
         valScore = (peScore * 0.4) + (pbrScore * 0.6);
     } else {
-        // Higher weight on Fair Value Gap for Stage 3
         valScore = normalizeScore(fairValueGap, -20, 80);
     }
     
@@ -280,11 +276,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const [processedData, setProcessedData] = useState<any[]>([]);
     const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
     const [activeInsight, setActiveInsight] = useState<string | null>(null);
-    const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.7.1: Imputation Engine Active.']);
+    const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.7.2: Pure Quant Mode.']);
     
-    // AI Audit State
+    // AI Audit State (Only for final batch check)
     const [aiEngine, setAiEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
-    const [scanDelay, setScanDelay] = useState(250);
 
     const logRef = useRef<HTMLDivElement>(null);
     const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -329,59 +324,45 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
       setTimeout(() => reject(new Error(msg)), ms)
     );
 
-    // AI Audit Function (Robust)
-    const runAiAudit = async (item: any, provider: ApiProvider) => {
+    // [NEW] Single Batch AI Audit for Top 5 Only (Saves Tokens/Time)
+    const performBatchAiAudit = async (candidates: any[]) => {
+        if (!candidates || candidates.length === 0) return null;
+        
+        const top5 = candidates.slice(0, 5).map(c => ({
+            symbol: c.symbol,
+            name: c.name,
+            score: c.fundamentalScore.toFixed(0),
+            issue: c.debtToEquity > 200 ? "High Debt" : c.per > 50 ? "High PE" : "None"
+        }));
+
         const prompt = `
-        [Role: Institutional Equity Analyst]
-        Task: Multi-dimensional Fundamental Audit for ${item.symbol}.
-        Data: ROE=${item.roe}%, PER=${item.pe}, Debt/Eq=${item.debtToEquity}, PBR=${item.pbr}, MktCap=$${(item.marketValue/1e9).toFixed(2)}B.
+        [Role: Senior Risk Manager]
+        Review these top 5 fundamental candidates for "Value Traps" or "Legal Issues".
+        Candidates: ${JSON.stringify(top5)}
         
-        Analysis Requirements:
-        1. Estimate Piotroski F-Score (0-9).
-        2. Estimate Altman Z-Score (Distress Prob).
-        
-        Return ONLY JSON: { "fScore": number, "zScore": number, "errorType": null }
+        Return JSON:
+        {
+          "redFlags": ["symbol1", "symbol2"], // List symbols with serious recent issues (fraud, lawsuit, delisting risk)
+          "sectorTheme": "Brief sector summary of the top 5 (Korean)"
+        }
         `;
 
         try {
-            if (provider === ApiProvider.GEMINI) {
-                const key = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
-                if (!key) throw new Error("API Key Missing");
-                
-                const ai = new GoogleGenAI({ apiKey: key });
-                const req = ai.models.generateContent({
+             // Try Gemini First
+             const key = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
+             if(key) {
+                 const ai = new GoogleGenAI({ apiKey: key });
+                 const res = await ai.models.generateContent({
                     model: 'gemini-3-flash-preview',
                     contents: prompt,
                     config: { responseMimeType: "application/json" }
-                });
-                
-                const res: any = await Promise.race([req, timeoutPromise(6000, "Gemini Timeout")]);
-                trackUsage(ApiProvider.GEMINI, res.usageMetadata?.totalTokenCount || 0);
-                return sanitizeJson(res.text);
-            } else {
-                const key = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key;
-                if (!key) throw new Error("API Key Missing");
-
-                const req = fetch('https://api.perplexity.ai/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}` },
-                    body: JSON.stringify({
-                        model: 'sonar-pro', 
-                        messages: [{ role: "user", content: prompt + " Return JSON only." }]
-                    })
-                });
-
-                const res: any = await Promise.race([req, timeoutPromise(8000, "Sonar Timeout")]);
-                const json = await res.json();
-                if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-                return sanitizeJson(json.choices?.[0]?.message?.content);
-            }
-        } catch (e: any) {
-            if (e.message.includes('429') || e.message.includes('Quota')) {
-                return { errorType: 'RATE_LIMIT' };
-            }
-            return null;
+                 });
+                 return sanitizeJson(res.text);
+             }
+        } catch (e) {
+            console.warn("AI Batch Audit Failed (Skipping)", e);
         }
+        return null;
     };
 
     // --- DRIVE UTILS ---
@@ -468,11 +449,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const results: any[] = [];
             const sortedLetters = Object.keys(groupedByLetter).sort();
             
-            // Limit AI Audit to top 40 to save tokens, then fallback to algo
-            const AI_AUDIT_LIMIT = 40; 
-            let auditedCount = 0;
-            let currentBrain = aiEngine;
-
+            // [OPTIMIZATION] Removed Loop-based AI Audit. Pure Quant only.
+            
             for (const letter of sortedLetters) {
                 setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
                 
@@ -501,6 +479,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     const sector = itemToAnalyze.sector || 'Unknown';
                     const baseline = universeBaselines[sector] || universeBaselines['GLOBAL'];
 
+                    // Smart Imputation for missing values
                     if (!itemToAnalyze.roe && itemToAnalyze.roe !== 0) { 
                         itemToAnalyze.roe = baseline.roe; 
                         isImputed = true; 
@@ -531,73 +510,46 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         analysis.dataConfidence = Math.min(analysis.dataConfidence, 60);
                     }
 
-                    // --- AI AUDIT INJECTION ---
-                    let auditResult: any = null;
-                    let aiFScore = analysis.fScore;
-                    let aiZScore = analysis.zScore;
-                    
-                    if (auditedCount < AI_AUDIT_LIMIT) {
-                         auditResult = await runAiAudit(item, currentBrain);
-                         
-                         // Handle Rate Limit -> Switch Brain or Fallback
-                         if (auditResult?.errorType === 'RATE_LIMIT') {
-                             if (currentBrain === ApiProvider.GEMINI) {
-                                 addLog("Gemini Rate Limit. Switching Global Engine to Sonar.", "warn");
-                                 currentBrain = ApiProvider.PERPLEXITY;
-                                 setAiEngine(ApiProvider.PERPLEXITY);
-                                 setScanDelay(2500); // Slow down
-                                 auditResult = await runAiAudit(item, currentBrain);
-                             }
-                         }
-                         
-                         if (auditResult && !auditResult.errorType) {
-                             auditedCount++;
-                             // Update metrics with AI precision
-                             if (auditResult.fScore) aiFScore = auditResult.fScore;
-                             if (auditResult.zScore) aiZScore = auditResult.zScore;
-                             
-                             // Store updated values back to analysis for uniformity
-                             analysis.fScore = aiFScore;
-                             analysis.zScore = aiZScore;
-                         }
-                    }
-                    
-                    // [MODIFIED] Re-calculate Composite Alpha AFTER AI has refined F/Z Scores
-                    // Weight: Quality(30%) + Value/Safety/Fundamental(70%)
-                    // Note: fundamentalScore inside analysis already includes Value(40%) + Safety(30%).
-                    // We boost it further if AI confirms high safety (F>7 or Z>2.99)
-                    
-                    let finalFundamentalScore = analysis.fundamentalScore;
-                    if (aiFScore >= 7) finalFundamentalScore += 5;
-                    if (aiZScore > 2.99) finalFundamentalScore += 5;
-                    
-                    const compositeAlpha = (qualityScore * 0.3) + (Math.min(100, finalFundamentalScore) * 0.7);
+                    const compositeAlpha = (qualityScore * 0.3) + (analysis.fundamentalScore * 0.7);
 
                     results.push({
                         ...item, 
                         ...analysis,
                         qualityScore,
-                        fundamentalScore: safeNum(finalFundamentalScore), // Use the boosted score
+                        fundamentalScore: safeNum(analysis.fundamentalScore),
                         compositeAlpha: safeNum(compositeAlpha),
                         fullHistory: fullHistory.slice(0, 4),
                         lastUpdate: new Date().toISOString(),
                         isDerived: true,
                         isImputed: isImputed,
-                        auditSource: auditResult ? currentBrain : 'ALGO'
+                        auditSource: 'ALGO'
                     });
-                    
-                    // Throttle
-                    if (auditedCount < AI_AUDIT_LIMIT) await new Promise(r => setTimeout(r, scanDelay));
                 }
                 setProgress(prev => ({ ...prev, current: results.length }));
-                await new Promise(r => setTimeout(r, 10));
+                await new Promise(r => setTimeout(r, 0));
             }
 
             results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-            const eliteCandidates = results; 
+            const eliteCandidates = results; // Keep full list for saving
             
             setProcessedData(eliteCandidates);
             if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
+            
+            // [NEW] Batch AI Audit for Top 5 (Single Call)
+            addLog("Performing AI Batch Audit on Top 5...", "info");
+            const auditRes = await performBatchAiAudit(eliteCandidates.slice(0, 5));
+            if (auditRes && auditRes.redFlags && auditRes.redFlags.length > 0) {
+                 addLog(`AI Warning: Red Flags detected in ${auditRes.redFlags.join(', ')}`, "warn");
+                 // Flag them in the dataset
+                 eliteCandidates.forEach(c => {
+                     if (auditRes.redFlags.includes(c.symbol)) {
+                         c.isValueTrap = true;
+                         c.compositeAlpha -= 20; // Penalize
+                     }
+                 });
+                 // Re-sort
+                 eliteCandidates.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
+            }
 
             addLog(`Deep Scan Complete. ${eliteCandidates.length} Assets Preserved.`, "ok");
             
@@ -608,7 +560,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
             const payload = {
-                manifest: { version: "5.7.2", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_AI_Hybrid" },
+                manifest: { version: "5.7.3", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_First_AI_Batch" },
                 fundamental_universe: eliteCandidates
             };
 
