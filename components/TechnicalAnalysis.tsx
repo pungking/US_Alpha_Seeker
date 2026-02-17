@@ -136,7 +136,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v8.0: Pure Quant Algo-Mode Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v8.2: Pure Quant Algo-Mode Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -310,9 +310,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     return Number(finalADX.toFixed(2));
   };
 
-  // [NEW] Logarithmic Scaling for RVOL
-  // Transforms raw ratio (e.g., 0.5, 2.0, 10.0) into 0-100 Score
-  // Logic: 1.0 -> 50, 2.0 -> 75, 4.0 -> 100, 0.5 -> 25
   const normalizeRvolScore = (rawRvol: number): number => {
       if (rawRvol <= 0) return 0;
       // Base 50 + 25 * log2(rvol)
@@ -721,7 +718,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "8.0.0", count: results.length, strategy: "Pure_Quant_Algorithm_Scan", survivalRate },
+        manifest: { version: "8.2.0", count: results.length, strategy: "Pure_Quant_Algorithm_Scan_Full", survivalRate },
         technical_universe: results
       };
 
@@ -766,7 +763,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
               </div>
               <div>
-                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v8.0</h2>
+                <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Tech_Tactician v8.2</h2>
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
