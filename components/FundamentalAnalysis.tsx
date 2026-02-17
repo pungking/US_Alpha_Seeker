@@ -61,14 +61,15 @@ const imputeValue = (val: any, fallback: number, allowZero: boolean = false): nu
     return num;
 };
 
-const winsorize = (val: number, min: number, max: number): number => {
-    return Math.max(min, Math.min(max, val));
+const normalizeScore = (val: number, min: number, max: number) => {
+    if (val <= min) return 0;
+    if (val >= max) return 100;
+    return ((val - min) / (max - min)) * 100;
 };
-
-const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
 
 const sanitizeData = (item: any) => {
     let { dividendYield, roe, operatingMargins, pbr, debtToEquity } = item;
+    // Basic data sanity checks
     if (dividendYield > 50) dividendYield = dividendYield / 100;
     if (roe > 200) roe = roe / 100;
     if (operatingMargins > 100) operatingMargins = operatingMargins / 100;
@@ -116,7 +117,7 @@ const computeUniverseBaselines = (universe: any[]) => {
     return baselines;
 };
 
-// [ENGINE v5.0] Robust Valuation & Radar Logic
+// [ENGINE v5.1] Robust Valuation & Radar Logic
 const performFinancialEngineering = (data: any) => {
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
@@ -161,20 +162,24 @@ const performFinancialEngineering = (data: any) => {
 
     const roe = safeNum(data.roe || data.returnOnEquity || 0);
 
-    const g = Math.min(revenueGrowth, 15); 
+    // [INTRINSIC VALUE V2]
     let intrinsicValue = 0;
+    const g = Math.min(revenueGrowth, 15); // Cap growth rate for safety
     
     if (eps > 0) {
+        // Graham Formula Variation
         const multiplier = isFinancial ? 1.0 : 1.5; 
         intrinsicValue = eps * (8.5 + multiplier * g); 
     } else {
+        // For negative EPS, fallback to Book Value
         const bookValue = safeNum(data.bookValuePerShare) || (price / (pbr || 1));
-        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 10));
+        const roeFactor = Math.max(0.5, Math.min(3.0, roe / 8)); // Penalize low ROE
         intrinsicValue = bookValue * roeFactor;
     }
 
+    // Safety clamps
     if (intrinsicValue > price * 3) intrinsicValue = price * 3;
-    if (intrinsicValue <= 0) intrinsicValue = price * 0.9; 
+    if (intrinsicValue <= 0) intrinsicValue = price * 0.8; // Floor
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
@@ -183,14 +188,14 @@ const performFinancialEngineering = (data: any) => {
     if (investedCapital > 0) {
         roic = (netIncome / investedCapital) * 100;
     } else {
-        roic = roe * 0.7; 
+        roic = roe * 0.7; // Proxy
     }
     
     const cfMargin = sales > 0 ? (opCashflow / sales) * 100 : profitMargin;
     const ruleOf40 = revenueGrowth + cfMargin;
     
-    const zScore = safeNum(data.zScoreProxy) || 1.5;
-    let fScore = 4;
+    // [SCORES]
+    let fScore = 4; // Baseline
     if (netIncome > 0) fScore++;
     if (opCashflow > 0) fScore++;
     if (opCashflow > netIncome) fScore++;
@@ -198,11 +203,8 @@ const performFinancialEngineering = (data: any) => {
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
-    const normalizeScore = (val: number, min: number, max: number) => {
-        if (val <= min) return 0;
-        if (val >= max) return 100;
-        return ((val - min) / (max - min)) * 100;
-    };
+    // Default Z-Score (will be updated by AI later if available)
+    const zScore = safeNum(data.zScoreProxy) || ((rawDebt < 0.5 && roe > 0) ? 3.0 : 1.5);
 
     let valScore = 0;
     if (isFinancial) {
@@ -210,6 +212,7 @@ const performFinancialEngineering = (data: any) => {
         const pbrScore = normalizeScore(2.0 - pbr, 0, 1.5);
         valScore = (peScore * 0.4) + (pbrScore * 0.6);
     } else {
+        // Higher weight on Fair Value Gap for Stage 3
         valScore = normalizeScore(fairValueGap, -20, 80);
     }
     
@@ -217,7 +220,7 @@ const performFinancialEngineering = (data: any) => {
     const growthScore = normalizeScore(ruleOf40, 10, 60);
 
     let safetyScore = 0;
-    if (totalDebtRatio === 0) {
+    if (totalDebtRatio <= 0.1) {
         safetyScore = 100; 
     } else {
         if (isFinancial) {
@@ -231,7 +234,8 @@ const performFinancialEngineering = (data: any) => {
     let earningsQualityScore = normalizeScore(opCashflow / (netIncome || 1), 0.5, 2.0);
     if (isCashflowProxy) earningsQualityScore = Math.min(earningsQualityScore, 70);
 
-    const fundamentalScore = (valScore * 0.35) + (qualScore * 0.30) + (growthScore * 0.20) + (safetyScore * 0.15);
+    // [STAGE 3 WEIGHTS] Focus on Value (40%) and Safety (30%)
+    const fundamentalScore = (valScore * 0.40) + (safetyScore * 0.30) + (qualScore * 0.20) + (growthScore * 0.10);
 
     let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
     if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = 'Wide';
@@ -522,16 +526,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     const analysis = performFinancialEngineering(item);
                     
                     const qualityScore = safeNum(analysis.qualityScore);
-                    const fundamentalScore = analysis.fundamentalScore;
                     
                     if (isImputed) {
                         analysis.dataConfidence = Math.min(analysis.dataConfidence, 60);
                     }
 
-                    const compositeAlpha = (qualityScore * 0.3) + (fundamentalScore * 0.7);
-
                     // --- AI AUDIT INJECTION ---
                     let auditResult: any = null;
+                    let aiFScore = analysis.fScore;
+                    let aiZScore = analysis.zScore;
                     
                     if (auditedCount < AI_AUDIT_LIMIT) {
                          auditResult = await runAiAudit(item, currentBrain);
@@ -549,17 +552,32 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                          
                          if (auditResult && !auditResult.errorType) {
                              auditedCount++;
-                             // Update F/Z scores with AI precision if valid
-                             if (auditResult.fScore) analysis.fScore = auditResult.fScore;
-                             if (auditResult.zScore) analysis.zScore = auditResult.zScore;
+                             // Update metrics with AI precision
+                             if (auditResult.fScore) aiFScore = auditResult.fScore;
+                             if (auditResult.zScore) aiZScore = auditResult.zScore;
+                             
+                             // Store updated values back to analysis for uniformity
+                             analysis.fScore = aiFScore;
+                             analysis.zScore = aiZScore;
                          }
                     }
+                    
+                    // [MODIFIED] Re-calculate Composite Alpha AFTER AI has refined F/Z Scores
+                    // Weight: Quality(30%) + Value/Safety/Fundamental(70%)
+                    // Note: fundamentalScore inside analysis already includes Value(40%) + Safety(30%).
+                    // We boost it further if AI confirms high safety (F>7 or Z>2.99)
+                    
+                    let finalFundamentalScore = analysis.fundamentalScore;
+                    if (aiFScore >= 7) finalFundamentalScore += 5;
+                    if (aiZScore > 2.99) finalFundamentalScore += 5;
+                    
+                    const compositeAlpha = (qualityScore * 0.3) + (Math.min(100, finalFundamentalScore) * 0.7);
 
                     results.push({
                         ...item, 
                         ...analysis,
                         qualityScore,
-                        fundamentalScore,
+                        fundamentalScore: safeNum(finalFundamentalScore), // Use the boosted score
                         compositeAlpha: safeNum(compositeAlpha),
                         fullHistory: fullHistory.slice(0, 4),
                         lastUpdate: new Date().toISOString(),
@@ -590,7 +608,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
             const payload = {
-                manifest: { version: "5.7.1", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_AI_Hybrid" },
+                manifest: { version: "5.7.2", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_AI_Hybrid" },
                 fundamental_universe: eliteCandidates
             };
 
