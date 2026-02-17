@@ -1093,11 +1093,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
-        <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
+        <div className="glass-panel p-6 md:p-8 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl transition-all duration-500">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
             <div className="flex items-center space-x-6">
-              <div className="w-14 h-14 rounded-2xl bg-white/5 flex items-center justify-center border border-white/10 shadow-inner">
-                 <svg className={`w-6 h-6 ${loading ? 'animate-spin text-rose-500' : 'text-slate-400'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
+              <div className="w-14 h-14 rounded-2xl bg-rose-600/10 flex items-center justify-center border border-rose-500/20 shadow-inner">
+                 <svg className={`w-6 h-6 text-rose-500 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
                 <h2 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none">Alpha_Sieve Engine</h2>
