@@ -1,10 +1,8 @@
 
 import React, { useState, useEffect, useRef } from 'react';
-import { GoogleGenAI } from "@google/genai";
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { trackUsage } from '../services/intelligenceService';
 
 interface Props {
   autoStart?: boolean;
@@ -51,14 +49,6 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 const safeNum = (val: any) => {
     const n = Number(val);
     return isNaN(n) || !isFinite(n) ? 0 : n;
-};
-
-const imputeValue = (val: any, fallback: number, allowZero: boolean = false): number => {
-    if (val === null || val === undefined || val === '') return fallback;
-    const num = Number(val);
-    if (isNaN(num) || !isFinite(num)) return fallback;
-    if (num === 0 && !allowZero) return fallback; 
-    return num;
 };
 
 const normalizeScore = (val: number, min: number, max: number) => {
@@ -117,7 +107,7 @@ const computeUniverseBaselines = (universe: any[]) => {
     return baselines;
 };
 
-// [ENGINE v5.2] Pure Quant Logic (No AI in loop)
+// [ENGINE v5.3] Pure Quant Logic (No AI)
 const performFinancialEngineering = (data: any) => {
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
@@ -276,11 +266,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const [processedData, setProcessedData] = useState<any[]>([]);
     const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
     const [activeInsight, setActiveInsight] = useState<string | null>(null);
-    const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.7.2: Pure Quant Mode.']);
+    const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.8.0: Pure Quant Mode Active.']);
     
-    // AI Audit State (Only for final batch check)
-    const [aiEngine, setAiEngine] = useState<ApiProvider>(ApiProvider.GEMINI);
-
     const logRef = useRef<HTMLDivElement>(null);
     const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -308,61 +295,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         setSelectedTicker(ticker);
         setActiveInsight(null);
         if (onStockSelected) onStockSelected(ticker);
-    };
-
-    const sanitizeJson = (text: string) => {
-        try {
-            let clean = text.replace(/```json/g, "").replace(/```/g, "").trim();
-            const first = clean.indexOf('{');
-            const last = clean.lastIndexOf('}');
-            if (first !== -1 && last !== -1) return JSON.parse(clean.substring(first, last + 1));
-            return JSON.parse(clean);
-        } catch { return null; }
-    };
-
-    const timeoutPromise = (ms: number, msg: string) => new Promise((_, reject) => 
-      setTimeout(() => reject(new Error(msg)), ms)
-    );
-
-    // [NEW] Single Batch AI Audit for Top 5 Only (Saves Tokens/Time)
-    const performBatchAiAudit = async (candidates: any[]) => {
-        if (!candidates || candidates.length === 0) return null;
-        
-        const top5 = candidates.slice(0, 5).map(c => ({
-            symbol: c.symbol,
-            name: c.name,
-            score: c.fundamentalScore.toFixed(0),
-            issue: c.debtToEquity > 200 ? "High Debt" : c.per > 50 ? "High PE" : "None"
-        }));
-
-        const prompt = `
-        [Role: Senior Risk Manager]
-        Review these top 5 fundamental candidates for "Value Traps" or "Legal Issues".
-        Candidates: ${JSON.stringify(top5)}
-        
-        Return JSON:
-        {
-          "redFlags": ["symbol1", "symbol2"], // List symbols with serious recent issues (fraud, lawsuit, delisting risk)
-          "sectorTheme": "Brief sector summary of the top 5 (Korean)"
-        }
-        `;
-
-        try {
-             // Try Gemini First
-             const key = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
-             if(key) {
-                 const ai = new GoogleGenAI({ apiKey: key });
-                 const res = await ai.models.generateContent({
-                    model: 'gemini-3-flash-preview',
-                    contents: prompt,
-                    config: { responseMimeType: "application/json" }
-                 });
-                 return sanitizeJson(res.text);
-             }
-        } catch (e) {
-            console.warn("AI Batch Audit Failed (Skipping)", e);
-        }
-        return null;
     };
 
     // --- DRIVE UTILS ---
@@ -449,7 +381,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const results: any[] = [];
             const sortedLetters = Object.keys(groupedByLetter).sort();
             
-            // [OPTIMIZATION] Removed Loop-based AI Audit. Pure Quant only.
+            // [OPTIMIZATION] Pure Quant Processing (Zero AI)
             
             for (const letter of sortedLetters) {
                 setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
@@ -530,27 +462,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             }
 
             results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-            const eliteCandidates = results; // Keep full list for saving
+            const eliteCandidates = results; 
             
             setProcessedData(eliteCandidates);
             if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
             
-            // [NEW] Batch AI Audit for Top 5 (Single Call)
-            addLog("Performing AI Batch Audit on Top 5...", "info");
-            const auditRes = await performBatchAiAudit(eliteCandidates.slice(0, 5));
-            if (auditRes && auditRes.redFlags && auditRes.redFlags.length > 0) {
-                 addLog(`AI Warning: Red Flags detected in ${auditRes.redFlags.join(', ')}`, "warn");
-                 // Flag them in the dataset
-                 eliteCandidates.forEach(c => {
-                     if (auditRes.redFlags.includes(c.symbol)) {
-                         c.isValueTrap = true;
-                         c.compositeAlpha -= 20; // Penalize
-                     }
-                 });
-                 // Re-sort
-                 eliteCandidates.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-            }
-
             addLog(`Deep Scan Complete. ${eliteCandidates.length} Assets Preserved.`, "ok");
             
             const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
@@ -560,7 +476,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
             const payload = {
-                manifest: { version: "5.7.3", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Quant_First_AI_Batch" },
+                manifest: { version: "5.8.0", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Pure_Quant_Algorithm" },
                 fundamental_universe: eliteCandidates
             };
 
