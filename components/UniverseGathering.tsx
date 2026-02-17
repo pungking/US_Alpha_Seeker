@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider, ApiStatus } from '../types';
-import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 
 declare global {
   interface Window {
@@ -127,6 +127,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const prevPriceRef = useRef<number>(0);
   const healthCheckRef = useRef<any>(null);
   const searchDebounceRef = useRef<any>(null);
+  const wsRef = useRef<WebSocket | null>(null);
   
   // --- SECURE KEYS ---
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -342,11 +343,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const startRealTimeEngine = (symbol: string) => {
       let isCleanedUp = false;
       let heartbeatCount = 0;
+      let activeSocket: WebSocket | null = null;
+      let pollingInterval: number | null = null;
       
+      // Reset State
+      setConnectionHealth('GOOD');
+      setIsLive(true);
+
       const pulseCheck = setInterval(() => {
           heartbeatCount++;
-          if (heartbeatCount > 10) {
+          if (heartbeatCount > 5) {
               setConnectionHealth('POOR');
+          } else {
+              setConnectionHealth('EXCELLENT');
           }
       }, 1000);
       healthCheckRef.current = pulseCheck;
@@ -354,8 +363,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const updatePrice = (price: number, source: string, bid?: number, ask?: number) => {
           if (isCleanedUp) return;
           
-          heartbeatCount = 0;
-          setConnectionHealth('EXCELLENT');
+          heartbeatCount = 0; // Reset heartbeat
 
           setSearchResult((prev: any) => {
               if (!prev || prev.symbol !== symbol) return prev;
@@ -381,66 +389,66 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       ask: ask || prev.ask
                   };
               }
-              return prev;
+              return prev; // No visual change, but confirms liveness
           });
           
-          setIsLive(true);
           setLiveSource(source);
           prevPriceRef.current = price;
       };
 
       const connectPolling = () => {
-          addLog("Switched to Polling Mode (Yahoo/Polygon)", "warn");
+          if (isCleanedUp) return;
+          addLog(`Starting Polling Engine for ${symbol} (1000ms)...`, "info");
+          
           const fetchPoll = async () => {
               if (isCleanedUp) return;
-              let success = false;
-              
-              if (!success) {
-                  try {
-                      const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
-                      if (res.ok) {
-                          const data = await res.json();
-                          if (data && data.length > 0) {
-                              updatePrice(data[0].price, 'Yahoo Finance');
-                              success = true;
-                          }
+              try {
+                  const res = await fetch(`/api/yahoo?symbols=${symbol}&t=${Date.now()}`);
+                  if (res.ok) {
+                      const data = await res.json();
+                      if (data && data.length > 0) {
+                          updatePrice(data[0].price, 'Yahoo (Realtime)');
                       }
-                  } catch(e) {}
-              }
-
-              if (!success) {
-                  setConnectionHealth('POOR');
+                  }
+              } catch(e) {
+                  // Silent fail on individual poll
               }
           };
 
-          fetchPoll(); 
-          const interval = setInterval(fetchPoll, 2000);
-          return () => clearInterval(interval);
+          fetchPoll(); // Immediate
+          pollingInterval = window.setInterval(fetchPoll, 1000); // 1.0s Speed
       };
 
       const connectWS = () => {
           if (!finnhubKey) {
-              return connectPolling();
+              addLog("No WebSocket Key. Falling back to Polling.", "warn");
+              connectPolling();
+              return;
           }
 
           try {
               const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
+              activeSocket = ws;
               
               ws.onopen = () => {
+                  if (isCleanedUp) { ws.close(); return; }
                   ws.send(JSON.stringify({ type: 'subscribe', symbol }));
                   addLog(`WS Stream: Connected to ${symbol}`, "info");
+                  setLiveSource('Finnhub (Institutional)');
               };
 
               ws.onmessage = (event) => {
+                  if (isCleanedUp) return;
                   try {
                       const msg = JSON.parse(event.data);
                       if (msg.type === 'trade' && msg.data && msg.data.length > 0) {
+                          // Get latest trade
                           const trade = msg.data[msg.data.length - 1];
-                          updatePrice(trade.p, 'Finnhub WS (Live)');
+                          updatePrice(trade.p, 'Finnhub (Institutional)');
                           
                           setTelemetry(prev => ({
                               ...prev,
-                              latency: Date.now() - trade.t < 1000 ? Date.now() - trade.t : 20,
+                              latency: Date.now() - trade.t < 1000 ? Date.now() - trade.t : 15,
                               packetLoss: 0
                           }));
                       }
@@ -450,30 +458,45 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
               ws.onerror = (e) => {
+                  console.error("WS Error", e);
                   if (!isCleanedUp) {
-                      setConnectionHealth('CRITICAL');
                       ws.close();
-                      cleanupRef.current = connectPolling(); 
+                      activeSocket = null;
+                      connectPolling(); // Failover
                   }
               };
               
               ws.onclose = () => {
-                  if (!isCleanedUp) {
-                      cleanupRef.current = connectPolling(); 
-                  }
+                   if (!isCleanedUp && !pollingInterval) {
+                       console.warn("WS Closed. Failing over.");
+                       connectPolling();
+                   }
               };
 
-              return () => ws.close();
           } catch (e) {
-              return connectPolling();
+              connectPolling();
           }
       };
 
-      const cleanup = connectWS();
+      // Start Protocol
+      connectWS();
+
+      // Return cleanup function for useEffect
       cleanupRef.current = () => {
           isCleanedUp = true;
-          if (cleanup) cleanup();
-          if (healthCheckRef.current) clearInterval(healthCheckRef.current);
+          if (activeSocket) {
+              activeSocket.close();
+              activeSocket = null;
+          }
+          if (pollingInterval) {
+              clearInterval(pollingInterval);
+              pollingInterval = null;
+          }
+          if (healthCheckRef.current) {
+              clearInterval(healthCheckRef.current);
+              healthCheckRef.current = null;
+          }
+          setLiveSource('OFFLINE');
       };
   };
 
