@@ -101,7 +101,7 @@ const ALPHA_SCHEMA = {
       expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Stable Growth)'" },
       theme: { type: Type.STRING },
       aiSentiment: { type: Type.STRING, description: "Overall Sentiment description in Korean" },
-      analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean. MUST include the Legend Name (e.g. 'Strategy: Warren Buffett')." },
+      analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
       chartPattern: { type: Type.STRING, description: "Detected technical pattern name (e.g. 'Wyckoff SOS')" },
       supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone" },
       resistanceLevel: { type: Type.NUMBER, description: "Profit Target" },
@@ -802,10 +802,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     for (const model of PERPLEXITY_MODELS) {
       try {
+          // [FIX] Enforce strict JSON by explicit instruction in messages array
           const body = JSON.stringify({
               model: model, 
               messages: [
-                  { role: "system", content: SYSTEM_INSTRUCTION },
+                  { role: "system", content: "You are a specialized JSON generator. Output ONLY raw JSON array. No introduction, no markdown fences, no conversational text. " + SYSTEM_INSTRUCTION },
                   { role: "user", content: prompt + " Return raw JSON only. Do not add introductory text like 'Here is the JSON'. Do not add markdown blocks." }
               ],
               temperature: 0 // Strict deterministic mode
