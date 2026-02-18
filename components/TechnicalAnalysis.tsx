@@ -958,7 +958,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              )}
                         </div>
 
-                        {/* Interactive Metrics Grid */}
+                        {/* Interactive Metrics Grid - Expanded to 6 items */}
                         <div className="grid grid-cols-3 gap-2 mt-2">
                              {[
                                 { id: 'RS_RATING', label: 'RS Rating', val: selectedTicker.techMetrics.rsRating, good: selectedTicker.techMetrics.rsRating > 80 },
