@@ -180,26 +180,36 @@ const MarkdownComponents: any = {
         <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
     h2: (props: any) => {
-        const text = String(props.children || "");
+        // Handle React Children recursively to ensure we get the full string text
+        const extractText = (node: any): string => {
+             if (typeof node === 'string') return node;
+             if (Array.isArray(node)) return node.map(extractText).join('');
+             if (node && node.props && node.props.children) return extractText(node.props.children);
+             return String(node || "");
+        };
+
+        const text = extractText(props.children);
         
-        // Custom logic to handle "1. Korean Title (English Title)" pattern
-        // Splits by the last parenthesis group to isolate the English part
-        const match = text.match(/^(.*?)\s*(\(.*\))$/);
+        // Regex: Matches "Anything (Anything in parenthesis)"
+        // Captures: 1. Main Text, 2. (Sub Text including parens)
+        const match = text.match(/(.+?)(\s*\(.*\).*)/);
         
-        // Target headers like "1. 전문가 3인 성향 분석 (The Council Debate)"
+        // Apply special styling if it matches "Title (Subtitle)" pattern
         if (match && (text.includes("1.") || text.includes("2."))) {
              const mainTitle = match[1];
-             const subTitle = match[2];
+             const subTitle = match[2]; // Includes the space and parens
 
              return (
                 <h2 className="text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-2">
-                    <span className="text-white">{mainTitle}</span>
-                    <span className="text-[11px] text-slate-400 font-medium tracking-normal normal-case opacity-80 transform translate-y-[-1px]">
+                    <span className="text-[17px] text-white">{mainTitle}</span>
+                    <span className="text-[13px] text-slate-400 font-medium tracking-normal normal-case opacity-90 transform">
                         {subTitle}
                     </span>
                 </h2>
              );
         }
+        
+        // Fallback for other h2s
         return <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props} />;
     },
     h3: (props: any) => (
