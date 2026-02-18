@@ -39,6 +39,7 @@ interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
   onStockSelected?: (stock: any) => void;
+  isVisible?: boolean; // [NEW] Added prop
 }
 
 // [KNOWLEDGE BASE] Institutional Grade Definitions
@@ -188,7 +189,7 @@ const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRI
     return 'DISTRIBUTION';
 };
 
-const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
+const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [processedData, setProcessedData] = useState<IctScoredTicker[]>([]);
@@ -549,15 +550,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }
                         </div>
 
                         <div className="flex-1 w-full relative -ml-4 my-2">
-                            <ResponsiveContainer width="100%" height="100%">
-                                <RadarChart cx="50%" cy="50%" outerRadius="70%" data={getRadarData(selectedTicker)}>
-                                    <PolarGrid stroke="#334155" opacity={0.3} />
-                                    <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
-                                    <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                    <Radar name={selectedTicker.symbol} dataKey="A" stroke="#6366f1" strokeWidth={2} fill="#6366f1" fillOpacity={0.4} />
-                                    <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#6366f1', fontSize: '10px' }} />
-                                </RadarChart>
-                            </ResponsiveContainer>
+                            {isVisible && (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={getRadarData(selectedTicker)}>
+                                        <PolarGrid stroke="#334155" opacity={0.3} />
+                                        <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
+                                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                        <Radar name={selectedTicker.symbol} dataKey="A" stroke="#6366f1" strokeWidth={2} fill="#6366f1" fillOpacity={0.4} />
+                                        <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#6366f1', fontSize: '10px' }} />
+                                    </RadarChart>
+                                </ResponsiveContainer>
+                            )}
                         </div>
 
                         {/* 4 Core ICT Metrics Cards - CLICKABLE */}
