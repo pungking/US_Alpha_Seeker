@@ -2,8 +2,8 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ApiProvider, ApiStatus } from './types';
-import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from './constants';
+import { ApiProvider, ApiStatus } from '../types';
+import { API_CONFIGS, STAGES_FLOW, GITHUB_REPO } from '../constants';
 import ApiStatusCard from './components/ApiStatusCard';
 import UniverseGathering from './components/UniverseGathering';
 import PreliminaryFilter from './components/PreliminaryFilter';
@@ -548,6 +548,7 @@ const App: React.FC = () => {
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 2}
           />
         </div>
         <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
@@ -555,6 +556,7 @@ const App: React.FC = () => {
             autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
             onComplete={() => handleStageComplete(3)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 3}
           />
         </div>
         <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
@@ -562,6 +564,7 @@ const App: React.FC = () => {
             autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
             onComplete={() => handleStageComplete(4)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 4}
           />
         </div>
         <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
@@ -569,6 +572,7 @@ const App: React.FC = () => {
             autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
             onComplete={() => handleStageComplete(5)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 5}
           />
         </div>
         <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
@@ -583,6 +587,7 @@ const App: React.FC = () => {
             analyzingSymbols={analyzingStocks}
             autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
             onComplete={(report) => handleStageComplete(6, report)}
+            isVisible={currentStage === 6}
           />
         </div>
       </main>
