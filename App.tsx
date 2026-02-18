@@ -39,6 +39,9 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
+  // --- CLOCK STATE ---
+  const [currentTime, setCurrentTime] = useState(new Date());
+
   // --- HYBRID MODE STATE ---
   const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
@@ -87,6 +90,12 @@ const App: React.FC = () => {
           setShowLegalDocs(true);
       }
   }, [isGdriveConnected]);
+
+  // CLOCK TICKER
+  useEffect(() => {
+      const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+      return () => clearInterval(timer);
+  }, []);
 
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
@@ -367,6 +376,22 @@ const App: React.FC = () => {
         <div className="flex items-center space-x-2 shrink-0">
           <div className="w-1.5 h-1.5 rounded-full bg-indigo-500 animate-pulse"></div>
           <span>Pipeline: Stage_{currentStage}</span>
+        </div>
+        
+        {/* WORLD CLOCKS */}
+        <div className="flex items-center gap-4 px-6 border-l border-white/5 ml-6 shrink-0 hidden lg:flex">
+             <div className="flex items-center gap-2">
+                 <span className="text-[7px] font-black text-slate-500">SEOUL</span>
+                 <span className="font-mono text-white text-[9px] font-bold">
+                     {currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit' })}
+                 </span>
+             </div>
+             <div className="flex items-center gap-2">
+                 <span className="text-[7px] font-black text-slate-500">NEW YORK</span>
+                 <span className="font-mono text-orange-400 text-[9px] font-bold">
+                     {currentTime.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' })}
+                 </span>
+             </div>
         </div>
         
         {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
