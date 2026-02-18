@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -8,6 +7,7 @@ interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
   onStockSelected?: (stock: any) => void;
+  isVisible?: boolean; // [NEW] Added prop
 }
 
 // [KNOWLEDGE BASE] Quant Metric Definitions
@@ -44,6 +44,7 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// ... (Utils remain same) ...
 // --- QUANT ENGINE UTILS ---
 
 const safeNum = (val: any) => {
@@ -109,6 +110,7 @@ const computeUniverseBaselines = (universe: any[]) => {
 
 // [ENGINE v5.3] Pure Quant Logic (No AI)
 const performFinancialEngineering = (data: any) => {
+    // ... (Existing logic remains exactly same) ...
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
     const marketCap = safeNum(data.marketCap || data.marketValue);
@@ -260,7 +262,7 @@ const performFinancialEngineering = (data: any) => {
     };
 };
 
-const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
+const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
     const [processedData, setProcessedData] = useState<any[]>([]);
@@ -271,6 +273,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const logRef = useRef<HTMLDivElement>(null);
     const accessToken = sessionStorage.getItem('gdrive_access_token');
 
+    // ... (UseEffects remain same) ...
     useEffect(() => {
         if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
     }, [logs]);
@@ -297,7 +300,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         if (onStockSelected) onStockSelected(ticker);
     };
 
-    // --- DRIVE UTILS ---
+    // ... (Drive functions remain same) ...
     const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
@@ -341,6 +344,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     };
 
     const executeDeepAudit = async () => {
+        // ... (Execute logic remains same) ...
         if (!accessToken || loading) return;
         setLoading(true);
         setProcessedData([]);
@@ -380,8 +384,6 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             const results: any[] = [];
             const sortedLetters = Object.keys(groupedByLetter).sort();
-            
-            // [OPTIMIZATION] Pure Quant Processing (Zero AI)
             
             for (const letter of sortedLetters) {
                 setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
@@ -566,6 +568,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                          <div className="bg-black/40 rounded-3xl border border-white/5 p-6 relative flex flex-col h-[400px]">
                             {selectedTicker ? (
                                 <div className="h-full flex flex-col justify-between" key={selectedTicker.symbol}> 
+                                   {/* ... (Header) ... */}
                                    <div className="flex justify-between items-start">
                                        <div>
                                            <div className="flex items-baseline gap-3">
@@ -595,15 +598,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                    </div>
 
                                    <div className="flex-1 w-full relative -ml-4 my-2">
-                                       <ResponsiveContainer width="100%" height="100%">
-                                           <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
-                                               <PolarGrid stroke="#334155" opacity={0.3} />
-                                               <PolarAngleAxis dataKey="subject" tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} />
-                                               <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                               <Radar name={selectedTicker.symbol} dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
-                                               <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#06b6d4', fontSize: '10px' }} />
-                                           </RadarChart>
-                                       </ResponsiveContainer>
+                                       {/* [FIX] Use isVisible to prevent 0-size error */}
+                                       {isVisible && (
+                                           <ResponsiveContainer width="100%" height="100%">
+                                               <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
+                                                   <PolarGrid stroke="#334155" opacity={0.3} />
+                                                   <PolarAngleAxis 
+                                                       dataKey="subject" 
+                                                       tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold' }} 
+                                                   />
+                                                   <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                                   <Radar name={selectedTicker.symbol} dataKey="A" stroke="#06b6d4" strokeWidth={2} fill="#06b6d4" fillOpacity={0.4} />
+                                                   <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#06b6d4', fontSize: '10px' }} />
+                                               </RadarChart>
+                                           </ResponsiveContainer>
+                                       )}
                                    </div>
                                    
                                    {/* Metric Cards */}
