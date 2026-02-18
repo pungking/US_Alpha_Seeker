@@ -56,9 +56,10 @@ interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
   onStockSelected?: (stock: any) => void;
+  isVisible?: boolean; // [NEW] Added prop
 }
 
-// [KNOWLEDGE BASE] Expanded Technical Definitions
+// ... (Definitions remain same) ...
 const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
     'POWER_TREND': {
         title: "Power Trend (초강세 정배열)",
@@ -127,7 +128,8 @@ const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpreta
     }
 };
 
-const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
+const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
+  // ... (State hooks same) ...
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, status: '' });
   const [processedData, setProcessedData] = useState<TechnicalTicker[]>([]);
@@ -144,6 +146,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const logRef = useRef<HTMLDivElement>(null);
 
+  // ... (Effects same) ...
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
@@ -203,6 +206,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       }
   };
 
+  // ... (Math Utils remain same) ...
   // --- QUANT MATH UTILS ---
   const calculateSMA = (data: number[], period: number) => {
       if (data.length < period) return 0;
@@ -317,6 +321,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return Math.max(0, Math.min(100, isNaN(score) ? 0 : score));
   };
 
+  // ... (API / Drive Utils remain same) ...
   // --- DATA SOURCES ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
@@ -340,6 +345,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const fetchCandlesFromAPI = async (symbol: string): Promise<any[] | null> => {
+      // ... (Same implementation) ...
       const to = new Date().toISOString().split('T')[0];
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - 250); 
@@ -394,8 +400,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return null;
   };
 
-  // [HEURISTIC ENGINE] Used when API fails (Rate Limit)
   const generateHeuristicData = (item: any) => {
+      // ... (Same implementation) ...
       const price = item.price || 0;
       const sma50 = item.fiftyDayAverage || price;
       const sma200 = item.twoHundredDayAverage || price * 0.9;
@@ -452,6 +458,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const executeTechnicalScan = async () => {
+    // ... (Same execution logic) ...
     if (!accessToken || loading) return;
     setLoading(true);
     setProcessedData([]);
@@ -758,6 +765,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       <div className="xl:col-span-3 space-y-6">
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-orange-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
+            {/* Header Content */}
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-orange-600/10 flex items-center justify-center border border-orange-500/20 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-orange-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
@@ -893,7 +901,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                         </div>
 
                         <div className="flex-1 w-full relative -ml-4 my-2">
-                             {selectedTicker.priceHistory && selectedTicker.priceHistory.length > 0 ? (
+                             {/* [FIX] Use isVisible to prevent 0-size error */}
+                             {isVisible && selectedTicker.priceHistory && selectedTicker.priceHistory.length > 0 ? (
                                 <ResponsiveContainer width="100%" height="100%">
                                     <AreaChart data={selectedTicker.priceHistory}>
                                         <defs>
@@ -920,7 +929,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                              )}
                         </div>
 
-                        {/* Interactive Metrics Grid - Expanded to 6 items */}
+                        {/* Interactive Metrics Grid */}
                         <div className="grid grid-cols-3 gap-2 mt-2">
                              {[
                                 { id: 'RS_RATING', label: 'RS Rating', val: selectedTicker.techMetrics.rsRating, good: selectedTicker.techMetrics.rsRating > 80 },
@@ -969,7 +978,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                      </div>
                  ) : (
                      <div className="h-full flex flex-col items-center justify-center opacity-20">
-                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M13 7h8m0 0v8m0-8l-8 8-4-4-6 6" /></svg>
+                         <svg className="w-16 h-16 text-slate-500 mb-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                          <p className="text-[9px] font-black uppercase tracking-[0.3em]">Select Asset to Inspect</p>
                      </div>
                  )}
@@ -981,12 +990,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       <div className="xl:col-span-1">
         <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-orange-600 flex flex-col p-6 shadow-2xl overflow-hidden">
           <div className="flex items-center justify-between mb-8 px-2">
-            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Tech_Log</h3>
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Tech_Stream</h3>
           </div>
           <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-orange-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-orange-900'}`}>
-                {l}
+            {logs.map((log, i) => (
+              <div key={i} className={`pl-4 border-l-2 ${log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : log.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-orange-900'}`}>
+                {log}
               </div>
             ))}
           </div>
