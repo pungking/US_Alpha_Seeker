@@ -138,11 +138,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const [timeStats, setTimeStats] = useState({ elapsed: 0, eta: 0 });
   const startTimeRef = useRef<number>(0);
-  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v8.2: Pure Quant Algo-Mode Active.']);
+  const [logs, setLogs] = useState<string[]>(['> Tech_Tactician v8.3: No-API Algo Mode Active.']);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
-  const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
-  const alphaVantageKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPHA_VANTAGE)?.key;
+  // [REMOVED] API Keys to prevent accidental usage
   
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -344,62 +343,6 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return JSON.parse(safeText);
   };
 
-  const fetchCandlesFromAPI = async (symbol: string): Promise<any[] | null> => {
-      // ... (Same implementation) ...
-      const to = new Date().toISOString().split('T')[0];
-      const fromDate = new Date();
-      fromDate.setDate(fromDate.getDate() - 250); 
-      const from = fromDate.toISOString().split('T')[0];
-      
-      if (polygonKey) {
-          try {
-              const url = `https://api.polygon.io/v2/aggs/ticker/${symbol}/range/1/day/${from}/${to}?adjusted=true&sort=asc&apiKey=${polygonKey}`;
-              const res = await fetch(url);
-              
-              if (res.status === 429) throw new Error("RATE_LIMIT");
-              if (res.ok) {
-                  const json = await res.json();
-                  if (json.results && json.results.length > 20) {
-                      return json.results.map((c: any) => ({
-                          c: c.c, h: c.h, l: c.l, o: c.o, v: c.v, t: c.t
-                      }));
-                  }
-              }
-          } catch (e: any) { 
-              if (e.message === "RATE_LIMIT") console.warn(`Polygon Limit for ${symbol}. Switching to Alpha Vantage.`);
-          }
-      }
-
-      if (alphaVantageKey) {
-          try {
-              await new Promise(r => setTimeout(r, 2000)); // Throttle
-              const url = `https://www.alphavantage.co/query?function=TIME_SERIES_DAILY_ADJUSTED&symbol=${symbol}&outputsize=compact&apikey=${alphaVantageKey}`;
-              const res = await fetch(url);
-              const json = await res.json();
-              
-              if (json["Time Series (Daily)"]) {
-                  const series = json["Time Series (Daily)"];
-                  const dates = Object.keys(series).sort();
-                  return dates.map(date => {
-                      const d = series[date];
-                      return {
-                          t: new Date(date).getTime(),
-                          o: Number(d["1. open"]),
-                          h: Number(d["2. high"]),
-                          l: Number(d["3. low"]),
-                          c: Number(d["5. adjusted close"]),
-                          v: Number(d["6. volume"])
-                      };
-                  });
-              } else if (json.Note || json.Information) {
-                  throw new Error("RATE_LIMIT");
-              }
-          } catch (e) { /* Fall through */ }
-      }
-
-      return null;
-  };
-
   const generateHeuristicData = (item: any) => {
       // ... (Same implementation) ...
       const price = item.price || 0;
@@ -485,21 +428,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       setProgress({ current: 0, total: candidates.length, status: 'Fetching Benchmark...' });
 
-      // [NEW] Attempt to fetch SPY data for Relative Strength Calculation
+      // [DISABLED] No External API Calls in this mode
       let spyCandles: any[] = [];
-      try {
-          spyCandles = await fetchCandlesFromAPI("SPY") || [];
-          if (spyCandles.length > 0) addLog("Benchmark (SPY) Data Acquired. RS Rating Active.", "ok");
-      } catch {
-          addLog("Benchmark (SPY) unavailable. Using Internal Relative Strength.", "warn");
-      }
-
+      
       // Map System setup
       let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
       if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
       
       const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
-      if (!historyFolderId) addLog("Drive History Folder Not Found. Using Hybrid Mode.", "warn");
+      if (!historyFolderId) addLog("Drive History Folder Not Found. Using Heuristic Mode.", "warn");
 
       const grouped: Record<string, any[]> = {};
       candidates.forEach((c: any) => {
@@ -553,17 +490,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                        })).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
                   }
 
-                  if (candles.length < 50) {
-                      try {
-                          const apiCandles = await fetchCandlesFromAPI(item.symbol);
-                          if (apiCandles) {
-                              candles = apiCandles;
-                              dataSrc = 'API';
-                          }
-                      } catch (apiErr: any) {
-                          // Ignore API error, will fallback to Heuristic
-                      }
-                  }
+                  // [STRICT MODE] NO API FALLBACK. 
+                  // If Drive data is missing, we immediately degrade to Heuristics.
+                  // This prevents 429 loops.
 
                   let techData;
                   
@@ -600,30 +529,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                       const trendScore = (trendAlignment === 'POWER_TREND' ? 95 : trendAlignment === 'BULLISH' ? 70 : 30);
                       
-                      // [NEW] RS Rating Calculation (vs SPY)
-                      let rsRating = 50;
-                      if (spyCandles.length > 50 && closes.length > 50) {
-                          const spyNow = spyCandles[spyCandles.length - 1].c;
-                          const spyOldIndex = Math.max(0, spyCandles.length - 63);
-                          const spyOld = spyCandles[spyOldIndex].c;
-                          
-                          let spyPerf = 0;
-                          if (spyOld > 0) spyPerf = (spyNow - spyOld) / spyOld;
-
-                          const stockOldIndex = Math.max(0, closes.length - 63);
-                          const stockOld = closes[stockOldIndex];
-                          
-                          let stockPerf = 0;
-                          if (stockOld > 0) stockPerf = (currentPrice - stockOld) / stockOld;
-                          
-                          // Alpha = Stock - SPY. Scale: 0% diff -> 50, +20% diff -> 90
-                          const alpha = stockPerf - spyPerf;
-                          rsRating = Math.min(99, Math.max(1, 50 + (alpha * 200)));
-                          if (isNaN(rsRating)) rsRating = 50;
-                      } else {
-                          // Fallback to internal strength
-                          rsRating = Math.min(99, Math.max(1, (rsi * 0.5) + (trendScore * 0.5)));
-                      }
+                      // [MODIFIED] Simplified RS Rating (Internal Relative Strength only)
+                      // Removed SPY comparison to avoid external data dependency
+                      let rsRating = Math.min(99, Math.max(1, (rsi * 0.5) + (trendScore * 0.5)));
 
                       const stdDev = calculateStdDev(closes, 20);
                       const bbWidth = sma20 > 0 ? (4 * stdDev) / sma20 : 0; 
