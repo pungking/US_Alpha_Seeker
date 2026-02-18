@@ -189,23 +189,25 @@ const MarkdownComponents: any = {
 
         const text = extractText(props.children);
         
-        // Regex to capture "Main Text" and "(Subtitle)"
-        // Matches anything up to the last '(', then the parenthesis content
-        const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
+        // Find the LAST opening parenthesis to split Main Title vs (Subtitle)
+        const lastParenIndex = text.lastIndexOf('(');
+        const isEndParen = text.trim().endsWith(')');
 
-        if (match) {
-            const mainTitle = match[1].trim();
-            const subTitle = match[2].trim();
+        if (lastParenIndex > 0 && isEndParen) {
+            const mainTitle = text.substring(0, lastParenIndex).trim();
+            const subTitle = text.substring(lastParenIndex).trim();
+            
+            // EXACT USER REQUESTED STRUCTURE
             return (
-                 <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
-                    <span className="text-sm font-bold text-slate-500">{subTitle}</span>
-                </h2>
+                <h3 className="text-xl font-bold text-white mb-4 flex items-baseline gap-2">
+                    {mainTitle}
+                    <span className="text-lg font-medium text-gray-400">{subTitle}</span>
+                </h3>
             );
         }
         
-        // Fallback if regex doesn't match
-        return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
+        // Fallback for headers without parenthesis
+        return <h3 className="text-xl font-bold text-white mb-4">{props.children}</h3>;
     },
     h3: (props: any) => (
         <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
