@@ -725,7 +725,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
 
-    } catch (e: any) { addLog(`Engine Error: ${e.message}`, "err"); }
+    } catch (e: any) { 
+        addLog(`Engine Error: ${e.message}`, "err"); 
+        // [GITHUB ACTION FIX] Prevent hang on error
+        if (autoStart) {
+             addLog("AUTO-PILOT: Critical Failure. Force-skipping Stage 6.", "warn");
+             setAutoPhase('DONE');
+             if (onComplete) onComplete("STAGE6_FAILED");
+        }
+    }
     finally { setLoading(false); }
   };
 
