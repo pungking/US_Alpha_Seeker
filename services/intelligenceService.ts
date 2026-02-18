@@ -746,20 +746,26 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   [PHASE 2: REPORT GENERATION (OUTPUT)]
   For each of the 6 selected stocks, generate a JSON object.
   - **analysisLogic**: Explicitly state the Legend Strategy. Format: "Strategy: [Legend Name] - [Reason]"
-  - **investmentOutlook**: Write a detailed report in KOREAN MARKDOWN using the "Council Debate" format.
+  - **investmentOutlook**: Write a detailed report in KOREAN MARKDOWN using the specific format below.
 
-  **Investment Outlook Format (Strictly Follow This):**
-  1. **전문가 3인 성향 분석 (The Council Debate)**
-     - **보수적 퀀트 (Conservative Quant)**: [Analysis...]
-     - **공격적 트레이더 (Aggressive Trader)**: [Analysis...]
-     - **마켓 메이커 (Market Maker)**: [Analysis...]
-     - **종합 분석 (Comprehensive Analysis)**: [Summary...]
+  **Investment Outlook Format (Strictly Follow This Structure):**
+  
+  1. **전설적 투자자 위원회 분석 (The Legendary Council Analysis)**
+     - Identify which Legend's strategy this stock fits best.
+     - Provide a specific reason based on the Legend's criteria (e.g., "Graham: P/E < 15 and Debt < Equity").
+     - Format: "**[Legend Name]**: [Reasoning...]"
 
-  2. **The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)**
-     - **핵심 논거 (Key Thesis)**: [Point 1]
-     - **상승 촉매 (Catalysts)**: [Point 2]
-     - **리스크 요인 (Risk Factors)**: [Point 3]
-     - **가격 목표 (Trajectory)**: [Prediction]
+  2. **전문가 3인 성향 분석 (The Internal Debate)**
+     - **보수적 퀀트 (Conservative Quant)**: Analyze fundamentals, valuation, and risk.
+     - **공격적 트레이더 (Aggressive Trader)**: Analyze momentum, chart patterns, and catalysts.
+     - **마켓 메이커 (Market Maker)**: Analyze liquidity, order flow, and institutional activity.
+     - **종합 분석 (Comprehensive Analysis)**: Provide a synthesized conclusion.
+
+  3. **The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)**
+     - **핵심 논거 (Key Thesis)**: The main reason to buy.
+     - **상승 촉매 (Catalysts)**: Upcoming events or trends.
+     - **리스크 요인 (Risk Factors)**: What could go wrong.
+     - **가격 목표 (Trajectory)**: Short-term and Long-term expectations.
 
   [OUTPUT REQUIREMENTS - JSON ONLY]
   Return a JSON Array of exactly 6 Stocks.
