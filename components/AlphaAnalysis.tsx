@@ -179,7 +179,6 @@ const MarkdownComponents: any = {
     h1: (props: any) => (
         <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
-    // [CRITICAL FIX] Forcefully split title and subtitle by last opening parenthesis
     h2: (props: any) => {
         const extractText = (node: any): string => {
              if (typeof node === 'string') return node;
@@ -190,28 +189,23 @@ const MarkdownComponents: any = {
 
         const text = extractText(props.children);
         
-        // Find the LAST opening parenthesis to split the string
-        // Example: "1. 전문가 3인 성향 분석 (The Council Debate)"
-        const lastParenIndex = text.lastIndexOf('(');
-        
-        if (lastParenIndex > 0) {
-            const mainTitle = text.substring(0, lastParenIndex).trim();
-            const subTitle = text.substring(lastParenIndex).trim();
+        // Regex to capture "Main Text" and "(Subtitle)"
+        // Matches anything up to the last '(', then the parenthesis content
+        const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
 
+        if (match) {
+            const mainTitle = match[1].trim();
+            const subTitle = match[2].trim();
             return (
-                <div className="mt-8 mb-4 border-b border-white/10 pb-2">
-                    <h2 className="text-[17px] font-bold text-white leading-snug flex flex-wrap items-baseline gap-2">
-                        <span>{mainTitle}</span>
-                        <span className="text-[12px] text-slate-500 font-medium tracking-normal normal-case opacity-80">
-                            {subTitle}
-                        </span>
-                    </h2>
-                </div>
+                 <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
+                    <span className="text-sm font-bold text-slate-500">{subTitle}</span>
+                </h2>
             );
         }
         
-        // Fallback if no parenthesis found
-        return <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props} />;
+        // Fallback if regex doesn't match
+        return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
     },
     h3: (props: any) => (
         <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
