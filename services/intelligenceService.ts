@@ -352,15 +352,28 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
       return { data: parsed, isRealData: false };
     }
     
-    // [FIX] Use proxy for Perplexity to avoid CORS
-    const pRes = await fetch('/api/perplexity', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-        body: JSON.stringify({
-            model: 'sonar-pro', 
-            messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
-        })
+    // [FIX] Use proxy for Perplexity to avoid CORS in Dev, Direct in Preview if Proxy Fails
+    let pRes;
+    const body = JSON.stringify({
+        model: 'sonar-pro', 
+        messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
     });
+
+    try {
+        pRes = await fetch('/api/perplexity', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+            body
+        });
+        if (pRes.status === 404) throw new Error("Proxy 404");
+    } catch (e) {
+        // Fallback to direct call for GitHub Actions/Vite Preview
+        pRes = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+            body
+        });
+    }
     
     const data = await pRes.json();
     if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
@@ -433,11 +446,22 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
           macroSection = res.text.trim();
       } else {
-          // [FIX] Use proxy for Perplexity
-          const res = await fetch('/api/perplexity', {
-              method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-              body: JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: macroPrompt }] })
-          });
+          // [FIX] Use proxy for Perplexity, fallback to direct
+          const body = JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: macroPrompt }] });
+          let res;
+          try {
+             res = await fetch('/api/perplexity', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                body
+             });
+             if (res.status === 404) throw new Error("Proxy 404");
+          } catch(e) {
+             res = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+                body
+             });
+          }
+
           const json = await res.json();
           macroSection = json.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
       }
@@ -592,7 +616,6 @@ export async function analyzePipelineStatus(data: {
       4. **최종 포트폴리오 성향**: '공격형', '밸런스형', '방어형' 중 선택 및 이유.
       `;
   } else {
-      // (Construct Single Stock Context Prompt as before - omitted for brevity but preserved structure)
       let fundamentalContext = "";
       if (stock.fundamentalScore) {
           fundamentalContext = `[STAGE 3 FUNDAMENTAL DATA DETECTED]
@@ -652,23 +675,39 @@ export async function analyzePipelineStatus(data: {
         return removeCitations(result.text);
     }
 
-    // [FIX] Use proxy for Perplexity to avoid CORS
-    const res = await fetch('/api/perplexity', {
-        method: 'POST',
-        headers: { 
-            'Content-Type': 'application/json', 
-            'Authorization': `Bearer ${apiKey}`,
-            'Accept': 'application/json' 
-        },
-        body: JSON.stringify({
-            model: 'sonar-pro', 
-            messages: [
-                { role: "system", content: systemPrompt },
-                { role: "user", content: userPrompt }
-            ],
-            temperature: 0.1
-        })
+    // [FIX] Use proxy for Perplexity to avoid CORS in Dev, Fallback to Direct in Preview/CI
+    let res;
+    const body = JSON.stringify({
+        model: 'sonar-pro', 
+        messages: [
+            { role: "system", content: systemPrompt },
+            { role: "user", content: userPrompt }
+        ],
+        temperature: 0.1
     });
+
+    try {
+        res = await fetch('/api/perplexity', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json' 
+            },
+            body
+        });
+        if (res.status === 404) throw new Error("Proxy 404");
+    } catch (e) {
+        res = await fetch('https://api.perplexity.ai/chat/completions', {
+            method: 'POST',
+            headers: { 
+                'Content-Type': 'application/json', 
+                'Authorization': `Bearer ${apiKey}`,
+                'Accept': 'application/json' 
+            },
+            body
+        });
+    }
     
     const json = await res.json();
     
@@ -834,30 +873,53 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     // Loop through valid models only
     for (const model of PERPLEXITY_MODELS) {
       try {
-          // [FIX] Use proxy for Perplexity to avoid CORS
-          const res = await fetchWithRetry(async () => {
-              const r = await fetch('/api/perplexity', {
-                  method: 'POST',
-                  headers: { 
-                      'Content-Type': 'application/json', 
-                      'Authorization': `Bearer ${pKey}`,
-                      'Accept': 'application/json' 
-                  },
-                  body: JSON.stringify({
-                      model: model, 
-                      messages: [
-                          { role: "system", content: SYSTEM_INSTRUCTION },
-                          { role: "user", content: prompt }
-                      ],
-                      temperature: 0.1
-                  })
-              });
-              if (!r.ok) {
-                  const errText = await r.text();
-                  throw new Error(`HTTP_${r.status}: ${errText}`);
-              }
-              return r;
+          // [FIX] Use proxy for Perplexity to avoid CORS, fallback to direct in Preview/CI
+          const body = JSON.stringify({
+              model: model, 
+              messages: [
+                  { role: "system", content: SYSTEM_INSTRUCTION },
+                  { role: "user", content: prompt }
+              ],
+              temperature: 0.1
           });
+          
+          let res;
+          try {
+             res = await fetchWithRetry(async () => {
+                 const r = await fetch('/api/perplexity', {
+                     method: 'POST',
+                     headers: { 
+                         'Content-Type': 'application/json', 
+                         'Authorization': `Bearer ${pKey}`,
+                         'Accept': 'application/json' 
+                     },
+                     body
+                 });
+                 if (r.status === 404) throw new Error("Proxy 404");
+                 if (!r.ok) {
+                    const errText = await r.text();
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                 }
+                 return r;
+             });
+          } catch(e) {
+             res = await fetchWithRetry(async () => {
+                 const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                     method: 'POST',
+                     headers: { 
+                         'Content-Type': 'application/json', 
+                         'Authorization': `Bearer ${pKey}`,
+                         'Accept': 'application/json' 
+                     },
+                     body
+                 });
+                 if (!r.ok) {
+                    const errText = await r.text();
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                 }
+                 return r;
+             });
+          }
 
           const data = await res.json();
           if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
