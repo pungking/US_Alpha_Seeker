@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -55,6 +56,7 @@ interface Props {
   analyzingSymbols?: Set<string>;
   autoStart?: boolean;
   onComplete?: (reportContent?: string) => void;
+  isVisible?: boolean; // [NEW] Added prop
 }
 
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
@@ -237,7 +239,7 @@ const generateNormalDistribution = (mean: number, stdDev: number, limit: number 
   return data;
 };
 
-const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete }) => {
+const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -1461,91 +1463,94 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                      </div>
 
                                      <div className="flex-1 w-full min-h-0">
-                                          <ResponsiveContainer width="100%" height="100%">
-                                              <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
-                                                  <defs>
-                                                      <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
-                                                          <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
-                                                          <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
-                                                      </linearGradient>
-                                                  </defs>
-                                                  <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
-                                                  <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
-                                                  <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
-                                                  <RechartsTooltip 
-                                                      contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
-                                                      itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
-                                                      labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
-                                                      formatter={(val: number, name: string) => {
-                                                          if (name === 'value') return [`${val}%`, 'Return'];
-                                                          if (name === 'drawdown') return [`${val}%`, 'Drawdown'];
-                                                          if (name === 'delta') return [`${val}%`, 'Period Change'];
-                                                          return [val, name];
-                                                      }}
-                                                  />
-                                                  <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
-                                                  
-                                                  {activeOverlay === 'PROFIT_FACTOR' && (
-                                                      <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
-                                                          {chartData.map((entry, index) => (
-                                                              <Cell 
-                                                                  key={`cell-${index}`} 
-                                                                  fill={entry.delta >= 0 ? '#10b981' : '#ef4444'} 
-                                                              />
-                                                          ))}
-                                                      </Bar>
-                                                  )}
+                                          {/* [FIX] Use isVisible to prevent 0-size error */}
+                                          {isVisible && (
+                                            <ResponsiveContainer width="100%" height="100%">
+                                                <ComposedChart data={chartData} margin={{ top: 5, right: 0, left: -20, bottom: 0 }}>
+                                                    <defs>
+                                                        <linearGradient id={uniqueChartId} x1="0" y1="0" x2="0" y2="1">
+                                                            <stop offset="5%" stopColor={chartColor} stopOpacity={0.3}/>
+                                                            <stop offset="95%" stopColor={chartColor} stopOpacity={0}/>
+                                                        </linearGradient>
+                                                    </defs>
+                                                    <CartesianGrid strokeDasharray="3 3" stroke="#334155" opacity={0.1} vertical={false} />
+                                                    <XAxis dataKey="period" stroke="#475569" fontSize={8} tickLine={false} axisLine={false} dy={10} interval={1} />
+                                                    <YAxis stroke="#475569" fontSize={9} tickLine={false} axisLine={false} domain={['auto', 'auto']} />
+                                                    <RechartsTooltip 
+                                                        contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '12px' }}
+                                                        itemStyle={{ color: '#fff', fontSize: '11px', fontWeight: 'bold' }}
+                                                        labelStyle={{ color: '#94a3b8', fontSize: '9px', marginBottom: '4px' }}
+                                                        formatter={(val: number, name: string) => {
+                                                            if (name === 'value') return [`${val}%`, 'Return'];
+                                                            if (name === 'drawdown') return [`${val}%`, 'Drawdown'];
+                                                            if (name === 'delta') return [`${val}%`, 'Period Change'];
+                                                            return [val, name];
+                                                        }}
+                                                    />
+                                                    <ReferenceLine y={0} stroke="#475569" strokeDasharray="3 3" opacity={0.5} />
+                                                    
+                                                    {activeOverlay === 'PROFIT_FACTOR' && (
+                                                        <Bar dataKey="delta" barSize={8} fillOpacity={0.5}>
+                                                            {chartData.map((entry, index) => (
+                                                                <Cell 
+                                                                    key={`cell-${index}`} 
+                                                                    fill={entry.delta >= 0 ? '#10b981' : '#ef4444'} 
+                                                                />
+                                                            ))}
+                                                        </Bar>
+                                                    )}
 
-                                                  {activeOverlay === 'MAX_DRAWDOWN' && (
-                                                      <Area 
-                                                          type="monotone" 
-                                                          dataKey="drawdown" 
-                                                          stroke="none" 
-                                                          fill="#ef4444" 
-                                                          fillOpacity={0.25} 
-                                                          animationDuration={500} 
-                                                      />
-                                                  )}
+                                                    {activeOverlay === 'MAX_DRAWDOWN' && (
+                                                        <Area 
+                                                            type="monotone" 
+                                                            dataKey="drawdown" 
+                                                            stroke="none" 
+                                                            fill="#ef4444" 
+                                                            fillOpacity={0.25} 
+                                                            animationDuration={500} 
+                                                        />
+                                                    )}
 
-                                                  {activeOverlay === 'SHARPE_RATIO' && chartData.length > 1 && (
-                                                      <>
-                                                          <Area 
-                                                              type="monotone" 
-                                                              dataKey="idealValue" 
-                                                              stroke="#f59e0b" 
-                                                              strokeWidth={1}
-                                                              strokeDasharray="5 5"
-                                                              fill="#f59e0b"
-                                                              fillOpacity={0.08}
-                                                          />
-                                                          <ReferenceLine 
-                                                              stroke="#f59e0b" 
-                                                              strokeDasharray="3 3" 
-                                                              label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
-                                                              segment={[
-                                                                  { x: chartData[0]?.period, y: 0 }, 
-                                                                  { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1]?.value ?? 0 }
-                                                              ]}
-                                                          />
-                                                      </>
-                                                  )}
-                                                  
-                                                  <Area 
-                                                      type="monotone" 
-                                                      dataKey="value" 
-                                                      stroke={chartColor} 
-                                                      strokeWidth={2} 
-                                                      fillOpacity={1} 
-                                                      fill={`url(#${uniqueChartId})`} 
-                                                      animationDuration={1500}
-                                                      dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
-                                                          const { cx, cy, payload } = props;
-                                                          const isWin = payload.isWin;
-                                                          return <circle cx={cx} cy={cy} r={3} fill={isWin ? "#10b981" : "#ef4444"} stroke="#020617" strokeWidth={1} key={`dot-${payload.period}`} className="animate-in fade-in duration-500" />;
-                                                      } : false}
-                                                  />
-                                              </ComposedChart>
-                                          </ResponsiveContainer>
+                                                    {activeOverlay === 'SHARPE_RATIO' && chartData.length > 1 && (
+                                                        <>
+                                                            <Area 
+                                                                type="monotone" 
+                                                                dataKey="idealValue" 
+                                                                stroke="#f59e0b" 
+                                                                strokeWidth={1}
+                                                                strokeDasharray="5 5"
+                                                                fill="#f59e0b"
+                                                                fillOpacity={0.08}
+                                                            />
+                                                            <ReferenceLine 
+                                                                stroke="#f59e0b" 
+                                                                strokeDasharray="3 3" 
+                                                                label={{ position: 'top', value: 'Efficiency Path', fill: '#f59e0b', fontSize: 7, fontWeight: 'bold' }} 
+                                                                segment={[
+                                                                    { x: chartData[0]?.period, y: 0 }, 
+                                                                    { x: chartData[chartData.length-1]?.period, y: chartData[chartData.length-1]?.value ?? 0 }
+                                                                ]}
+                                                            />
+                                                        </>
+                                                    )}
+                                                    
+                                                    <Area 
+                                                        type="monotone" 
+                                                        dataKey="value" 
+                                                        stroke={chartColor} 
+                                                        strokeWidth={2} 
+                                                        fillOpacity={1} 
+                                                        fill={`url(#${uniqueChartId})`} 
+                                                        animationDuration={1500}
+                                                        dot={activeOverlay === 'WIN_RATE' ? (props: any) => {
+                                                            const { cx, cy, payload } = props;
+                                                            const isWin = payload.isWin;
+                                                            return <circle cx={cx} cy={cy} r={3} fill={isWin ? "#10b981" : "#ef4444"} stroke="#020617" strokeWidth={1} key={`dot-${payload.period}`} className="animate-in fade-in duration-500" />;
+                                                        } : false}
+                                                    />
+                                                </ComposedChart>
+                                            </ResponsiveContainer>
+                                          )}
                                      </div>
                                  </div>
 
@@ -1582,44 +1587,47 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                         {distributionData ? (
                             <div className="h-[200px] w-full bg-black/20 rounded-[30px] border border-white/5 p-4 relative overflow-hidden">
-                                <ResponsiveContainer width="100%" height="100%">
-                                    <AreaChart data={distributionData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
-                                        <defs>
-                                            <linearGradient id="distGradient" x1="0" y1="0" x2="1" y2="0">
-                                                <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.8} />
-                                                <stop offset="50%" stopColor="#f43f5e" stopOpacity={0.1} />
-                                                <stop offset="50%" stopColor="#10b981" stopOpacity={0.1} />
-                                                <stop offset="100%" stopColor="#10b981" stopOpacity={0.8} />
-                                            </linearGradient>
-                                        </defs>
-                                        <XAxis 
-                                            dataKey="x" 
-                                            stroke="#475569" 
-                                            fontSize={9} 
-                                            tickLine={false} 
-                                            axisLine={false}
-                                            tickFormatter={(val) => `${val}%`}
-                                        />
-                                        <YAxis hide />
-                                        <RechartsTooltip 
-                                            contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '8px' }}
-                                            itemStyle={{ fontSize: '10px', color: '#fff' }}
-                                            labelStyle={{ color: '#94a3b8', fontSize: '9px' }}
-                                            formatter={(value: any) => [(Number(value) * 100).toFixed(2) + '%', "Probability Density"]}
-                                            labelFormatter={(label) => `Return: ${label}%`}
-                                        />
-                                        <ReferenceLine x={0} stroke="#64748b" strokeDasharray="3 3" />
-                                        <Area 
-                                            type="monotone" 
-                                            dataKey="y" 
-                                            stroke="url(#distGradient)" 
-                                            fill="url(#distGradient)" 
-                                            strokeWidth={2}
-                                            fillOpacity={0.6}
-                                            animationDuration={1500}
-                                        />
-                                    </AreaChart>
-                                </ResponsiveContainer>
+                                {/* [FIX] Use isVisible to prevent 0-size error */}
+                                {isVisible && (
+                                  <ResponsiveContainer width="100%" height="100%">
+                                      <AreaChart data={distributionData} margin={{ top: 10, right: 0, left: 0, bottom: 0 }}>
+                                          <defs>
+                                              <linearGradient id="distGradient" x1="0" y1="0" x2="1" y2="0">
+                                                  <stop offset="0%" stopColor="#f43f5e" stopOpacity={0.8} />
+                                                  <stop offset="50%" stopColor="#f43f5e" stopOpacity={0.1} />
+                                                  <stop offset="50%" stopColor="#10b981" stopOpacity={0.1} />
+                                                  <stop offset="100%" stopColor="#10b981" stopOpacity={0.8} />
+                                              </linearGradient>
+                                          </defs>
+                                          <XAxis 
+                                              dataKey="x" 
+                                              stroke="#475569" 
+                                              fontSize={9} 
+                                              tickLine={false} 
+                                              axisLine={false}
+                                              tickFormatter={(val) => `${val}%`}
+                                          />
+                                          <YAxis hide />
+                                          <RechartsTooltip 
+                                              contentStyle={{ backgroundColor: '#020617', border: '1px solid #1e293b', borderRadius: '8px' }}
+                                              itemStyle={{ fontSize: '10px', color: '#fff' }}
+                                              labelStyle={{ color: '#94a3b8', fontSize: '9px' }}
+                                              formatter={(value: any) => [(Number(value) * 100).toFixed(2) + '%', "Probability Density"]}
+                                              labelFormatter={(label) => `Return: ${label}%`}
+                                          />
+                                          <ReferenceLine x={0} stroke="#64748b" strokeDasharray="3 3" />
+                                          <Area 
+                                              type="monotone" 
+                                              dataKey="y" 
+                                              stroke="url(#distGradient)" 
+                                              fill="url(#distGradient)" 
+                                              strokeWidth={2}
+                                              fillOpacity={0.6}
+                                              animationDuration={1500}
+                                          />
+                                      </AreaChart>
+                                  </ResponsiveContainer>
+                                )}
                                 <div className="absolute top-2 right-4 text-[8px] font-black text-slate-500 uppercase tracking-widest bg-black/40 px-2 py-1 rounded">
                                     Gaussian Projection
                                 </div>
