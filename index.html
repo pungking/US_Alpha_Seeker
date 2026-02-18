@@ -24,7 +24,9 @@
             backdrop-filter: blur(24px);
             -webkit-backdrop-filter: blur(24px); /* Fix for Safari */
             border: 1px solid rgba(255, 255, 255, 0.05);
-            /* Removed transforms to fix flickering/disappearing issue on scroll */
+            /* Force GPU layer to prevent flickering during scroll/repaint */
+            transform: translateZ(0); 
+            will-change: transform;
         }
 
         /* Scroll Performance Optimization */
