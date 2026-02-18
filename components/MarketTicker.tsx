@@ -196,6 +196,14 @@ const MarketTicker: React.FC = () => {
 
   // Initial Poll & Interval (Backup / Initialization)
   useEffect(() => {
+      // [FIX] Disable Ticker Polling in Auto Mode to prevent log flooding in CI/CD
+      // This prevents the "Market Data Fetch Failed" warnings in GitHub Actions
+      const isAuto = new URLSearchParams(window.location.search).get('auto') === 'true';
+      if (isAuto) {
+          setSocketStatus("AUTO_MODE (IDLE)");
+          return;
+      }
+
       fetchMarketData();
       // [SPEED UP] Polling increased to 2 seconds for near-real-time feel without hitting hard limits
       const interval = setInterval(fetchMarketData, 2000); 
@@ -209,8 +217,7 @@ const MarketTicker: React.FC = () => {
     
     if (isAuto) {
         console.log("[MarketTicker] Automation mode detected. Disabling WebSocket to prevent 429 errors.");
-        if (activeProvider !== 'POLLING') setActiveProvider('POLLING');
-        setSocketStatus('AUTO_MODE (NO_WS)');
+        // Stop any WS attempts
         return; 
     }
 
@@ -329,7 +336,7 @@ const MarketTicker: React.FC = () => {
         ))
       ) : (
         <div className="text-[10px] font-black text-slate-700 animate-pulse uppercase px-4">
-           INITIALIZING MARKET FEED...
+           {socketStatus.includes("AUTO") ? "MARKET FEED PAUSED (AUTO MODE)" : "INITIALIZING MARKET FEED..."}
         </div>
       )}
       
