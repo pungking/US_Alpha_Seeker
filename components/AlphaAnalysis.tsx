@@ -180,7 +180,7 @@ const MarkdownComponents: any = {
         <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
     h2: (props: any) => {
-        // Handle React Children recursively to ensure we get the full string text
+        // [FORCE FIX] Explicitly handle children to ensure string availability
         const extractText = (node: any): string => {
              if (typeof node === 'string') return node;
              if (Array.isArray(node)) return node.map(extractText).join('');
@@ -190,26 +190,29 @@ const MarkdownComponents: any = {
 
         const text = extractText(props.children);
         
-        // Regex: Matches "Anything (Anything in parenthesis)"
-        // Captures: 1. Main Text, 2. (Sub Text including parens)
-        const match = text.match(/(.+?)(\s*\(.*\).*)/);
-        
-        // Apply special styling if it matches "Title (Subtitle)" pattern
-        if (match && (text.includes("1.") || text.includes("2."))) {
-             const mainTitle = match[1];
-             const subTitle = match[2]; // Includes the space and parens
+        // Match specific patterns for the headers we want to style differently
+        // Target: "1. 전문가 3인 성향 분석 (The Council Debate)"
+        // Target: "2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)"
+        if (text.includes("전문가 3인") || text.includes("Alpha Thesis") || text.includes("Strategic Scenario")) {
+            // Split by the *last* open parenthesis to separate the English subtitle
+            const lastParenIndex = text.lastIndexOf('(');
+            
+            if (lastParenIndex > -1) {
+                const mainTitle = text.substring(0, lastParenIndex).trim();
+                const subTitle = text.substring(lastParenIndex).trim();
 
-             return (
-                <h2 className="text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-2">
-                    <span className="text-[17px] text-white">{mainTitle}</span>
-                    <span className="text-[13px] text-slate-400 font-medium tracking-normal normal-case opacity-90 transform">
-                        {subTitle}
-                    </span>
-                </h2>
-             );
+                return (
+                    <h2 className="text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-2">
+                        <span className="text-[17px] text-white font-black">{mainTitle}</span>
+                        <span className="text-[12px] text-slate-500 font-bold tracking-normal normal-case opacity-90">
+                            {subTitle}
+                        </span>
+                    </h2>
+                );
+            }
         }
         
-        // Fallback for other h2s
+        // Fallback for other h2s or if regex fails
         return <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props} />;
     },
     h3: (props: any) => (
@@ -1641,7 +1644,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                         </div>
                     ) : (
-                        <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
+                        <div className="h-full flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
                                 <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
