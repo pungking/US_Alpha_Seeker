@@ -768,7 +768,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (priceFlash === 'down') return '#f87171'; 
 
     if (searchResult && isLive) {
-        return searchResult.change >= 0 
+        // [FIX] Neutral state for 0% change
+        if (Math.abs(searchResult.change) < 0.01) return 'rgba(255,255,255,0.05)';
+        return searchResult.change > 0 
             ? 'rgba(16, 185, 129, 0.5)' 
             : 'rgba(244, 63, 94, 0.5)'; 
     }
@@ -781,7 +783,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
     if (priceFlash === 'down') return 'rgba(248, 113, 113, 0.15)';
 
     if (searchResult && isLive) {
-        return searchResult.change >= 0 
+        // [FIX] Neutral state for 0% change
+        if (Math.abs(searchResult.change) < 0.01) return 'transparent';
+        return searchResult.change > 0 
             ? 'rgba(16, 185, 129, 0.05)' 
             : 'rgba(244, 63, 94, 0.05)';
     }
@@ -886,16 +890,16 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                                                 <p className={`text-2xl font-mono font-black transition-all duration-300 ${priceFlash === 'up' ? 'text-emerald-300 scale-110' : priceFlash === 'down' ? 'text-rose-300 scale-110' : 'text-white'}`}>
                                                     ${searchResult.price?.toFixed(2) || 'N/A'}
                                                 </p>
-                                                <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${searchResult.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                    <span>{searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.changeAmount || 0).toFixed(2)}</span>
+                                                <p className={`text-[10px] font-bold flex items-center justify-end gap-1 ${Math.abs(searchResult.change) < 0.01 ? 'text-slate-400' : searchResult.change > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                    <span>{Math.abs(searchResult.change) < 0.01 ? '-' : searchResult.change > 0 ? '▲' : '▼'} {Math.abs(searchResult.changeAmount || 0).toFixed(2)}</span>
                                                     <span className="opacity-50">({Math.abs(searchResult.change || 0).toFixed(2)}%)</span>
                                                 </p>
                                             </>
                                         ) : (
                                             <div className="text-right">
                                                 <p className="text-2xl font-mono font-black text-white">${searchResult.price?.toFixed(2)}</p>
-                                                <p className={`text-[10px] font-bold ${searchResult.change >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
-                                                     {searchResult.change >= 0 ? '▲' : '▼'} {Math.abs(searchResult.change || 0).toFixed(2)}%
+                                                <p className={`text-[10px] font-bold ${Math.abs(searchResult.change) < 0.01 ? 'text-slate-400' : searchResult.change > 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                                     {Math.abs(searchResult.change) < 0.01 ? '-' : searchResult.change > 0 ? '▲' : '▼'} {Math.abs(searchResult.change || 0).toFixed(2)}%
                                                 </p>
                                             </div>
                                         )}
