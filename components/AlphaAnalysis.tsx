@@ -174,41 +174,42 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// Helper for consistent header rendering
+const renderStyledHeader = (props: any) => {
+    const extractText = (node: any): string => {
+            if (typeof node === 'string') return node;
+            if (Array.isArray(node)) return node.map(extractText).join('');
+            if (node && node.props && node.props.children) return extractText(node.props.children);
+            return String(node || "");
+    };
+
+    const text = extractText(props.children);
+    
+    // Find the LAST opening parenthesis to split Main Title vs (Subtitle)
+    const lastParenIndex = text.lastIndexOf('(');
+    const isEndParen = text.trim().endsWith(')');
+
+    if (lastParenIndex > 0 && isEndParen) {
+        const mainTitle = text.substring(0, lastParenIndex).trim();
+        const subTitle = text.substring(lastParenIndex).trim();
+        
+        // EXACT USER REQUESTED STRUCTURE
+        return (
+            <h3 className="text-xl font-bold text-white mb-4 flex items-baseline gap-2">
+                {mainTitle}
+                <span className="text-lg font-medium text-gray-400">{subTitle}</span>
+            </h3>
+        );
+    }
+    
+    // Fallback for headers without parenthesis
+    return <h3 className="text-xl font-bold text-white mb-4">{props.children}</h3>;
+};
+
 // [FORCED STYLE FIX] Markdown Component Overrides
 const MarkdownComponents: any = {
-    h1: (props: any) => (
-        <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
-    ),
-    h2: (props: any) => {
-        const extractText = (node: any): string => {
-             if (typeof node === 'string') return node;
-             if (Array.isArray(node)) return node.map(extractText).join('');
-             if (node && node.props && node.props.children) return extractText(node.props.children);
-             return String(node || "");
-        };
-
-        const text = extractText(props.children);
-        
-        // Find the LAST opening parenthesis to split Main Title vs (Subtitle)
-        const lastParenIndex = text.lastIndexOf('(');
-        const isEndParen = text.trim().endsWith(')');
-
-        if (lastParenIndex > 0 && isEndParen) {
-            const mainTitle = text.substring(0, lastParenIndex).trim();
-            const subTitle = text.substring(lastParenIndex).trim();
-            
-            // EXACT USER REQUESTED STRUCTURE
-            return (
-                <h3 className="text-xl font-bold text-white mb-4 flex items-baseline gap-2">
-                    {mainTitle}
-                    <span className="text-lg font-medium text-gray-400">{subTitle}</span>
-                </h3>
-            );
-        }
-        
-        // Fallback for headers without parenthesis
-        return <h3 className="text-xl font-bold text-white mb-4">{props.children}</h3>;
-    },
+    h1: renderStyledHeader,
+    h2: renderStyledHeader,
     h3: (props: any) => (
         <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
     ),
@@ -950,7 +951,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             ...data, 
             metrics: safeMetrics, 
             historicalContext: safeContext, 
-            timestamp: Date.now(),
+            timestamp: Date.now(), 
             isRealData: !!isRealData
         } 
       }));
