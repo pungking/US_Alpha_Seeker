@@ -98,7 +98,7 @@ const ALPHA_SCHEMA = {
       convictionScore: { type: Type.NUMBER, description: "Confidence 0-100" },
       newsSentiment: { type: Type.STRING, description: "Positive/Neutral/Negative" },
       newsScore: { type: Type.NUMBER, description: "0.0-1.0" },
-      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (12M)'" },
+      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)'" },
       theme: { type: Type.STRING },
       aiSentiment: { type: Type.STRING },
       analysisLogic: { type: Type.STRING },
@@ -390,7 +390,6 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
-// ... (generateTelegramBrief remains unchanged) ...
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
@@ -712,7 +711,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       }
   }));
 
-  // [SYSTEM INSTRUCTION - ENHANCED FOR TEN-BAGGER HUNT]
+  // [SYSTEM INSTRUCTION - ENHANCED FOR TEN-BAGGER HUNT & SPECIFIC TAGS]
   const SYSTEM_INSTRUCTION = `
   [ROLE: Financial Data Structuring Engine (Offline Mode)]
   You are a JSON processing unit acting as a "Global Alpha Finder".
@@ -733,7 +732,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - Return strictly valid JSON Array matching the provided schema.
   - \`aiVerdict\`: "STRONG_BUY" (Score > 85), "BUY" (Score > 70), "HOLD", "SPECULATIVE_BUY" (if high risk high reward).
   - \`investmentOutlook\`: Detailed strategic memo in **Korean Markdown**. MUST include a "Risk" section.
-  - \`expectedReturn\`: Realistic projection (e.g. "+35% (Swing)").
+  - \`expectedReturn\`: **MUST use specific tags** in this format: "+XX% (Tag)".
+     - Tags to use: "High Target", "Long-Term", "Ten-Bagger", "High Upside", "Strategic", "Speculative", "Stable Growth". 
+     - Do NOT use generic tags like "Swing".
   - \`kellyWeight\`: Aggressive for high conviction (max 20%), conservative otherwise.
   
   [REAL-TIME DATA INTEGRATION]
@@ -750,6 +751,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   Map to JSON Schema.
   Language: Korean.
   NO EMOJIS in JSON values.
+  Ensure expectedReturn uses tags like (Ten-Bagger), (High Upside), (Long-Term).
   `;
 
   // [INTERNAL LOGIC] Execute Perplexity
