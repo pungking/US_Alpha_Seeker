@@ -39,7 +39,7 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
-  // --- CLOCK STATE ---
+  // --- CLOCK STATE (Restored) ---
   const [currentTime, setCurrentTime] = useState(new Date());
 
   // --- HYBRID MODE STATE ---
@@ -91,7 +91,7 @@ const App: React.FC = () => {
       }
   }, [isGdriveConnected]);
 
-  // CLOCK TICKER
+  // CLOCK TICKER (Restored)
   useEffect(() => {
       const timer = setInterval(() => setCurrentTime(new Date()), 1000);
       return () => clearInterval(timer);
@@ -378,8 +378,8 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* WORLD CLOCKS */}
-        <div className="flex items-center gap-4 px-6 border-l border-white/5 ml-6 shrink-0 hidden lg:flex">
+        {/* WORLD CLOCKS (Restored and positioned left of legal links) */}
+        <div className="flex items-center gap-4 px-6 border-l border-white/5 ml-auto mr-6 shrink-0 hidden lg:flex">
              <div className="flex items-center gap-2">
                  <span className="text-[7px] font-black text-slate-500">SEOUL</span>
                  <span className="font-mono text-white text-[9px] font-bold">
@@ -395,7 +395,7 @@ const App: React.FC = () => {
         </div>
         
         {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
-        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 mr-6">
             <a 
                 href="?doc=privacy"
                 onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
