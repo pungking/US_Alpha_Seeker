@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
@@ -174,42 +174,39 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// Helper for consistent header rendering
-const renderStyledHeader = (props: any) => {
-    const extractText = (node: any): string => {
-            if (typeof node === 'string') return node;
-            if (Array.isArray(node)) return node.map(extractText).join('');
-            if (node && node.props && node.props.children) return extractText(node.props.children);
-            return String(node || "");
-    };
-
-    const text = extractText(props.children);
-    
-    // Find the LAST opening parenthesis to split Main Title vs (Subtitle)
-    const lastParenIndex = text.lastIndexOf('(');
-    const isEndParen = text.trim().endsWith(')');
-
-    if (lastParenIndex > 0 && isEndParen) {
-        const mainTitle = text.substring(0, lastParenIndex).trim();
-        const subTitle = text.substring(lastParenIndex).trim();
-        
-        // EXACT USER REQUESTED STRUCTURE
-        return (
-            <h3 className="text-xl font-bold text-white mb-4 flex items-baseline gap-2">
-                {mainTitle}
-                <span className="text-lg font-medium text-gray-400">{subTitle}</span>
-            </h3>
-        );
-    }
-    
-    // Fallback for headers without parenthesis
-    return <h3 className="text-xl font-bold text-white mb-4">{props.children}</h3>;
-};
-
 // [FORCED STYLE FIX] Markdown Component Overrides
 const MarkdownComponents: any = {
-    h1: renderStyledHeader,
-    h2: renderStyledHeader,
+    h1: (props: any) => (
+        <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
+    ),
+    h2: (props: any) => {
+        const extractText = (node: any): string => {
+             if (typeof node === 'string') return node;
+             if (Array.isArray(node)) return node.map(extractText).join('');
+             if (node && node.props && node.props.children) return extractText(node.props.children);
+             return String(node || "");
+        };
+
+        const text = extractText(props.children);
+        
+        // Regex to capture "Main Text" and "(Subtitle)"
+        // Matches anything up to the last '(', then the parenthesis content
+        const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
+
+        if (match) {
+            const mainTitle = match[1].trim();
+            const subTitle = match[2].trim();
+            return (
+                 <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
+                    <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
+                    <span className="text-sm font-bold text-slate-500">{subTitle}</span>
+                </h2>
+            );
+        }
+        
+        // Fallback if regex doesn't match
+        return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
+    },
     h3: (props: any) => (
         <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
     ),
@@ -256,20 +253,6 @@ const generateNormalDistribution = (mean: number, stdDev: number, limit: number 
     });
   }
   return data;
-};
-
-// Legend Strategy Badges Helper
-const getLegendStrategy = (logicStr: string = "") => {
-    const s = logicStr.toLowerCase();
-    if (s.includes("graham") || s.includes("value dean")) return { name: "Benjamin Graham", type: "Value", color: "text-amber-400", border: "border-amber-500/30", bg: "bg-amber-500/10" };
-    if (s.includes("lynch") || s.includes("growth hunter")) return { name: "Peter Lynch", type: "GARP", color: "text-emerald-400", border: "border-emerald-500/30", bg: "bg-emerald-500/10" };
-    if (s.includes("buffett") || s.includes("moat")) return { name: "Warren Buffett", type: "Moat", color: "text-blue-400", border: "border-blue-500/30", bg: "bg-blue-500/10" };
-    if (s.includes("o'neil") || s.includes("canslim") || s.includes("momentum")) return { name: "William O'Neil", type: "Momentum", color: "text-rose-400", border: "border-rose-500/30", bg: "bg-rose-500/10" };
-    if (s.includes("munger") || s.includes("quality")) return { name: "Charlie Munger", type: "Quality", color: "text-violet-400", border: "border-violet-500/30", bg: "bg-violet-500/10" };
-    if (s.includes("wood") || s.includes("disrupt")) return { name: "Cathie Wood", type: "Innovation", color: "text-fuchsia-400", border: "border-fuchsia-500/30", bg: "bg-fuchsia-500/10" };
-    if (s.includes("greenberg") || s.includes("conviction")) return { name: "Glenn Greenberg", type: "Concentrated", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-500/10" };
-    if (s.includes("welling") || s.includes("activist")) return { name: "Glenn Welling", type: "Event", color: "text-indigo-400", border: "border-indigo-500/30", bg: "bg-indigo-500/10" };
-    return null;
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
@@ -1271,7 +1254,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-                                <h4 className="text-sm md:text-base font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block whitespace-nowrap">
+                                <h4 className="text-xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
                                 <div className="flex gap-3 ml-auto">
