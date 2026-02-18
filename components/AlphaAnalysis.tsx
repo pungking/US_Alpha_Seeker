@@ -56,7 +56,7 @@ interface Props {
   analyzingSymbols?: Set<string>;
   autoStart?: boolean;
   onComplete?: (reportContent?: string) => void;
-  isVisible?: boolean; // [NEW] Added prop
+  isVisible?: boolean; // [NEW] Added prop to prevent Recharts rendering when hidden
 }
 
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
@@ -366,7 +366,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   expectancy: expectancy.toFixed(2),
                   aic: aic,
                   sentiment: selectedStock.newsSentiment || 'Neutral'
-              }
+              },
+              radarData: [
+                  { subject: 'Conviction', A: conviction, fullMark: 100 },
+                  { subject: 'Sentiment', A: (selectedStock.newsScore || 0.5) * 100, fullMark: 100 },
+                  { subject: 'Technical', A: selectedStock.technicalScore || 50, fullMark: 100 },
+                  { subject: 'Fundamental', A: selectedStock.fundamentalScore || 50, fullMark: 100 },
+                  { subject: 'ICT', A: selectedStock.ictScore || 50, fullMark: 100 }
+              ]
           };
       } catch (e) {
           console.error("Quant Metrics Error", e);
@@ -652,31 +659,41 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
 
-      let response = await generateAlphaSynthesis(topCandidates, currentProvider);
-      
-      if (response.error && currentProvider === ApiProvider.GEMINI) {
-          addLog(`Gemini Engine Failed: ${response.error}`, "warn");
-          
-          if (response.error.includes("429") || response.error.includes("Quota") || response.error.includes("Resource")) {
-              addLog("Gemini Quota Exceeded. Engaging Sonar Failover Protocol...", "warn");
-          }
+      // [CRITICAL FIX] Robust Failover Logic for GitHub Actions
+      let response;
+      let usedProvider = currentProvider;
 
-          // 1. Toggle Brain UI
-          setSelectedBrain(ApiProvider.PERPLEXITY);
-          
-          // 2. Logic Split: Auto vs Manual
-          if (autoStart) {
-              addLog("AUTO-PILOT: Switching to Sonar & Retrying...", "signal");
-              currentProvider = ApiProvider.PERPLEXITY; 
-              response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+      try {
+          // Attempt 1: Try with current provider
+          response = await generateAlphaSynthesis(topCandidates, currentProvider);
+      } catch (err: any) {
+          // If first attempt fails and it wasn't already Perplexity, try failover
+          if (currentProvider !== ApiProvider.PERPLEXITY) {
+             addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
+             usedProvider = ApiProvider.PERPLEXITY;
+             setSelectedBrain(ApiProvider.PERPLEXITY); // UI Toggle
+             response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
           } else {
-              addLog("Gemini Unavailable. System toggled to Sonar. Click Execute to retry.", "info");
-              setLoading(false); 
-              return; 
+             throw err; // Perplexity already failed, bubble up
           }
       }
 
-      if (response.error) throw new Error(response.error);
+      // Check for 'soft' errors returned in response object (like Quota Limit)
+      if (response.error) {
+           addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
+           
+           if (usedProvider === ApiProvider.GEMINI) {
+               addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
+               setSelectedBrain(ApiProvider.PERPLEXITY); // UI Toggle
+               usedProvider = ApiProvider.PERPLEXITY;
+               // Retry with Perplexity
+               response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+           }
+      }
+
+      if (response.error) {
+          throw new Error(`Synthesis Failed after retries: ${response.error}`);
+      }
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
@@ -700,7 +717,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         };
       }).filter(x => x !== null) as AlphaCandidate[];
 
-      setResultsCache(prev => ({ ...prev, [currentProvider]: mergedFinal }));
+      // [CRITICAL] Update Cache with the provider that ACTUALLY worked
+      setResultsCache(prev => ({ ...prev, [usedProvider]: mergedFinal }));
       
       if (mergedFinal.length > 0) {
           // Sort by conviction score descending immediately after fetch
@@ -713,18 +731,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
           if(accessToken) {
               const timestamp = getKstTimestamp();
-              const fileName = `STAGE6_ALPHA_CANDIDATES_${timestamp}.json`;
+              const fileName = `STAGE6_ALPHA_FINAL_${timestamp}.json`;
               const payload = {
-                  manifest: { version: "9.9.9", count: sortedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve" },
+                  manifest: { version: "9.9.9", count: sortedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve", engine: usedProvider },
                   alpha_candidates: sortedFinal 
               };
               const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
               await uploadFile(accessToken, folderId, fileName, payload);
               addLog(`Saved Alpha Candidates: ${fileName}`, "ok");
           }
+      } else {
+          throw new Error("AI returned valid JSON but no valid stock objects found.");
       }
 
-      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${currentProvider}.`, "ok");
+      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${usedProvider}.`, "ok");
 
     } catch (e: any) { 
         addLog(`Engine Error: ${e.message}`, "err"); 
@@ -743,7 +763,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setMatrixBrain(brain); // UI Update
     
     // Safety check: if we switched brains, we need to look up the correct cache
-    const resultsToCheck = resultsCache[brain] || resultsCache[selectedBrain] || [];
+    // [FIX] Check ALL caches to ensure we find data regardless of which brain succeeded
+    const resultsToCheck = resultsCache[brain] || resultsCache[selectedBrain] || resultsCache[ApiProvider.GEMINI] || resultsCache[ApiProvider.PERPLEXITY] || [];
 
     if (resultsToCheck.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -1084,7 +1105,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/5 flex-grow items-center shadow-inner">
+                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner">
                       <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
                       <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
@@ -1621,7 +1642,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                               dataKey="y" 
                                               stroke="url(#distGradient)" 
                                               fill="url(#distGradient)" 
-                                              strokeWidth={2}
+                                              strokeWidth={2} 
                                               fillOpacity={0.6}
                                               animationDuration={1500}
                                           />
@@ -1644,12 +1665,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       </div>
 
       <div className="xl:col-span-1">
-        <div className="glass-panel h-[720px] rounded-[50px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-8 shadow-3xl overflow-hidden">
-          <h3 className="font-black text-white text-[11px] uppercase tracking-[0.5em] italic mb-6">Alpha_Terminal</h3>
-          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[35px] font-mono text-[10px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed shadow-inner">
-            {logs.map((l, i) => (
-              <div key={i} className={`pl-4 border-l-2 transition-all duration-300 ${l.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : l.includes('[ERR]') ? 'border-red-500 text-red-400' : l.includes('[SIGNAL]') ? 'border-blue-500 text-blue-400' : l.includes('[AUTO]') ? 'border-rose-500 text-rose-400' : 'border-rose-900'}`}>
-                {l}
+        <div className="glass-panel h-[400px] lg:h-[680px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-rose-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+          <div className="flex items-center justify-between mb-8 px-2">
+            <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Alpha_Terminal</h3>
+          </div>
+          <div ref={logRef} className="flex-1 bg-black/70 p-6 rounded-[32px] font-mono text-[9px] text-rose-300/60 overflow-y-auto no-scrollbar space-y-4 border border-white/5 leading-relaxed">
+            {logs.map((log, i) => (
+              <div key={i} className={`pl-4 border-l-2 ${log.includes('[OK]') ? 'border-emerald-500 text-emerald-400' : log.includes('[ERR]') ? 'border-red-500 text-red-400' : 'border-rose-900'}`}>
+                {log}
               </div>
             ))}
           </div>
