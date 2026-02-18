@@ -174,22 +174,18 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// [RESTORED] Original 'Council Debate' Markdown Styles
 const MarkdownComponents: any = {
     h1: (props: any) => (
         <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
     h2: (props: any) => {
         const text = String(props.children || "");
-        const parts = text.split('(');
-        const main = parts[0];
-        const sub = parts.length > 1 ? '(' + parts.slice(1).join('(') : '';
-        
-        return (
-            <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props}>
-                {main}
-                {sub && <span className="text-[11px] font-medium text-slate-500 ml-1.5">{sub}</span>}
-            </h2>
-        );
+        // Custom check for 'Council Debate' style headers to style them nicely
+        if (text.includes("전문가 3인") || text.includes("Alpha Thesis")) {
+             return <h2 className="text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-2" {...props} />;
+        }
+        return <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props} />;
     },
     h3: (props: any) => (
         <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
@@ -255,6 +251,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
 
   // Define derived state explicitly to avoid scope issues
+  // [MODIFIED] currentResults sorted by conviction score descending
   const currentResults = (resultsCache[selectedBrain] || []).sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
