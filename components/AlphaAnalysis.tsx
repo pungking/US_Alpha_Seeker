@@ -183,23 +183,20 @@ const MarkdownComponents: any = {
         const text = String(props.children || "");
         
         // Custom logic to handle "1. Korean Title (English Title)" pattern
-        // We want to make the English part smaller and keep it on the same line if possible, or wrap nicely.
-        // And FORCE WHITE color as requested.
+        // Splits by the last parenthesis group to isolate the English part
+        const match = text.match(/^(.*?)\s*(\(.*\))$/);
         
-        if (text.includes("전문가 3인") || text.includes("Alpha Thesis")) {
-             // Split by the first opening parenthesis to separate Korean and English
-             const parts = text.split('(');
-             const mainTitle = parts[0];
-             const subTitle = parts.length > 1 ? `(${parts.slice(1).join('(')}` : "";
+        // Target headers like "1. 전문가 3인 성향 분석 (The Council Debate)"
+        if (match && (text.includes("1.") || text.includes("2."))) {
+             const mainTitle = match[1];
+             const subTitle = match[2];
 
              return (
                 <h2 className="text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-2">
-                    <span>{mainTitle}</span>
-                    {subTitle && (
-                        <span className="text-[10px] text-slate-400 font-normal tracking-normal normal-case opacity-80 transform translate-y-[-1px]">
-                            {subTitle}
-                        </span>
-                    )}
+                    <span className="text-white">{mainTitle}</span>
+                    <span className="text-[11px] text-slate-400 font-medium tracking-normal normal-case opacity-80 transform translate-y-[-1px]">
+                        {subTitle}
+                    </span>
                 </h2>
              );
         }
