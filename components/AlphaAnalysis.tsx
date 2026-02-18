@@ -385,11 +385,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
   }, [selectedStock, backtestData]);
 
-  // ... (Websocket Effect) ...
+  // [WS UPDATED LOGIC] Use currentResults directly to ensure tracking of displayed list
   useEffect(() => {
-      const unsorted = resultsCache[selectedBrain] || [];
-      const sorted = [...unsorted].sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
-      const symbolsToTrack = sorted.map(s => s.symbol);
+      // Use the currently displayed list, regardless of which brain it came from
+      const symbolsToTrack = currentResults.map(s => s.symbol);
 
       if (activeTab === 'INDIVIDUAL' && symbolsToTrack.length > 0 && finnhubKey && !isHeadless) {
           if (wsRef.current) {
@@ -434,7 +433,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           ws.onerror = (err) => { console.error("[Finnhub WS] Connection Error", err); };
           return () => { if (wsRef.current) wsRef.current.close(); };
       }
-  }, [activeTab, resultsCache, selectedBrain, finnhubKey]); 
+  }, [activeTab, currentResults, finnhubKey]); 
 
   // ... (Other effects) ...
   useEffect(() => {
@@ -677,7 +676,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (currentProvider !== ApiProvider.PERPLEXITY) {
              addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
              usedProvider = ApiProvider.PERPLEXITY;
-             setSelectedBrain(ApiProvider.PERPLEXITY); // UI Toggle
+             // Don't auto-set brain in manual mode, just use it for this execution
+             if (autoStart) setSelectedBrain(ApiProvider.PERPLEXITY); 
              response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
           } else {
              throw err; // Perplexity already failed, bubble up
@@ -689,6 +689,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
            addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
            
            if (usedProvider === ApiProvider.GEMINI) {
+               // [MANUAL FAILOVER FIX] If manual mode, switch toggle and stop.
+               if (!autoStart) {
+                   addLog("Gemini Quota Exceeded/Error. Switched to Sonar. Click Execute to retry.", "warn");
+                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                   setLoading(false);
+                   return;
+               }
+
+               // Auto Mode: Proceed with auto-retry
                addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
                setSelectedBrain(ApiProvider.PERPLEXITY); // UI Toggle
                usedProvider = ApiProvider.PERPLEXITY;
@@ -729,36 +738,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             isHiddenGem: item.isHiddenGem, // Ensure this carries over
         };
       }).filter(x => x !== null) as AlphaCandidate[];
+      
+      // [FIX] Slice to Top 6
+      const finalElite = mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0)).slice(0, 6);
 
       // [CRITICAL] Update Cache with the provider that ACTUALLY worked
-      setResultsCache(prev => ({ ...prev, [usedProvider]: mergedFinal }));
+      setResultsCache(prev => ({ ...prev, [usedProvider]: finalElite }));
       
-      if (mergedFinal.length > 0) {
-          // Sort by conviction score descending immediately after fetch
-          const sortedFinal = [...mergedFinal].sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
-          
-          const first = sortedFinal[0];
+      if (finalElite.length > 0) {
+          const first = finalElite[0];
           setSelectedStock(first);
           onStockSelected?.(first);
-          onFinalSymbolsDetected?.(sortedFinal.map(t => t.symbol), sortedFinal);
+          onFinalSymbolsDetected?.(finalElite.map(t => t.symbol), finalElite);
           
           if(accessToken) {
               const timestamp = getKstTimestamp();
               const fileName = `STAGE6_ALPHA_FINAL_${timestamp}.json`;
               const payload = {
-                  manifest: { version: "9.9.9", count: sortedFinal.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve", engine: usedProvider },
-                  alpha_candidates: sortedFinal 
+                  manifest: { version: "9.9.9", count: finalElite.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve", engine: usedProvider },
+                  alpha_candidates: finalElite 
               };
               const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
               await uploadFile(accessToken, folderId, fileName, payload);
-              addLog(`Saved Alpha Candidates: ${fileName}`, "ok");
+              addLog(`Saved Top 6 Alpha Candidates: ${fileName}`, "ok");
           }
       } else {
           // If 0 results, treat as warning but let pipeline finish
           addLog("AI returned valid JSON but no valid stock objects found.", "warn");
       }
 
-      addLog(`${mergedFinal.length} Alpha targets identified and mapped via ${usedProvider}.`, "ok");
+      addLog(`${finalElite.length} Elite Alpha targets identified and mapped via ${usedProvider}.`, "ok");
 
     } catch (e: any) { 
         addLog(`Engine Error: ${e.message}`, "err"); 
@@ -804,7 +813,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              }
              
              setMatrixBrain(ApiProvider.PERPLEXITY); // Toggle UI
-             addLog("Gemini Audit Failed. Switched to Sonar.", "warn");
              
              if (autoStart) {
                  // Auto-Pilot: Retry immediately
@@ -818,7 +826,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     targetStock: undefined 
                  }, targetBrain);
              } else {
-                 // Manual mode: Stop here
+                 // Manual mode: Stop here, just switch toggle
+                 addLog("Gemini Audit Failed. Switched to Sonar. Click Execute to retry.", "warn");
                  setMatrixLoading(false);
                  return;
              }
