@@ -23,7 +23,7 @@
             background: rgba(17, 24, 39, 0.7);
             backdrop-filter: blur(24px);
             border: 1px solid rgba(255, 255, 255, 0.05);
-            /* Removed transform hacks that caused rendering artifacts/blinking */
+            /* Removed transform hacks (translate3d, will-change) to fix screen tearing/blinking artifacts */
         }
 
         /* Scroll Performance Optimization */
