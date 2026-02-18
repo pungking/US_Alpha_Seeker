@@ -2,7 +2,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
@@ -951,7 +951,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             ...data, 
             metrics: safeMetrics, 
             historicalContext: safeContext, 
-            timestamp: Date.now(), 
+            timestamp: Date.now(),
             isRealData: !!isRealData
         } 
       }));
@@ -1271,25 +1271,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-                                <h4 className="text-xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
+                                <h4 className="text-sm md:text-base font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block whitespace-nowrap">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
-                                <div className="flex items-center gap-3 ml-auto">
-                                    {/* LEGEND BADGE (NEW) */}
-                                    {(() => {
-                                        const legend = getLegendStrategy(selectedStock.analysisLogic || selectedStock.selectionReasons?.join(" "));
-                                        if (legend) {
-                                            return (
-                                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${legend.bg} ${legend.border}`}>
-                                                    <span className={`w-2 h-2 rounded-full ${legend.color.replace('text-', 'bg-')}`}></span>
-                                                    <span className={`text-[9px] font-black uppercase tracking-widest ${legend.color}`}>
-                                                        {legend.type}: {legend.name}
-                                                    </span>
-                                                </div>
-                                            );
-                                        }
-                                        return null;
-                                    })()}
+                                <div className="flex gap-3 ml-auto">
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
                             </div>
