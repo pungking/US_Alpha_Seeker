@@ -101,7 +101,7 @@ const ALPHA_SCHEMA = {
       expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Stable Growth)'" },
       theme: { type: Type.STRING },
       aiSentiment: { type: Type.STRING, description: "Overall Sentiment description in Korean" },
-      analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
+      analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean. MUST include the Legend Name (e.g. 'Strategy: Warren Buffett')." },
       chartPattern: { type: Type.STRING, description: "Detected technical pattern name (e.g. 'Wyckoff SOS')" },
       supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone" },
       resistanceLevel: { type: Type.NUMBER, description: "Profit Target" },
@@ -150,17 +150,32 @@ function sanitizeAndParseJson(text: string): any | null {
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
     cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
     
+    // Find first { or [
     const firstBracket = cleanText.indexOf('[');
-    const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
-    const lastCurly = cleanText.lastIndexOf('}');
     
+    // If we have "Here is the JSON: [ ... ]", strip the start
+    let startIdx = 0;
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
-      return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
+       startIdx = firstBracket;
+    } else if (firstCurly !== -1) {
+       startIdx = firstCurly;
+    } else {
+        // No brackets found, might be raw array text or failure
+        return null;
     }
-    if (firstCurly !== -1) {
-      return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    
+    cleanText = cleanText.substring(startIdx);
+    
+    // Find last } or ]
+    const lastBracket = cleanText.lastIndexOf(']');
+    const lastCurly = cleanText.lastIndexOf('}');
+    const endIdx = Math.max(lastBracket, lastCurly);
+    
+    if (endIdx !== -1) {
+        cleanText = cleanText.substring(0, endIdx + 1);
     }
+    
     return JSON.parse(cleanText);
   } catch (e) {
     console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text);
@@ -350,7 +365,8 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     let pRes;
     const body = JSON.stringify({
         model: 'sonar-pro', 
-        messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
+        messages: [{ role: "user", content: prompt + " Return valid JSON only. Do not add introductory text like 'Here is the JSON'. Do not add markdown blocks." }],
+        temperature: 0
     });
 
     try {
@@ -432,7 +448,11 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
           macroSection = res.text.trim();
       } else {
-          const body = JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: macroPrompt }] });
+          const body = JSON.stringify({ 
+              model: 'sonar-pro', 
+              messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
+              temperature: 0
+          });
           let res;
           try {
              res = await fetch('/api/perplexity', {
@@ -706,76 +726,59 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       }
   }));
 
-  // [SYSTEM INSTRUCTION - REVERTED TO 'COUNCIL DEBATE' + ENHANCED TAGS]
+  // [SYSTEM INSTRUCTION - THE LEGENDARY COUNCIL OF 8 & STRATEGIC OUTLOOK]
   const SYSTEM_INSTRUCTION = `
-  [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
-  You are the final decision-making engine for a quantitative hedge fund.
-  You are receiving the top 12-50 elite candidates from the previous ICT stage.
-  Your goal is to output a definitive "Investment Order Sheet" for exactly 6 assets.
+  [SYSTEM ROLE: THE GRAND MASTER INVESTMENT COUNCIL - STAGE 6]
+  You are the final decision-making engine for a global quantitative hedge fund.
+  You are receiving the top candidates.
 
-  Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
+  [PHASE 1: THE LEGENDARY COUNCIL ALGORITHM]
+  Evaluate the candidate against the specific criteria of these 8 legends:
+  1. Benjamin Graham (Value)
+  2. Peter Lynch (Growth)
+  3. Warren Buffett (Moat)
+  4. William O'Neil (Momentum)
+  5. Charlie Munger (Quality)
+  6. Glenn Welling (Event)
+  7. Cathie Wood (Innovation)
+  8. Glenn Greenberg (Concentration)
 
-  [PIPELINE EXECUTION LOGIC - MANDATORY]
+  [PHASE 2: REPORT GENERATION (OUTPUT)]
+  For each selected stock, generate a JSON object.
+  - **analysisLogic**: Explicitly state the Legend Strategy.
+  - **investmentOutlook**: Write a detailed report in KOREAN MARKDOWN using the strict format below.
 
-  🔥 **Step 1: Neural Sieve (Correlation & Theme Filter)**
-  - Sector Constraint: You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
-  - Theme Check: Favor stocks aligning with current strong themes (e.g., AI, Defense, Bio, Industrial).
-  - Kill correlators: Do not pick more than 2 stocks that move identically.
-
-  📰 **Step 2: News Sentiment & Real-Time Context (THE FINAL GATE)**
-  - **CRITICAL ACTION**: You MUST search for recent news (last 48h) for each shortlisted candidate.
-  - **Sentiment Filter**: Score news sentiment from 0.0 to 1.0. 
-    - If sentiment < 0.6: **REJECT** immediately, even if technicals are good.
-    - Look for: Earnings beats, M&A, FDA approvals, Contracts, Institutional Upgrades.
-  - **Rejection Logic**: Avoid stocks with recent accounting scandals, lawsuits, or dilution news.
-
-  🚀 **Step 3: Wyckoff SOS (Sign of Strength) Verification**
-  - **Effort vs Result**: Verify if Volume > 2x Avg while Price increases (Valid Breakout).
-  - **Thrust**: Check if Price Range > 1.5x ATR (Momentum Injection).
-
-  🎯 **Step 4: Execution & Risk Parameters**
-  - **Entry (P_entry)**: \`min(OrderBlock, VWAP * 0.98)\`.
-  - **Stop-Loss (P_sl)**: \`Support - (1.5 * ATR)\`.
-  - **Allocation (Kelly)**: Suggest higher weight for stocks with Sentiment > 0.8 and Conviction > 90.
-
-  [OUTPUT REQUIREMENTS - JSON ONLY]
-  Return a JSON Array of exactly 6 Stocks.
-  Each object must strictly match this schema:
-  - **symbol**: Ticker.
-  - **aiVerdict**: "STRONG_BUY" (Score>90 + Good News), "BUY" (Score>80), "PARTIAL_EXIT" (Bad News).
-  - **convictionScore**: 0-100.
-  - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
-  - **newsScore**: 0.0 to 1.0 float.
-  - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** that must correspond to: [1. Sector/Theme Growth, 2. Earnings/Fundamental Logic, 3. Technical/Supply Logic]. Do NOT merge them into one.
-  - **expectedReturn**: **MUST use specific tags** in this format: "+XX% (Tag)".
-     - Tags to use: "High Target", "Long-Term", "Ten-Bagger", "High Upside", "Strategic", "Speculative", "Stable Growth". 
-     - Do NOT use generic tags like "Swing".
-  - **supportLevel**: Entry Price.
-  - **resistanceLevel**: Target Price.
-  - **stopLoss**: Stop Price.
-  - **riskRewardRatio**: e.g., "1:4.5".
-  - **kellyWeight**: e.g., "15%".
-  - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
-
-  Markdown Template for investmentOutlook:
+  **Investment Outlook Format (Strictly Follow This Structure):**
   
-  ## 1. 전문가 3인 성향 분석 (The Council Debate)
-  - **보수적 퀀트 (Conservative Quant)** : [Analysis of Fundamentals, Valuation, Safety in Korean]
-  - **공격적 트레이더 (Aggressive Trader)** : [Analysis of Momentum, News, Catalysts in Korean]
-  - **마켓 메이커 (Market Maker)** : [Analysis of Liquidity, Order Blocks, Traps in Korean]
-  - **종합 분석 (Comprehensive Analysis)** : [Synthesis of all 3 views into a final verdict in Korean]
+  ## 1. 전설적 투자자 위원회 분석 (The Legendary Council Analysis)
+  Analyze the stock from the perspective of ALL 8 LEGENDS. If a legend would not invest, explain why briefly.
+  - **Benjamin Graham**: [Analysis]
+  - **Peter Lynch**: [Analysis]
+  - **Warren Buffett**: [Analysis]
+  - **William O'Neil**: [Analysis]
+  - **Charlie Munger**: [Analysis]
+  - **Glenn Welling**: [Analysis]
+  - **Cathie Wood**: [Analysis]
+  - **Glenn Greenberg**: [Analysis]
+  - **최종 평결 (Council Verdict)**: [Summary]
 
-  ## 2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
-  [Write in a structured, bulleted list format (개조식) for clarity. Do not write a single long paragraph.]
+  ## 2. 전문가 3인 성향 분석 (The Internal Debate)
+  - **보수적 퀀트 (Conservative Quant)**: [Analysis]
+  - **공격적 트레이더 (Aggressive Trader)**: [Analysis]
+  - **마켓 메이커 (Market Maker)**: [Analysis]
+  - **종합 분석 (Comprehensive Analysis)**: [Summary]
+
+  ## 3. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
   - **핵심 논거 (Key Thesis)**: ...
   - **상승 촉매 (Catalysts)**: ...
   - **리스크 요인 (Risk Factors)**: ...
   - **가격 목표 (Trajectory)**: ...
 
-  **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
-  Language: Korean.
+  [OUTPUT REQUIREMENTS - JSON ONLY]
+  Return a JSON Array of exactly 6 Stocks.
+  Each object must strictly match the schema (symbol, aiVerdict, convictionScore, etc.).
+  **Language**: Korean.
+  **No Emojis** in JSON values.
   `;
 
   const prompt = `
@@ -784,11 +787,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   Market Context: ${regimeContext}
   Candidates: ${JSON.stringify(vectorInputs)}
 
-  Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
-  1. Filter 50 -> 15 based on Sector/Theme.
-  2. Perform NEWS SEARCH on top 15.
-  3. Filter 15 -> 6 based on Sentiment > 0.6 and Wyckoff SOS.
-  4. Calculate Entry/Stop/Kelly for the Final 6.
+  Execute the [LEGENDARY COUNCIL PIPELINE]. 
+  Filter 50 -> 6 based on the 8 Legends' criteria.
   
   Output the JSON array.
   `;
@@ -806,7 +806,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
               model: model, 
               messages: [
                   { role: "system", content: SYSTEM_INSTRUCTION },
-                  { role: "user", content: prompt }
+                  { role: "user", content: prompt + " Return raw JSON only. Do not add introductory text like 'Here is the JSON'. Do not add markdown blocks." }
               ],
               temperature: 0 // Strict deterministic mode
           });
