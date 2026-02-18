@@ -378,8 +378,8 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* WORLD CLOCKS (Restored and positioned left of legal links) */}
-        <div className="flex items-center gap-4 px-6 border-l border-white/5 ml-auto mr-6 shrink-0 hidden lg:flex">
+        {/* WORLD CLOCKS (Left Aligned next to pipeline) */}
+        <div className="flex items-center gap-4 px-6 border-l border-white/5 mx-6 shrink-0 hidden lg:flex">
              <div className="flex items-center gap-2">
                  <span className="text-[7px] font-black text-slate-500">SEOUL</span>
                  <span className="font-mono text-white text-[9px] font-bold">
