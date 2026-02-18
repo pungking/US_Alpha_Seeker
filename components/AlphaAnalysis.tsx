@@ -1074,7 +1074,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
                     className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
                   >
-                    {((loading && isSelected) || isAuditRunning) && (
+                    {/* [FIX] Use isVisible to ensure component is not rendered when hidden */}
+                    {isVisible && ((loading && isSelected) || isAuditRunning) && (
                       <div className="absolute inset-0 bg-black/60 z-20 flex items-center justify-center flex-col gap-2 backdrop-blur-sm">
                         <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-rose-500"></div>
                         <span className="text-[9px] font-black text-rose-500 uppercase tracking-widest animate-pulse">
