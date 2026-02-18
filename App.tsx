@@ -378,8 +378,8 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
-        {/* WORLD CLOCKS (Left Aligned next to pipeline) */}
-        <div className="flex items-center gap-4 px-6 border-l border-white/5 mx-6 shrink-0 hidden lg:flex">
+        {/* WORLD CLOCKS (RIGHT ALIGNED using ml-auto) */}
+        <div className="flex items-center gap-4 px-6 border-l border-white/5 ml-auto mr-6 shrink-0 hidden lg:flex">
              <div className="flex items-center gap-2">
                  <span className="text-[7px] font-black text-slate-500">SEOUL</span>
                  <span className="font-mono text-white text-[9px] font-bold">
@@ -413,7 +413,7 @@ const App: React.FC = () => {
             </a>
         </div>
 
-        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+        <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
