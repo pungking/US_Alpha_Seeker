@@ -257,6 +257,20 @@ const generateNormalDistribution = (mean: number, stdDev: number, limit: number 
   return data;
 };
 
+// Legend Strategy Badges Helper
+const getLegendStrategy = (logicStr: string = "") => {
+    const s = logicStr.toLowerCase();
+    if (s.includes("graham") || s.includes("value dean")) return { name: "Benjamin Graham", type: "Value", color: "text-amber-400", border: "border-amber-500/30", bg: "bg-amber-500/10" };
+    if (s.includes("lynch") || s.includes("growth hunter")) return { name: "Peter Lynch", type: "GARP", color: "text-emerald-400", border: "border-emerald-500/30", bg: "bg-emerald-500/10" };
+    if (s.includes("buffett") || s.includes("moat")) return { name: "Warren Buffett", type: "Moat", color: "text-blue-400", border: "border-blue-500/30", bg: "bg-blue-500/10" };
+    if (s.includes("o'neil") || s.includes("canslim") || s.includes("momentum")) return { name: "William O'Neil", type: "Momentum", color: "text-rose-400", border: "border-rose-500/30", bg: "bg-rose-500/10" };
+    if (s.includes("munger") || s.includes("quality")) return { name: "Charlie Munger", type: "Quality", color: "text-violet-400", border: "border-violet-500/30", bg: "bg-violet-500/10" };
+    if (s.includes("wood") || s.includes("disrupt")) return { name: "Cathie Wood", type: "Innovation", color: "text-fuchsia-400", border: "border-fuchsia-500/30", bg: "bg-fuchsia-500/10" };
+    if (s.includes("greenberg") || s.includes("conviction")) return { name: "Glenn Greenberg", type: "Concentrated", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-500/10" };
+    if (s.includes("welling") || s.includes("activist")) return { name: "Glenn Welling", type: "Event", color: "text-indigo-400", border: "border-indigo-500/30", bg: "bg-indigo-500/10" };
+    return null;
+};
+
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
@@ -1259,7 +1273,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <h4 className="text-xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
-                                <div className="flex gap-3 ml-auto">
+                                <div className="flex items-center gap-3 ml-auto">
+                                    {/* LEGEND BADGE (NEW) */}
+                                    {(() => {
+                                        const legend = getLegendStrategy(selectedStock.analysisLogic || selectedStock.selectionReasons?.join(" "));
+                                        if (legend) {
+                                            return (
+                                                <div className={`flex items-center gap-2 px-3 py-1.5 rounded-full border ${legend.bg} ${legend.border}`}>
+                                                    <span className={`w-2 h-2 rounded-full ${legend.color.replace('text-', 'bg-')}`}></span>
+                                                    <span className={`text-[9px] font-black uppercase tracking-widest ${legend.color}`}>
+                                                        {legend.type}: {legend.name}
+                                                    </span>
+                                                </div>
+                                            );
+                                        }
+                                        return null;
+                                    })()}
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
                             </div>
