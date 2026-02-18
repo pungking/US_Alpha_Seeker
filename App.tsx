@@ -39,6 +39,9 @@ const App: React.FC = () => {
   const [isGdriveConnected, setIsGdriveConnected] = useState(!!sessionStorage.getItem('gdrive_access_token'));
   const [isProd, setIsProd] = useState(false);
   
+  // --- CLOCK STATE (Restored) ---
+  const [currentTime, setCurrentTime] = useState(new Date());
+
   // --- HYBRID MODE STATE ---
   const [viewMode, setViewMode] = useState<'MANUAL' | 'AUTO'>('MANUAL');
   const [isAutoPilotRunning, setIsAutoPilotRunning] = useState(false);
@@ -87,6 +90,12 @@ const App: React.FC = () => {
           setShowLegalDocs(true);
       }
   }, [isGdriveConnected]);
+
+  // CLOCK TICKER (Restored)
+  useEffect(() => {
+      const timer = setInterval(() => setCurrentTime(new Date()), 1000);
+      return () => clearInterval(timer);
+  }, []);
 
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
@@ -277,10 +286,14 @@ const App: React.FC = () => {
       }, targetBrain);
 
       // [AUTO-TOGGLE] Robust Failover Logic
+      // Checks for various failure keywords including specific Quota errors
       if (report.includes("AUDIT_FAILURE") || report.includes("ERROR") || report.includes("API Key Missing") || report.includes("QUOTA_EXCEEDED")) {
+         // Specifically if Gemini failed with a Quota/Rate Limit error
          if (targetBrain === ApiProvider.GEMINI) {
+             console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar for next attempt.");
+             
+             // 1. Switch UI State ONLY. Do not auto-retry in Manual Audit.
              setAuditBrain(ApiProvider.PERPLEXITY);
-             console.warn("Gemini Audit Failed/Quota Exceeded. Auto-switching to Sonar.");
          }
       } else {
          // [NEW] Automatic Report Archiving (Only on Success)
@@ -291,6 +304,7 @@ const App: React.FC = () => {
              const brain = targetBrain === ApiProvider.GEMINI ? 'Gemini' : 'Sonar';
              const fileName = `${date}_${type}_${selectedStock.symbol}_${brain}.md`;
              
+             // Fire and forget archive
              archiveReport(token, fileName, report).then(ok => {
                  if(ok) console.log(`[Archive] Report Saved: ${fileName}`);
                  else console.warn(`[Archive] Failed to save report: ${fileName}`);
@@ -299,7 +313,9 @@ const App: React.FC = () => {
       }
 
       setStockAuditCache(prev => ({ ...prev, [cacheKey]: report }));
+      
     } catch (err: any) {
+      // If the retry itself failed or some other catastrophic error
       if (targetBrain === ApiProvider.GEMINI) {
          setAuditBrain(ApiProvider.PERPLEXITY);
          console.warn("Critical Audit Error. Auto-switching to Sonar.");
@@ -362,8 +378,24 @@ const App: React.FC = () => {
           <span>Pipeline: Stage_{currentStage}</span>
         </div>
         
+        {/* WORLD CLOCKS (Restored and positioned left of legal links) */}
+        <div className="flex items-center gap-4 px-6 border-l border-white/5 ml-auto mr-6 shrink-0 hidden lg:flex">
+             <div className="flex items-center gap-2">
+                 <span className="text-[7px] font-black text-slate-500">SEOUL</span>
+                 <span className="font-mono text-white text-[9px] font-bold">
+                     {currentTime.toLocaleTimeString('en-US', { timeZone: 'Asia/Seoul', hour12: false, hour: '2-digit', minute: '2-digit' })}
+                 </span>
+             </div>
+             <div className="flex items-center gap-2">
+                 <span className="text-[7px] font-black text-slate-500">NEW YORK</span>
+                 <span className="font-mono text-orange-400 text-[9px] font-bold">
+                     {currentTime.toLocaleTimeString('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' })}
+                 </span>
+             </div>
+        </div>
+        
         {/* LEGAL LINKS (Google Compliance - Explicit <a href> tags required) */}
-        <div className="ml-auto mr-6 flex items-center gap-2 shrink-0">
+        <div className="flex items-center gap-2 shrink-0 mr-6">
             <a 
                 href="?doc=privacy"
                 onClick={(e) => { e.preventDefault(); setInitialLegalTab('privacy'); setShowLegalDocs(true); }} 
@@ -381,7 +413,7 @@ const App: React.FC = () => {
             </a>
         </div>
 
-        <a href={GITHUB_REPO} className="opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
+        <a href={GITHUB_REPO} className="ml-auto opacity-40 hover:opacity-100 transition-opacity shrink-0">Nexus_Source</a>
       </div>
 
       <header className="flex flex-col md:flex-row justify-between items-start md:items-end py-2 gap-4">
@@ -389,7 +421,6 @@ const App: React.FC = () => {
           <p className={`text-[8px] md:text-[9px] font-black uppercase tracking-[0.4em] mb-1 italic ${isMirror ? 'text-rose-500' : 'text-blue-500'}`}>US Alpha Seeker Infrastructure</p>
           <div className="flex items-center gap-4">
              <h1 className="text-2xl sm:text-3xl md:text-5xl font-black tracking-tighter text-white italic uppercase leading-tight">US_Alpha_Seeker</h1>
-             {/* REMOVED MIRROR ACTIVE BADGE HERE */}
           </div>
           <p className="text-[10px] text-slate-500 mt-1 font-medium tracking-wide animate-pulse text-right">
             © 2026. Created & Designed by Bae Sang Min
@@ -494,9 +525,9 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      <main className="min-h-[450px] relative">
-        {/* REVERTED: Using CSS class toggling (hidden/block) instead of conditional rendering to preserve state */}
-        <div className={currentStage === 0 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+      <main className="min-h-[450px]">
+        {/* Pass autoStart (true only if Mirror + running + currentStage matches) and onComplete handler */}
+        <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
           <UniverseGathering 
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
@@ -506,41 +537,45 @@ const App: React.FC = () => {
             onComplete={() => handleStageComplete(0)}
           />
         </div>
-        <div className={currentStage === 1 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+        <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
           <PreliminaryFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
             onComplete={() => handleStageComplete(1)}
           />
         </div>
-        <div className={currentStage === 2 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+        <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
           <DeepQualityFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 2}
           />
         </div>
-        <div className={currentStage === 3 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+        <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
           <FundamentalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
             onComplete={() => handleStageComplete(3)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 3}
           />
         </div>
-        <div className={currentStage === 4 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+        <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
           <TechnicalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
             onComplete={() => handleStageComplete(4)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 4}
           />
         </div>
-        <div className={currentStage === 5 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+        <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
           <IctAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
             onComplete={() => handleStageComplete(5)}
             onStockSelected={setSelectedStock}
+            isVisible={currentStage === 5}
           />
         </div>
-        <div className={currentStage === 6 ? 'block animate-in fade-in duration-500' : 'hidden'}>
+        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
             setSelectedBrain={setSelectedBrain}
@@ -552,6 +587,7 @@ const App: React.FC = () => {
             analyzingSymbols={analyzingStocks}
             autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
             onComplete={(report) => handleStageComplete(6, report)}
+            isVisible={currentStage === 6}
           />
         </div>
       </main>
