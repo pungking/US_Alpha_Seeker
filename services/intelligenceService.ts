@@ -93,21 +93,21 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "Verdict: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT', 'SPECULATIVE_BUY'" },
       marketCapClass: { type: Type.STRING, description: "Size: 'LARGE', 'MID', 'SMALL', 'MICRO'" },
       sectorTheme: { type: Type.STRING, description: "Theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Analysis in Korean Markdown. No Emojis." },
-      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "3 key reasons in Korean" },
-      convictionScore: { type: Type.NUMBER, description: "Confidence 0-100" },
-      newsSentiment: { type: Type.STRING, description: "Positive/Neutral/Negative" },
-      newsScore: { type: Type.NUMBER, description: "0.0-1.0" },
-      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)'" },
+      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Council Debate' format." },
+      selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of exactly 3 reasons in Korean: [1.Sector, 2.Fundamentals, 3.Technical]" },
+      convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
+      newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
+      newsScore: { type: Type.NUMBER, description: "Sentiment score 0.0 to 1.0" },
+      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Stable Growth)'" },
       theme: { type: Type.STRING },
-      aiSentiment: { type: Type.STRING },
-      analysisLogic: { type: Type.STRING },
-      chartPattern: { type: Type.STRING },
-      supportLevel: { type: Type.NUMBER },
-      resistanceLevel: { type: Type.NUMBER },
-      stopLoss: { type: Type.NUMBER },
-      riskRewardRatio: { type: Type.STRING },
-      kellyWeight: { type: Type.STRING }
+      aiSentiment: { type: Type.STRING, description: "Overall Sentiment description in Korean" },
+      analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
+      chartPattern: { type: Type.STRING, description: "Detected technical pattern name (e.g. 'Wyckoff SOS')" },
+      supportLevel: { type: Type.NUMBER, description: "Optimal Entry Zone" },
+      resistanceLevel: { type: Type.NUMBER, description: "Profit Target" },
+      stopLoss: { type: Type.NUMBER, description: "Invalidation Level" },
+      riskRewardRatio: { type: Type.STRING, description: "Risk-to-Reward ratio e.g. 1:4.5" },
+      kellyWeight: { type: Type.STRING, description: "Suggested portfolio weight based on Kelly Criterion" }
     },
     required: ["symbol", "aiVerdict", "marketCapClass", "sectorTheme", "investmentOutlook", "selectionReasons", "convictionScore", "newsSentiment", "newsScore", "expectedReturn", "theme", "aiSentiment", "analysisLogic", "chartPattern", "supportLevel", "resistanceLevel", "stopLoss", "riskRewardRatio"]
   }
@@ -316,24 +316,19 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
-  [SYSTEM ROLE: Historical Data Processor]
-  You are a non-sentient calculation engine.
-  Task: Map provided technical parameters to a JSON timeline array.
+  [Task] Perform a quantitative backtest simulation for ticker ${stock.symbol} based on its technical setup.
+  Technical Context: Score=${stock.technicalScore}, Support=${stock.supportLevel}, Resistance=${stock.resistanceLevel}.
   
-  [INPUTS]
-  - Ticker: ${stock.symbol}
-  - Trend Score: ${stock.technicalScore} (0-100)
-  - Period: 24 Months
-  
-  [INSTRUCTION]
-  1. Generate a synthetic equity curve (24 data points) based on the Trend Score.
-  2. If Score > 60: Curve implies upward drift.
-  3. If Score < 40: Curve implies volatility or drawdown.
-  4. Calculate statistical metrics (Win Rate, Profit Factor) mathematically.
-  
-  [OUTPUT FORMAT]
-  Return purely JSON matching the schema. No text. No analysis.
-  schema = ${JSON.stringify(BACKTEST_SCHEMA)}
+  **IMPORTANT**: The analysis period MUST be 24 months (2 years).
+  Return exactly 24 monthly data points in the equityCurve array.
+
+  Return a JSON object matching this schema:
+  {
+      "simulationPeriod": "2023.01 ~ 2025.01",
+      "equityCurve": [{ "period": "23.01", "value": 0 }, ... 24 monthly points ...],
+      "metrics": { "winRate": "65%", "profitFactor": "2.1", "maxDrawdown": "-15%", "sharpeRatio": "1.5" },
+      "historicalContext": "Write a realistic analysis of how this strategy would have performed in Korean Markdown. DO NOT USE EMOJIS."
+  }
   `;
 
   try {
@@ -355,7 +350,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     let pRes;
     const body = JSON.stringify({
         model: 'sonar-pro', 
-        messages: [{ role: "user", content: prompt }]
+        messages: [{ role: "user", content: prompt + " Return valid JSON only." }]
     });
 
     try {
@@ -711,47 +706,91 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       }
   }));
 
-  // [SYSTEM INSTRUCTION - ENHANCED FOR TEN-BAGGER HUNT & SPECIFIC TAGS]
+  // [SYSTEM INSTRUCTION - REVERTED TO 'COUNCIL DEBATE' + ENHANCED TAGS]
   const SYSTEM_INSTRUCTION = `
-  [ROLE: Financial Data Structuring Engine (Offline Mode)]
-  You are a JSON processing unit acting as a "Global Alpha Finder".
-  
-  [ALGORITHM: 3-VECTOR FUSION (TEN-BAGGER EDITION)]
-  1. **Vector A (Ten-Bagger Potential)**:
-     - **Super Growth**: Revenue Growth > 20%.
-     - **Small Cap Advantage**: Market Cap < $5B is preferred for explosive growth.
-     - **Value**: PEG Ratio < 1.5 is ideal.
-  2. **Vector B (Supply Shock - "Hidden Gem")**:
-     - **Float Scarcity**: High Institutional Ownership (> 70%) OR very low float.
-     - **Volume Spike**: Relative Volume (RVOL) > 1.5.
-  3. **Vector C (Catalyst & Technical)**:
-     - **ICT Setup**: "Power Trend" alignment or "Volatility Squeeze" breakout.
-     - **News Catalyst**: Use your search tool to check for recent "Game Changing" news (FDA, Contract, Merger).
+  [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
+  You are the final decision-making engine for a quantitative hedge fund.
+  You are receiving the top 12-50 elite candidates from the previous ICT stage.
+  Your goal is to output a definitive "Investment Order Sheet" for exactly 6 assets.
 
-  [OUTPUT INSTRUCTION]
-  - Return strictly valid JSON Array matching the provided schema.
-  - \`aiVerdict\`: "STRONG_BUY" (Score > 85), "BUY" (Score > 70), "HOLD", "SPECULATIVE_BUY" (if high risk high reward).
-  - \`investmentOutlook\`: Detailed strategic memo in **Korean Markdown**. MUST include a "Risk" section.
-  - \`expectedReturn\`: **MUST use specific tags** in this format: "+XX% (Tag)".
+  Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
+
+  [PIPELINE EXECUTION LOGIC - MANDATORY]
+
+  🔥 **Step 1: Neural Sieve (Correlation & Theme Filter)**
+  - Sector Constraint: You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
+  - Theme Check: Favor stocks aligning with current strong themes (e.g., AI, Defense, Bio, Industrial).
+  - Kill correlators: Do not pick more than 2 stocks that move identically.
+
+  📰 **Step 2: News Sentiment & Real-Time Context (THE FINAL GATE)**
+  - **CRITICAL ACTION**: You MUST search for recent news (last 48h) for each shortlisted candidate.
+  - **Sentiment Filter**: Score news sentiment from 0.0 to 1.0. 
+    - If sentiment < 0.6: **REJECT** immediately, even if technicals are good.
+    - Look for: Earnings beats, M&A, FDA approvals, Contracts, Institutional Upgrades.
+  - **Rejection Logic**: Avoid stocks with recent accounting scandals, lawsuits, or dilution news.
+
+  🚀 **Step 3: Wyckoff SOS (Sign of Strength) Verification**
+  - **Effort vs Result**: Verify if Volume > 2x Avg while Price increases (Valid Breakout).
+  - **Thrust**: Check if Price Range > 1.5x ATR (Momentum Injection).
+
+  🎯 **Step 4: Execution & Risk Parameters**
+  - **Entry (P_entry)**: \`min(OrderBlock, VWAP * 0.98)\`.
+  - **Stop-Loss (P_sl)**: \`Support - (1.5 * ATR)\`.
+  - **Allocation (Kelly)**: Suggest higher weight for stocks with Sentiment > 0.8 and Conviction > 90.
+
+  [OUTPUT REQUIREMENTS - JSON ONLY]
+  Return a JSON Array of exactly 6 Stocks.
+  Each object must strictly match this schema:
+  - **symbol**: Ticker.
+  - **aiVerdict**: "STRONG_BUY" (Score>90 + Good News), "BUY" (Score>80), "PARTIAL_EXIT" (Bad News).
+  - **convictionScore**: 0-100.
+  - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
+  - **newsScore**: 0.0 to 1.0 float.
+  - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
+  - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** that must correspond to: [1. Sector/Theme Growth, 2. Earnings/Fundamental Logic, 3. Technical/Supply Logic]. Do NOT merge them into one.
+  - **expectedReturn**: **MUST use specific tags** in this format: "+XX% (Tag)".
      - Tags to use: "High Target", "Long-Term", "Ten-Bagger", "High Upside", "Strategic", "Speculative", "Stable Growth". 
      - Do NOT use generic tags like "Swing".
-  - \`kellyWeight\`: Aggressive for high conviction (max 20%), conservative otherwise.
+  - **supportLevel**: Entry Price.
+  - **resistanceLevel**: Target Price.
+  - **stopLoss**: Stop Price.
+  - **riskRewardRatio**: e.g., "1:4.5".
+  - **kellyWeight**: e.g., "15%".
+  - **chartPattern**: e.g. "Wyckoff SOS".
+  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
+
+  Markdown Template for investmentOutlook:
   
-  [REAL-TIME DATA INTEGRATION]
-  - Use your search tools (if available) to verify recent news/catalysts.
-  
-  Current VIX: ${vixValue}.
+  ## 1. 전문가 3인 성향 분석 (The Council Debate)
+  - **보수적 퀀트 (Conservative Quant)** : [Analysis of Fundamentals, Valuation, Safety in Korean]
+  - **공격적 트레이더 (Aggressive Trader)** : [Analysis of Momentum, News, Catalysts in Korean]
+  - **마켓 메이커 (Market Maker)** : [Analysis of Liquidity, Order Blocks, Traps in Korean]
+  - **종합 분석 (Comprehensive Analysis)** : [Synthesis of all 3 views into a final verdict in Korean]
+
+  ## 2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
+  [Write in a structured, bulleted list format (개조식) for clarity. Do not write a single long paragraph.]
+  - **핵심 논거 (Key Thesis)**: ...
+  - **상승 촉매 (Catalysts)**: ...
+  - **리스크 요인 (Risk Factors)**: ...
+  - **가격 목표 (Trajectory)**: ...
+
+  **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
+  Language: Korean.
   `;
 
   const prompt = `
-  [INPUT STREAM]
-  Vectors: ${JSON.stringify(vectorInputs)}
+  [INPUT DATA: 3-VECTOR FUSION]
+  Current Date: ${today}
+  Market Context: ${regimeContext}
+  Candidates: ${JSON.stringify(vectorInputs)}
 
-  [EXECUTE]
-  Map to JSON Schema.
-  Language: Korean.
-  NO EMOJIS in JSON values.
-  Ensure expectedReturn uses tags like (Ten-Bagger), (High Upside), (Long-Term).
+  Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
+  1. Filter 50 -> 15 based on Sector/Theme.
+  2. Perform NEWS SEARCH on top 15.
+  3. Filter 15 -> 6 based on Sentiment > 0.6 and Wyckoff SOS.
+  4. Calculate Entry/Stop/Kelly for the Final 6.
+  
+  Output the JSON array.
   `;
 
   // [INTERNAL LOGIC] Execute Perplexity
