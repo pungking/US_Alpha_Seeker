@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -114,6 +113,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const [gatheredRegistry, setGatheredRegistry] = useState<Map<string, MasterTicker>>(new Map());
   
   // --- REAL-TIME FEED SYSTEM ---
+  // [FIXED] Added setters for state to prevent runtime errors
   const [isLive, setIsLive] = useState(false);
   const [liveSource, setLiveSource] = useState<string>('');
   const [connectionHealth, setConnectionHealth] = useState<'EXCELLENT' | 'GOOD' | 'POOR' | 'CRITICAL'>('GOOD');
