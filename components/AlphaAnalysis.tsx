@@ -59,7 +59,7 @@ interface Props {
   isVisible?: boolean;
 }
 
-// ... (METRIC_DEFINITIONS, FRAMEWORK_INSIGHTS, ALPHA_INSIGHTS, MarkdownComponents remain same) ...
+// ... (METRIC_DEFINITIONS, FRAMEWORK_INSIGHTS, ALPHA_INSIGHTS remain same) ...
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
@@ -174,13 +174,13 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [RESTORED & REFINED] 'Council Debate' Markdown Styles
+// [FORCED STYLE FIX] Markdown Component Overrides
 const MarkdownComponents: any = {
     h1: (props: any) => (
         <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
+    // [CRITICAL FIX] Forcefully split title and subtitle by last opening parenthesis
     h2: (props: any) => {
-        // [FORCE FIX] Explicitly handle children to ensure string availability
         const extractText = (node: any): string => {
              if (typeof node === 'string') return node;
              if (Array.isArray(node)) return node.map(extractText).join('');
@@ -190,29 +190,27 @@ const MarkdownComponents: any = {
 
         const text = extractText(props.children);
         
-        // Match specific patterns for the headers we want to style differently
-        // Target: "1. 전문가 3인 성향 분석 (The Council Debate)"
-        // Target: "2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)"
-        if (text.includes("전문가 3인") || text.includes("Alpha Thesis") || text.includes("Strategic Scenario")) {
-            // Split by the *last* open parenthesis to separate the English subtitle
-            const lastParenIndex = text.lastIndexOf('(');
-            
-            if (lastParenIndex > -1) {
-                const mainTitle = text.substring(0, lastParenIndex).trim();
-                const subTitle = text.substring(lastParenIndex).trim();
+        // Find the LAST opening parenthesis to split the string
+        // Example: "1. 전문가 3인 성향 분석 (The Council Debate)"
+        const lastParenIndex = text.lastIndexOf('(');
+        
+        if (lastParenIndex > 0) {
+            const mainTitle = text.substring(0, lastParenIndex).trim();
+            const subTitle = text.substring(lastParenIndex).trim();
 
-                return (
-                    <h2 className="text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-2">
-                        <span className="text-[17px] text-white font-black">{mainTitle}</span>
-                        <span className="text-[12px] text-slate-500 font-bold tracking-normal normal-case opacity-90">
+            return (
+                <div className="mt-8 mb-4 border-b border-white/10 pb-2">
+                    <h2 className="text-[17px] font-bold text-white leading-snug flex flex-wrap items-baseline gap-2">
+                        <span>{mainTitle}</span>
+                        <span className="text-[12px] text-slate-500 font-medium tracking-normal normal-case opacity-80">
                             {subTitle}
                         </span>
                     </h2>
-                );
-            }
+                </div>
+            );
         }
         
-        // Fallback for other h2s or if regex fails
+        // Fallback if no parenthesis found
         return <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props} />;
     },
     h3: (props: any) => (
@@ -245,7 +243,7 @@ const MarkdownComponents: any = {
     hr: () => <div className="h-2" /> 
 };
 
-// [NEW] Distribution Data Calculation Logic
+// ... (Rest of the file remains same logic, just keeping structure) ...
 const generateNormalDistribution = (mean: number, stdDev: number, limit: number = 4) => {
   const data = [];
   const min = mean - limit * stdDev;
@@ -1644,7 +1642,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                         </div>
                     ) : (
-                        <div className="h-full flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
+                        <div className="h-[200px] flex flex-col items-center justify-center border border-dashed border-white/10 rounded-[30px] bg-white/5">
                             <div className="w-12 h-12 bg-slate-800 rounded-full flex items-center justify-center mb-4">
                                 <svg className="w-5 h-5 text-slate-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
                             </div>
