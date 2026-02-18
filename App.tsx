@@ -525,9 +525,8 @@ const App: React.FC = () => {
         ))}
       </nav>
 
-      <main className="min-h-[450px]">
-        {/* Pass autoStart (true only if Mirror + running + currentStage matches) and onComplete handler */}
-        <div style={{ display: currentStage === 0 ? 'block' : 'none' }}>
+      <main className="min-h-[450px] flex-1">
+        <div className="w-full h-full" style={{ display: currentStage === 0 ? 'block' : 'none' }}>
           <UniverseGathering 
             isActive={currentStage === 0} 
             apiStatuses={apiStatuses}
@@ -537,13 +536,13 @@ const App: React.FC = () => {
             onComplete={() => handleStageComplete(0)}
           />
         </div>
-        <div style={{ display: currentStage === 1 ? 'block' : 'none' }}>
+        <div className="w-full h-full" style={{ display: currentStage === 1 ? 'block' : 'none' }}>
           <PreliminaryFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
             onComplete={() => handleStageComplete(1)}
           />
         </div>
-        <div style={{ display: currentStage === 2 ? 'block' : 'none' }}>
+        <div className="w-full h-full" style={{ display: currentStage === 2 ? 'block' : 'none' }}>
           <DeepQualityFilter 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
             onComplete={() => handleStageComplete(2)}
@@ -551,7 +550,7 @@ const App: React.FC = () => {
             isVisible={currentStage === 2}
           />
         </div>
-        <div style={{ display: currentStage === 3 ? 'block' : 'none' }}>
+        <div className="w-full h-full" style={{ display: currentStage === 3 ? 'block' : 'none' }}>
           <FundamentalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
             onComplete={() => handleStageComplete(3)}
@@ -559,7 +558,7 @@ const App: React.FC = () => {
             isVisible={currentStage === 3}
           />
         </div>
-        <div style={{ display: currentStage === 4 ? 'block' : 'none' }}>
+        <div className="w-full h-full" style={{ display: currentStage === 4 ? 'block' : 'none' }}>
           <TechnicalAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
             onComplete={() => handleStageComplete(4)}
@@ -567,7 +566,7 @@ const App: React.FC = () => {
             isVisible={currentStage === 4}
           />
         </div>
-        <div style={{ display: currentStage === 5 ? 'block' : 'none' }}>
+        <div className="w-full h-full" style={{ display: currentStage === 5 ? 'block' : 'none' }}>
           <IctAnalysis 
             autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
             onComplete={() => handleStageComplete(5)}
@@ -575,7 +574,7 @@ const App: React.FC = () => {
             isVisible={currentStage === 5}
           />
         </div>
-        <div style={{ display: currentStage === 6 ? 'block' : 'none' }}>
+        <div className="w-full h-full" style={{ display: currentStage === 6 ? 'block' : 'none' }}>
           <AlphaAnalysis 
             selectedBrain={selectedBrain} 
             setSelectedBrain={setSelectedBrain}
