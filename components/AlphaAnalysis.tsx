@@ -174,16 +174,34 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
-// [RESTORED] Original 'Council Debate' Markdown Styles
+// [RESTORED & REFINED] 'Council Debate' Markdown Styles
 const MarkdownComponents: any = {
     h1: (props: any) => (
         <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
     ),
     h2: (props: any) => {
         const text = String(props.children || "");
-        // Custom check for 'Council Debate' style headers to style them nicely
+        
+        // Custom logic to handle "1. Korean Title (English Title)" pattern
+        // We want to make the English part smaller and keep it on the same line if possible, or wrap nicely.
+        // And FORCE WHITE color as requested.
+        
         if (text.includes("전문가 3인") || text.includes("Alpha Thesis")) {
-             return <h2 className="text-lg font-bold text-emerald-400 mt-6 mb-3 uppercase tracking-wide flex items-center gap-2 border-b border-white/10 pb-2" {...props} />;
+             // Split by the first opening parenthesis to separate Korean and English
+             const parts = text.split('(');
+             const mainTitle = parts[0];
+             const subTitle = parts.length > 1 ? `(${parts.slice(1).join('(')}` : "";
+
+             return (
+                <h2 className="text-lg font-bold text-white mt-6 mb-3 uppercase tracking-wide border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-2">
+                    <span>{mainTitle}</span>
+                    {subTitle && (
+                        <span className="text-[10px] text-slate-400 font-normal tracking-normal normal-case opacity-80 transform translate-y-[-1px]">
+                            {subTitle}
+                        </span>
+                    )}
+                </h2>
+             );
         }
         return <h2 className="text-[17px] font-bold text-white mt-4 mb-3 leading-snug" {...props} />;
     },
