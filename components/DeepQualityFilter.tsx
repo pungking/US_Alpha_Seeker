@@ -1,4 +1,3 @@
-
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
@@ -10,6 +9,7 @@ interface Props {
   autoStart?: boolean;
   onComplete?: () => void;
   onStockSelected?: (stock: any) => void;
+  isVisible?: boolean; // [NEW] Added prop
 }
 
 // [KNOWLEDGE BASE] Quant Metric Definitions
@@ -46,6 +46,8 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+// ... (Rest of utils code remains same) ...
+
 // --- QUANT ENGINE UTILS ---
 
 const imputeValue = (val: any, fallback: number, allowZero: boolean = false): number => {
@@ -71,7 +73,7 @@ const sanitizeData = (item: any) => {
     return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
 };
 
-const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected }) => {
+const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
   const [processedData, setProcessedData] = useState<any[]>([]);
@@ -82,6 +84,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
+  // ... (Effect hooks remain same) ...
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
@@ -129,6 +132,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       } catch (e) { return null; }
   };
 
+  // ... (Drive Utils remain same) ...
   // --- DRIVE UTILS ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
@@ -174,6 +178,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   // --- AI ANALYSIS (Value Trap Check) ---
   const performAiAudit = async (candidates: any[]) => {
+      // ... (Same logic) ...
       if (!candidates || candidates.length === 0) return null;
 
       const topCandidates = candidates.slice(0, 5);
@@ -256,6 +261,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const executeDeepFilter = async () => {
+      // ... (Keep existing execution logic) ...
       if (!accessToken || loading) return;
       setLoading(true);
       setProcessedData([]);
@@ -462,6 +468,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         {/* Main Panel - Violet Theme */}
         <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-violet-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
+            {/* Header Content */}
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 rounded-3xl bg-violet-600/10 flex items-center justify-center border border-violet-500/20 ${loading ? 'animate-pulse' : ''}`}>
                  <svg className={`w-5 h-5 text-violet-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M9 12l2 2 4-4m5.618-4.016A11.955 11.955 0 0112 2.944a11.955 11.955 0 01-8.618 3.04A12.02 12.02 0 003 9c0 5.591 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.042-.133-2.052-.382-3.016z" /></svg>
@@ -560,23 +567,26 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           </div>
 
                           <div className="flex-1 w-full relative -ml-4 my-2">
-                              <ResponsiveContainer width="100%" height="100%">
-                                  <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
-                                      <PolarGrid stroke="#334155" opacity={0.3} />
-                                      <PolarAngleAxis 
-                                        dataKey="subject" 
-                                        tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold', cursor: 'pointer' }}
-                                        onClick={({ payload }) => {
-                                            if (payload.value === 'Profit') setActiveInsight('PROFIT_SCORE');
-                                            if (payload.value === 'Safety') setActiveInsight('SAFETY_SCORE');
-                                            if (payload.value === 'Value') setActiveInsight('VALUE_SCORE');
-                                        }}
-                                      />
-                                      <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                      <Radar name={selectedTicker.symbol} dataKey="A" stroke="#8b5cf6" strokeWidth={2} fill="#8b5cf6" fillOpacity={0.4} />
-                                      <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#8b5cf6', fontSize: '10px' }} />
-                                  </RadarChart>
-                              </ResponsiveContainer>
+                              {/* [FIX] Conditional rendering to prevent 0-size error */}
+                              {isVisible && (
+                                <ResponsiveContainer width="100%" height="100%">
+                                    <RadarChart cx="50%" cy="50%" outerRadius="70%" data={selectedTicker.radarData}>
+                                        <PolarGrid stroke="#334155" opacity={0.3} />
+                                        <PolarAngleAxis 
+                                            dataKey="subject" 
+                                            tick={{ fill: '#94a3b8', fontSize: 9, fontWeight: 'bold', cursor: 'pointer' }}
+                                            onClick={({ payload }) => {
+                                                if (payload.value === 'Profit') setActiveInsight('PROFIT_SCORE');
+                                                if (payload.value === 'Safety') setActiveInsight('SAFETY_SCORE');
+                                                if (payload.value === 'Value') setActiveInsight('VALUE_SCORE');
+                                            }}
+                                        />
+                                        <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                        <Radar name={selectedTicker.symbol} dataKey="A" stroke="#8b5cf6" strokeWidth={2} fill="#8b5cf6" fillOpacity={0.4} />
+                                        <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b', borderRadius: '8px' }} itemStyle={{ color: '#8b5cf6', fontSize: '10px' }} />
+                                    </RadarChart>
+                                </ResponsiveContainer>
+                              )}
                           </div>
                           
                           <div className="grid grid-cols-3 gap-2 mt-2">
