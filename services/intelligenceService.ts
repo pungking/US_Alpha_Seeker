@@ -147,54 +147,51 @@ function sanitizeAndParseJson(text: string): any | null {
   if (!text) return null;
   try {
     let cleanText = text.trim();
+    // Remove markdown code blocks if present
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
     cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
     
-    // Find first { or [
+    // Attempt to extract JSON array or object
     const firstBracket = cleanText.indexOf('[');
-    const firstCurly = cleanText.indexOf('{');
-    
-    let startIdx = 0;
-    if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
-       startIdx = firstBracket;
-    } else if (firstCurly !== -1) {
-       startIdx = firstCurly;
-    } else {
-        return null;
-    }
-    
-    cleanText = cleanText.substring(startIdx);
-    
-    // Find last } or ]
     const lastBracket = cleanText.lastIndexOf(']');
+    const firstCurly = cleanText.indexOf('{');
     const lastCurly = cleanText.lastIndexOf('}');
-    const endIdx = Math.max(lastBracket, lastCurly);
     
-    if (endIdx !== -1) {
-        cleanText = cleanText.substring(0, endIdx + 1);
+    if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
+      if (lastBracket !== -1) {
+        return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
+      }
+    }
+    if (firstCurly !== -1) {
+       if (lastCurly !== -1) {
+          return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+       }
     }
     
+    // Fallback: try parsing the whole cleaned string
     return JSON.parse(cleanText);
   } catch (e) {
-    console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text);
+    // Only log critical errors to avoid console noise for minor partial failures
+    // console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text); 
     return null;
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 3000): Promise<any> {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000): Promise<any> {
   try { return await fn(); } catch (error: any) {
     const msg = (error.message || JSON.stringify(error)).toLowerCase();
-    if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized')) throw error; 
     
-    if ((msg.includes('load failed') || msg.includes('failed to fetch')) && retries > 0) {
-        // Just retry
-    } else if (msg.includes('load failed') || msg.includes('failed to fetch')) {
-        throw new Error("CORS/Network Error. Browser blocked the request.");
+    // Fatal errors that shouldn't be retried immediately
+    if (msg.includes('401') || msg.includes('402') || msg.includes('payment') || msg.includes('unauthorized') || msg.includes('api_key_missing')) throw error; 
+    
+    // Log for debugging 429s (Gemini Rate Limits often happen even with credits)
+    if (msg.includes('429') || msg.includes('resource_exhausted') || msg.includes('quota')) {
+        console.warn(`[API Retry] 429/Quota limit hit. Pausing for ${delay}ms before retry ${4-retries}...`);
     }
-    
+
     if (retries > 0) {
       await new Promise(r => setTimeout(r, delay));
-      return fetchWithRetry(fn, retries - 1, delay * 2); 
+      return fetchWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
     }
     throw error;
   }
@@ -573,13 +570,16 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     for (const model of PERPLEXITY_MODELS) {
       try {
+          // [FIX] Perplexity Sonar "Chatty" Prevention
+          // 1. Stricter System Prompt injection
+          // 2. Explicit User instruction at the end
           const body = JSON.stringify({
               model: model, 
               messages: [
-                  { role: "system", content: SYSTEM_INSTRUCTION },
-                  { role: "user", content: prompt }
+                  { role: "system", content: "You are a specialized JSON generator. You MUST output raw JSON only. Do not output any conversational text, no markdown block markers (like ```json), and no preambles like 'Here is the JSON'. Start immediately with [." },
+                  { role: "user", content: SYSTEM_INSTRUCTION + "\n\n" + prompt + "\n\nSTRICT JSON MODE: Output ONLY the JSON array. Do NOT output any introductory text like 'I appreciate the detailed prompt'. Start your response with '['." }
               ],
-              temperature: 0 // Strict deterministic mode
+              temperature: 0.1 // Low temp for determinism
           });
           
           let res;
@@ -645,6 +645,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       } catch (e: any) {
           console.warn(`Perplexity Model ${model} failed: ${e.message}`);
           lastError = e;
+          // Don't retry if auth error
           if (e.message.includes('401') || e.message.includes('402')) break;
       }
     }
@@ -668,7 +669,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
               // [ENABLED] Real-time Search Tool for Gemini
               tools: [{ googleSearch: {} }] 
           }
-        }));
+        }), 4, 5000); // [FIX] Increased retries to 4 and base delay to 5000ms for 429
+        
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         const parsed = sanitizeAndParseJson(result.text);
         
