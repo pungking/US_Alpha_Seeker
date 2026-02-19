@@ -194,7 +194,7 @@ const renderStyledHeader = (props: any) => {
         return (
              <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
                 <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
-                <span className="text-sm font-bold text-slate-500">{subTitle}</span>
+                <span className="text-sm font-bold text-slate-500 whitespace-nowrap">{subTitle}</span>
             </h2>
         );
     }
@@ -581,25 +581,43 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (!text) return "";
     let str = String(text);
     str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
+    
+    // [CLEANUP] Remove extra newlines aggressively
+    str = str.replace(/\n\s*\n/g, '\n'); 
+    
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
       .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '');
-    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n\n$2');
+      
+    // Fix headers
+    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n$2'); 
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
+    
     const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker', '종합 분석', 'Comprehensive Analysis'];
     personas.forEach(p => {
          const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
          str = str.replace(regex, `\n- **${p}** :`);
     });
+    
     str = str.replace(/^\s*-\s*$/gm, ''); 
     str = str.replace(/- -/g, '-');
-    str = str.replace(/\n\n\n+/g, '\n\n').trim();
-    return str;
+    return str.trim();
   };
 
-  const cleanMarkdown = cleanInsightText;
+  const cleanMarkdown = (text?: any) => {
+      if (text === null || text === undefined) return '';
+      return String(text)
+        .replace(/\[\d+\]/g, '')
+        .replace(/\*\*/g, '')
+        .replace(/__/g, '')
+        .replace(/\*\*/g, '') 
+        .replace(/\*/g, '')
+        .replace(/#/g, '')
+        .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
+        .trim();
+  };
 
   const getKstTimestamp = () => {
     const now = new Date();
@@ -1071,7 +1089,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
-        <div className="glass-panel p-6 md:p-8 rounded-[40px] border-t-2 border-t-rose-500 shadow-2xl transition-all duration-500">
+        <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl transition-all duration-500 ${selectedBrain === ApiProvider.GEMINI ? 'border-t-indigo-500' : 'border-t-cyan-500'}`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
             <div className="flex items-center space-x-6">
               <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-rose-600/10 flex items-center justify-center border border-rose-500/20 shadow-inner ${loading ? 'animate-pulse' : ''}`}>
@@ -1264,10 +1282,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
                             </div>
-
-                            {/* LEGENDARY INVESTOR ANALYSIS INFO BOX */}
+                            
+                            {/* [MODIFIED] Legendary Investor Strategies UI Box */}
                             <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 border border-white/10 relative overflow-hidden">
-                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                <div className="absolute top-0 right-0 p-4 opacity-10 pointer-events-none">
                                     <svg className="w-16 h-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
                                 </div>
                                 <h5 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
@@ -1287,7 +1305,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     등의 전략을 복합적으로 적용하여 최종 6종목을 추출하였습니다.
                                 </p>
                             </div>
-                            
+
                             <div className="min-h-[200px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                     {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
