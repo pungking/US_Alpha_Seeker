@@ -468,14 +468,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   🧠 **Step 2: Legendary Investor Council (STRATEGY FUSION)**
   - You must simulate a debate among 8 Legendary Investors:
-    1. **Benjamin Graham** (Deep Value, Net Net)
-    2. **Peter Lynch** (GARP, PEG Ratio)
-    3. **Warren Buffett** (Moat, Long-term)
-    4. **William O'Neil** (CANSLIM, Momentum)
-    5. **Charlie Munger** (Quality, ROIC)
-    6. **Glenn Welling** (Event-Driven, Activist)
-    7. **Cathie Wood** (Disruptive Innovation)
-    8. **Glenn Greenberg** (Concentration, Safety)
+    1. **Benjamin Graham** (Deep Value, Net Net - 방어적 가치투자)
+    2. **Peter Lynch** (GARP, PEG Ratio - 성장하는 우량주)
+    3. **Warren Buffett** (Moat, Long-term - 경제적 해자)
+    4. **William O'Neil** (CANSLIM, Momentum - 최고의 주도주)
+    5. **Charlie Munger** (Quality, ROIC - 위대한 기업)
+    6. **Glenn Welling** (Event-Driven, Activist - 강력한 촉매)
+    7. **Cathie Wood** (Disruptive Innovation - 파괴적 혁신)
+    8. **Glenn Greenberg** (Concentration, Safety - 소수 집중)
   - Select stocks that satisfy multiple legends or fit one strategy perfectly.
 
   📰 **Step 3: News Sentiment & Real-Time Context (THE FINAL GATE)**
@@ -514,33 +514,34 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - **kellyWeight**: e.g., "15%".
   - **chartPattern**: e.g. "Wyckoff SOS".
   - **analysisLogic**: Which Legend's strategy does this fit best? (e.g. "Peter Lynch", "William O'Neil")
-  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
+  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers. Content must be professional, insightful, and actionable.
 
   Markdown Template for investmentOutlook:
   
   ## 1. 전설적 투자자 위원회 분석 (The Council Debate)
-  - **벤저민 그레이엄**: [Analysis]
-  - **피터 린치**: [Analysis]
-  - **워렌 버핏**: [Analysis]
-  - **윌리엄 오닐**: [Analysis]
-  - **찰리 멍거**: [Analysis]
-  - **글렌 웰링**: [Analysis]
-  - **캐시 우드**: [Analysis]
-  - **글렌 그린버그**: [Analysis]
-  - **최종 평결**: [Consensus]
+  이 종목에 대해 8인의 전설적 투자자가 격렬한 토론을 벌입니다. 각 거장의 관점에서 본 매수/매도 논리를 요약하십시오.
+  - **벤저민 그레이엄 (Value)**: [평가 및 의견]
+  - **피터 린치 (Growth)**: [평가 및 의견]
+  - **워렌 버핏 (Moat)**: [평가 및 의견]
+  - **윌리엄 오닐 (Momentum)**: [평가 및 의견]
+  - **찰리 멍거 (Quality)**: [평가 및 의견]
+  - **글렌 웰링 (Event)**: [평가 및 의견]
+  - **캐시 우드 (Innovation)**: [평가 및 의견]
+  - **글렌 그린버그 (Focus)**: [평가 및 의견]
+  - **💡 최종 평결 (The Verdict)**: [위원회의 최종 합의 내용 요약]
 
   ## 2. 전문가 3인 성향 분석 (Internal Debate)
-  - **보수적 퀀트 (Conservative Quant)** : [Analysis]
-  - **공격적 트레이더 (Aggressive Trader)** : [Analysis]
-  - **마켓 메이커 (Market Maker)** : [Analysis]
-  - **종합 분석 (Comprehensive Analysis)** : [Synthesis]
+  - **보수적 퀀트 (Conservative Quant)** : [재무 건전성 및 밸류에이션 기반 냉철한 분석]
+  - **공격적 트레이더 (Aggressive Trader)** : [모멘텀, 차트 패턴, 수급 기반의 적극적 의견]
+  - **마켓 메이커 (Market Maker)** : [유동성, 호가창, 세력의 의도 파악]
+  - **⚖️ 종합 분석 (Comprehensive Analysis)** : [세 관점을 통합한 결론]
 
   ## 3. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
-  [Write in a structured, bulleted list format (개조식) for clarity. Do not write a single long paragraph.]
-  - **핵심 논거 (Key Thesis)**: ...
-  - **상승 촉매 (Catalysts)**: ...
-  - **리스크 요인 (Risk Factors)**: ...
-  - **가격 목표 (Trajectory)**: ...
+  [반드시 개조식(Bullet points)으로 작성하여 가독성을 극대화하십시오.]
+  - **핵심 논거 (Key Thesis)**: 이 종목을 지금 매수해야 하는 가장 강력한 이유 3가지.
+  - **상승 촉매 (Catalysts)**: 주가를 부양할 구체적인 이벤트나 뉴스 (실적, FDA, 계약 등).
+  - **리스크 요인 (Risk Factors)**: 상승을 방해할 수 있는 잠재적 위험 요소.
+  - **가격 목표 (Trajectory)**: 단기/중기/장기 목표가 및 예상 수익률 시나리오.
 
   **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
   Language: Korean.
@@ -706,125 +707,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   }
 }
 
-export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
-  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
-
-  const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
-  const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
-
-  // 1. Fetch Live Market Data with Retry Logic to prevent N/A
-  let vix = "20.00", spx = "N/A", ndx = "N/A";
-  try {
-      // Increased retry count and delay
-      const indexRes = await fetchWithRetry(async () => {
-          const res = await fetch('/api/portal_indices');
-          if (!res.ok) throw new Error("Index API Failed");
-          return res;
-      }, 5, 3000); // Retry 5 times, 3s delay
-
-      if (indexRes.ok) {
-          const indices = await indexRes.json();
-          const v = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
-          const s = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
-          const n = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
-          if(v) vix = v.price.toFixed(2);
-          if(s) spx = s.price.toFixed(0);
-          if(n) ndx = n.price.toFixed(2);
-      }
-  } catch(e) {
-      console.warn("Telegram Brief: Market Data Fetch Failed", e);
-  }
-
-  // 2. Generate "Market Pulse" Text via AI
-  const macroPrompt = `
-  [Task] Write a professional "Market Pulse" summary in Korean for a financial report.
-  
-  Data:
-  - VIX: ${vix}
-  - S&P 500: ${spx}
-  - NASDAQ: ${ndx}
-  
-  Output Format (Strict):
-  Macro: [Your Summary Here] (S&P500: ${spx} | NASDAQ: ${ndx})
-  - [Factor 1]
-  - [Factor 2]
-
-  VIX: ${vix}. ([Short Interpretation])
-  `;
-
-  let macroSection = "";
-  try {
-     if (provider === ApiProvider.GEMINI) {
-          const ai = new GoogleGenAI({ apiKey });
-          const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
-          macroSection = res.text.trim();
-      } else {
-          const body = JSON.stringify({ 
-              model: 'sonar-pro', 
-              messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
-              temperature: 0
-          });
-          let res;
-          try {
-             res = await fetch('/api/perplexity', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                body
-             });
-             if (res.status === 404) throw new Error("Proxy 404");
-          } catch(e) {
-             res = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
-                body
-             });
-          }
-
-          const json = await res.json();
-          macroSection = json.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
-      }
-  } catch (e) {
-     macroSection = `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
-  }
-
-  macroSection = removeCitations(macroSection);
-
-  // 3. Format Candidates Programmatically
-  const selections = candidates.slice(0, 6).map((c, i) => {
-      const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
-      let koreanVerdict = verdictMap[c.aiVerdict] || "매수";
-      if (!c.aiVerdict && c.compositeAlpha > 80) koreanVerdict = "강력 매수";
-
-      const reasons = c.selectionReasons || [];
-      const r1 = reasons[0] || "섹터 모멘텀 양호";
-      const r2 = reasons[1] || "안정적 펀더멘털";
-      const r3 = reasons[2] || "기술적 반등 위치";
-
-      return `${i + 1}. ${c.symbol} (${koreanVerdict}) : ${c.name}
-   - 🏢 Sector: ${c.sectorTheme || c.sector}
-   - 🎯 Plan: 진입 $${c.supportLevel?.toFixed(2) || '0.00'} | 목표 $${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 $${c.stopLoss?.toFixed(2) || '0.00'}
-   - 📈 Exp.Return: ${c.expectedReturn || "N/A"}
-   - 💡 Logic:
-     - 섹터 성장: ${removeCitations(r1)}
-     - 실적 요인: ${removeCitations(r2)}
-     - 기술적: ${removeCitations(r3)}`;
-  }).join('\n\n');
-
-  // 4. Construct Final Message
-  return `🚀 US Alpha Seeker Report 🚀
-
-📅 ${dateStr} | Daily Alpha Insight
-
-📊 Market Pulse
-${macroSection}
-
-💎 Alpha Top 6 Selections
-
-${selections}
-
-⚠️ Risk Note: 현재 VIX 지수가 ${vix}입니다. 개별 종목별로 제시된 손절가(Stop)를 엄격히 준수하고, 섹터별 비중 조절을 통해 포트폴리오 리스크를 관리하시기 바랍니다.`.trim();
-}
-
 export async function analyzePipelineStatus(data: {
   currentStage: number;
   apiStatuses: any[];
@@ -973,4 +855,123 @@ export async function analyzePipelineStatus(data: {
     }
     return `AUDIT_FAILURE: ${error.message}`;
   }
+}
+
+export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+
+  const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
+  const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
+
+  // 1. Fetch Live Market Data with Retry Logic to prevent N/A
+  let vix = "20.00", spx = "N/A", ndx = "N/A";
+  try {
+      // Increased retry count and delay
+      const indexRes = await fetchWithRetry(async () => {
+          const res = await fetch('/api/portal_indices');
+          if (!res.ok) throw new Error("Index API Failed");
+          return res;
+      }, 5, 3000); // Retry 5 times, 3s delay
+
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          const v = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          const s = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
+          const n = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
+          if(v) vix = v.price.toFixed(2);
+          if(s) spx = s.price.toFixed(0);
+          if(n) ndx = n.price.toFixed(2);
+      }
+  } catch(e) {
+      console.warn("Telegram Brief: Market Data Fetch Failed", e);
+  }
+
+  // 2. Generate "Market Pulse" Text via AI
+  const macroPrompt = `
+  [Task] Write a professional "Market Pulse" summary in Korean for a financial report.
+  
+  Data:
+  - VIX: ${vix}
+  - S&P 500: ${spx}
+  - NASDAQ: ${ndx}
+  
+  Output Format (Strict):
+  Macro: [Your Summary Here] (S&P500: ${spx} | NASDAQ: ${ndx})
+  - [Factor 1]
+  - [Factor 2]
+
+  VIX: ${vix}. ([Short Interpretation])
+  `;
+
+  let macroSection = "";
+  try {
+     if (provider === ApiProvider.GEMINI) {
+          const ai = new GoogleGenAI({ apiKey });
+          const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
+          macroSection = res.text.trim();
+      } else {
+          const body = JSON.stringify({ 
+              model: 'sonar-pro', 
+              messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
+              temperature: 0
+          });
+          let res;
+          try {
+             res = await fetch('/api/perplexity', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                body
+             });
+             if (res.status === 404) throw new Error("Proxy 404");
+          } catch(e) {
+             res = await fetch('https://api.perplexity.ai/chat/completions', {
+                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+                body
+             });
+          }
+
+          const json = await res.json();
+          macroSection = json.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
+      }
+  } catch (e) {
+     macroSection = `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
+  }
+
+  macroSection = removeCitations(macroSection);
+
+  // 3. Format Candidates Programmatically
+  const selections = candidates.slice(0, 6).map((c, i) => {
+      const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
+      let koreanVerdict = verdictMap[c.aiVerdict] || "매수";
+      if (!c.aiVerdict && c.compositeAlpha > 80) koreanVerdict = "강력 매수";
+
+      const reasons = c.selectionReasons || [];
+      const r1 = reasons[0] || "섹터 모멘텀 양호";
+      const r2 = reasons[1] || "안정적 펀더멘털";
+      const r3 = reasons[2] || "기술적 반등 위치";
+
+      return `${i + 1}. ${c.symbol} (${koreanVerdict}) : ${c.name}
+   - 🏢 Sector: ${c.sectorTheme || c.sector}
+   - 🎯 Plan: 진입 $${c.supportLevel?.toFixed(2) || '0.00'} | 목표 $${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 $${c.stopLoss?.toFixed(2) || '0.00'}
+   - 📈 Exp.Return: ${c.expectedReturn || "N/A"}
+   - 💡 Logic:
+     - 섹터 성장: ${removeCitations(r1)}
+     - 실적 요인: ${removeCitations(r2)}
+     - 기술적: ${removeCitations(r3)}`;
+  }).join('\n\n');
+
+  // 4. Construct Final Message
+  return `🚀 US Alpha Seeker Report 🚀
+
+📅 ${dateStr} | Daily Alpha Insight
+
+📊 Market Pulse
+${macroSection}
+
+💎 Alpha Top 6 Selections
+
+${selections}
+
+⚠️ Risk Note: 현재 VIX 지수가 ${vix}입니다. 개별 종목별로 제시된 손절가(Stop)를 엄격히 준수하고, 섹터별 비중 조절을 통해 포트폴리오 리스크를 관리하시기 바랍니다.`.trim();
 }
