@@ -401,11 +401,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   sentiment: selectedStock.newsSentiment || 'Neutral'
               },
               radarData: [
-                  { subject: 'Conviction', A: conviction, fullMark: 100 },
-                  { subject: 'Sentiment', A: (selectedStock.newsScore || 0.5) * 100, fullMark: 100 },
-                  { subject: 'Technical', A: selectedStock.technicalScore || 50, fullMark: 100 },
-                  { subject: 'Fundamental', A: selectedStock.fundamentalScore || 50, fullMark: 100 },
-                  { subject: 'ICT', A: selectedStock.ictScore || 50, fullMark: 100 }
+                  { subject: 'Conviction', A: Math.round(conviction), fullMark: 100 },
+                  { subject: 'Sentiment', A: Math.round((selectedStock.newsScore || 0.5) * 100), fullMark: 100 },
+                  { subject: 'Technical', A: Math.round(selectedStock.technicalScore || 50), fullMark: 100 },
+                  { subject: 'Fundamental', A: Math.round(selectedStock.fundamentalScore || 50), fullMark: 100 },
+                  { subject: 'ICT', A: Math.round(selectedStock.ictScore || 50), fullMark: 100 }
               ]
           };
       } catch (e) {
@@ -597,6 +597,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     // [CLEANUP] Remove extra newlines aggressively
     str = str.replace(/\n\s*\n/g, '\n'); 
+    
+    // [HARD FIX] Remove specific conversational prefixes
+    str = str.replace(/이 종목에 대해.*?토론을 벌입니다.*?(?=\n)/g, '');
+    str = str.replace(/8인의 전설적 투자자가.*?요약하십시오.*?(?=\n)/g, '');
+    str = str.replace(/각 거장의 관점에서.*?요약하십시오.*?(?=\n)/g, '');
     
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
@@ -1284,7 +1289,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-                                <h4 className="text-[10px] font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
+                                <h4 className="text-sm font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block whitespace-nowrap">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
                                 <div className="flex gap-3 ml-auto">
@@ -1346,7 +1351,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 9, fontWeight: 'bold' }} />
                                             <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
                                             <Radar name={selectedStock.symbol} dataKey="A" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.2} />
-                                            <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }} itemStyle={{ color: '#10b981', fontSize: '10px' }} />
+                                            <RechartsTooltip 
+                                                contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }} 
+                                                itemStyle={{ color: '#10b981', fontSize: '10px' }} 
+                                                formatter={(value: any) => Number(value).toFixed(2)}
+                                            />
                                         </RadarChart>
                                     </ResponsiveContainer>
                                 </div>
