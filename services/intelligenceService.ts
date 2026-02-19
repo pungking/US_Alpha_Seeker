@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
 import { ApiProvider } from "../types";
@@ -149,26 +148,29 @@ function sanitizeAndParseJson(text: string): any | null {
     let cleanText = text.trim();
     // Remove markdown code blocks if present
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
-    cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
+    // Remove control characters except newlines
+    cleanText = cleanText.replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g, "");
     
-    // Attempt to extract JSON array or object
+    // Find the first '[' or '{' to ignore any preamble
     const firstBracket = cleanText.indexOf('[');
-    const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
-    const lastCurly = cleanText.lastIndexOf('}');
     
+    // Determine if it looks like an array or object and slice
+    let startIdx = -1;
+    let endIdx = -1;
+
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
-      if (lastBracket !== -1) {
-        return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
-      }
+       startIdx = firstBracket;
+       endIdx = cleanText.lastIndexOf(']');
+    } else if (firstCurly !== -1) {
+       startIdx = firstCurly;
+       endIdx = cleanText.lastIndexOf('}');
     }
-    if (firstCurly !== -1) {
-       if (lastCurly !== -1) {
-          return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
-       }
+
+    if (startIdx !== -1 && endIdx !== -1) {
+        cleanText = cleanText.substring(startIdx, endIdx + 1);
     }
     
-    // Fallback: try parsing the whole cleaned string
     return JSON.parse(cleanText);
   } catch (e) {
     // Only log critical errors to avoid console noise for minor partial failures
@@ -571,14 +573,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     for (const model of PERPLEXITY_MODELS) {
       try {
-          // [FIX] Perplexity Sonar "Chatty" Prevention
-          // 1. Stricter System Prompt injection
-          // 2. Explicit User instruction at the end
+          // [FIX] Perplexity Sonar "Chatty" Prevention (Hardened)
+          // 1. Strict System Role: "Data Engine" not "Chatbot"
+          // 2. User Prompt Injection: "Do not clarify", "JSON ONLY"
           const body = JSON.stringify({
               model: model, 
               messages: [
-                  { role: "system", content: "You are a specialized JSON generator. You MUST output raw JSON only. Do not output any conversational text, no markdown block markers (like ```json), and no preambles like 'Here is the JSON'. Start immediately with [." },
-                  { role: "user", content: SYSTEM_INSTRUCTION + "\n\n" + prompt + "\n\nSTRICT JSON MODE: Output ONLY the JSON array. Do NOT output any introductory text like 'I appreciate the detailed prompt'. Start your response with '['." }
+                  { role: "system", content: "You are a specialized JSON generation engine. You are NOT a chatbot. You must NOT output conversational text, pleasantries, apologies, or markdown code blocks (like ```json). You MUST output raw JSON data starting with '[' and ending with ']'. If you are unsure, make the best estimate based on provided data. Do NOT ask for clarification." },
+                  { role: "user", content: SYSTEM_INSTRUCTION + "\n\n" + prompt + "\n\n[CRITICAL INSTRUCTION]\nOutput ONLY the valid JSON array. Do not include 'I appreciate...', 'Here is the data...', or any other text. Start response IMMEDIATELY with '['." }
               ],
               temperature: 0.1 // Low temp for determinism
           });
