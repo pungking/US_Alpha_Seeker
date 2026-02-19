@@ -173,7 +173,7 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 // [FORCED STYLE FIX] Markdown Component Overrides
-// Minimized spacing to reduce empty vertical space
+// This function handles "Main Title (Subtitle)" splitting and styling
 const renderStyledHeader = (props: any) => {
     const extractText = (node: any): string => {
             if (typeof node === 'string') return node;
@@ -185,57 +185,57 @@ const renderStyledHeader = (props: any) => {
     const text = extractText(props.children);
     
     // Regex to capture "Main Text" and "(Subtitle)"
+    // Matches anything up to the last '(', then the parenthesis content
     const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
 
-    // Reduced margin-top/bottom and font sizes
     if (match) {
         const mainTitle = match[1].trim();
         const subTitle = match[2].trim();
         return (
-             <h2 className="mt-4 mb-2 border-b border-white/10 pb-1 flex flex-wrap items-baseline gap-x-2">
-                <span className="text-sm font-black text-white tracking-tight">{mainTitle}</span>
-                <span className="text-xs font-bold text-slate-500">{subTitle}</span>
+             <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
+                <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
+                <span className="text-sm font-bold text-slate-500">{subTitle}</span>
             </h2>
         );
     }
     
     // Fallback if regex doesn't match
-    return <h2 className="text-sm font-black text-white mt-4 mb-2 border-b border-white/10 pb-1" {...props} />;
+    return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
 };
 
 const MarkdownComponents: any = {
     h1: renderStyledHeader,
     h2: renderStyledHeader,
     h3: (props: any) => (
-        <h3 className="text-xs font-bold text-blue-400 mt-2 mb-0.5" {...props} />
+        <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
     ),
     p: (props: any) => (
-        <p className="text-[11px] text-slate-300 leading-snug mb-1" {...props} />
+        <p className="text-[13px] text-slate-300 leading-relaxed mb-2" {...props} />
     ),
-    ul: (props: any) => <ul className="space-y-0.5 mb-2" {...props} />,
-    ol: (props: any) => <ol className="space-y-0.5 mb-2" {...props} />,
+    ul: (props: any) => <ul className="space-y-1.5 mb-3" {...props} />,
+    ol: (props: any) => <ol className="space-y-1.5 mb-3" {...props} />,
     li: (props: any) => (
-        <li className="text-[11px] text-slate-300 leading-snug pl-1" {...props}>
+        <li className="text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
             {props.children}
         </li>
     ),
     strong: (props: any) => (
-        <span className="inline-block bg-emerald-950/40 text-emerald-400 font-bold px-1.5 py-0 rounded border border-emerald-500/20 text-[10px] shadow-sm mr-1 align-middle tracking-tight">
+        <span className="inline-block bg-emerald-950/40 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
             {props.children}
         </span>
     ),
     blockquote: (props: any) => (
-        <blockquote className="border-l-2 border-emerald-500/30 bg-emerald-950/10 p-2 my-2 rounded-r italic text-slate-400 text-[10px]" {...props} />
+        <blockquote className="border-l-4 border-emerald-500/30 bg-emerald-950/10 p-3 my-3 rounded-r-lg italic text-slate-400 text-xs" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-emerald-300 px-1 py-0 rounded font-mono text-[9px] border border-white/10" {...props} />
-        : <div className="overflow-x-auto my-2"><pre className="bg-slate-950 p-2 rounded-lg border border-white/10 text-[9px] text-slate-300 font-mono" {...props} /></div>
+        ? <code className="bg-slate-800 text-emerald-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
+        : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
     ),
-    hr: () => <div className="h-1" /> 
+    hr: () => <div className="h-2" /> 
 };
 
-// ... (Rest of the file remains exactly the same logic) ...
+// ... (Rest of the file remains same logic, just keeping structure) ...
 const generateNormalDistribution = (mean: number, stdDev: number, limit: number = 4) => {
   const data = [];
   const min = mean - limit * stdDev;
@@ -581,43 +581,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (!text) return "";
     let str = String(text);
     str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
-    
-    // [CLEANUP] Remove extra newlines aggressively
-    str = str.replace(/\n\s*\n/g, '\n'); 
-    
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
       .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '');
-      
-    // Fix headers
-    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n$2'); 
+    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n\n$2');
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
-    
     const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker', '종합 분석', 'Comprehensive Analysis'];
     personas.forEach(p => {
          const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
          str = str.replace(regex, `\n- **${p}** :`);
     });
-    
     str = str.replace(/^\s*-\s*$/gm, ''); 
     str = str.replace(/- -/g, '-');
-    return str.trim();
+    str = str.replace(/\n\n\n+/g, '\n\n').trim();
+    return str;
   };
 
-  const cleanMarkdown = (text?: any) => {
-      if (text === null || text === undefined) return '';
-      return String(text)
-        .replace(/\[\d+\]/g, '')
-        .replace(/\*\*/g, '')
-        .replace(/__/g, '')
-        .replace(/\*\*/g, '') 
-        .replace(/\*/g, '')
-        .replace(/#/g, '')
-        .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
-        .trim();
-  };
+  const cleanMarkdown = cleanInsightText;
 
   const getKstTimestamp = () => {
     const now = new Date();
@@ -1281,6 +1263,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <div className="flex gap-3 ml-auto">
                                     <button onClick={copyReport} className="px-4 py-2 bg-white/5 hover:bg-white/10 text-white rounded-lg text-[10px] font-bold uppercase tracking-widest transition-all">Copy Report</button>
                                 </div>
+                            </div>
+
+                            {/* LEGENDARY INVESTOR ANALYSIS INFO BOX */}
+                            <div className="mb-6 p-4 rounded-2xl bg-gradient-to-r from-slate-900 to-slate-800 border border-white/10 relative overflow-hidden">
+                                <div className="absolute top-0 right-0 p-4 opacity-10">
+                                    <svg className="w-16 h-16 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                                </div>
+                                <h5 className="text-[10px] font-bold text-emerald-400 uppercase tracking-widest mb-2 flex items-center gap-2">
+                                    <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                                    Multi-Legendary Strategy Applied
+                                </h5>
+                                <p className="text-[11px] text-slate-300 leading-relaxed font-medium relative z-10">
+                                    이전 단계에서 넘어온 50개의 종목들 중에 분석 기법을 지금 있는 분석 로직에 추가적으로 
+                                    <span className="text-white font-bold"> 벤저민 그레이엄</span>(가치투자), 
+                                    <span className="text-white font-bold"> 피터 린치</span>(PEG 성장주), 
+                                    <span className="text-white font-bold"> 워렌 버핏</span>(내재가치), 
+                                    <span className="text-white font-bold"> 윌리엄 오닐</span>(CANSLIM), 
+                                    <span className="text-white font-bold"> 찰리 멍거</span>(우량주 장기투자), 
+                                    <span className="text-white font-bold"> 글렌 웰링</span>(행동주의), 
+                                    <span className="text-white font-bold"> 캐시 우드</span>(파괴적 혁신), 
+                                    <span className="text-white font-bold"> 글렌 그린버그</span>(안전마진 집중투자) 
+                                    등의 전략을 복합적으로 적용하여 최종 6종목을 추출하였습니다.
+                                </p>
                             </div>
                             
                             <div className="min-h-[200px]">
