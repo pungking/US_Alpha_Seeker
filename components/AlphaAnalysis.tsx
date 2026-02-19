@@ -384,9 +384,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   riskReward: B.toFixed(2)
               },
               selection: {
-                  erci: erci.toFixed(1),
-                  qm: qmScore.toFixed(0),
-                  ivg: ivg.toFixed(1),
+                  erci: erci.toFixed(2),
+                  qm: qmScore.toFixed(2),
+                  ivg: ivg.toFixed(2),
                   soros: sorosRatio.toFixed(2)
               },
               timing: {
@@ -529,6 +529,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
+
+                  // [FIXED] Dump Telegram Brief to Google Drive (Report Folder)
+                  const token = sessionStorage.getItem('gdrive_access_token');
+                  if (token) {
+                    const getKstTimestamp = () => {
+                        const now = new Date();
+                        const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+                        return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+                    }
+                    const timestamp = getKstTimestamp();
+                    const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
+                    await archiveReport(token, fileName, brief);
+                    addLog("Telegram Brief Archived to Drive.", "ok");
+                  }
+
               } catch (e: any) {
                   addLog(`Brief Gen Failed: ${e.message}. Sending plain status.`, "err");
                   telegramPayload = "Telegram Brief Generation Failed. Check logs.";
@@ -655,19 +670,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       if (listRes.files?.length) {
         const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-          headers: { 'Authorization': `Bearer ${accessToken}` }
+            headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         
         if (content && content.ict_universe) {
             setElite50(content.ict_universe);
-            addLog(`Vault Synchronized: Stage 5 leaders loaded.`, "ok");
-        } else {
-             addLog(`Error: Stage 5 data empty.`, "err");
+            addLog("Vault Synchronized: Stage 5 leaders loaded.", "ok");
         }
-      } else {
-          addLog("Stage 5 data not found in Drive. Please run Stage 5.", "err");
       }
-    } catch (e: any) { addLog(`Sync Error: ${e.message}`, "err"); }
+    } catch (e: any) {
+      addLog(`Sync Error: ${e.message}`, "err");
+    }
   };
 
   const handleExecuteEngine = async () => {
@@ -891,8 +904,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         setMatrixLoading(false); 
     }
   };
-
-  // ... (Other handlers like handleManualTelegramSend, handleRunBacktest remain same) ...
 
   const handleManualTelegramSend = async () => {
     if (sendingTelegram) return;
