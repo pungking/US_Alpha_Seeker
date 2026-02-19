@@ -235,7 +235,6 @@ const MarkdownComponents: any = {
     hr: () => <div className="h-2" /> 
 };
 
-// ... (Rest of the file remains same logic, just keeping structure) ...
 const generateNormalDistribution = (mean: number, stdDev: number, limit: number = 4) => {
   const data = [];
   const min = mean - limit * stdDev;
@@ -327,7 +326,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   // [RESTORED] Full Quant Metrics Calculation
   const quantMetrics = useMemo(() => {
-      // ... (Implementation same as before) ...
       try {
           if (!selectedStock) return null;
           const conviction = selectedStock.convictionScore || selectedStock.compositeAlpha || 50;
