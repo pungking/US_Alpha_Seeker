@@ -2,13 +2,12 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart } from 'recharts';
+import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
-// ... (Interfaces remain same) ...
 interface AlphaCandidate {
   symbol: string;
   name: string;
@@ -59,7 +58,6 @@ interface Props {
   isVisible?: boolean;
 }
 
-// ... (METRIC_DEFINITIONS, FRAMEWORK_INSIGHTS, ALPHA_INSIGHTS remain same) ...
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
@@ -175,38 +173,39 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 // [FORCED STYLE FIX] Markdown Component Overrides
+// This function handles "Main Title (Subtitle)" splitting and styling
+const renderStyledHeader = (props: any) => {
+    const extractText = (node: any): string => {
+            if (typeof node === 'string') return node;
+            if (Array.isArray(node)) return node.map(extractText).join('');
+            if (node && node.props && node.props.children) return extractText(node.props.children);
+            return String(node || "");
+    };
+
+    const text = extractText(props.children);
+    
+    // Regex to capture "Main Text" and "(Subtitle)"
+    // Matches anything up to the last '(', then the parenthesis content
+    const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
+
+    if (match) {
+        const mainTitle = match[1].trim();
+        const subTitle = match[2].trim();
+        return (
+             <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
+                <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
+                <span className="text-sm font-bold text-slate-500">{subTitle}</span>
+            </h2>
+        );
+    }
+    
+    // Fallback if regex doesn't match
+    return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
+};
+
 const MarkdownComponents: any = {
-    h1: (props: any) => (
-        <h1 className="text-xl font-bold text-white mt-4 mb-2 border-none" {...props} />
-    ),
-    h2: (props: any) => {
-        const extractText = (node: any): string => {
-             if (typeof node === 'string') return node;
-             if (Array.isArray(node)) return node.map(extractText).join('');
-             if (node && node.props && node.props.children) return extractText(node.props.children);
-             return String(node || "");
-        };
-
-        const text = extractText(props.children);
-        
-        // Regex to capture "Main Text" and "(Subtitle)"
-        // Matches anything up to the last '(', then the parenthesis content
-        const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
-
-        if (match) {
-            const mainTitle = match[1].trim();
-            const subTitle = match[2].trim();
-            return (
-                 <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
-                    <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
-                    <span className="text-sm font-bold text-slate-500">{subTitle}</span>
-                </h2>
-            );
-        }
-        
-        // Fallback if regex doesn't match
-        return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
-    },
+    h1: renderStyledHeader,
+    h2: renderStyledHeader,
     h3: (props: any) => (
         <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
     ),
@@ -216,9 +215,8 @@ const MarkdownComponents: any = {
     ul: (props: any) => <ul className="space-y-1.5 mb-3" {...props} />,
     ol: (props: any) => <ol className="space-y-1.5 mb-3" {...props} />,
     li: (props: any) => (
-        <li className="flex items-start gap-2 text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
-            <span className="text-emerald-500 mt-1 shrink-0 font-bold">→</span>
-            <span className="flex-1">{props.children}</span>
+        <li className="text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
+            {props.children}
         </li>
     ),
     strong: (props: any) => (
@@ -255,12 +253,25 @@ const generateNormalDistribution = (mean: number, stdDev: number, limit: number 
   return data;
 };
 
+// Legend Strategy Badges Helper
+const getLegendStrategy = (logicStr: string = "") => {
+    const s = logicStr.toLowerCase();
+    if (s.includes("graham") || s.includes("value dean")) return { name: "Benjamin Graham", type: "Value", color: "text-amber-400", border: "border-amber-500/30", bg: "bg-amber-500/10" };
+    if (s.includes("lynch") || s.includes("growth hunter")) return { name: "Peter Lynch", type: "GARP", color: "text-emerald-400", border: "border-emerald-500/30", bg: "bg-emerald-500/10" };
+    if (s.includes("buffett") || s.includes("moat")) return { name: "Warren Buffett", type: "Moat", color: "text-blue-400", border: "border-blue-500/30", bg: "bg-blue-500/10" };
+    if (s.includes("o'neil") || s.includes("canslim") || s.includes("momentum")) return { name: "William O'Neil", type: "Momentum", color: "text-rose-400", border: "border-rose-500/30", bg: "bg-rose-500/10" };
+    if (s.includes("munger") || s.includes("quality")) return { name: "Charlie Munger", type: "Quality", color: "text-violet-400", border: "border-violet-500/30", bg: "bg-violet-500/10" };
+    if (s.includes("wood") || s.includes("disrupt")) return { name: "Cathie Wood", type: "Innovation", color: "text-fuchsia-400", border: "border-fuchsia-500/30", bg: "bg-fuchsia-500/10" };
+    if (s.includes("greenberg") || s.includes("conviction")) return { name: "Glenn Greenberg", type: "Concentrated", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-500/10" };
+    if (s.includes("welling") || s.includes("activist")) return { name: "Glenn Welling", type: "Event", color: "text-indigo-400", border: "border-indigo-500/30", bg: "bg-indigo-500/10" };
+    return null;
+};
+
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
   const [matrixLoading, setMatrixLoading] = useState(false);
-  const [sendingTelegram, setSendingTelegram] = useState(false);
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
@@ -269,6 +280,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  
+  const [sendingTelegram, setSendingTelegram] = useState(false);
 
   // Define derived state explicitly to avoid scope issues
   // [MODIFIED] currentResults sorted by conviction score descending
@@ -312,6 +325,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return generateNormalDistribution(mean, stdDev);
   }, [selectedStock]);
 
+  // [RESTORED] Full Quant Metrics Calculation
   const quantMetrics = useMemo(() => {
       // ... (Implementation same as before) ...
       try {
@@ -1270,6 +1284,36 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
                      </div>
                      <div className="lg:col-span-2 space-y-6 relative">
+                         {/* LEGEND BADGE & RADAR */}
+                         {quantMetrics && (
+                            <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner relative group">
+                                <div className="flex justify-between items-center mb-6">
+                                    <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest">Strategy DNA</h4>
+                                    <div className="flex gap-2">
+                                        {getLegendStrategy(selectedStock.analysisLogic) && (
+                                            <div className={`px-3 py-1 rounded-full border text-[9px] font-black uppercase flex items-center gap-2 ${getLegendStrategy(selectedStock.analysisLogic)?.bg} ${getLegendStrategy(selectedStock.analysisLogic)?.border} ${getLegendStrategy(selectedStock.analysisLogic)?.color}`}>
+                                                <span className="w-1.5 h-1.5 rounded-full bg-current animate-pulse"></span>
+                                                {getLegendStrategy(selectedStock.analysisLogic)?.name}
+                                            </div>
+                                        )}
+                                    </div>
+                                </div>
+                                
+                                <div className="h-[250px] w-full">
+                                    {/* Use shouldRenderChart equivalent logic (here assumed isVisible=true) */}
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={quantMetrics.radarData}>
+                                            <PolarGrid stroke="#334155" opacity={0.2} />
+                                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 9, fontWeight: 'bold' }} />
+                                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                            <Radar name={selectedStock.symbol} dataKey="A" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.2} />
+                                            <RechartsTooltip contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }} itemStyle={{ color: '#10b981', fontSize: '10px' }} />
+                                        </RadarChart>
+                                    </ResponsiveContainer>
+                                </div>
+                            </div>
+                        )}
+
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
                             <ul className="space-y-4">
