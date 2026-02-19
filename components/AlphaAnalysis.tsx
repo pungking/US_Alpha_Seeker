@@ -173,7 +173,7 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
 };
 
 // [FORCED STYLE FIX] Markdown Component Overrides
-// This function handles "Main Title (Subtitle)" splitting and styling
+// Minimized spacing to reduce empty vertical space
 const renderStyledHeader = (props: any) => {
     const extractText = (node: any): string => {
             if (typeof node === 'string') return node;
@@ -185,57 +185,57 @@ const renderStyledHeader = (props: any) => {
     const text = extractText(props.children);
     
     // Regex to capture "Main Text" and "(Subtitle)"
-    // Matches anything up to the last '(', then the parenthesis content
     const match = text.match(/^(.+?)(\s*\(.+\).*)$/);
 
+    // Reduced margin-top/bottom and font sizes
     if (match) {
         const mainTitle = match[1].trim();
         const subTitle = match[2].trim();
         return (
-             <h2 className="mt-8 mb-4 border-b border-white/10 pb-2 flex flex-wrap items-baseline gap-x-2">
-                <span className="text-xl font-black text-white tracking-tight">{mainTitle}</span>
-                <span className="text-sm font-bold text-slate-500">{subTitle}</span>
+             <h2 className="mt-4 mb-2 border-b border-white/10 pb-1 flex flex-wrap items-baseline gap-x-2">
+                <span className="text-sm font-black text-white tracking-tight">{mainTitle}</span>
+                <span className="text-xs font-bold text-slate-500">{subTitle}</span>
             </h2>
         );
     }
     
     // Fallback if regex doesn't match
-    return <h2 className="text-xl font-black text-white mt-8 mb-4 border-b border-white/10 pb-2" {...props} />;
+    return <h2 className="text-sm font-black text-white mt-4 mb-2 border-b border-white/10 pb-1" {...props} />;
 };
 
 const MarkdownComponents: any = {
     h1: renderStyledHeader,
     h2: renderStyledHeader,
     h3: (props: any) => (
-        <h3 className="text-sm font-bold text-blue-400 mt-3 mb-1" {...props} />
+        <h3 className="text-xs font-bold text-blue-400 mt-2 mb-0.5" {...props} />
     ),
     p: (props: any) => (
-        <p className="text-[13px] text-slate-300 leading-relaxed mb-2" {...props} />
+        <p className="text-[11px] text-slate-300 leading-snug mb-1" {...props} />
     ),
-    ul: (props: any) => <ul className="space-y-1.5 mb-3" {...props} />,
-    ol: (props: any) => <ol className="space-y-1.5 mb-3" {...props} />,
+    ul: (props: any) => <ul className="space-y-0.5 mb-2" {...props} />,
+    ol: (props: any) => <ol className="space-y-0.5 mb-2" {...props} />,
     li: (props: any) => (
-        <li className="text-[13px] text-slate-300 leading-relaxed pl-1" {...props}>
+        <li className="text-[11px] text-slate-300 leading-snug pl-1" {...props}>
             {props.children}
         </li>
     ),
     strong: (props: any) => (
-        <span className="inline-block bg-emerald-950/40 text-emerald-400 font-bold px-2 py-0.5 rounded border border-emerald-500/20 text-xs shadow-sm mr-1.5 align-middle tracking-tight">
+        <span className="inline-block bg-emerald-950/40 text-emerald-400 font-bold px-1.5 py-0 rounded border border-emerald-500/20 text-[10px] shadow-sm mr-1 align-middle tracking-tight">
             {props.children}
         </span>
     ),
     blockquote: (props: any) => (
-        <blockquote className="border-l-4 border-emerald-500/30 bg-emerald-950/10 p-3 my-3 rounded-r-lg italic text-slate-400 text-xs" {...props} />
+        <blockquote className="border-l-2 border-emerald-500/30 bg-emerald-950/10 p-2 my-2 rounded-r italic text-slate-400 text-[10px]" {...props} />
     ),
     code: ({inline, ...props}: any) => (
         inline 
-        ? <code className="bg-slate-800 text-emerald-300 px-1 py-0.5 rounded font-mono text-[10px] border border-white/10" {...props} />
-        : <div className="overflow-x-auto my-3"><pre className="bg-slate-950 p-3 rounded-xl border border-white/10 text-[10px] text-slate-300 font-mono" {...props} /></div>
+        ? <code className="bg-slate-800 text-emerald-300 px-1 py-0 rounded font-mono text-[9px] border border-white/10" {...props} />
+        : <div className="overflow-x-auto my-2"><pre className="bg-slate-950 p-2 rounded-lg border border-white/10 text-[9px] text-slate-300 font-mono" {...props} /></div>
     ),
-    hr: () => <div className="h-2" /> 
+    hr: () => <div className="h-1" /> 
 };
 
-// ... (Rest of the file remains same logic, just keeping structure) ...
+// ... (Rest of the file remains exactly the same logic) ...
 const generateNormalDistribution = (mean: number, stdDev: number, limit: number = 4) => {
   const data = [];
   const min = mean - limit * stdDev;
@@ -581,22 +581,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (!text) return "";
     let str = String(text);
     str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
+    
+    // [CLEANUP] Remove extra newlines aggressively
+    str = str.replace(/\n\s*\n/g, '\n'); 
+    
     str = str
       .replace(/[\u{1F600}-\u{1F64F}]/gu, "") 
       .replace(/[\u{1F300}-\u{1F5FF}]/gu, "") 
       .replace(/[🚀📈📉📊💰💎🔥✨⚡️🎯🛑✅❌⚠️💀🚨🛑🟢🔴🔵🟣🔸🔹🔶🔷🔳🔳🔲👍👎👉👈]/g, "") 
       .replace(/\[\d+\]/g, '');
-    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n\n$2');
+      
+    // Fix headers
+    str = str.replace(/([^\n])\s*(#{1,3})/g, '$1\n$2'); 
     str = str.replace(/([^\n])\s*-\s/g, '$1\n- ');
+    
     const personas = ['보수적 퀀트', '공격적 트레이더', '마켓 메이커', 'Conservative Quant', 'Aggressive Trader', 'Market Maker', '종합 분석', 'Comprehensive Analysis'];
     personas.forEach(p => {
          const regex = new RegExp(`(?:^|\\n)[-*]?\\s*${p}\\s*:?`, 'g');
          str = str.replace(regex, `\n- **${p}** :`);
     });
+    
     str = str.replace(/^\s*-\s*$/gm, ''); 
     str = str.replace(/- -/g, '-');
-    str = str.replace(/\n\n\n+/g, '\n\n').trim();
-    return str;
+    return str.trim();
   };
 
   const cleanMarkdown = (text?: any) => {
@@ -1268,7 +1275,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                           <div className="p-8 bg-white/5 rounded-[40px] border border-white/10 shadow-inner">
                             <div className="flex items-center justify-between border-b border-white/10 pb-3 mb-3">
-                                <h4 className="text-xl font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
+                                <h4 className="text-[10px] font-black italic tracking-widest text-rose-500 border-b-2 border-rose-500/50 pb-1 inline-block">
                                     NEURAL INVESTMENT OUTLOOK
                                 </h4>
                                 <div className="flex gap-3 ml-auto">
