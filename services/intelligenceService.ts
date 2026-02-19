@@ -93,7 +93,7 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "Verdict: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT', 'SPECULATIVE_BUY'" },
       marketCapClass: { type: Type.STRING, description: "Size: 'LARGE', 'MID', 'SMALL', 'MICRO'" },
       sectorTheme: { type: Type.STRING, description: "Theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Council Debate' format." },
+      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Legendary Council' format." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of exactly 3 reasons in Korean: [1.Sector, 2.Fundamentals, 3.Technical]" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
@@ -150,17 +150,30 @@ function sanitizeAndParseJson(text: string): any | null {
     cleanText = cleanText.replace(/```json/g, "").replace(/```/g, "");
     cleanText = cleanText.replace(/[\u0000-\u001F\u007F-\u009F]/g, "");
     
+    // Find first { or [
     const firstBracket = cleanText.indexOf('[');
-    const lastBracket = cleanText.lastIndexOf(']');
     const firstCurly = cleanText.indexOf('{');
-    const lastCurly = cleanText.lastIndexOf('}');
     
+    let startIdx = 0;
     if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
-      return JSON.parse(cleanText.substring(firstBracket, lastBracket + 1));
+       startIdx = firstBracket;
+    } else if (firstCurly !== -1) {
+       startIdx = firstCurly;
+    } else {
+        return null;
     }
-    if (firstCurly !== -1) {
-      return JSON.parse(cleanText.substring(firstCurly, lastCurly + 1));
+    
+    cleanText = cleanText.substring(startIdx);
+    
+    // Find last } or ]
+    const lastBracket = cleanText.lastIndexOf(']');
+    const lastCurly = cleanText.lastIndexOf('}');
+    const endIdx = Math.max(lastBracket, lastCurly);
+    
+    if (endIdx !== -1) {
+        cleanText = cleanText.substring(0, endIdx + 1);
     }
+    
     return JSON.parse(cleanText);
   } catch (e) {
     console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text);
@@ -385,6 +398,312 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
+
+  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
+  
+  // [NEW] Regime-Adaptive: Fetch Market Context (VIX)
+  let regimeContext = "Neutral";
+  let vixValue = 20;
+  try {
+      const indexRes = await fetch('/api/portal_indices');
+      if (indexRes.ok) {
+          const indices = await indexRes.json();
+          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+          if (vix) {
+              vixValue = vix.price;
+              regimeContext = vixValue > 25 ? "Risk-Off (High Fear)" : vixValue < 15 ? "Risk-On (Bullish)" : "Neutral";
+          }
+      }
+  } catch (e) {
+      console.warn("Regime fetch failed, defaulting to Neutral");
+  }
+
+  const vectorInputs = candidates.map(c => ({
+      symbol: c.symbol,
+      price: c.price,
+      // Vector A: Fundamental & Value
+      metricsA: {
+          pe: c.pe || c.per || 0,
+          peg: c.pegRatio || 0,
+          pbr: c.pbr || 0,
+          roe: c.roe || 0,
+          growth: c.revenueGrowth || 0,
+          gap: c.fairValueGap || 0
+      },
+      // Vector B: Supply & Technical
+      metricsB: {
+          rvol: c.techMetrics?.rvol || 1.0,
+          rsi: c.techMetrics?.rsRating || 50,
+          squeeze: c.techMetrics?.squeezeState,
+          volume: c.volume || 0,
+          marketCap: c.marketCap || 0,
+          instOwn: c.heldPercentInstitutions || 0
+      },
+      // Vector C: ICT & Smart Money
+      metricsC: {
+          ob: c.ictMetrics?.orderBlock || 0,
+          mss: c.ictMetrics?.marketStructure || 0,
+          sweep: c.ictMetrics?.liquiditySweep || 0,
+          flow: c.ictMetrics?.smartMoneyFlow || 0
+      }
+  }));
+
+  // [SYSTEM INSTRUCTION - HYPER-ALPHA + LEGENDARY COUNCIL FUSION]
+  const SYSTEM_INSTRUCTION = `
+  [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
+  You are the Chief Investment Officer (CIO) of an elite Hedge Fund.
+  Your task is to select the TOP 6 stocks from the provided list by simulating a debate among 8 Legendary Investors.
+  You are receiving the top 12-50 elite candidates from the previous ICT stage.
+  Your goal is to output a definitive "Investment Order Sheet" for exactly 6 assets.
+
+  Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
+
+  [PIPELINE EXECUTION LOGIC - MANDATORY]
+
+  🔥 **Step 1: Neural Sieve (Correlation & Theme Filter)**
+  - Sector Constraint: You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
+  - Theme Check: Favor stocks aligning with current strong themes (e.g., AI, Defense, Bio, Industrial).
+  - Kill correlators: Do not pick more than 2 stocks that move identically.
+
+  🧠 **Step 2: Legendary Investor Council (STRATEGY FUSION)**
+  - You must simulate a debate among 8 Legendary Investors:
+    1. **Benjamin Graham** (Deep Value, Net Net)
+    2. **Peter Lynch** (GARP, PEG Ratio)
+    3. **Warren Buffett** (Moat, Long-term)
+    4. **William O'Neil** (CANSLIM, Momentum)
+    5. **Charlie Munger** (Quality, ROIC)
+    6. **Glenn Welling** (Event-Driven, Activist)
+    7. **Cathie Wood** (Disruptive Innovation)
+    8. **Glenn Greenberg** (Concentration, Safety)
+  - Select stocks that satisfy multiple legends or fit one strategy perfectly.
+
+  📰 **Step 3: News Sentiment & Real-Time Context (THE FINAL GATE)**
+  - **CRITICAL ACTION**: You MUST search for recent news (last 48h) for each shortlisted candidate.
+  - **Sentiment Filter**: Score news sentiment from 0.0 to 1.0. 
+    - If sentiment < 0.6: **REJECT** immediately, even if technicals are good.
+    - Look for: Earnings beats, M&A, FDA approvals, Contracts, Institutional Upgrades.
+  - **Rejection Logic**: Avoid stocks with recent accounting scandals, lawsuits, or dilution news.
+
+  🚀 **Step 4: Wyckoff SOS (Sign of Strength) Verification**
+  - **Effort vs Result**: Verify if Volume > 2x Avg while Price increases (Valid Breakout).
+  - **Thrust**: Check if Price Range > 1.5x ATR (Momentum Injection).
+
+  🎯 **Step 5: Execution & Risk Parameters**
+  - **Entry (P_entry)**: \`min(OrderBlock, VWAP * 0.98)\`.
+  - **Stop-Loss (P_sl)**: \`Support - (1.5 * ATR)\`.
+  - **Allocation (Kelly)**: Suggest higher weight for stocks with Sentiment > 0.8 and Conviction > 90.
+
+  [OUTPUT REQUIREMENTS - JSON ONLY]
+  Return a JSON Array of exactly 6 Stocks.
+  Each object must strictly match this schema:
+  - **symbol**: Ticker.
+  - **aiVerdict**: "STRONG_BUY" (Score>90 + Good News), "BUY" (Score>80), "PARTIAL_EXIT" (Bad News).
+  - **convictionScore**: 0-100.
+  - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
+  - **newsScore**: 0.0 to 1.0 float.
+  - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
+  - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** that must correspond to: [1. Sector/Theme Growth, 2. Earnings/Fundamental Logic, 3. Technical/Supply Logic]. Do NOT merge them into one.
+  - **expectedReturn**: **MUST use specific tags** in this format: "+XX% (Tag)".
+     - Tags to use: "High Target", "Long-Term", "Ten-Bagger", "High Upside", "Strategic", "Speculative", "Stable Growth". 
+     - Do NOT use generic tags like "Swing".
+  - **supportLevel**: Entry Price.
+  - **resistanceLevel**: Target Price.
+  - **stopLoss**: Stop Price.
+  - **riskRewardRatio**: e.g., "1:4.5".
+  - **kellyWeight**: e.g., "15%".
+  - **chartPattern**: e.g. "Wyckoff SOS".
+  - **analysisLogic**: Which Legend's strategy does this fit best? (e.g. "Peter Lynch", "William O'Neil")
+  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
+
+  Markdown Template for investmentOutlook:
+  
+  ## 1. 전설적 투자자 위원회 분석 (The Council Debate)
+  - **벤저민 그레이엄**: [Analysis]
+  - **피터 린치**: [Analysis]
+  - **워렌 버핏**: [Analysis]
+  - **윌리엄 오닐**: [Analysis]
+  - **찰리 멍거**: [Analysis]
+  - **글렌 웰링**: [Analysis]
+  - **캐시 우드**: [Analysis]
+  - **글렌 그린버그**: [Analysis]
+  - **최종 평결**: [Consensus]
+
+  ## 2. 전문가 3인 성향 분석 (Internal Debate)
+  - **보수적 퀀트 (Conservative Quant)** : [Analysis]
+  - **공격적 트레이더 (Aggressive Trader)** : [Analysis]
+  - **마켓 메이커 (Market Maker)** : [Analysis]
+  - **종합 분석 (Comprehensive Analysis)** : [Synthesis]
+
+  ## 3. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
+  [Write in a structured, bulleted list format (개조식) for clarity. Do not write a single long paragraph.]
+  - **핵심 논거 (Key Thesis)**: ...
+  - **상승 촉매 (Catalysts)**: ...
+  - **리스크 요인 (Risk Factors)**: ...
+  - **가격 목표 (Trajectory)**: ...
+
+  **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
+  Language: Korean.
+  `;
+
+  const prompt = `
+  [INPUT DATA: 3-VECTOR FUSION]
+  Current Date: ${today}
+  Market Context: ${regimeContext}
+  Candidates: ${JSON.stringify(vectorInputs)}
+
+  Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
+  1. Filter 50 -> 15 based on Sector/Theme.
+  2. Perform NEWS SEARCH on top 15.
+  3. Apply Legendary Council logic to select Top 6.
+  4. Calculate Entry/Stop/Kelly.
+  
+  Output the JSON array.
+  `;
+
+  // [INTERNAL LOGIC] Execute Perplexity
+  const executePerplexityAnalysis = async () => {
+    let lastError: any = new Error("No models attempted");
+    const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+    const pKey = pConfig?.key;
+    if (!pKey) throw new Error("Perplexity API Key Missing for Fallback");
+
+    for (const model of PERPLEXITY_MODELS) {
+      try {
+          const body = JSON.stringify({
+              model: model, 
+              messages: [
+                  { role: "system", content: SYSTEM_INSTRUCTION },
+                  { role: "user", content: prompt }
+              ],
+              temperature: 0 // Strict deterministic mode
+          });
+          
+          let res;
+          try {
+             res = await fetchWithRetry(async () => {
+                 const r = await fetch('/api/perplexity', {
+                     method: 'POST',
+                     headers: { 
+                         'Content-Type': 'application/json', 
+                         'Authorization': `Bearer ${pKey}`,
+                         'Accept': 'application/json' 
+                     },
+                     body
+                 });
+                 if (r.status === 404) throw new Error("Proxy 404");
+                 if (!r.ok) {
+                    const errText = await r.text();
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                 }
+                 return r;
+             });
+          } catch(e) {
+             res = await fetchWithRetry(async () => {
+                 const r = await fetch('https://api.perplexity.ai/chat/completions', {
+                     method: 'POST',
+                     headers: { 
+                         'Content-Type': 'application/json', 
+                         'Authorization': `Bearer ${pKey}`,
+                         'Accept': 'application/json' 
+                     },
+                     body
+                 });
+                 if (!r.ok) {
+                    const errText = await r.text();
+                    throw new Error(`HTTP_${r.status}: ${errText}`);
+                 }
+                 return r;
+             });
+          }
+
+          const data = await res.json();
+          if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+          
+          const content = data.choices?.[0]?.message?.content;
+          const parsed = sanitizeAndParseJson(content);
+          
+          if (parsed) {
+              if (Array.isArray(parsed)) {
+                  const uniqueMap = new Map();
+                  parsed.forEach(item => {
+                      if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                      if (item.symbol && !uniqueMap.has(item.symbol)) {
+                          uniqueMap.set(item.symbol, item);
+                      }
+                  });
+                  return { data: Array.from(uniqueMap.values()), usedProvider: 'PERPLEXITY' };
+              }
+              return { data: parsed, usedProvider: 'PERPLEXITY' };
+          } else {
+              throw new Error(`Output parsing failed for ${model}. Raw: ${content ? content.substring(0, 50) + "..." : "Empty"}`);
+          }
+          
+      } catch (e: any) {
+          console.warn(`Perplexity Model ${model} failed: ${e.message}`);
+          lastError = e;
+          if (e.message.includes('401') || e.message.includes('402')) break;
+      }
+    }
+    
+    // NO HEURISTIC FALLBACK. Fail loudly so the user knows analysis failed.
+    const errorMessage = lastError && lastError.message ? lastError.message : String(lastError);
+    return { data: null, error: `ALL_MODELS_FAILED: ${errorMessage}` };
+  };
+
+  try {
+    if (provider === ApiProvider.GEMINI) {
+      try {
+        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const result = await fetchWithRetry(() => ai.models.generateContent({
+          model: 'gemini-3-flash-preview',
+          contents: prompt,
+          config: { 
+              responseMimeType: "application/json", 
+              responseSchema: ALPHA_SCHEMA,
+              systemInstruction: SYSTEM_INSTRUCTION,
+              // [ENABLED] Real-time Search Tool for Gemini
+              tools: [{ googleSearch: {} }] 
+          }
+        }));
+        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
+        const parsed = sanitizeAndParseJson(result.text);
+        
+        if (parsed && Array.isArray(parsed)) {
+            const uniqueMap = new Map();
+            parsed.forEach(item => {
+                if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                if (item.symbol && !uniqueMap.has(item.symbol)) {
+                    uniqueMap.set(item.symbol, item);
+                }
+            });
+            return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI' };
+        }
+        
+        return { data: parsed, usedProvider: 'GEMINI' };
+      } catch (geminiError: any) {
+        trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
+        return { data: null, error: geminiError.message };
+      }
+    }
+
+    if (provider === ApiProvider.PERPLEXITY) {
+        const result = await executePerplexityAnalysis();
+        if (result.error) {
+            trackUsage(ApiProvider.PERPLEXITY, 0, true, result.error);
+        }
+        return result;
+    }
+    return { data: null, error: "INVALID_PROVIDER" };
+  } catch (error: any) {
+    trackUsage(provider, 0, true, error.message);
+    return { data: null, error: error.message }; 
+  }
+}
+
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
@@ -393,10 +712,16 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
 
-  // 1. Fetch Live Market Data
+  // 1. Fetch Live Market Data with Retry Logic to prevent N/A
   let vix = "20.00", spx = "N/A", ndx = "N/A";
   try {
-      const indexRes = await fetch('/api/portal_indices');
+      // Increased retry count and delay
+      const indexRes = await fetchWithRetry(async () => {
+          const res = await fetch('/api/portal_indices');
+          if (!res.ok) throw new Error("Index API Failed");
+          return res;
+      }, 5, 3000); // Retry 5 times, 3s delay
+
       if (indexRes.ok) {
           const indices = await indexRes.json();
           const v = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
@@ -406,7 +731,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           if(s) spx = s.price.toFixed(0);
           if(n) ndx = n.price.toFixed(2);
       }
-  } catch(e) {}
+  } catch(e) {
+      console.warn("Telegram Brief: Market Data Fetch Failed", e);
+  }
 
   // 2. Generate "Market Pulse" Text via AI
   const macroPrompt = `
@@ -432,7 +759,11 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
           macroSection = res.text.trim();
       } else {
-          const body = JSON.stringify({ model: 'sonar-pro', messages: [{ role: "user", content: macroPrompt }] });
+          const body = JSON.stringify({ 
+              model: 'sonar-pro', 
+              messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
+              temperature: 0
+          });
           let res;
           try {
              res = await fetch('/api/perplexity', {
@@ -593,8 +924,9 @@ export async function analyzePipelineStatus(data: {
   }
 
   try {
+    // 1. Try Gemini First
     if (provider === ApiProvider.GEMINI) {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+        const ai = new GoogleGenAI({ apiKey });
         const result = await fetchWithRetry(() => ai.models.generateContent({
             model: 'gemini-3-flash-preview',
             contents: userPrompt,
@@ -603,332 +935,40 @@ export async function analyzePipelineStatus(data: {
         trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
         return removeCitations(result.text);
     }
-
-    let res;
-    // Perplexity needs strict 0 temperature to behave like a machine
+    
+    // 2. Perplexity / Sonar
     const body = JSON.stringify({
         model: 'sonar-pro', 
-        messages: [
-            { role: "system", content: systemPrompt },
-            { role: "user", content: userPrompt }
-        ],
-        temperature: 0
+        messages: [{ role: "system", content: systemPrompt }, { role: "user", content: userPrompt }],
+        temperature: 0.1
     });
 
+    let res;
     try {
         res = await fetch('/api/perplexity', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json' 
-            },
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
             body
         });
         if (res.status === 404) throw new Error("Proxy 404");
-    } catch (e) {
+    } catch(e) {
         res = await fetch('https://api.perplexity.ai/chat/completions', {
-            method: 'POST',
-            headers: { 
-                'Content-Type': 'application/json', 
-                'Authorization': `Bearer ${apiKey}`,
-                'Accept': 'application/json' 
-            },
+            method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
             body
         });
     }
-    
+
     const json = await res.json();
+    if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
     
-    if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-
-    if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
-    const text = json.choices?.[0]?.message?.content || "No analysis returned.";
-    return removeCitations(text);
+    if (!res.ok) throw new Error(json.error?.message || "Perplexity Error");
+    return json.choices?.[0]?.message?.content || "No analysis returned.";
 
   } catch (error: any) {
     trackUsage(provider, 0, true, error.message);
+    const msg = error.message?.toLowerCase() || "";
+    if (msg.includes("429") || msg.includes("quota")) {
+      return "AUDIT_QUOTA_EXCEEDED: API 호출 한도가 초과되었습니다.";
+    }
     return `AUDIT_FAILURE: ${error.message}`;
-  }
-}
-
-export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
-  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
-
-  const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
-  
-  // [NEW] Regime-Adaptive: Fetch Market Context (VIX)
-  let regimeContext = "Neutral";
-  let vixValue = 20;
-  try {
-      const indexRes = await fetch('/api/portal_indices');
-      if (indexRes.ok) {
-          const indices = await indexRes.json();
-          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
-          if (vix) {
-              vixValue = vix.price;
-              regimeContext = vixValue > 25 ? "Risk-Off (High Fear)" : vixValue < 15 ? "Risk-On (Bullish)" : "Neutral";
-          }
-      }
-  } catch (e) {
-      console.warn("Regime fetch failed, defaulting to Neutral");
-  }
-
-  const vectorInputs = candidates.map(c => ({
-      symbol: c.symbol,
-      price: c.price,
-      // Vector A: Fundamental & Value
-      metricsA: {
-          pe: c.pe || c.per || 0,
-          peg: c.pegRatio || 0,
-          pbr: c.pbr || 0,
-          roe: c.roe || 0,
-          growth: c.revenueGrowth || 0,
-          gap: c.fairValueGap || 0
-      },
-      // Vector B: Supply & Technical
-      metricsB: {
-          rvol: c.techMetrics?.rvol || 1.0,
-          rsi: c.techMetrics?.rsRating || 50,
-          squeeze: c.techMetrics?.squeezeState,
-          volume: c.volume || 0,
-          marketCap: c.marketCap || 0,
-          instOwn: c.heldPercentInstitutions || 0
-      },
-      // Vector C: ICT & Smart Money
-      metricsC: {
-          ob: c.ictMetrics?.orderBlock || 0,
-          mss: c.ictMetrics?.marketStructure || 0,
-          sweep: c.ictMetrics?.liquiditySweep || 0,
-          flow: c.ictMetrics?.smartMoneyFlow || 0
-      }
-  }));
-
-  // [SYSTEM INSTRUCTION - REVERTED TO 'COUNCIL DEBATE' + ENHANCED TAGS]
-  const SYSTEM_INSTRUCTION = `
-  [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
-  You are the final decision-making engine for a quantitative hedge fund.
-  You are receiving the top 12-50 elite candidates from the previous ICT stage.
-  Your goal is to output a definitive "Investment Order Sheet" for exactly 6 assets.
-
-  Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
-
-  [PIPELINE EXECUTION LOGIC - MANDATORY]
-
-  🔥 **Step 1: Neural Sieve (Correlation & Theme Filter)**
-  - Sector Constraint: You MUST select 6 stocks from at least **3 DIFFERENT SECTORS**.
-  - Theme Check: Favor stocks aligning with current strong themes (e.g., AI, Defense, Bio, Industrial).
-  - Kill correlators: Do not pick more than 2 stocks that move identically.
-
-  📰 **Step 2: News Sentiment & Real-Time Context (THE FINAL GATE)**
-  - **CRITICAL ACTION**: You MUST search for recent news (last 48h) for each shortlisted candidate.
-  - **Sentiment Filter**: Score news sentiment from 0.0 to 1.0. 
-    - If sentiment < 0.6: **REJECT** immediately, even if technicals are good.
-    - Look for: Earnings beats, M&A, FDA approvals, Contracts, Institutional Upgrades.
-  - **Rejection Logic**: Avoid stocks with recent accounting scandals, lawsuits, or dilution news.
-
-  🚀 **Step 3: Wyckoff SOS (Sign of Strength) Verification**
-  - **Effort vs Result**: Verify if Volume > 2x Avg while Price increases (Valid Breakout).
-  - **Thrust**: Check if Price Range > 1.5x ATR (Momentum Injection).
-
-  🎯 **Step 4: Execution & Risk Parameters**
-  - **Entry (P_entry)**: \`min(OrderBlock, VWAP * 0.98)\`.
-  - **Stop-Loss (P_sl)**: \`Support - (1.5 * ATR)\`.
-  - **Allocation (Kelly)**: Suggest higher weight for stocks with Sentiment > 0.8 and Conviction > 90.
-
-  [OUTPUT REQUIREMENTS - JSON ONLY]
-  Return a JSON Array of exactly 6 Stocks.
-  Each object must strictly match this schema:
-  - **symbol**: Ticker.
-  - **aiVerdict**: "STRONG_BUY" (Score>90 + Good News), "BUY" (Score>80), "PARTIAL_EXIT" (Bad News).
-  - **convictionScore**: 0-100.
-  - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
-  - **newsScore**: 0.0 to 1.0 float.
-  - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** that must correspond to: [1. Sector/Theme Growth, 2. Earnings/Fundamental Logic, 3. Technical/Supply Logic]. Do NOT merge them into one.
-  - **expectedReturn**: **MUST use specific tags** in this format: "+XX% (Tag)".
-     - Tags to use: "High Target", "Long-Term", "Ten-Bagger", "High Upside", "Strategic", "Speculative", "Stable Growth". 
-     - Do NOT use generic tags like "Swing".
-  - **supportLevel**: Entry Price.
-  - **resistanceLevel**: Target Price.
-  - **stopLoss**: Stop Price.
-  - **riskRewardRatio**: e.g., "1:4.5".
-  - **kellyWeight**: e.g., "15%".
-  - **chartPattern**: e.g. "Wyckoff SOS".
-  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. Ensure all text is in **KOREAN**. Do NOT use emojis in the headers.
-
-  Markdown Template for investmentOutlook:
-  
-  ## 1. 전문가 3인 성향 분석 (The Council Debate)
-  - **보수적 퀀트 (Conservative Quant)** : [Analysis of Fundamentals, Valuation, Safety in Korean]
-  - **공격적 트레이더 (Aggressive Trader)** : [Analysis of Momentum, News, Catalysts in Korean]
-  - **마켓 메이커 (Market Maker)** : [Analysis of Liquidity, Order Blocks, Traps in Korean]
-  - **종합 분석 (Comprehensive Analysis)** : [Synthesis of all 3 views into a final verdict in Korean]
-
-  ## 2. The Alpha Thesis: 전략적 투자 시나리오 (Strategic Scenario)
-  [Write in a structured, bulleted list format (개조식) for clarity. Do not write a single long paragraph.]
-  - **핵심 논거 (Key Thesis)**: ...
-  - **상승 촉매 (Catalysts)**: ...
-  - **리스크 요인 (Risk Factors)**: ...
-  - **가격 목표 (Trajectory)**: ...
-
-  **NO EMOJIS IN JSON STRINGS (Except inside 'investmentOutlook' body text if necessary for emphasis, but keep headers clean).**
-  Language: Korean.
-  `;
-
-  const prompt = `
-  [INPUT DATA: 3-VECTOR FUSION]
-  Current Date: ${today}
-  Market Context: ${regimeContext}
-  Candidates: ${JSON.stringify(vectorInputs)}
-
-  Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
-  1. Filter 50 -> 15 based on Sector/Theme.
-  2. Perform NEWS SEARCH on top 15.
-  3. Filter 15 -> 6 based on Sentiment > 0.6 and Wyckoff SOS.
-  4. Calculate Entry/Stop/Kelly for the Final 6.
-  
-  Output the JSON array.
-  `;
-
-  // [INTERNAL LOGIC] Execute Perplexity
-  const executePerplexityAnalysis = async () => {
-    let lastError: any = new Error("No models attempted");
-    const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
-    const pKey = pConfig?.key;
-    if (!pKey) throw new Error("Perplexity API Key Missing for Fallback");
-
-    for (const model of PERPLEXITY_MODELS) {
-      try {
-          const body = JSON.stringify({
-              model: model, 
-              messages: [
-                  { role: "system", content: SYSTEM_INSTRUCTION },
-                  { role: "user", content: prompt }
-              ],
-              temperature: 0 // Strict deterministic mode
-          });
-          
-          let res;
-          try {
-             res = await fetchWithRetry(async () => {
-                 const r = await fetch('/api/perplexity', {
-                     method: 'POST',
-                     headers: { 
-                         'Content-Type': 'application/json', 
-                         'Authorization': `Bearer ${pKey}`,
-                         'Accept': 'application/json' 
-                     },
-                     body
-                 });
-                 if (r.status === 404) throw new Error("Proxy 404");
-                 if (!r.ok) {
-                    const errText = await r.text();
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                 }
-                 return r;
-             });
-          } catch(e) {
-             res = await fetchWithRetry(async () => {
-                 const r = await fetch('https://api.perplexity.ai/chat/completions', {
-                     method: 'POST',
-                     headers: { 
-                         'Content-Type': 'application/json', 
-                         'Authorization': `Bearer ${pKey}`,
-                         'Accept': 'application/json' 
-                     },
-                     body
-                 });
-                 if (!r.ok) {
-                    const errText = await r.text();
-                    throw new Error(`HTTP_${r.status}: ${errText}`);
-                 }
-                 return r;
-             });
-          }
-
-          const data = await res.json();
-          if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
-          
-          const content = data.choices?.[0]?.message?.content;
-          const parsed = sanitizeAndParseJson(content);
-          
-          if (parsed) {
-              if (Array.isArray(parsed)) {
-                  const uniqueMap = new Map();
-                  parsed.forEach(item => {
-                      if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                      if (item.symbol && !uniqueMap.has(item.symbol)) {
-                          uniqueMap.set(item.symbol, item);
-                      }
-                  });
-                  return { data: Array.from(uniqueMap.values()), usedProvider: 'PERPLEXITY' };
-              }
-              return { data: parsed, usedProvider: 'PERPLEXITY' };
-          } else {
-              throw new Error(`Output parsing failed for ${model}. Raw: ${content ? content.substring(0, 50) + "..." : "Empty"}`);
-          }
-          
-      } catch (e: any) {
-          console.warn(`Perplexity Model ${model} failed: ${e.message}`);
-          lastError = e;
-          if (e.message.includes('401') || e.message.includes('402')) break;
-      }
-    }
-    
-    // NO HEURISTIC FALLBACK. Fail loudly so the user knows analysis failed.
-    const errorMessage = lastError && lastError.message ? lastError.message : String(lastError);
-    return { data: null, error: `ALL_MODELS_FAILED: ${errorMessage}` };
-  };
-
-  try {
-    if (provider === ApiProvider.GEMINI) {
-      try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-        const result = await fetchWithRetry(() => ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
-          contents: prompt,
-          config: { 
-              responseMimeType: "application/json", 
-              responseSchema: ALPHA_SCHEMA,
-              systemInstruction: SYSTEM_INSTRUCTION,
-              // [ENABLED] Real-time Search Tool for Gemini
-              tools: [{ googleSearch: {} }] 
-          }
-        }));
-        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        const parsed = sanitizeAndParseJson(result.text);
-        
-        if (parsed && Array.isArray(parsed)) {
-            const uniqueMap = new Map();
-            parsed.forEach(item => {
-                if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                if (item.symbol && !uniqueMap.has(item.symbol)) {
-                    uniqueMap.set(item.symbol, item);
-                }
-            });
-            return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI' };
-        }
-        
-        return { data: parsed, usedProvider: 'GEMINI' };
-      } catch (geminiError: any) {
-        trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
-        return { data: null, error: geminiError.message };
-      }
-    }
-
-    if (provider === ApiProvider.PERPLEXITY) {
-        const result = await executePerplexityAnalysis();
-        if (result.error) {
-            trackUsage(ApiProvider.PERPLEXITY, 0, true, result.error);
-        }
-        return result;
-    }
-    return { data: null, error: "INVALID_PROVIDER" };
-  } catch (error: any) {
-    trackUsage(provider, 0, true, error.message);
-    return { data: null, error: error.message }; 
   }
 }
