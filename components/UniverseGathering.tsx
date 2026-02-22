@@ -289,6 +289,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           if (!Array.isArray(data) || data.length === 0) return null;
           
           const raw = data[0];
+
+          // [FIX] Fixed Mapping Helpers (Consistent with V13 Engine)
+          const toPercent = (val: any) => {
+              if (val === null || val === undefined || val === '') return 0;
+              const num = Number(val);
+              if (isNaN(num)) return 0;
+              return parseFloat((num * 100).toFixed(2));
+          };
+
+          const keepRaw = (val: any) => {
+              if (val === null || val === undefined || val === '') return 0;
+              const num = Number(val);
+              if (isNaN(num)) return 0;
+              return parseFloat(num.toFixed(2));
+          };
+
           // Map to MasterTicker interface
           return {
               symbol: raw.symbol,
@@ -307,20 +323,20 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               pegRatio: raw.pegRatio || 0,
               targetMeanPrice: 0,
               
-              // Normalize Ratios to Percentages (Smart Scaler)
-              roe: normalizePercent(raw.returnOnEquity),
-              roa: normalizePercent(raw.returnOnAssets),
+              // Normalize Ratios to Percentages (Fixed Mapping)
+              roe: toPercent(raw.returnOnEquity),
+              roa: toPercent(raw.returnOnAssets),
               eps: raw.eps || raw.trailingEps || 0,
-              operatingMargins: normalizePercent(raw.operatingMargins),
-              debtToEquity: raw.debtToEquity || 0, // Debt is ratio, keep as is
+              operatingMargins: toPercent(raw.operatingMargins),
+              debtToEquity: keepRaw(raw.debtToEquity), // Debt is ratio, keep as is
               
-              revenueGrowth: normalizePercent(raw.revenueGrowth),
+              revenueGrowth: toPercent(raw.revenueGrowth),
               operatingCashflow: 0,
               dividendRate: raw.dividendRate || 0,
-              dividendYield: normalizePercent(raw.dividendYield),
+              dividendYield: keepRaw(raw.dividendYield), // Keep raw
               
               beta: raw.beta || 0,
-              heldPercentInstitutions: normalizePercent(raw.heldPercentInstitutions),
+              heldPercentInstitutions: toPercent(raw.heldPercentInstitutions),
               shortRatio: 0,
               fiftyDayAverage: raw.fiftyDayAverage || 0,
               twoHundredDayAverage: raw.twoHundredDayAverage || 0,
