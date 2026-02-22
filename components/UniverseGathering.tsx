@@ -623,9 +623,46 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               if (!root.symbol) return null;
 
               const price = Number(root.price) || 0;
-              const change = Number(root.change || root.changesPercentage || root.pChange || 0);
+              
+              // [FIX] History-based Change Calculation
               let prevClose = Number(root.previousClose || root.prevClose || 0);
-              if (prevClose === 0 && price > 0) prevClose = price / (1 + (change / 100));
+              let change = Number(root.change || root.changesPercentage || root.pChange || 0);
+              let changeAmount = Number(root.changeAmount || root.regularMarketChange || 0);
+
+              if (item.history && Array.isArray(item.history) && item.history.length > 1) {
+                  const prePrevClose = Number(item.history[1].close || item.history[1].c || 0);
+                  if (prePrevClose > 0) {
+                      prevClose = prePrevClose;
+                      changeAmount = price - prePrevClose;
+                      change = (changeAmount / prePrevClose) * 100;
+                  }
+              } else if (prevClose === 0 && price > 0) {
+                  prevClose = price / (1 + (change / 100));
+              }
+
+              // [FIX] Fixed Mapping Helpers
+              const toPercent = (val: any) => {
+                  if (val === null || val === undefined || val === '') return 0;
+                  const num = Number(val);
+                  if (isNaN(num)) return 0;
+                  return parseFloat((num * 100).toFixed(2));
+              };
+
+              const keepRaw = (val: any) => {
+                  if (val === null || val === undefined || val === '') return 0;
+                  const num = Number(val);
+                  if (isNaN(num)) return 0;
+                  return parseFloat(num.toFixed(2));
+              };
+
+              // [FIX] PEG Ratio Calculation
+              const per = Number(root.per || root.pe || root.peRatio || 0);
+              const revGrowthRaw = Number(root.revenueGrowth || 0);
+              let pegRatio = Number(root.pegRatio || root.peg || 0);
+              
+              if (pegRatio === 0 && per > 0 && revGrowthRaw !== 0) {
+                  pegRatio = per / (revGrowthRaw * 100);
+              }
 
               return {
                   // 1. Basic Info & Price
@@ -638,31 +675,31 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   source: 'V13_Cylinder',
 
                   // 2. Valuation (Value) - Keep as Multiples (x)
-                  pe: Number(root.per || root.pe || root.peRatio || 0), 
+                  pe: per, 
                   pbr: Number(root.pbr || root.priceToBook || root.priceToBookRatio || 0),
                   psr: Number(root.psr || root.priceToSales || root.priceToSalesRatio || 0),
-                  pegRatio: Number(root.pegRatio || root.peg || 0),
+                  pegRatio: parseFloat(pegRatio.toFixed(2)),
                   targetMeanPrice: Number(root.targetMeanPrice || 0),
 
-                  // 3. Profitability & Efficiency (Quality) - SMART SCALING
-                  roe: normalizePercent(root.roe || root.returnOnEquity),
-                  roa: normalizePercent(root.roa || root.returnOnAssets),
+                  // 3. Profitability & Efficiency (Quality) - FIXED MAPPING
+                  roe: toPercent(root.roe || root.returnOnEquity),
+                  roa: toPercent(root.roa || root.returnOnAssets),
                   eps: Number(root.eps || root.earningsPerShare || 0),
-                  operatingMargins: normalizePercent(root.operatingMargins || root.operatingMargin),
-                  debtToEquity: Number(root.debtToEquity || root.debtEquityRatio || 0), // Debt is a ratio, keep as is
+                  operatingMargins: toPercent(root.operatingMargins || root.operatingMargin),
+                  debtToEquity: keepRaw(root.debtToEquity || root.debtEquityRatio), // Keep raw
 
                   // 4. Growth & Cash
-                  revenueGrowth: normalizePercent(root.revenueGrowth),
+                  revenueGrowth: toPercent(root.revenueGrowth),
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
 
                   // 5. Dividend
                   dividendRate: Number(root.dividendRate || 0),
-                  dividendYield: normalizePercent(root.dividendYield),
+                  dividendYield: keepRaw(root.dividendYield), // Keep raw
 
                   // 6. Momentum & Sentiment
                   volume: Number(root.volume) || 0,
                   beta: Number(root.beta || 0),
-                  heldPercentInstitutions: normalizePercent(root.heldPercentInstitutions || root.institutionOwnership),
+                  heldPercentInstitutions: toPercent(root.heldPercentInstitutions || root.institutionOwnership),
                   shortRatio: Number(root.shortRatio || 0),
                   fiftyDayAverage: Number(root.fiftyDayAverage || 0),
                   twoHundredDayAverage: Number(root.twoHundredDayAverage || 0),
@@ -674,9 +711,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   industry: root.industry || 'Unknown',
 
                   // System Fields
-                  change: change,
-                  changeAmount: price - prevClose,
-                  prevClose: prevClose,
+                  change: parseFloat(change.toFixed(2)),
+                  changeAmount: parseFloat(changeAmount.toFixed(2)),
+                  prevClose: parseFloat(prevClose.toFixed(2)),
                   dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
               };
           }).filter(item => item !== null) as MasterTicker[];
