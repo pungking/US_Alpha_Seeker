@@ -645,14 +645,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               let change = Number(root.change || root.changesPercentage || root.pChange || 0);
               let changeAmount = Number(root.changeAmount || root.regularMarketChange || 0);
 
+              // User Request: Use history[1] (Yesterday's Close) as the definitive prevClose
               if (item.history && Array.isArray(item.history) && item.history.length > 1) {
-                  const prePrevClose = Number(item.history[1].close || item.history[1].c || 0);
-                  if (prePrevClose > 0) {
-                      prevClose = prePrevClose;
-                      changeAmount = price - prePrevClose;
-                      change = (changeAmount / prePrevClose) * 100;
+                  const yesterdayClose = Number(item.history[1].close || item.history[1].c || 0);
+                  
+                  // Only override if we have a valid historical close
+                  if (yesterdayClose > 0) {
+                      prevClose = yesterdayClose;
+                      changeAmount = price - prevClose;
+                      // Avoid division by zero
+                      change = prevClose !== 0 ? (changeAmount / prevClose) * 100 : 0;
                   }
               } else if (prevClose === 0 && price > 0) {
+                  // Fallback: Infer prevClose from change % if history is missing
                   prevClose = price / (1 + (change / 100));
               }
 
