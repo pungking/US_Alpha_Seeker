@@ -922,7 +922,23 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   macroSection = removeCitations(macroSection);
 
   // 3. Format Candidates Programmatically
-  const selections = candidates.slice(0, 6).map((c, i) => {
+  const top6 = candidates.slice(0, 6);
+  
+  // [NEW] Sector Concentration Check
+  const sectorCounts: Record<string, number> = {};
+  top6.forEach(c => {
+      const s = c.sectorTheme || c.sector || "Unknown";
+      sectorCounts[s] = (sectorCounts[s] || 0) + 1;
+  });
+
+  let sectorWarning = "";
+  Object.entries(sectorCounts).forEach(([sector, count]) => {
+      if (count >= 3) {
+          sectorWarning += `\n⚠️ Sector Concentration: ${sector} 비중 높음 (분산 투자 권장)`;
+      }
+  });
+
+  const selections = top6.map((c, i) => {
       const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
       let koreanVerdict = verdictMap[c.aiVerdict] || "매수";
       if (!c.aiVerdict && c.compositeAlpha > 80) koreanVerdict = "강력 매수";
@@ -934,7 +950,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
       return `${i + 1}. ${c.symbol} (${koreanVerdict}) : ${c.name}
    - 🏢 Sector: ${c.sectorTheme || c.sector}
-   - 🎯 Plan: 진입 $${c.supportLevel?.toFixed(2) || '0.00'} | 목표 $${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 $${c.stopLoss?.toFixed(2) || '0.00'}
+   - 🎯 Plan: 진입 ${c.supportLevel?.toFixed(2) || '0.00'} | 목표 ${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 ${c.stopLoss?.toFixed(2) || '0.00'}
    - 📈 Exp.Return: ${c.expectedReturn || "N/A"}
    - 💡 Logic:
      - 섹터 성장: ${removeCitations(r1)}
@@ -948,7 +964,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 📅 ${dateStr} | Daily Alpha Insight
 
 📊 Market Pulse
-${macroSection}
+${macroSection}${sectorWarning}
 
 💎 Alpha Top 6 Selections
 
