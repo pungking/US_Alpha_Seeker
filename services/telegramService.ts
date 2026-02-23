@@ -1,5 +1,5 @@
 
-import { TELEGRAM_CONFIG } from "../constants";
+import { TELEGRAM_CONFIG, STRATEGY_CONFIG } from "../constants";
 
 /**
  * Sends a message to the configured Telegram Chat.
@@ -29,7 +29,31 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
   
   // [FIX] Remove citations like [1], [2], [1][2] globally from the final message
   cleanReport = cleanReport.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
-  
+
+  // [VISUAL ENHANCEMENT] Apply Strategy-Based Emojis
+  // 1. RSI Alert: If RSI > Threshold, add 🚨
+  const rsiRegex = /RSI[:\s]*(\d+)/gi;
+  cleanReport = cleanReport.replace(rsiRegex, (match, rsiVal) => {
+      const val = parseInt(rsiVal);
+      if (val > STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD) return `${match} 🚨`;
+      return match;
+  });
+
+  // 2. Undervalued Gem: If PEG < 0.3, add 💎
+  const pegRegex = /PEG[:\s]*([0-9.]+)/gi;
+  cleanReport = cleanReport.replace(pegRegex, (match, pegVal) => {
+      const val = parseFloat(pegVal);
+      if (val < 0.3 && val > 0) return `${match} 💎`;
+      return match;
+  });
+
+  // 3. Market Mode Header
+  // We don't have VIX here directly, but we can infer or pass it. 
+  // For now, we'll check if the report mentions "Risk-Off" or "Defensive" which AI generates based on VIX.
+  if (cleanReport.includes("Risk-Off") || cleanReport.includes("Defensive Mode")) {
+      header += `🛡️ *[RISK-OFF MODE DETECTED]* 🛡️\n(VIX > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL})\n\n`;
+  }
+
   // Safety: If the AI accidentally included the header, remove it to prevent duplication
   cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
   
