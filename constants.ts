@@ -116,3 +116,15 @@ export const STAGES_FLOW = [
   { id: 5, label: '5: ICT' },
   { id: 6, label: '6: Alpha' }
 ];
+
+/**
+ * [STRATEGY_CONTROL_PANEL] 
+ * 시스템 전체의 전략적 임계값을 관리하는 중앙 제어판입니다.
+ */
+export const STRATEGY_CONFIG = {
+  RSI_PENALTY_THRESHOLD: 85,       // RSI 감점 시작 기준 (이 수치를 넘으면 과열로 판단)
+  VIX_RISK_OFF_LEVEL: 22,          // VIX 방어 모드 전환 기준 (이 수치를 넘으면 보수적 운용)
+  MIN_REVENUE_GROWTH_FOR_PEG: 0,   // PEG 신뢰도를 보장하기 위한 최소 매출 성장률
+  MAX_KELLY_WEIGHT: 0.20,          // 단일 종목에 할당 가능한 최대 투자 비중 (20%)
+  SENTIMENT_REVERSAL_THRESHOLD: 0.9 // 뉴스 감성이 너무 높을 때 경계하는 역발상 임계값
+};
