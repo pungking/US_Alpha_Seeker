@@ -295,7 +295,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
-      // [CHECK] Sort by technical score to prioritize momentum, but also respect Fundamental
+        // [CHECK] Sort by technical score to prioritize momentum, but also respect Fundamental
       const targets = (content.technical_universe || [])
          .map((t: any) => ({
              ...t,
@@ -307,6 +307,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       const total = targets.length;
       setProgress({ current: 0, total });
 
+      // [VIX] Dynamic Risk Weighting (Default 20 if not provided)
+      const vix = 20; 
+      const isFearMode = vix > 22;
+      if (isFearMode) addLog(`Risk Protocol: VIX ${vix} > 22. Defensive Mode Active.`, "warn");
+
       const results: IctScoredTicker[] = [];
 
       for (let i = 0; i < total; i++) {
@@ -316,14 +321,43 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         const ictAnalysis = calculateIctScore(item);
         const marketState = determineMarketState(ictAnalysis.metrics);
         
+        // [RISK] RSI Penalty & PEG Check
+        const rsi = item.techMetrics?.rsi || item.techMetrics?.rsRating || 50;
+        const pegRatio = item.pegRatio || 0;
+        const revenueGrowth = item.revenueGrowth || 0;
+        
+        let isDataDoubtful = false;
+        // PEG Cross-Check: Trap for "Fake Value"
+        if (pegRatio < 0.5 && pegRatio > 0 && revenueGrowth <= 0) {
+            isDataDoubtful = true;
+        }
+
         // Composite Alpha Calculation (Weighted)
-        // If technical score is 0 (missing data), heavily penalize composite
         let composite = 0;
+        
         if (item.technicalScore > 0) {
-            composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
+            if (isFearMode) {
+                // [VIX > 22] Fear Mode: Fundamental Heavy (70%) + Tech (30%) + Small ICT Bonus
+                composite = (item.fundamentalScore * 0.70) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.10);
+            } else {
+                // [VIX <= 22] Normal Mode: Balanced (Fund 20% / Tech 30% / ICT 50%)
+                composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
+            }
         } else {
             // Penalize missing data items to push them to bottom
             composite = (item.fundamentalScore || 0) * 0.1; 
+        }
+
+        // [PENALTY] RSI Overheat Defense
+        if (rsi > 85) {
+            const penalty = Math.pow(rsi - 85, 1.5);
+            composite -= penalty;
+            // addLog(`RSI Penalty: ${item.symbol} (${rsi.toFixed(0)}) -${penalty.toFixed(1)} pts`, "warn"); // Optional logging
+        }
+
+        // [PENALTY] PEG Doubtful Data
+        if (isDataDoubtful) {
+            composite *= 0.85; // 15% Haircut for fake valuation
         }
 
         const ticker: IctScoredTicker = {
@@ -340,7 +374,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'RE-ACCUMULATION' ? 'BUY DIP' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
             radarData: [],
             sector: item.sector,
-            scoringEngine: "ICT_Wyckoff_Algo_Only"
+            scoringEngine: "ICT_Wyckoff_Algo_Only",
+            isDataDoubtful // Persist flag
         };
 
         results.push(ticker);
