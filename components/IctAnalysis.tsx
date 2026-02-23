@@ -387,11 +387,42 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         }
       }
 
-      results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
-      // Select Top 50 to pass to Stage 6 (Final AI Analysis)
-      const finalSurvivors = results.slice(0, 50); 
+      // [NEW] Sector Diversification Logic (Step 6)
+      // Apply penalty to stocks if their sector is already crowded in the top ranks.
+      // We need to sort first to see who is on top, then apply penalty, then re-sort?
+      // Actually, the request says "Before sorting... iterate...". 
+      // But to know if a stock is the "3rd" or "4th" best in its sector, we implicitly need an initial sort or a running count based on score.
+      // However, the user prompt implies: "iterate through the list... count... apply penalty".
+      // If we iterate the unsorted list, the order is arbitrary. 
+      // A better approach to strictly follow the "Dynamic Filtering" intent:
+      // 1. Sort by current compositeAlpha (Descending) to establish initial rank.
+      // 2. Iterate and apply penalties based on sector count.
+      // 3. Re-sort.
       
-      setProcessedData(results); 
+      // Initial Sort
+      results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
+
+      const sectorCounts: Record<string, number> = {};
+      const diversifiedResults = results.map(ticker => {
+          const sector = ticker.sectorTheme || ticker.sector || 'Unknown';
+          sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+
+          let adjustedAlpha = ticker.compositeAlpha;
+          // 3rd stock in sector -> 5% penalty
+          if (sectorCounts[sector] === 3) adjustedAlpha *= 0.95;
+          // 4th+ stock in sector -> 10% penalty
+          if (sectorCounts[sector] >= 4) adjustedAlpha *= 0.90;
+
+          return { ...ticker, compositeAlpha: Number(adjustedAlpha.toFixed(2)) };
+      });
+
+      // Final Sort after Penalty
+      diversifiedResults.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
+
+      // Select Top 50 to pass to Stage 6 (Final AI Analysis)
+      const finalSurvivors = diversifiedResults.slice(0, 50); 
+      
+      setProcessedData(diversifiedResults); 
       if (finalSurvivors.length > 0) handleTickerSelect(finalSurvivors[0]);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
