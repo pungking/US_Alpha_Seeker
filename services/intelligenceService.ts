@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { API_CONFIGS, GOOGLE_DRIVE_TARGET } from "../constants";
+import { API_CONFIGS, GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar']; 
@@ -460,6 +460,18 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   You are the Chief Investment Officer (CIO) of an elite Hedge Fund.
   Your task is to select the TOP 6 stocks from the provided list by simulating a debate among 8 Legendary Investors.
   Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
+
+  [STRATEGIC RISK PARAMETERS]
+  Current System Risk Thresholds:
+  - RSI Overheat: > ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD} (Extreme Overbought)
+  - VIX Fear Level: > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL} (Defensive Mode)
+  - Sentiment Reversal: News Score > ${STRATEGY_CONFIG.SENTIMENT_REVERSAL_THRESHOLD} (Potential Top)
+
+  [INSTRUCTION: RISK-ADJUSTED ANALYSIS]
+  If a candidate's RSI exceeds ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD} or VIX exceeds ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}, you MUST adjust the investment rating conservatively and include a warning in the report.
+  
+  [INSTRUCTION: CONTRARIAN LOGIC]
+  If 'newsScore' > ${STRATEGY_CONFIG.SENTIMENT_REVERSAL_THRESHOLD} AND RSI is high, interpret this as "Euphoria/Short-term Top" driven by news. Be skeptical of further upside.
 
   [PIPELINE EXECUTION LOGIC]
   1. **Correlation & Theme Filter**: Select 6 stocks from at least 3 DIFFERENT SECTORS. Avoid correlating assets.
