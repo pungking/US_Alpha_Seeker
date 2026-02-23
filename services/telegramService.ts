@@ -54,6 +54,11 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
       header += `🛡️ *[RISK-OFF MODE DETECTED]* 🛡️\n(VIX > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL})\n\n`;
   }
 
+  // 4. Sector Warning Highlight
+  if (cleanReport.includes("Sector Concentration")) {
+      cleanReport = cleanReport.replace(/(⚠️ Sector Concentration:.*)/g, '*$1*');
+  }
+
   // Safety: If the AI accidentally included the header, remove it to prevent duplication
   cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
   
