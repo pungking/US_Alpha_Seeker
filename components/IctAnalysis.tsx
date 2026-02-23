@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET } from '../constants';
+import { GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from '../constants';
 
 interface IctScoredTicker {
   symbol: string;
@@ -309,8 +309,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
 
       // [VIX] Dynamic Risk Weighting (Default 20 if not provided)
       const vix = 20; 
-      const isFearMode = vix > 22;
-      if (isFearMode) addLog(`Risk Protocol: VIX ${vix} > 22. Defensive Mode Active.`, "warn");
+      const isFearMode = vix > STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL;
+      if (isFearMode) addLog(`Risk Protocol: VIX ${vix} > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}. Defensive Mode Active.`, "warn");
 
       const results: IctScoredTicker[] = [];
 
@@ -349,8 +349,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         }
 
         // [PENALTY] RSI Overheat Defense
-        if (rsi > 85) {
-            const penalty = Math.pow(rsi - 85, 1.5);
+        if (rsi > STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD) {
+            const penalty = Math.pow(rsi - STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD, 1.5);
             composite -= penalty;
             // addLog(`RSI Penalty: ${item.symbol} (${rsi.toFixed(0)}) -${penalty.toFixed(1)} pts`, "warn"); // Optional logging
         }
