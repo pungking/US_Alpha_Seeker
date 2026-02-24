@@ -126,5 +126,15 @@ export const STRATEGY_CONFIG = {
   VIX_RISK_OFF_LEVEL: 22,          // VIX 방어 모드 전환 기준 (이 수치를 넘으면 보수적 운용)
   MIN_REVENUE_GROWTH_FOR_PEG: 0,   // PEG 신뢰도를 보장하기 위한 최소 매출 성장률
   MAX_KELLY_WEIGHT: 0.20,          // 단일 종목에 할당 가능한 최대 투자 비중 (20%)
-  SENTIMENT_REVERSAL_THRESHOLD: 0.9 // 뉴스 감성이 너무 높을 때 경계하는 역발상 임계값
+  SENTIMENT_REVERSAL_THRESHOLD: 0.9, // 뉴스 감성이 너무 높을 때 경계하는 역발상 임계값
+
+  // [ICT ALGORITHM PARAMETERS]
+  ICT_OTE_LEVEL: 0.705,            // 최적 진입 타점 (Optimal Trade Entry) 피보나치 레벨
+  ICT_EQUILIBRIUM: 0.5,            // 프리미엄/디스카운트 구간 기준점
+  DISCOUNT_BONUS: 10,              // 할인 구간(Discount Zone) 가산점
+
+  // [RISK MANAGEMENT REFINED]
+  STOP_LOSS_BUFFER: 0.015,         // 손절가 설정을 위한 노이즈 버퍼 (1.5%)
+  MAX_SECTOR_COUNT: 3,             // 동일 섹터 최대 허용 수 (페널티 시작점)
+  SECTOR_PENALTY_RATE: 0.05        // 섹터 쏠림 방지 페널티 비율 (5%)
 };
