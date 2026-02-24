@@ -218,12 +218,18 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       
       Universe Stats:
       - Total Assets: ${stats.count}
-      - Median Price: $${stats.priceMedian}
+      - Median Price: ${stats.priceMedian}
       - Median Volume: ${stats.volMedian}
 
       [Task]
       Determine optimal 'Price Floor' (minPrice) and 'Volume Threshold' (minVolume) to filter this universe for a Swing Trading Strategy, incorporating ICT (Inner Circle Trader) concepts.
       
+      [STRATEGIC INSTRUCTION: SMART MONEY TRACKING]
+      You track the "Smart Money". Even if market conditions are poor (High VIX), DO NOT blindly raise thresholds.
+      - **Hidden Gems**: Do not miss low-priced stocks ($2-$5) showing **High Relative Volume (RVOL)** or **ICT Accumulation** signs.
+      - **Flexibility**: Propose thresholds that capture "Diamonds in the rough" rather than just safe, large-cap stocks.
+      - **Diversity**: Ensure the thresholds allow for a diversified universe across different sectors. Do not extinguish entire sectors with overly strict limits.
+
       ICT Focus:
       1. **Discount Zone**: Prioritize stocks that have retraced from 52-week highs into a 'Discount Zone' (below Equilibrium).
       2. **Displacement**: Look for signs of institutional sponsorship via high Relative Volume (RVOL).
@@ -390,16 +396,47 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     // [V11.3 UPDATE] Enhanced Hard Quality Gates
     // Added PE > 0, ROE > 0 AND Target Price > 0 to prevent data poisoning downstream
-    const filteredList = dataToFilter.filter(s => 
-        s.price >= targetPrice && 
-        s.volume >= targetVolume &&
-        (s.pe > 0 || s.per > 0) && // Must have positive earnings
-        (s.roe > 0) &&             // Must be profitable
-        (s.targetMeanPrice > 0)    // [NEW] Must have Analyst Target Price (Critical for Stage 3/5)
-    );
+    const filteredList = dataToFilter.reduce<MasterTicker[]>((acc, s) => {
+        // [DYNAMIC SCALING] Small Cap Protection Logic
+        // If Market Cap <= 300M, lower volume threshold by 40% (0.6 multiplier) to catch "Hidden Gems"
+        let effectiveMinVolume = targetVolume;
+        const marketCap = s.marketCap || 0;
+        
+        if (marketCap > 0 && marketCap <= 300000000) {
+             effectiveMinVolume = targetVolume * 0.6;
+        }
+
+        const passesFilters = 
+            s.price >= targetPrice && 
+            s.volume >= effectiveMinVolume &&
+            (s.pe > 0 || s.per > 0) && // Must have positive earnings
+            (s.roe > 0) &&             // Must be profitable
+            (s.targetMeanPrice > 0);   // Must have Analyst Target Price
+
+        if (passesFilters) {
+            const newItem = { ...s };
+            
+            // [LINEAGE TAGGING] Traceability for downstream analysis
+            newItem.origin = activeProposal ? "AI_FILTER" : "FALLBACK_RECOVERY";
+            
+            // Determine Discovery Tag based on characteristics
+            if (marketCap > 0 && marketCap <= 300000000 && s.volume < targetVolume) {
+                newItem.discoveryTag = "SmallCap_Gem";
+            } else if (s.price < 5 && s.volume > targetVolume * 2) {
+                newItem.discoveryTag = "High_RVOL_Penny";
+            } else if (s.price < s.targetMeanPrice * 0.6) {
+                newItem.discoveryTag = "Deep_Value_Discount";
+            } else {
+                newItem.discoveryTag = "Standard_Growth";
+            }
+            
+            acc.push(newItem);
+        }
+        return acc;
+    }, []);
     
     addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
-    addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume}, PE>0, ROE>0, Target>0`, "info");
+    addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume} (Scaled for SmallCaps), PE>0, ROE>0`, "info");
 
     try {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
