@@ -155,6 +155,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
           // 3. AI Analysis for Thresholds
           addLog("Phase 3: Calculating Optimal Thresholds via AI...", "info");
+          addLog("ICT 기반 유니버스 정제 중...", "info"); // [NEW] ICT Log
           
           // CRITICAL: Pass data directly, receive proposal directly
           const proposal = await runAiAnalysis(data, context);
@@ -210,7 +211,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       };
 
       const prompt = `
-      [Role: Hedge Fund Risk Manager]
+      [Role: Hedge Fund Risk Manager & ICT Specialist]
       Current Market Context:
       - VIX: ${context.vix} (${context.status})
       - NASDAQ Change: ${context.nasdaqChange}%
@@ -221,15 +222,32 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       - Median Volume: ${stats.volMedian}
 
       [Task]
-      Determine optimal 'Price Floor' (minPrice) and 'Volume Threshold' (minVolume) to filter this universe for a Swing Trading Strategy.
+      Determine optimal 'Price Floor' (minPrice) and 'Volume Threshold' (minVolume) to filter this universe for a Swing Trading Strategy, incorporating ICT (Inner Circle Trader) concepts.
       
+      ICT Focus:
+      1. **Discount Zone**: Prioritize stocks that have retraced from 52-week highs into a 'Discount Zone' (below Equilibrium).
+      2. **Displacement**: Look for signs of institutional sponsorship via high Relative Volume (RVOL).
+      3. **Liquidity**: Ensure sufficient volume to support institutional accumulation.
+
       Rules:
       1. **High VIX (>25)**: Increase thresholds (Flight to quality, avoid illiquid penny stocks).
       2. **Low VIX (<15)**: Lower thresholds (Risk-on, allow speculative runners).
       3. **Volume**: Should ensure liquidity. Typically > 300k, but adjust based on VIX.
       4. **Price**: Typically > $2.00 to avoid pink sheets.
 
-      Return JSON ONLY: { "suggestedPrice": number, "suggestedVolume": number, "regime": "string", "reasoning": "string (Korean Markdown)" }
+      [Regime Definition]
+      Classify the current market regime using ICT terms:
+      - 'Accumulation': Low volatility, range-bound, smart money buying.
+      - 'Manipulation': False breakouts, liquidity sweeps (Judas Swing).
+      - 'Distribution': High volatility, smart money selling into strength.
+      - 'Expansion': Strong trend, displacement.
+
+      Return JSON ONLY: { 
+        "suggestedPrice": number, 
+        "suggestedVolume": number, 
+        "regime": "Accumulation | Manipulation | Distribution | Expansion", 
+        "reasoning": "string (Korean Markdown, explain why these thresholds favor ICT setups like liquidity sweeps or OTE)" 
+      }
       `;
 
       let aiResult: AiProposal | null = null;
