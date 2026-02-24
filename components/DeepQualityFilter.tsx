@@ -378,7 +378,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
 
-          addLog(`[DATA-SYNC] Field Integrity Guaranteed for Stages 4, 5, 6`, "ok");
+          addLog(`[DATA-SYNC] Field Integrity Guaranteed for Stages 3, 4, 5, 6`, "ok");
           
           const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
           
