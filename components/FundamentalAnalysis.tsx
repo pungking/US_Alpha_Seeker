@@ -442,10 +442,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     // [NEW] Financial Integrity Filter (Cash Flow Guard)
                     let integrityPenalty = 0;
                     let isHighGrowthQuality = false;
+                    let isCashFlowWarning = false;
                     const opCashflow = safeNum(item.operatingCashflow || item.operatingCashFlow);
                     
                     if (opCashflow <= 0) {
                         integrityPenalty = 10;
+                        isCashFlowWarning = true;
                     }
                     
                     // [NEW] High-Quality-Growth Flag
@@ -471,6 +473,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         fundamentalScore: safeNum(analysis.fundamentalScore),
                         compositeAlpha: safeNum(compositeAlpha),
                         isHighGrowthQuality,
+                        isCashFlowWarning,
                         fullHistory: fullHistory.slice(0, 4),
                         lastUpdate: new Date().toISOString(),
                         isDerived: true,
