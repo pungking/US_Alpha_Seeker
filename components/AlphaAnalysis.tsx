@@ -1338,7 +1338,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {/* [NEW] Sector Line: Fallback & Single Line Enforcement */}
                     <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3 font-bold whitespace-nowrap overflow-hidden text-ellipsis">
-                        {cleanMarkdown(item.sectorTheme || item.sector || 'Strategic Asset')}
+                        {cleanMarkdown(item.sectorTheme || item.sector || 'Alpha Strategic Asset')}
                     </p>
 
                     <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
@@ -1486,11 +1486,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                             <div className="min-h-[200px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || ""}
+                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "### [AI 분석 엔진 가동 중]\n현재 해당 종목에 대한 실시간 퀀트 데이터 및 섹터 모멘텀 분석이 진행 중입니다. 상단 차트의 기술적 지표를 우선 참조하십시오."}
                                 </ReactMarkdown>
-                                {!selectedStock.investmentOutlook && (
-                                    <p className='opacity-50 italic text-xs text-slate-500 mt-4'>[AI 전략 엔진: 정밀 분석 데이터 생성 중...]</p>
-                                )}
                             </div>
                         </div>
                      </div>
