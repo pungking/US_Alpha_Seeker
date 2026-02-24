@@ -326,24 +326,28 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         const ictAnalysis = calculateIctScore(item);
         
         // [ICT 5-Step Logic] P/D Array & OTE Calculation
-        const high52 = item.fiftyTwoWeekHigh || item.price * 1.2;
-        const low52 = item.fiftyTwoWeekLow || item.price * 0.8;
-        const range = high52 - low52;
-        const equilibrium = low52 + (range * 0.5);
+        // Use ictPos from Stage 3 if available for consistency
+        let ictPos = item.ictPos;
+        const high52 = item.fiftyTwoWeekHigh || item.high52 || item.price * 1.2;
+        const low52 = item.fiftyTwoWeekLow || item.low52 || item.price * 0.8;
+        
+        if (ictPos === undefined || ictPos === null) {
+             ictPos = (high52 - low52) === 0 ? 0.5 : (item.price - low52) / (high52 - low52);
+        }
         
         let pdZone: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT' = 'EQUILIBRIUM';
-        if (item.price < equilibrium) pdZone = 'DISCOUNT';
-        else if (item.price > equilibrium) pdZone = 'PREMIUM';
+        if (ictPos < 0.45) pdZone = 'DISCOUNT';
+        else if (ictPos > 0.55) pdZone = 'PREMIUM';
 
         // OTE (Optimal Trade Entry): 70.5% Retracement from High (Deep Discount)
-        // Price = High - (Range * 0.705) => 29.5% level from Low
+        const range = high52 - low52;
         const otePrice = high52 - (range * 0.705);
         
         // ICT Stop Loss: Recent Low - 1.5% (Noise Buffer)
         const ictStopLoss = low52 * 0.985;
 
         // [Logic Injection] Enhance Score based on ICT 5-Step
-        // 1. Discount Zone Bonus
+        // 1. Discount Zone Bonus (Buying Cheap is Key)
         if (pdZone === 'DISCOUNT') {
             ictAnalysis.score += 10; 
         } else if (pdZone === 'PREMIUM') {
@@ -380,6 +384,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         }
 
         // Composite Alpha Calculation (Weighted)
+        // Note: We keep this for Stage 5 ranking, but Stage 6 will do the final AI synthesis.
         let composite = 0;
         
         if (item.technicalScore > 0) {
@@ -399,7 +404,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         if (rsi > STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD) {
             const penalty = Math.pow(rsi - STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD, 1.5);
             composite -= penalty;
-            // addLog(`RSI Penalty: ${item.symbol} (${rsi.toFixed(0)}) -${penalty.toFixed(1)} pts`, "warn"); // Optional logging
         }
 
         // [PENALTY] PEG Doubtful Data
@@ -408,7 +412,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         }
 
         const ticker: IctScoredTicker = {
-            ...item, 
+            ...item, // [CRITICAL] Grand Consolidation: Merge all previous stage data
             symbol: item.symbol, 
             name: item.name, 
             price: item.price,
@@ -422,7 +426,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             radarData: [],
             sector: item.sector,
             scoringEngine: "ICT_Wyckoff_Algo_Only",
-            isDataDoubtful // Persist flag
+            isDataDoubtful, 
+            
+            // [NEW] ICT 5-Step Data
+            pdZone,
+            otePrice,
+            ictStopLoss
         };
 
         results.push(ticker);
@@ -433,6 +442,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             await new Promise(r => setTimeout(r, 0)); 
         }
       }
+
+      // [LOGS] Modernized Terminal Output
+      addLog(`[OK] ICT PD-Array: Institutional Zones Mapped (Discount/Premium)`, "ok");
+      addLog(`[OK] Smart Money Flow: Displacement Checked`, "ok");
+      addLog(`[DATA-SYNC] Final Bridge Constructed: All Alpha Tags Encoded for Stage 6 Final`, "ok");
 
       // [NEW] Sector Diversification Logic (Step 6)
       // Apply penalty to stocks if their sector is already crowded in the top ranks.
