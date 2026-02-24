@@ -1338,7 +1338,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {/* [NEW] Sector Line: Fallback & Single Line Enforcement */}
                     <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3 font-bold whitespace-nowrap overflow-hidden text-ellipsis">
-                        {cleanMarkdown(item.sectorTheme || item.sector || item.theme || 'Premium Alpha Asset')}
+                        {cleanMarkdown(item.sectorTheme || item.sector || 'Strategic Asset')}
                     </p>
 
                     <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
@@ -1486,8 +1486,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                             <div className="min-h-[200px]">
                                 <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "_Analyzing strategic datasets for this asset..._"}
+                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || ""}
                                 </ReactMarkdown>
+                                {!selectedStock.investmentOutlook && (
+                                    <p className='opacity-50 italic text-xs text-slate-500 mt-4'>[AI 전략 엔진: 정밀 분석 데이터 생성 중...]</p>
+                                )}
                             </div>
                         </div>
                      </div>
