@@ -448,7 +448,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           ob: c.ictMetrics?.orderBlock || 0,
           mss: c.ictMetrics?.marketStructure || 0,
           sweep: c.ictMetrics?.liquiditySweep || 0,
-          flow: c.ictMetrics?.smartMoneyFlow || 0
+          flow: c.ictMetrics?.smartMoneyFlow || 0,
+          pdZone: c.pdZone || 'EQUILIBRIUM' // [NEW] ICT Context for AI
       }
   }));
 
@@ -948,14 +949,19 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       const r2 = reasons[1] || "안정적 펀더멘털";
       const r3 = reasons[2] || "기술적 반등 위치";
 
+      // [NEW] ICT Sync: Use OTE Price and ICT Stop Loss
+      const entryPrice = c.otePrice ? c.otePrice.toFixed(2) : (c.supportLevel?.toFixed(2) || '0.00');
+      const stopPrice = c.ictStopLoss ? c.ictStopLoss.toFixed(2) : (c.stopLoss?.toFixed(2) || '0.00');
+      const pdZoneInfo = c.pdZone ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` : "기술적: " + removeCitations(r3);
+
       return `${i + 1}. ${c.symbol} (${koreanVerdict}) : ${c.name}
    - 🏢 Sector: ${c.sectorTheme || c.sector}
-   - 🎯 Plan: 진입 ${c.supportLevel?.toFixed(2) || '0.00'} | 목표 ${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 ${c.stopLoss?.toFixed(2) || '0.00'}
+   - 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 $${stopPrice}
    - 📈 Exp.Return: ${c.expectedReturn || "N/A"}
    - 💡 Logic:
      - 섹터 성장: ${removeCitations(r1)}
      - 실적 요인: ${removeCitations(r2)}
-     - 기술적: ${removeCitations(r3)}`;
+     - ${pdZoneInfo}`;
   }).join('\n\n');
 
   // 4. Construct Final Message
