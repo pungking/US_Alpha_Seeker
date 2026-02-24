@@ -670,8 +670,42 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         
         return { data: parsed, usedProvider: 'GEMINI' };
       } catch (geminiError: any) {
+        console.warn("Gemini 503 Detected. Switching to Perplexity for Autopilot Continuity");
         trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
-        return { data: null, error: geminiError.message };
+        
+        try {
+            // [SMART FALLBACK] Immediate switch to Perplexity
+            const pResult = await executePerplexityAnalysis();
+            if (pResult.data) {
+                return { ...pResult, usedProvider: 'PERPLEXITY_FALLBACK' };
+            }
+            throw new Error(pResult.error || "Perplexity Fallback Failed");
+        } catch (pError: any) {
+             // [FINAL SAFETY NET] Return basic data to prevent pipeline crash
+             console.error("All AI Nodes Failed. Returning Static Fallback.");
+             const fallbackData = candidates.map(c => ({
+                 symbol: c.symbol,
+                 aiVerdict: "HOLD",
+                 convictionScore: 50,
+                 investmentOutlook: "## AI Analysis Unavailable\n\nSystem encountered a critical error with both Gemini and Perplexity nodes. Data preserved for manual review.",
+                 selectionReasons: ["System Error", "Manual Review Required", "Data Preserved"],
+                 newsSentiment: "Neutral",
+                 newsScore: 0.5,
+                 expectedReturn: "0%",
+                 supportLevel: c.price * 0.95,
+                 resistanceLevel: c.price * 1.05,
+                 stopLoss: c.price * 0.90,
+                 riskRewardRatio: "1:2",
+                 kellyWeight: "0%",
+                 marketCapClass: "UNKNOWN",
+                 sectorTheme: c.sector || "Unknown",
+                 theme: "Fallback",
+                 aiSentiment: "Neutral",
+                 analysisLogic: "Fallback Recovery",
+                 chartPattern: "N/A"
+             }));
+             return { data: fallbackData, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
+        }
       }
     }
 
