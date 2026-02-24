@@ -438,6 +438,23 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
                     const item = sanitizeData(itemToAnalyze);
                     const analysis = performFinancialEngineering(item);
+
+                    // [NEW] Financial Integrity Filter (Cash Flow Guard)
+                    let integrityPenalty = 0;
+                    let isHighGrowthQuality = false;
+                    const opCashflow = safeNum(item.operatingCashflow || item.operatingCashFlow);
+                    
+                    if (opCashflow <= 0) {
+                        integrityPenalty = 10;
+                    }
+                    
+                    // [NEW] High-Quality-Growth Flag
+                    if (safeNum(item.roe) > 15 && safeNum(item.revenueGrowth) > 10) {
+                        isHighGrowthQuality = true;
+                    }
+                    
+                    // Apply Penalty
+                    analysis.fundamentalScore -= integrityPenalty;
                     
                     const qualityScore = safeNum(analysis.qualityScore);
                     
@@ -448,11 +465,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     const compositeAlpha = (qualityScore * 0.3) + (analysis.fundamentalScore * 0.7);
 
                     results.push({
-                        ...item, 
+                        ...item, // Strict Pass-through
                         ...analysis,
                         qualityScore,
                         fundamentalScore: safeNum(analysis.fundamentalScore),
                         compositeAlpha: safeNum(compositeAlpha),
+                        isHighGrowthQuality,
                         fullHistory: fullHistory.slice(0, 4),
                         lastUpdate: new Date().toISOString(),
                         isDerived: true,
@@ -463,6 +481,59 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 setProgress(prev => ({ ...prev, current: results.length }));
                 await new Promise(r => setTimeout(r, 0));
             }
+
+            // --- [NEW] SECTOR INTELLIGENCE & MOMENTUM SCORING ---
+            
+            // 1. Group by Sector
+            const sectorGroups: Record<string, any[]> = {};
+            results.forEach(r => {
+                const s = r.sector || 'Unknown';
+                if (!sectorGroups[s]) sectorGroups[s] = [];
+                sectorGroups[s].push(r);
+            });
+
+            addLog(`[OK] Sector Strategy: ${Object.keys(sectorGroups).length} Industry Groups Analyzed`, "ok");
+            addLog(`[OK] Integrity Check: Cash Flow & Growth Scanned`, "ok");
+
+            // 2. Identify Momentum Leaders
+            const sectorStats = Object.keys(sectorGroups).map(s => {
+                const group = sectorGroups[s];
+                const avgScore = group.reduce((sum, item) => sum + item.fundamentalScore, 0) / (group.length || 1);
+                return { sector: s, avgScore };
+            });
+            
+            // Top 30% Sectors get Momentum Bonus
+            sectorStats.sort((a, b) => b.avgScore - a.avgScore);
+            const topSectorCount = Math.max(1, Math.ceil(sectorStats.length * 0.3));
+            const topSectors = sectorStats.slice(0, topSectorCount).map(s => s.sector);
+
+            if (topSectors.length > 0) {
+                addLog(`[OK] Momentum Leader: ${topSectors[0]} identified as Market Driver`, "ok");
+            }
+
+            // 3. Apply Bonuses & Update Scores
+            Object.values(sectorGroups).forEach(group => {
+                // Sort by fundamentalScore to find top 20%
+                group.sort((a, b) => b.fundamentalScore - a.fundamentalScore);
+                const top20Index = Math.floor(group.length * 0.2);
+
+                group.forEach((r, idx) => {
+                    let sectorScore = 0;
+                    let sectorRankBonus = 0;
+
+                    if (topSectors.includes(r.sector)) sectorScore = 5;
+                    if (idx <= top20Index) sectorRankBonus = 10;
+
+                    r.sectorScore = sectorScore;
+                    r.sectorRankBonus = sectorRankBonus;
+                    r.fundamentalScore += (sectorScore + sectorRankBonus);
+                    
+                    // Recalculate Composite Alpha
+                    r.compositeAlpha = (r.qualityScore * 0.3) + (r.fundamentalScore * 0.7);
+                });
+            });
+
+            addLog(`[DATA-SYNC] Final Bridge Ready for Technical & ICT Stages`, "ok");
 
             results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
             const eliteCandidates = results; 
