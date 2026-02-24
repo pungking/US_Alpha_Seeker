@@ -1274,7 +1274,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
-                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')} ${isConsensus ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
+                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')} ${isConsensus ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
                   >
                     {/* [FIX] Use shouldRenderChart to ensure component is not rendered when hidden/headless */}
                     {shouldRenderChart && ((loading && isSelected) || isAuditRunning) && (
@@ -1287,9 +1287,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     )}
                     
                     {/* [NEW] Header Layout: Two Layers (Absolute Protection for Ticker) */}
-                    <div className="flex flex-col mb-3">
+                    <div className="flex flex-col gap-1 mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
-                        <div className="flex flex-wrap gap-1 mb-1 min-h-[16px]">
+                        <div className="flex flex-wrap gap-1 min-h-[16px]">
                              {!!showInstitutional && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap">
                                     INSTITUTIONAL
@@ -1318,8 +1318,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
 
                         {/* Layer 2: Ticker (Left) vs Price (Right) */}
-                        <div className="flex justify-between items-end border-b border-white/5 pb-2">
-                            <div className="flex flex-col min-w-[80px] flex-shrink-0">
+                        <div className="flex items-end border-b border-white/5 pb-2">
+                            <div className="flex flex-col flex-shrink-0 min-w-[100px] text-left">
                                 <div className="flex items-baseline gap-2">
                                     <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{item.symbol}</h4>
                                     <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
@@ -1327,7 +1327,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                             </div>
                             
-                            <div className="flex flex-col items-end gap-0.5">
+                            <div className="flex flex-col items-end gap-0.5 ml-auto">
                                 {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
                                 <span className={`text-xl font-mono font-black tracking-tighter ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
                                     ${Number(displayPrice)?.toFixed(2)}
@@ -1338,7 +1338,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {/* [NEW] Sector Line: Fallback & Single Line Enforcement */}
                     <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3 font-bold whitespace-nowrap overflow-hidden text-ellipsis">
-                        {cleanMarkdown(item.sectorTheme || item.sector || 'Industrial/Staples')}
+                        {cleanMarkdown(item.sectorTheme || item.sector || item.theme || 'Premium Alpha Asset')}
                     </p>
 
                     <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
