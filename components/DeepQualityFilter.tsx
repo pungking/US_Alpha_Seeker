@@ -3,7 +3,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
-import { GoogleGenAI } from "@google/genai"; // Ensure import
 import { trackUsage } from '../services/intelligenceService';
 
 interface Props {
@@ -177,90 +176,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', { method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form });
   };
 
-  // --- AI ANALYSIS (Value Trap Check) ---
-  const performAiAudit = async (candidates: any[]) => {
-      // ... (Same logic) ...
-      if (!candidates || candidates.length === 0) return null;
-
-      const topCandidates = candidates.slice(0, 5);
-      const prompt = `
-      [Role: Senior Hedge Fund Risk Manager]
-      Task: Analyze these top 5 high-quality stocks for "Value Traps" (Red Flags) and identify the dominant sector trend.
-      
-      Candidates: ${JSON.stringify(topCandidates.map(c => ({ s: c.symbol, n: c.name, qScore: c.qualityScore, roe: c.roe, debt: c.debtToEquity, per: c.per })))}
-      
-      Requirements:
-      1. **Sector**: Identify the dominant sector.
-      2. **Value Trap Check**: Are any of these companies historically known for accounting irregularities, massive lawsuits, or dying industries?
-      3. **Insight**: Provide a brief 1-sentence strategic insight in Korean.
-      
-      Return JSON: { "dominantSector": "string", "insight": "string (Korean)", "redFlags": ["symbol1 if bad", "symbol2 if bad"] }
-      `;
-
-      let aiResult = null;
-      let engineUsed = "None";
-
-      // 1. Try Gemini
-      try {
-          const geminiKey = process.env.API_KEY || API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
-          if (!geminiKey) throw new Error("Gemini Key Missing");
-
-          const ai = new GoogleGenAI({ apiKey: geminiKey });
-          const req = ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: prompt,
-              config: { responseMimeType: "application/json" }
-          });
-
-          const res: any = await Promise.race([req, timeoutPromise(8000, "Gemini Timeout")]);
-          trackUsage(ApiProvider.GEMINI, res.usageMetadata?.totalTokenCount || 0);
-          aiResult = sanitizeJson(res.text);
-          engineUsed = "Gemini 3 Flash";
-      } catch (e: any) {
-          const isQuota = e.message?.includes('429') || e.message?.includes('Quota');
-          addLog(isQuota ? "Gemini Quota Exceeded. Switching to Sonar..." : `Gemini Error: ${e.message}. Switching...`, "warn");
-          
-          // 2. Fallback to Sonar
-          try {
-              const sonarKey = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY)?.key;
-              if (!sonarKey) throw new Error("Sonar Key Missing");
-
-              const req = fetch('https://api.perplexity.ai/chat/completions', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${sonarKey}` },
-                  body: JSON.stringify({
-                      model: 'sonar-pro', 
-                      messages: [{ role: "user", content: prompt + " Return JSON only." }]
-                  })
-              });
-
-              const res: any = await Promise.race([req, timeoutPromise(10000, "Sonar Timeout")]);
-              const json = await res.json();
-              
-              if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-              if (!res.ok) throw new Error(`Perplexity Error: ${res.status}`);
-              
-              aiResult = sanitizeJson(json.choices?.[0]?.message?.content);
-              engineUsed = "Sonar Pro";
-          } catch (err: any) {
-               addLog(`Sonar Fallback Failed: ${err.message}`, "err");
-               // 3. Final Fallback (Disconnect Mode)
-               addLog("All AI Nodes Offline. Proceeding with Quant-Only Mode.", "warn");
-               aiResult = {
-                   dominantSector: "Quant-Sector",
-                   insight: "AI Connectivity Lost. Proceeding with algorithmic quality scores.",
-                   redFlags: []
-               };
-               engineUsed = "Quant-Only (Offline)";
-          }
-      }
-
-      if (aiResult) {
-          addLog(`Audit Complete via ${engineUsed}: [${aiResult.dominantSector}]`, "ok");
-      }
-      return aiResult;
-  };
-
   const executeDeepFilter = async () => {
       // ... (Keep existing execution logic) ...
       if (!accessToken || loading) return;
@@ -379,7 +294,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
 
                   // 6. Final Quality Score
-                  const rawQuality = (profitScore * 0.4 + debtScore * 0.3 + valueScore * 0.3) - penalty;
+                  let rawQuality = (profitScore * 0.4 + debtScore * 0.3 + valueScore * 0.3) - penalty;
+                  
+                  // [ICT STRATEGY BOOST] Upside Potential Bonus
+                  // If Target Price > Current Price * 1.2 (20% Upside), add bonus
+                  if (item.targetMeanPrice > item.price * 1.2) {
+                      rawQuality += 10; 
+                  }
+                  
                   const qualityScore = clampScore(rawQuality);
 
                   // 7. Z-Score Proxy
@@ -396,6 +318,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           valueScore: Math.round(valueScore),
                           qualityScore: Number(qualityScore.toFixed(2)),
                           dataQuality,
+                          // [CRITICAL] Preserve ICT Data Fields
+                          fiftyTwoWeekHigh: item.fiftyTwoWeekHigh || 0,
+                          fiftyTwoWeekLow: item.fiftyTwoWeekLow || 0,
+                          fiftyDayAverage: item.fiftyDayAverage || 0,
+                          twoHundredDayAverage: item.twoHundredDayAverage || 0,
+                          targetMeanPrice: item.targetMeanPrice || 0,
                           radarData: [
                             { subject: 'Profit', A: Math.round(profitScore), fullMark: 100 },
                             { subject: 'Safety', A: Math.round(debtScore), fullMark: 100 },
@@ -412,20 +340,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           results.sort((a, b) => b.qualityScore - a.qualityScore);
           const eliteCandidates = results.slice(0, 300);
           
-          // [AI AUDIT INJECTION]
-          addLog("Performing AI Audit on Top Candidates...", "info");
-          const auditResult = await performAiAudit(eliteCandidates);
-          
-          if (auditResult && auditResult.redFlags && Array.isArray(auditResult.redFlags)) {
-              eliteCandidates.forEach(c => {
-                  if (auditResult.redFlags.includes(c.symbol)) {
-                      c.qualityScore -= 20; // Penalize flagged stocks
-                      c.isValueTrap = true;
-                  }
-              });
-              // Re-sort after penalty
-              eliteCandidates.sort((a, b) => b.qualityScore - a.qualityScore);
-          }
+          // [QUANT ONLY] No AI Audit
+          addLog(`[OK] ${results.length} Assets Scanned via 5-Factor Quant Engine`, "ok");
 
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
@@ -445,7 +361,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   count: eliteCandidates.length, 
                   timestamp: new Date().toISOString(),
                   engine: "3-Factor_Quant_Model_Sanitized",
-                  aiAudit: auditResult ? "Completed" : "Skipped/Failed"
+                  aiAudit: "Skipped (Quant-Only Optimization)"
               },
               elite_universe: eliteCandidates
           };
