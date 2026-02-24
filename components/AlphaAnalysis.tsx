@@ -35,6 +35,10 @@ interface AlphaCandidate {
   kellyWeight?: string;
   isHiddenGem?: boolean;
   isImputed?: boolean;
+  // [NEW] ICT 5-Step Data
+  pdZone?: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT';
+  otePrice?: number;
+  ictStopLoss?: number;
   [key: string]: any;
 }
 
@@ -719,8 +723,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
 
       // [CRITICAL FIX] Robust Failover Logic for GitHub Actions
-      let response;
+      let response: any = { data: [] };
       let usedProvider = currentProvider;
+      let aiFailed = false;
 
       try {
           // Attempt 1: Try with current provider
@@ -732,17 +737,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              usedProvider = ApiProvider.PERPLEXITY;
              // Don't auto-set brain in manual mode, just use it for this execution
              if (autoStart) setSelectedBrain(ApiProvider.PERPLEXITY); 
-             response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+             try {
+                response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+             } catch (retryErr: any) {
+                addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
+                aiFailed = true;
+             }
           } else {
-             throw err; // Perplexity already failed, bubble up
+             addLog(`Engine Failed: ${err.message}`, "err");
+             aiFailed = true;
           }
       }
 
       // Check for 'soft' errors returned in response object (like Quota Limit)
-      if (response.error) {
+      if (response?.error) {
            addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
            
-           if (usedProvider === ApiProvider.GEMINI) {
+           if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
                // [MANUAL FAILOVER FIX] If manual mode, switch toggle and stop.
                if (!autoStart) {
                    addLog("Gemini Quota Exceeded/Error. Switched to Sonar. Click Execute to retry.", "warn");
@@ -756,7 +767,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                setSelectedBrain(ApiProvider.PERPLEXITY); // UI Toggle
                usedProvider = ApiProvider.PERPLEXITY;
                // Retry with Perplexity
-               response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+               try {
+                   response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+               } catch (e) {
+                   aiFailed = true;
+               }
+           } else {
+               aiFailed = true;
            }
       }
 
@@ -773,25 +790,33 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
       
-      const mergedFinal = safeAiResults.map((aiData: any) => {
-        if (!aiData?.symbol) return null;
-        const item = topCandidates.find((c: any) => c.symbol.trim().toUpperCase() === aiData.symbol.trim().toUpperCase());
-        if (!item) return null;
+      // [ENHANCED MERGE] Left Join: Iterate over topCandidates to ensure we don't lose items if AI returns partial list
+      const mergedFinal = topCandidates.map((item: any) => {
+        // Find matching AI result if available
+        const aiData = safeAiResults.find((r: any) => r.symbol?.trim().toUpperCase() === item.symbol.trim().toUpperCase());
         
         const safePrice = Number(item.price);
-        const safeEntry = Number(aiData.supportLevel) || (safePrice * 0.98);
-        
+        // Use AI data if valid, otherwise fallback to Quant heuristics
+        const safeEntry = aiData ? (Number(aiData.supportLevel) || (safePrice * 0.98)) : (safePrice * 0.98);
+        const safeTarget = aiData ? (Number(aiData.resistanceLevel) || (safePrice * 1.10)) : (safePrice * 1.10);
+        const safeStop = aiData ? (Number(aiData.stopLoss) || (safePrice * 0.95)) : (safePrice * 0.95);
+        const safeConviction = aiData ? Number(aiData.convictionScore || item.compositeAlpha || 0) : Number(item.compositeAlpha || 0);
+        const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
+        const safeOutlook = aiData?.investmentOutlook || "Quantitative metrics suggest strong potential. AI analysis unavailable.";
+
         return {
             ...item, 
-            ...aiData, 
+            ...aiData, // Overwrite with AI data where available
             price: safePrice,
-            convictionScore: Number(aiData.convictionScore || item.compositeAlpha || 0),
+            convictionScore: safeConviction,
             supportLevel: safeEntry,
-            resistanceLevel: Number(aiData.resistanceLevel) || (safePrice * 1.25),
-            stopLoss: Number(aiData.stopLoss) || (safePrice * 0.94),
+            resistanceLevel: safeTarget,
+            stopLoss: safeStop,
+            aiVerdict: safeVerdict,
+            investmentOutlook: safeOutlook,
             isHiddenGem: item.isHiddenGem, // Ensure this carries over
         };
-      }).filter(x => x !== null) as AlphaCandidate[];
+      }) as AlphaCandidate[];
       
       // [FIX] Slice to Top 6
       const finalElite = mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0)).slice(0, 6);
@@ -1177,6 +1202,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                               ${Number(displayPrice)?.toFixed(2)}
                           </span>
                           {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE FEED</span>}
+                          {item.pdZone === 'DISCOUNT' && (
+                              <div className="mt-1 flex justify-end">
+                                <span className="bg-emerald-600/90 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-[0_0_5px_rgba(16,185,129,0.5)] flex items-center gap-1 animate-pulse border border-emerald-400/50">
+                                    SALE
+                                </span>
+                              </div>
+                          )}
                           {item.isHiddenGem && (
                               <div className="mt-1 flex justify-end">
                                 <span className="bg-purple-600/90 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-[0_0_5px_rgba(147,51,234,0.5)] flex items-center gap-1 animate-pulse border border-purple-400/50">
@@ -1188,9 +1220,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                     <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
                     <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner">
-                      <div className="text-center"><p className="text-[8px] text-emerald-500 font-black uppercase">Entry</p><p className="text-[13px] font-black text-white tracking-tighter">${item.supportLevel?.toFixed(1) || '---'}</p></div>
-                      <div className="text-center border-x border-white/10"><p className="text-[8px] text-blue-500 font-black uppercase">Target</p><p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p></div>
-                      <div className="text-center"><p className="text-[8px] text-rose-500 font-black uppercase">Stop</p><p className="text-[13px] font-black text-white tracking-tighter">${item.stopLoss?.toFixed(1) || '---'}</p></div>
+                      <div className="text-center">
+                          <p className="text-[8px] text-emerald-500 font-black uppercase">{item.otePrice ? "🎯 ICT OTE" : "Entry"}</p>
+                          <p className="text-[13px] font-black text-white tracking-tighter">${(item.otePrice || item.supportLevel)?.toFixed(1) || '---'}</p>
+                      </div>
+                      <div className="text-center border-x border-white/10">
+                          <p className="text-[8px] text-blue-500 font-black uppercase">Target</p>
+                          <p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p>
+                      </div>
+                      <div className="text-center">
+                          <p className="text-[8px] text-rose-500 font-black uppercase">{item.ictStopLoss ? "🛡️ ICT Stop" : "Stop"}</p>
+                          <p className="text-[13px] font-black text-white tracking-tighter">${(item.ictStopLoss || item.stopLoss)?.toFixed(1) || '---'}</p>
+                      </div>
                     </div>
                     <div className="flex justify-between items-center mt-3">
                       <div className="flex flex-col">
