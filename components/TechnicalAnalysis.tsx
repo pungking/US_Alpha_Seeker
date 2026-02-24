@@ -773,11 +773,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           dataSource: dataSrc
                       };
                   }
+                  
+                  // [FIX] Derive Breakout Flag from Tech Data
+                  const isTechnicalBreakout = techData.techMetrics.trendAlignment === 'POWER_TREND' || techData.techMetrics.isBlueSky;
 
                   results.push({
                       ...item, // [CRITICAL] Master Pass-through (Stage 3 Data)
                       ...techData,
-                      isTechnicalBreakout, // [NEW] Explicit Flag
+                      isTechnicalBreakout, 
                       lastUpdate: new Date().toISOString()
                   });
 
@@ -815,6 +818,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       results.sort((a, b) => b.technicalScore - a.technicalScore);
       setProcessedData(results);
       if (results.length > 0) handleTickerSelect(results[0]);
+
+      addLog(`[DATA-SYNC] Passing Fundamental Alpha Tags to ICT Stage`, "ok");
 
       // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
