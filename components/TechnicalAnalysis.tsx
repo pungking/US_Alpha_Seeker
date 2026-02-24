@@ -38,9 +38,16 @@ interface TechnicalTicker {
       obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL';
       isBlueSky: boolean;
       goldenSetup: boolean;
+      volatilityRange?: number; // [NEW] ICT Volatility Score
   };
   
   priceHistory: { date: string; close: number; open?: number; high?: number; low?: number; volume?: number }[];
+  
+  // [NEW] ICT 5-Step Data Extraction
+  high52?: number;
+  low52?: number;
+  recentSwingHigh?: number;
+  recentSwingLow?: number;
   
   sector: string;
   lastUpdate: string;
@@ -465,6 +472,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           simPrice = simPrice + move + (simPrice * trendBias);
       }
       
+      // [NEW] Heuristic ICT Data
+      const volatilityRange = ((price - yearLow) / (yearHigh - yearLow)) * 100;
+
       return {
           technicalScore: Number(score.toFixed(2)),
           techMetrics: {
@@ -480,9 +490,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               trendAlignment,
               obvSlope: 'NEUTRAL',
               isBlueSky: price >= yearHigh * 0.98,
-              goldenSetup: trendAlignment === 'POWER_TREND'
+              goldenSetup: trendAlignment === 'POWER_TREND',
+              volatilityRange: Number(volatilityRange.toFixed(2))
           },
           priceHistory: syntheticHistory, 
+          // [NEW] ICT Data
+          high52: yearHigh,
+          low52: yearLow,
+          recentSwingHigh: price * 1.05,
+          recentSwingLow: price * 0.95,
           dataSource: 'HEURISTIC'
       };
   };
@@ -679,6 +695,22 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       
                       const goldenSetup = rawRvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
 
+                      // [NEW] ICT 5-Step Data Extraction Logic
+                      const lookback252 = candles.slice(-252);
+                      const high52 = Math.max(...lookback252.map((c: any) => c.h));
+                      const low52 = Math.min(...lookback252.map((c: any) => c.l));
+                      
+                      const lookback20 = candles.slice(-20);
+                      const recentSwingHigh = Math.max(...lookback20.map((c: any) => c.h));
+                      const recentSwingLow = Math.min(...lookback20.map((c: any) => c.l));
+                      
+                      // Volatility Range Score: (Current - Low52) / (High52 - Low52) * 100
+                      // 0 = At Low, 100 = At High
+                      let volatilityRange = 50;
+                      if (high52 > low52) {
+                          volatilityRange = ((currentPrice - low52) / (high52 - low52)) * 100;
+                      }
+
                       let techScore = rsRating * 0.4;
                       techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
                       
@@ -706,11 +738,17 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               trendAlignment,
                               obvSlope,
                               isBlueSky,
-                              goldenSetup
+                              goldenSetup,
+                              volatilityRange: Number(volatilityRange.toFixed(2))
                           },
                           priceHistory: candles.slice(-120).map((c: any) => ({
                               date: new Date(c.t).toISOString().split('T')[0], close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
                           })),
+                          // [NEW] Pass ICT Data to Next Stage
+                          high52,
+                          low52,
+                          recentSwingHigh,
+                          recentSwingLow,
                           dataSource: dataSrc
                       };
                   }
@@ -727,8 +765,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   results.push({
                       ...item,
                       technicalScore: 0,
-                      techMetrics: { rsi: 50, adx: 0, trend: 50, rvol: 50, rawRvol: 1.0, squeezeState: 'SQUEEZE_OFF', rsRating: 50, momentum: 50, wyckoffPhase: 'ACCUM', trendAlignment: 'NEUTRAL', obvSlope: 'NEUTRAL', isBlueSky: false, goldenSetup: false },
+                      techMetrics: { 
+                          rsi: 50, adx: 0, trend: 50, rvol: 50, rawRvol: 1.0, 
+                          squeezeState: 'SQUEEZE_OFF', rsRating: 50, momentum: 50, 
+                          wyckoffPhase: 'ACCUM', trendAlignment: 'NEUTRAL', 
+                          obvSlope: 'NEUTRAL', isBlueSky: false, goldenSetup: false,
+                          volatilityRange: 50 
+                      },
                       priceHistory: [],
+                      high52: item.fiftyTwoWeekHigh || 0,
+                      low52: item.fiftyTwoWeekLow || 0,
+                      recentSwingHigh: 0,
+                      recentSwingLow: 0,
                       lastUpdate: new Date().toISOString(),
                       dataSource: 'FAILURE'
                   });
