@@ -218,7 +218,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       
       Universe Stats:
       - Total Assets: ${stats.count}
-      - Median Price: ${stats.priceMedian}
+      - Median Price: $${stats.priceMedian}
       - Median Volume: ${stats.volMedian}
 
       [Task]
@@ -258,58 +258,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
       let aiResult: AiProposal | null = null;
 
-      // 1. Try Gemini First with Timeout & Error Handling
-      try {
-          setActiveAi('Gemini 3 Pro');
-          
-          // Explicitly search for Gemini Config
-          const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-          const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
-          
-          if (geminiKey) {
-              const ai = new GoogleGenAI({ apiKey: geminiKey });
-              const geminiRequest = ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
-                  contents: prompt,
-                  config: { responseMimeType: "application/json" }
-              });
-
-              // Race against 8s timeout to prevent hanging
-              const response: any = await Promise.race([geminiRequest, timeoutPromise(8000, "Gemini Timeout")]);
-              
-              trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-              aiResult = sanitizeJson(response.text);
-          } else {
-              addLog("Gemini Key not found. Skipping to Perplexity...", "warn");
-          }
-      } catch (e: any) {
-          const isQuota = e.message?.includes('429') || e.message?.includes('Quota') || e.message?.includes('Resource has been exhausted');
-          const isTimeout = e.message?.includes('Timeout');
-          
-          // [FIX] Track error usage to update UI status to ERR (Red Light)
-          trackUsage(ApiProvider.GEMINI, 0, true, e.message);
-
-          if (isQuota) addLog("Gemini Quota Exceeded (429). Switching to Sonar...", "warn");
-          else if (isTimeout) addLog("Gemini Connection Timeout. Switching to Sonar...", "warn");
-          else addLog(`Gemini Error: ${e.message}. Switching...`, "warn");
-          
-          aiResult = null; // Ensure we fall through to next step
-      }
-
-      // 2. Fallback to Perplexity
-      if (!aiResult) {
+      // Helper: Perplexity Call
+      const callPerplexity = async (): Promise<AiProposal | null> => {
           try {
               setActiveAi('Perplexity Sonar');
-              addLog("Engaging Perplexity Sonar for analysis...", "info");
               
-              // Small delay to ensure UI updates and visual confirmation of switch
+              // Small delay to ensure UI updates
               await new Promise(r => setTimeout(r, 1500));
 
-              // [FIX] Robust Key Retrieval: Check Enum, String, then Fallback
               const perplexityConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY) || API_CONFIGS.find(c => c.provider === 'Perplexity' as ApiProvider);
               let perplexityKey = perplexityConfig?.key;
 
-              // Fallback to hardcoded key if config search fails (as last resort to prevent offline mode)
               if (!perplexityKey) {
                    perplexityKey = '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'; 
               }
@@ -324,30 +283,66 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                       })
                   });
 
-                  // Race against 15s timeout
                   const res: any = await Promise.race([perplexityRequest, timeoutPromise(15000, "Perplexity Timeout")]);
                   const json = await res.json();
                   
-                  if (!res.ok) {
-                      throw new Error(`Perplexity API Error: ${res.status} ${JSON.stringify(json)}`);
-                  }
+                  if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
                   
-                  if (json.usage) {
-                      trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-                  }
+                  if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
                   if (json.choices && json.choices[0]) {
-                      aiResult = sanitizeJson(json.choices[0].message.content);
+                      return sanitizeJson(json.choices[0].message.content);
                   }
-              } else {
-                  addLog("Perplexity Key Missing in Config. Skipping.", "err");
               }
           } catch (e: any) {
-              // [FIX] Track error usage for Sonar too
               trackUsage(ApiProvider.PERPLEXITY, 0, true, e.message);
               addLog(`Perplexity Fallback Failed: ${e.message}`, "warn");
-              aiResult = null;
           }
+          return null;
+      };
+
+      // [3-STAGE FALLBACK LOGIC]
+      try {
+          // Explicitly search for Gemini Config
+          const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+          const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+          
+          if (geminiKey) {
+              const ai = new GoogleGenAI({ apiKey: geminiKey });
+              
+              try {
+                  // [STAGE 1] Gemini Pro
+                  setActiveAi('Gemini Pro');
+                  const proRequest = ai.models.generateContent({
+                      model: 'gemini-3.1-pro-preview',
+                      contents: prompt,
+                      config: { responseMimeType: "application/json" }
+                  });
+                  const response: any = await Promise.race([proRequest, timeoutPromise(80000, "Gemini Pro Timeout")]);
+                  trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+                  aiResult = sanitizeJson(response.text);
+
+              } catch (proError: any) {
+                  // [STAGE 2] Gemini Flash
+                  addLog(`[RETRY] Gemini Pro Busy (${proError.message}). Trying Flash Mode...`, "warn");
+                  setActiveAi('Gemini Flash');
+                  
+                  const flashRequest = ai.models.generateContent({
+                      model: 'gemini-3-flash-preview',
+                      contents: prompt,
+                      config: { responseMimeType: "application/json" }
+                  });
+                  const response: any = await Promise.race([flashRequest, timeoutPromise(30000, "Gemini Flash Timeout")]);
+                  trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+                  aiResult = sanitizeJson(response.text);
+              }
+          } else {
+              throw new Error("Gemini Key Not Found");
+          }
+      } catch (geminiError: any) {
+          // [STAGE 3] Perplexity
+          addLog(`[FALLBACK] Gemini Ecosystem Down (${geminiError.message}). Engaging Perplexity...`, "warn");
+          aiResult = await callPerplexity();
       }
 
       // 3. Final Safety Net (Hardcoded Default) - Prevents Hanging
