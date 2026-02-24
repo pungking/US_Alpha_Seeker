@@ -1286,58 +1286,59 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                     )}
                     
-                    {/* [NEW] Header Layout: Badges (Left) vs Name (Right) */}
-                    <div className="flex items-start justify-between mb-2 min-h-[28px]">
-                        {/* Badge Group: Max width calculated to prevent overlap */}
-                        <div className="flex flex-wrap gap-1 max-w-[calc(100%-80px)] items-start content-start">
-                             {showInstitutional && (
+                    {/* [NEW] Header Layout: Two Layers */}
+                    <div className="flex flex-col mb-3">
+                        {/* Layer 1: Badges (Left Aligned) */}
+                        <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
+                             {!!showInstitutional && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap">
                                     INSTITUTIONAL
                                 </span>
                              )}
-                             {showDiscount && (
+                             {!!showDiscount && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-black tracking-tight whitespace-nowrap">
                                     DISCOUNT
                                 </span>
                              )}
-                             {showAlphaPlus && (
+                             {!!showAlphaPlus && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight whitespace-nowrap">
                                     ALPHA+
                                 </span>
                              )}
-                             {showGem && (
+                             {!!showGem && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 font-black tracking-tight whitespace-nowrap">
                                     GEM
                                 </span>
                              )}
-                             {isConsensus && (
+                             {!!isConsensus && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight whitespace-nowrap">
                                     AI CONSENSUS
                                 </span>
                              )}
                         </div>
 
-                        {/* Stock Name & Score: Right aligned, truncated, fixed width constraint */}
-                        <div className="flex-1 min-w-0 text-right ml-2 flex flex-col items-end flex-shrink-0">
-                             <div className="flex items-baseline justify-end gap-1.5 w-full pr-1">
-                                <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none truncate">{item.symbol}</h4>
-                                <span className="text-xs font-bold text-rose-500 whitespace-nowrap">({item.convictionScore || item.compositeAlpha || 0}%)</span>
-                             </div>
-                             <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter truncate w-full block mt-0.5 pr-1">{item.name}</span>
+                        {/* Layer 2: Ticker (Left) vs Price (Right) */}
+                        <div className="flex justify-between items-end border-b border-white/5 pb-2">
+                            <div className="flex flex-col min-w-[80px] flex-shrink-0">
+                                <div className="flex items-baseline gap-2">
+                                    <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{item.symbol}</h4>
+                                    <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
+                                </div>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
+                            </div>
+                            
+                            <div className="flex flex-col items-end gap-0.5">
+                                {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
+                                <span className={`text-xl font-mono font-black tracking-tighter ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
+                                    ${Number(displayPrice)?.toFixed(2)}
+                                </span>
+                            </div>
                         </div>
-                    </div>
-
-                    {/* Price & Live Feed */}
-                    <div className="flex justify-end items-center gap-2 mb-3 border-b border-white/5 pb-2">
-                        {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
-                        <span className={`text-xs font-mono font-black ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
-                              ${Number(displayPrice)?.toFixed(2)}
-                        </span>
                     </div>
 
                     {/* [NEW] Sector Line: Fallback & Single Line Enforcement */}
                     <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3 font-bold whitespace-nowrap overflow-hidden text-ellipsis">
-                        {cleanMarkdown(item.sectorTheme || item.sector || item.theme || 'Diversified Industrials')}
+                        {cleanMarkdown(item.sector || item.sectorTheme || item.theme || 'N/A')}
                     </p>
 
                     <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
