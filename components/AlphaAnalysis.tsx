@@ -1276,7 +1276,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
-                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')} ${isConsensus ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''} ${isNeonGlow ? 'shadow-[0_0_20px_rgba(225,29,72,0.15)] border-rose-500/40' : ''}`}
+                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-emerald-400 bg-emerald-500/10 shadow-xl ring-2 ring-emerald-400/50 z-10' : (isNeonGlow ? 'shadow-[0_0_20px_rgba(225,29,72,0.15)] border-rose-500/40 bg-black/40 hover:bg-white/5' : 'border-white/5 bg-black/40 hover:bg-white/5'))} ${isConsensus && !isSelected ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
                   >
                     {/* [FIX] Use shouldRenderChart to ensure component is not rendered when hidden/headless */}
                     {shouldRenderChart && ((loading && isSelected) || isAuditRunning) && (
@@ -1320,7 +1320,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </div>
 
                         {/* Layer 2: Ticker (Left) vs Price (Right) */}
-                        <div className="flex items-end border-b border-white/5 pb-2">
+                        <div className="flex justify-between items-end gap-2 border-b border-white/5 pb-2">
                             <div className="flex flex-col flex-shrink-0 min-w-[100px] text-left">
                                 <div className="flex items-baseline gap-2">
                                     <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none shrink-0">{item.symbol}</h4>
@@ -1329,7 +1329,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                             
                             <div className="flex flex-col items-end gap-0.5 ml-auto">
-                                <div className="flex items-center gap-1 mb-1">
+                                <div className="flex items-center gap-1 mb-1 whitespace-nowrap">
                                     <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">ALPHA CONVICTION</span>
                                     <span className={`text-[9px] font-black ${alphaConviction > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
                                         {alphaConviction.toFixed(1)}
