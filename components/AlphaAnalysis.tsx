@@ -725,22 +725,69 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     let currentProvider = selectedBrain;
     
     addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
+    addLog("[OK] Dual-Benchmark Engine: Scanning SPY & QQQ Overperformance", "ok");
     
     try {
-      // [MODIFIED] Hidden Gem & Priority Logic
+      // [NEW] Fetch Benchmark Data
+      const { spy, qqq } = await fetchMarketBenchmarks();
+      addLog(`Benchmark Reference: SPY ${spy.toFixed(2)}% | QQQ ${qqq.toFixed(2)}%`, "info");
+
+      // [MODIFIED] Hidden Gem & Priority Logic + Dual Alpha + ICT Hybrid
       const scoredCandidates = elite50.map((c: any) => {
           const gap = Number(c.fairValueGap || 0);
           const ict = Number(c.ictScore || 0);
           const rvol = Number(c.techMetrics?.rawRvol || 0);
+          const dp = Number(c.changePercent || 0); // Daily percent change
           
           const isUndervaluedGrowth = gap > 100 && ict > 60;
-          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0; // Check isImputed property
+          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0; 
           const isHiddenGem = isUndervaluedGrowth || isVolumeRunner;
           
           let sortScore = c.compositeAlpha || 0;
-          if (isHiddenGem) sortScore += 25; // Significant boost to ensure top 12
+          let convictionScore = c.convictionScore || c.compositeAlpha || 0;
+
+          // 1. Dual-Alpha Engine
+          let spyAlpha = false;
+          let qqqAlpha = false;
+
+          if (dp > spy) {
+              sortScore *= 1.1;
+              convictionScore *= 1.1;
+              spyAlpha = true;
+          }
+          if (dp > qqq) {
+              sortScore *= 1.15; // Additional boost for beating Nasdaq
+              convictionScore *= 1.15;
+              qqqAlpha = true;
+          }
+
+          // 2. ICT PD-Array Filter
+          let isOverheated = false;
+          if (c.pdZone === 'DISCOUNT') {
+              convictionScore += 15;
+              sortScore += 15;
+          } else if (c.pdZone === 'PREMIUM') {
+              // Overheat Protection: Push out of top 20
+              isOverheated = true;
+              sortScore -= 50; 
+          }
+
+          // 3. Institutional Entry Badge
+          const displacement = c.ictMetrics?.displacement || 0;
+          const isInstitutionalEntry = displacement > 65;
+
+          if (isHiddenGem) sortScore += 25; 
           
-          return { ...c, isHiddenGem, sortScore };
+          return { 
+              ...c, 
+              isHiddenGem, 
+              sortScore, 
+              convictionScore: Math.min(99, Math.round(convictionScore)), // Cap at 99
+              spyAlpha,
+              qqqAlpha,
+              isInstitutionalEntry,
+              isOverheated
+          };
       });
 
       const topCandidates = scoredCandidates
@@ -827,9 +874,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const safeEntry = aiData ? (Number(aiData.supportLevel) || (safePrice * 0.98)) : (safePrice * 0.98);
         const safeTarget = aiData ? (Number(aiData.resistanceLevel) || (safePrice * 1.10)) : (safePrice * 1.10);
         const safeStop = aiData ? (Number(aiData.stopLoss) || (safePrice * 0.95)) : (safePrice * 0.95);
-        const safeConviction = aiData ? Number(aiData.convictionScore || item.compositeAlpha || 0) : Number(item.compositeAlpha || 0);
+        // [MODIFIED] Use the enhanced conviction score calculated above
+        const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
         const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
         const safeOutlook = aiData?.investmentOutlook || "Quantitative metrics suggest strong potential. AI analysis unavailable.";
+
+        // [NEW] Prioritize Perplexity Metrics
+        const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
+        const safeRiskReward = (usedProvider === ApiProvider.PERPLEXITY && aiData?.riskRewardRatio) ? aiData.riskRewardRatio : (item.riskRewardRatio || aiData?.riskRewardRatio);
 
         return {
             ...item, 
@@ -841,7 +893,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             stopLoss: safeStop,
             aiVerdict: safeVerdict,
             investmentOutlook: safeOutlook,
+            expectedReturn: safeExpectedReturn,
+            riskRewardRatio: safeRiskReward,
             isHiddenGem: item.isHiddenGem, // Ensure this carries over
+            spyAlpha: item.spyAlpha,
+            qqqAlpha: item.qqqAlpha,
+            isInstitutionalEntry: item.isInstitutionalEntry,
+            isOverheated: item.isOverheated,
+            pdZone: item.pdZone
         };
       }) as AlphaCandidate[];
       
@@ -874,6 +933,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       addLog(`${finalElite.length} Elite Alpha targets identified and mapped via ${usedProvider}.`, "ok");
+      addLog("[SIGNAL] Hybrid Alpha 50 Strategy Finalized", "signal");
 
     } catch (e: any) { 
         addLog(`Engine Error: ${e.message}`, "err"); 
@@ -1199,13 +1259,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const flashClass = rtData?.direction === 'up' ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]' 
                                  : rtData?.direction === 'down' ? 'bg-rose-500/20 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.3)]' 
                                  : '';
+                
+                // [NEW] Consensus Check
+                const isConsensus = resultsCache[ApiProvider.GEMINI]?.some(c => c.symbol === item.symbol) && resultsCache[ApiProvider.PERPLEXITY]?.some(c => c.symbol === item.symbol);
+                
+                // [NEW] Badge Conditions
+                const showInstitutional = (item.ictMetrics?.displacement || 0) > 80;
+                const showDiscount = item.pdZone === 'DISCOUNT';
+                const showAlphaPlus = (item.sortScore || 0) > 90 && (item.spyAlpha || item.qqqAlpha);
+                const showGem = item.isHiddenGem;
 
                 return (
                   <div 
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
-                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')}`}
+                    className={`glass-panel p-5 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')} ${isConsensus ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
                   >
                     {/* [FIX] Use shouldRenderChart to ensure component is not rendered when hidden/headless */}
                     {shouldRenderChart && ((loading && isSelected) || isAuditRunning) && (
@@ -1216,56 +1285,82 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         </span>
                       </div>
                     )}
-                    <div className="flex justify-between items-start mb-1">
-                      <div className="flex flex-col">
-                        <div className="flex items-baseline gap-2">
-                          <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{item.symbol}</h4>
-                          <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
+                    
+                    {/* [NEW] Header Layout: Badges (Left) vs Name (Right) */}
+                    <div className="flex items-start justify-between mb-2 min-h-[28px]">
+                        {/* Badge Group: Max 65% width, wrap enabled */}
+                        <div className="flex flex-wrap gap-1 max-w-[65%] items-start content-start">
+                             {showInstitutional && (
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight">
+                                    INSTITUTIONAL
+                                </span>
+                             )}
+                             {showDiscount && (
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-black tracking-tight">
+                                    DISCOUNT
+                                </span>
+                             )}
+                             {showAlphaPlus && (
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight">
+                                    ALPHA+
+                                </span>
+                             )}
+                             {showGem && (
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 font-black tracking-tight">
+                                    GEM
+                                </span>
+                             )}
+                             {isConsensus && (
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight">
+                                    AI CONSENSUS
+                                </span>
+                             )}
                         </div>
-                        <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
-                      </div>
-                      <div className="text-right">
-                          <span className={`text-xs font-mono font-black mt-1 block ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
-                              ${Number(displayPrice)?.toFixed(2)}
-                          </span>
-                          {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE FEED</span>}
-                          {item.pdZone === 'DISCOUNT' && (
-                              <div className="mt-1 flex justify-end">
-                                <span className="bg-emerald-600/90 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-[0_0_5px_rgba(16,185,129,0.5)] flex items-center gap-1 animate-pulse border border-emerald-400/50">
-                                    SALE
-                                </span>
-                              </div>
-                          )}
-                          {item.isHiddenGem && (
-                              <div className="mt-1 flex justify-end">
-                                <span className="bg-purple-600/90 text-white text-[7px] font-black px-1.5 py-0.5 rounded shadow-[0_0_5px_rgba(147,51,234,0.5)] flex items-center gap-1 animate-pulse border border-purple-400/50">
-                                    💎 GEM
-                                </span>
-                              </div>
-                          )}
-                      </div>
+
+                        {/* Stock Name & Score: Right aligned, truncated */}
+                        <div className="flex-1 min-w-0 text-right ml-2 flex flex-col items-end">
+                             <div className="flex items-baseline justify-end gap-1.5 w-full">
+                                <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none truncate">{item.symbol}</h4>
+                                <span className="text-xs font-bold text-rose-500 whitespace-nowrap">({item.convictionScore || item.compositeAlpha || 0}%)</span>
+                             </div>
+                             <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter truncate w-full block mt-0.5">{item.name}</span>
+                        </div>
                     </div>
-                    <p className="text-[10px] text-slate-500 uppercase tracking-widest truncate mb-4 font-bold border-b border-white/5 pb-2">{cleanMarkdown(item.sectorTheme || item.theme)}</p>
-                    <div className="grid grid-cols-3 gap-2 py-4 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner">
+
+                    {/* Price & Live Feed */}
+                    <div className="flex justify-end items-center gap-2 mb-3 border-b border-white/5 pb-2">
+                        {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
+                        <span className={`text-xs font-mono font-black ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
+                              ${Number(displayPrice)?.toFixed(2)}
+                        </span>
+                    </div>
+
+                    {/* [NEW] Sector Line: Fallback & Single Line Enforcement */}
+                    <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3 font-bold whitespace-nowrap overflow-hidden text-ellipsis">
+                        {cleanMarkdown(item.sectorTheme || item.sector || item.theme || 'Diversified Industrials')}
+                    </p>
+
+                    <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
                       <div className="text-center">
                           <p className="text-[8px] text-emerald-500 font-black uppercase">{item.otePrice ? "🎯 ICT OTE" : "Entry"}</p>
-                          <p className="text-[13px] font-black text-white tracking-tighter">${(item.otePrice || item.supportLevel)?.toFixed(1) || '---'}</p>
+                          <p className="text-[12px] font-black text-white tracking-tighter">${(item.otePrice || item.supportLevel)?.toFixed(1) || '---'}</p>
                       </div>
                       <div className="text-center border-x border-white/10">
                           <p className="text-[8px] text-blue-500 font-black uppercase">Target</p>
-                          <p className="text-[13px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p>
+                          <p className="text-[12px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p>
                       </div>
                       <div className="text-center">
                           <p className="text-[8px] text-rose-500 font-black uppercase">{item.ictStopLoss ? "🛡️ ICT Stop" : "Stop"}</p>
-                          <p className="text-[13px] font-black text-white tracking-tighter">${(item.ictStopLoss || item.stopLoss)?.toFixed(1) || '---'}</p>
+                          <p className="text-[12px] font-black text-white tracking-tighter">${(item.ictStopLoss || item.stopLoss)?.toFixed(1) || '---'}</p>
                       </div>
                     </div>
-                    <div className="flex justify-between items-center mt-3">
-                      <div className="flex flex-col">
-                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5">예상 수익률 (Exp. Return)</span>
-                        <span className="text-[10px] font-black text-emerald-400 italic">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
+                    
+                    <div className="flex justify-between items-center mt-auto">
+                      <div className="flex flex-col min-w-0 flex-1 mr-2">
+                        <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5 truncate">EXP. RETURN</span>
+                        <span className="text-[9px] font-black text-emerald-400 italic truncate">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
                       </div>
-                      <span className={`px-2.5 py-1.5 rounded text-[8px] font-black uppercase border shadow-md ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
+                      <span className={`px-2 py-1 rounded text-[7px] font-black uppercase border shadow-md whitespace-nowrap ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
                     </div>
                   </div>
                 );
@@ -1429,6 +1524,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                             </div>
                         )}
+
+                        {/* [NEW] Hybrid Alpha Signals Chips */}
+                        <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
+                            <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Hybrid Alpha Signals</h4>
+                            <div className="flex flex-wrap gap-2">
+                                {selectedStock.spyAlpha && <span className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm">SPY Alpha</span>}
+                                {selectedStock.qqqAlpha && <span className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm">QQQ Alpha</span>}
+                                {selectedStock.isInstitutionalEntry && <span className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm">Institutional Entry</span>}
+                                {selectedStock.isHighGrowthQuality && <span className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm">High Quality Growth</span>}
+                                {selectedStock.isTechnicalBreakout && <span className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm">Tech Breakout</span>}
+                                {selectedStock.sectorRankBonus && <span className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm">Sector Leader</span>}
+                                {selectedStock.pdZone === 'DISCOUNT' && <span className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm">Discount Zone</span>}
+                                {selectedStock.isHiddenGem && <span className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm">Hidden Gem</span>}
+                            </div>
+                        </div>
 
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
