@@ -370,7 +370,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
 
           results.sort((a, b) => b.qualityScore - a.qualityScore);
-          const eliteCandidates = results.slice(0, 300);
+
+          // [DYNAMIC SCALING] Market Condition Analysis
+          const avgScore = results.reduce((sum, item) => sum + item.qualityScore, 0) / (results.length || 1);
+          let targetCount = 300; // Neutral
+          
+          if (avgScore >= 70) {
+             targetCount = 450; // Bull
+          } else if (avgScore < 50) {
+             targetCount = 150; // Bear
+          }
+
+          addLog(`[DYNAMIC-SCALE] Market Condition Detected. Target: ${targetCount} Assets.`, "info");
+
+          const eliteCandidates = results.slice(0, targetCount);
           
           // [QUANT ONLY] No AI Audit
           addLog(`[OK] 5-Factor Quant Engine: Scan Complete`, "ok");
@@ -378,7 +391,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           setProcessedData(eliteCandidates);
           if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
 
-          addLog(`[DATA-SYNC] Field Integrity Guaranteed for Stages 3, 4, 5, 6`, "ok");
+          addLog(`[DATA-SYNC] Field Integrity Guaranteed for Stages 3-6`, "ok");
           
           const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
           
