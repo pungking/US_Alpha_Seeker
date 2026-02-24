@@ -1288,42 +1288,42 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     
                     {/* [NEW] Header Layout: Badges (Left) vs Name (Right) */}
                     <div className="flex items-start justify-between mb-2 min-h-[28px]">
-                        {/* Badge Group: Max 65% width, wrap enabled */}
-                        <div className="flex flex-wrap gap-1 max-w-[65%] items-start content-start">
+                        {/* Badge Group: Max width calculated to prevent overlap */}
+                        <div className="flex flex-wrap gap-1 max-w-[calc(100%-80px)] items-start content-start">
                              {showInstitutional && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight">
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap">
                                     INSTITUTIONAL
                                 </span>
                              )}
                              {showDiscount && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-black tracking-tight">
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-black tracking-tight whitespace-nowrap">
                                     DISCOUNT
                                 </span>
                              )}
                              {showAlphaPlus && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight">
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight whitespace-nowrap">
                                     ALPHA+
                                 </span>
                              )}
                              {showGem && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 font-black tracking-tight">
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 font-black tracking-tight whitespace-nowrap">
                                     GEM
                                 </span>
                              )}
                              {isConsensus && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight">
+                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight whitespace-nowrap">
                                     AI CONSENSUS
                                 </span>
                              )}
                         </div>
 
-                        {/* Stock Name & Score: Right aligned, truncated */}
-                        <div className="flex-1 min-w-0 text-right ml-2 flex flex-col items-end">
-                             <div className="flex items-baseline justify-end gap-1.5 w-full">
+                        {/* Stock Name & Score: Right aligned, truncated, fixed width constraint */}
+                        <div className="flex-1 min-w-0 text-right ml-2 flex flex-col items-end flex-shrink-0">
+                             <div className="flex items-baseline justify-end gap-1.5 w-full pr-1">
                                 <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none truncate">{item.symbol}</h4>
                                 <span className="text-xs font-bold text-rose-500 whitespace-nowrap">({item.convictionScore || item.compositeAlpha || 0}%)</span>
                              </div>
-                             <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter truncate w-full block mt-0.5">{item.name}</span>
+                             <span className="text-[8px] font-bold text-slate-400 uppercase tracking-tighter truncate w-full block mt-0.5 pr-1">{item.name}</span>
                         </div>
                     </div>
 
