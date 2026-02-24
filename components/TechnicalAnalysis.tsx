@@ -711,6 +711,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           volatilityRange = ((currentPrice - low52) / (high52 - low52)) * 100;
                       }
 
+                      // [NEW] ICT Displacement Logic (Accelerator)
+                      // RSI 55-70 (Sweet Spot) + ADX > 25 (Trend) + RVOL > 1.5 (Power)
+                      const isDisplacement = rsi >= 55 && rsi <= 70 && adx >= 25 && rawRvol >= 1.5;
+                      
                       let techScore = rsRating * 0.4;
                       techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
                       
@@ -721,7 +725,24 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       techScore += (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
                       if (goldenSetup || isBlueSky) techScore += 10;
                       
+                      // [LOGIC] Displacement Override
+                      if (isDisplacement) {
+                          techScore = Math.max(techScore, 92); // Force Elite Status
+                          addLog(`[OK] Accelerator Ready: Displacement Scanned`, "ok");
+                      }
+                      
+                      // [LOGIC] Low Energy Penalty
+                      if (adx < 20 && rawRvol < 0.8) {
+                          techScore = Math.min(techScore, 45); // Filter out weak stocks
+                      }
+                      
                       const safeTechnicalScore = Number(Math.min(99, Math.max(1, isNaN(techScore) ? 50 : techScore)).toFixed(2));
+                      
+                      // [NEW] Technical Breakout Flag
+                      const isTechnicalBreakout = trendAlignment === 'POWER_TREND' || isBlueSky;
+                      if (trendAlignment === 'POWER_TREND') {
+                           addLog(`[OK] Power Trend Detected: ${item.symbol} is ready for launch`, "ok");
+                      }
 
                       techData = {
                           technicalScore: safeTechnicalScore,
@@ -754,8 +775,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   }
 
                   results.push({
-                      ...item, 
+                      ...item, // [CRITICAL] Master Pass-through (Stage 3 Data)
                       ...techData,
+                      isTechnicalBreakout, // [NEW] Explicit Flag
                       lastUpdate: new Date().toISOString()
                   });
 
