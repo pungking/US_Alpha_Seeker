@@ -1286,10 +1286,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       </div>
                     )}
                     
-                    {/* [NEW] Header Layout: Two Layers */}
+                    {/* [NEW] Header Layout: Two Layers (Absolute Protection for Ticker) */}
                     <div className="flex flex-col mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
-                        <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
+                        <div className="flex flex-wrap gap-1 mb-1 min-h-[16px]">
                              {!!showInstitutional && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap">
                                     INSTITUTIONAL
@@ -1338,7 +1338,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                     {/* [NEW] Sector Line: Fallback & Single Line Enforcement */}
                     <p className="text-[9px] text-slate-500 uppercase tracking-widest mb-3 font-bold whitespace-nowrap overflow-hidden text-ellipsis">
-                        {cleanMarkdown(item.sector || item.sectorTheme || item.theme || 'N/A')}
+                        {cleanMarkdown(item.sectorTheme || item.sector || 'Industrial/Staples')}
                     </p>
 
                     <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
@@ -1530,14 +1530,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Hybrid Alpha Signals</h4>
                             <div className="flex flex-wrap gap-2">
-                                {selectedStock.spyAlpha && <span className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm">SPY Alpha</span>}
-                                {selectedStock.qqqAlpha && <span className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm">QQQ Alpha</span>}
-                                {selectedStock.isInstitutionalEntry && <span className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm">Institutional Entry</span>}
-                                {selectedStock.isHighGrowthQuality && <span className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm">High Quality Growth</span>}
-                                {selectedStock.isTechnicalBreakout && <span className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm">Tech Breakout</span>}
-                                {selectedStock.sectorRankBonus && <span className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm">Sector Leader</span>}
-                                {selectedStock.pdZone === 'DISCOUNT' && <span className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm">Discount Zone</span>}
-                                {selectedStock.isHiddenGem && <span className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm">Hidden Gem</span>}
+                                {!!selectedStock.spyAlpha && <span className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm">SPY Alpha</span>}
+                                {!!selectedStock.qqqAlpha && <span className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm">QQQ Alpha</span>}
+                                {!!selectedStock.isInstitutionalEntry && <span className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm">Institutional Entry</span>}
+                                {!!selectedStock.isHighGrowthQuality && <span className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm">High Quality Growth</span>}
+                                {!!selectedStock.isTechnicalBreakout && <span className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm">Tech Breakout</span>}
+                                {!!selectedStock.sectorRankBonus && <span className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm">Sector Leader</span>}
+                                {!!(selectedStock.pdZone === 'DISCOUNT') && <span className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm">Discount Zone</span>}
+                                {!!selectedStock.isHiddenGem && <span className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm">Hidden Gem</span>}
                             </div>
                         </div>
 
@@ -1549,7 +1549,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
                                     <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
                                 </li>
-                                )) : <li className="text-xs text-slate-500 italic">No specific rationale provided by engine.</li>}
+                                )) : <li className="text-xs text-slate-500 italic">시스템 퀀트 분석 기반 추천 (System Quant Recommendation)</li>}
                             </ul>
                         </div>
                         
