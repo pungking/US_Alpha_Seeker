@@ -1328,8 +1328,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                             </div>
                             
-                            <div className="flex flex-col items-end gap-0.5 ml-auto">
-                                <div className="flex items-center gap-1 mb-1 whitespace-nowrap">
+                            <div className="flex flex-col justify-end items-end gap-0.5 ml-auto h-[45px]">
+                                <div className="flex items-center gap-1 mb-1 whitespace-nowrap leading-none">
                                     <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">ALPHA CONVICTION</span>
                                     <span className={`text-[9px] font-black ${alphaConviction > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
                                         {alphaConviction.toFixed(1)}
