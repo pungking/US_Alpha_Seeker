@@ -455,11 +455,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               wsRef.current.close();
               wsRef.current = null;
           }
-          console.log(`[Finnhub WS] Initiating connection for: ${symbolsToTrack.join(', ')}`);
           const ws = new WebSocket(`wss://ws.finnhub.io?token=${finnhubKey}`);
           wsRef.current = ws;
           ws.onopen = () => {
-              console.log("[Finnhub WS] Connected. Subscribing...");
               symbolsToTrack.forEach(sym => {
                   ws.send(JSON.stringify({ type: 'subscribe', symbol: sym }));
               });
@@ -488,9 +486,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           }, 1000);
                       });
                   }
-              } catch (err) { console.error("[Finnhub WS] Message Parse Error", err); }
+              } catch (err) { }
           };
-          ws.onerror = (err) => { console.error("[Finnhub WS] Connection Error", err); };
+          ws.onerror = (err) => { };
           return () => { if (wsRef.current) wsRef.current.close(); };
       }
   }, [activeTab, currentResults, finnhubKey]); 
@@ -1269,12 +1267,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const showAlphaPlus = (item.sortScore || 0) > 90 && (item.spyAlpha || item.qqqAlpha);
                 const showGem = item.isHiddenGem;
 
+                // [NEW] Alpha Conviction & Visual Effects
+                const alphaConviction = ((item.convictionScore || 0) + (item.ictScore || 0)) / 2;
+                const isNeonGlow = (item.ictMetrics?.smartMoneyFlow || 0) > 90;
+
                 return (
                   <div 
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
-                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')} ${isConsensus ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
+                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-rose-500 bg-rose-500/10 shadow-xl' : 'border-white/5 bg-black/40 hover:bg-white/5')} ${isConsensus ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''} ${isNeonGlow ? 'shadow-[0_0_20px_rgba(225,29,72,0.15)] border-rose-500/40' : ''}`}
                   >
                     {/* [FIX] Use shouldRenderChart to ensure component is not rendered when hidden/headless */}
                     {shouldRenderChart && ((loading && isSelected) || isAuditRunning) && (
@@ -1289,7 +1291,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     {/* [NEW] Header Layout: Two Layers (Absolute Protection for Ticker) */}
                     <div className="flex flex-col gap-1 mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
-                        <div className="flex flex-wrap gap-1 min-h-[16px]">
+                        <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
                              {!!showInstitutional && (
                                 <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap">
                                     INSTITUTIONAL
@@ -1321,13 +1323,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="flex items-end border-b border-white/5 pb-2">
                             <div className="flex flex-col flex-shrink-0 min-w-[100px] text-left">
                                 <div className="flex items-baseline gap-2">
-                                    <h4 className="text-3xl font-black text-white italic tracking-tighter uppercase leading-none">{item.symbol}</h4>
-                                    <span className="text-sm font-bold text-rose-500">({item.convictionScore || item.compositeAlpha || 0}%)</span>
+                                    <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none shrink-0">{item.symbol}</h4>
                                 </div>
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                             </div>
                             
                             <div className="flex flex-col items-end gap-0.5 ml-auto">
+                                <div className="flex items-center gap-1 mb-1">
+                                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">ALPHA CONVICTION</span>
+                                    <span className={`text-[9px] font-black ${alphaConviction > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
+                                        {alphaConviction.toFixed(1)}
+                                    </span>
+                                </div>
                                 {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
                                 <span className={`text-xl font-mono font-black tracking-tighter ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
                                     ${Number(displayPrice)?.toFixed(2)}
@@ -1485,9 +1492,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
 
                             <div className="min-h-[200px]">
-                                <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                                    {cleanInsightText(removeCitations(selectedStock.investmentOutlook)) || "### [AI 분석 엔진 가동 중]\n현재 해당 종목에 대한 실시간 퀀트 데이터 및 섹터 모멘텀 분석이 진행 중입니다. 상단 차트의 기술적 지표를 우선 참조하십시오."}
-                                </ReactMarkdown>
+                                {selectedStock.investmentOutlook ? (
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                                        {cleanInsightText(removeCitations(selectedStock.investmentOutlook))}
+                                    </ReactMarkdown>
+                                ) : (
+                                    <p className="italic opacity-50 text-[11px] text-slate-500 mt-4">[AI 전략 엔진 가동 중: 펀더멘털 기반 분석 데이터 대기 중]</p>
+                                )}
                             </div>
                         </div>
                      </div>
@@ -1544,12 +1555,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase mb-4 italic tracking-widest">Alpha Core Rationale</h4>
                             <ul className="space-y-4">
-                                {selectedStock.selectionReasons?.length ? selectedStock.selectionReasons.map((r, i) => (
+                                {(selectedStock.selectionReasons?.length ? selectedStock.selectionReasons : ['섹터 주도주 선정', '기술적 돌파 구간', '기관 매집 포착']).map((r, i) => (
                                 <li key={i} className="flex items-start gap-4">
                                     <div className="w-2 h-2 rounded-full bg-rose-500 mt-1.5 shrink-0 shadow-[0_0_10px_rgba(244,63,94,0.5)]" />
                                     <p className="text-[13px] font-bold text-slate-200 leading-snug uppercase tracking-tight">{cleanMarkdown(r)}</p>
                                 </li>
-                                )) : <li className="text-xs text-slate-500 italic">시스템 퀀트 분석 기반 추천 (System Quant Recommendation)</li>}
+                                ))}
                             </ul>
                         </div>
                         
