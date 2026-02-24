@@ -640,71 +640,101 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   try {
     if (provider === ApiProvider.GEMINI) {
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      
       try {
-        const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-        const result = await fetchWithRetry(() => ai.models.generateContent({
-          model: 'gemini-3-flash-preview',
+        // [STAGE 1] Gemini Pro (High Reasoning)
+        console.warn("[ATTEMPT] Stage 1: Engaging Gemini Pro (High Reasoning)...");
+        const resultPro = await fetchWithRetry(() => ai.models.generateContent({
+          model: 'gemini-3.1-pro-preview',
           contents: prompt,
           config: { 
               responseMimeType: "application/json", 
               responseSchema: ALPHA_SCHEMA,
               systemInstruction: SYSTEM_INSTRUCTION,
-              // [ENABLED] Real-time Search Tool for Gemini
               tools: [{ googleSearch: {} }] 
           }
-        }), 4, 5000); // [FIX] Increased retries to 4 and base delay to 5000ms for 429
+        }), 0, 2000);
+
+        trackUsage(ApiProvider.GEMINI, resultPro.usageMetadata?.totalTokenCount || 0);
+        const parsedPro = sanitizeAndParseJson(resultPro.text);
         
-        trackUsage(ApiProvider.GEMINI, result.usageMetadata?.totalTokenCount || 0);
-        const parsed = sanitizeAndParseJson(result.text);
-        
-        if (parsed && Array.isArray(parsed)) {
+        if (parsedPro && Array.isArray(parsedPro)) {
             const uniqueMap = new Map();
-            parsed.forEach(item => {
+            parsedPro.forEach(item => {
                 if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                if (item.symbol && !uniqueMap.has(item.symbol)) {
-                    uniqueMap.set(item.symbol, item);
-                }
+                if (item.symbol && !uniqueMap.has(item.symbol)) uniqueMap.set(item.symbol, item);
             });
-            return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI' };
+            return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI_PRO' };
         }
-        
-        return { data: parsed, usedProvider: 'GEMINI' };
-      } catch (geminiError: any) {
-        console.warn("Gemini 503 Detected. Switching to Perplexity for Autopilot Continuity");
-        trackUsage(ApiProvider.GEMINI, 0, true, geminiError.message);
+        return { data: parsedPro, usedProvider: 'GEMINI_PRO' };
+
+      } catch (proError: any) {
+        console.warn(`[RETRY] Gemini Pro Failed (${proError.message}). Switching to Flash Mode...`);
         
         try {
-            // [SMART FALLBACK] Immediate switch to Perplexity
-            const pResult = await executePerplexityAnalysis();
-            if (pResult.data) {
-                return { ...pResult, usedProvider: 'PERPLEXITY_FALLBACK' };
+            // [STAGE 2] Gemini Flash (Speed & Stability)
+            const resultFlash = await fetchWithRetry(() => ai.models.generateContent({
+              model: 'gemini-3-flash-preview',
+              contents: prompt,
+              config: { 
+                  responseMimeType: "application/json", 
+                  responseSchema: ALPHA_SCHEMA,
+                  systemInstruction: SYSTEM_INSTRUCTION,
+                  tools: [{ googleSearch: {} }] 
+              }
+            }), 1, 2000); 
+            
+            trackUsage(ApiProvider.GEMINI, resultFlash.usageMetadata?.totalTokenCount || 0);
+            const parsedFlash = sanitizeAndParseJson(resultFlash.text);
+            
+            if (parsedFlash && Array.isArray(parsedFlash)) {
+                const uniqueMap = new Map();
+                parsedFlash.forEach(item => {
+                    if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                    if (item.symbol && !uniqueMap.has(item.symbol)) uniqueMap.set(item.symbol, item);
+                });
+                return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI_FLASH' };
             }
-            throw new Error(pResult.error || "Perplexity Fallback Failed");
-        } catch (pError: any) {
-             // [FINAL SAFETY NET] Return basic data to prevent pipeline crash
-             console.error("All AI Nodes Failed. Returning Static Fallback.");
-             const fallbackData = candidates.map(c => ({
-                 symbol: c.symbol,
-                 aiVerdict: "HOLD",
-                 convictionScore: 50,
-                 investmentOutlook: "## AI Analysis Unavailable\n\nSystem encountered a critical error with both Gemini and Perplexity nodes. Data preserved for manual review.",
-                 selectionReasons: ["System Error", "Manual Review Required", "Data Preserved"],
-                 newsSentiment: "Neutral",
-                 newsScore: 0.5,
-                 expectedReturn: "0%",
-                 supportLevel: c.price * 0.95,
-                 resistanceLevel: c.price * 1.05,
-                 stopLoss: c.price * 0.90,
-                 riskRewardRatio: "1:2",
-                 kellyWeight: "0%",
-                 marketCapClass: "UNKNOWN",
-                 sectorTheme: c.sector || "Unknown",
-                 theme: "Fallback",
-                 aiSentiment: "Neutral",
-                 analysisLogic: "Fallback Recovery",
-                 chartPattern: "N/A"
-             }));
-             return { data: fallbackData, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
+            return { data: parsedFlash, usedProvider: 'GEMINI_FLASH' };
+
+        } catch (flashError: any) {
+             console.warn("[FALLBACK] Gemini Ecosystem Down -> Engaging Perplexity Sonar...");
+             trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
+
+             // [STAGE 3] Perplexity Sonar
+             try {
+                const pResult = await executePerplexityAnalysis();
+                if (pResult.data) {
+                    return { ...pResult, usedProvider: 'PERPLEXITY_FALLBACK' };
+                }
+                throw new Error(pResult.error || "Perplexity Fallback Failed");
+             } catch (pError: any) {
+                 // [FINAL SAFETY NET]
+                 console.error("All AI Nodes Failed. Returning Static Fallback.");
+                 const fallbackData = candidates.map(c => ({
+                     symbol: c.symbol,
+                     aiVerdict: "HOLD",
+                     convictionScore: 50,
+                     investmentOutlook: "## AI Analysis Unavailable\n\nSystem encountered a critical error with both Gemini and Perplexity nodes. Data preserved for manual review.",
+                     selectionReasons: ["System Error", "Manual Review Required", "Data Preserved"],
+                     newsSentiment: "Neutral",
+                     newsScore: 0.5,
+                     expectedReturn: "0%",
+                     supportLevel: c.price * 0.95,
+                     resistanceLevel: c.price * 1.05,
+                     stopLoss: c.price * 0.90,
+                     riskRewardRatio: "1:2",
+                     kellyWeight: "0%",
+                     marketCapClass: "UNKNOWN",
+                     sectorTheme: c.sector || "Unknown",
+                     theme: "Fallback",
+                     aiSentiment: "Neutral",
+                     analysisLogic: "Fallback Recovery",
+                     chartPattern: "N/A"
+                 }));
+                 return { data: fallbackData, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
+             }
         }
       }
     }
