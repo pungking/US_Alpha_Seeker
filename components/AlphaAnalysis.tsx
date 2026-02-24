@@ -39,6 +39,14 @@ interface AlphaCandidate {
   pdZone?: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT';
   otePrice?: number;
   ictStopLoss?: number;
+  // [NEW] Dual-Alpha & Hybrid Tags
+  spyAlpha?: boolean;
+  qqqAlpha?: boolean;
+  isInstitutionalEntry?: boolean;
+  isOverheated?: boolean;
+  isHighGrowthQuality?: boolean;
+  isTechnicalBreakout?: boolean;
+  sectorRankBonus?: boolean;
   [key: string]: any;
 }
 
@@ -268,6 +276,25 @@ const getLegendStrategy = (logicStr: string = "") => {
     if (s.includes("greenberg") || s.includes("conviction")) return { name: "Glenn Greenberg", type: "Concentrated", color: "text-cyan-400", border: "border-cyan-500/30", bg: "bg-cyan-500/10" };
     if (s.includes("welling") || s.includes("activist")) return { name: "Glenn Welling", type: "Event", color: "text-indigo-400", border: "border-indigo-500/30", bg: "bg-indigo-500/10" };
     return null;
+};
+
+const fetchMarketBenchmarks = async () => {
+    try {
+        const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+        if (!finnhubKey) return { spy: 0, qqq: 0 };
+
+        const getQuote = async (sym: string) => {
+            const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${finnhubKey}`);
+            const data = await res.json();
+            return data.dp || 0; // dp is percent change
+        };
+
+        const [spy, qqq] = await Promise.all([getQuote('SPY'), getQuote('QQQ')]);
+        return { spy, qqq };
+    } catch (e) {
+        console.error("Benchmark Fetch Error", e);
+        return { spy: 0, qqq: 0 };
+    }
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
