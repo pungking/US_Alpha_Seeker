@@ -21,6 +21,11 @@ interface IctScoredTicker {
       smartMoneyFlow: number; // 기관 자금 유입 추정치 (Effort vs Result)
   };
   
+  // [NEW] ICT 5-Step Data
+  pdZone: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT';
+  otePrice: number;
+  ictStopLoss: number;
+
   // Qualitative Tags
   marketState: 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' | 'RE-ACCUMULATION';
   verdict: string;
@@ -319,6 +324,48 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         
         // Pure Algo Logic
         const ictAnalysis = calculateIctScore(item);
+        
+        // [ICT 5-Step Logic] P/D Array & OTE Calculation
+        const high52 = item.fiftyTwoWeekHigh || item.price * 1.2;
+        const low52 = item.fiftyTwoWeekLow || item.price * 0.8;
+        const range = high52 - low52;
+        const equilibrium = low52 + (range * 0.5);
+        
+        let pdZone: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT' = 'EQUILIBRIUM';
+        if (item.price < equilibrium) pdZone = 'DISCOUNT';
+        else if (item.price > equilibrium) pdZone = 'PREMIUM';
+
+        // OTE (Optimal Trade Entry): 70.5% Retracement from High (Deep Discount)
+        // Price = High - (Range * 0.705) => 29.5% level from Low
+        const otePrice = high52 - (range * 0.705);
+        
+        // ICT Stop Loss: Recent Low - 1.5% (Noise Buffer)
+        const ictStopLoss = low52 * 0.985;
+
+        // [Logic Injection] Enhance Score based on ICT 5-Step
+        // 1. Discount Zone Bonus
+        if (pdZone === 'DISCOUNT') {
+            ictAnalysis.score += 10; 
+        } else if (pdZone === 'PREMIUM') {
+            ictAnalysis.score -= 10; // Penalty for buying expensive
+        }
+
+        // 2. OTE Proximity Bonus (Within 5%)
+        const distToOte = Math.abs(item.price - otePrice) / item.price;
+        if (distToOte < 0.05) {
+            ictAnalysis.score += 15; // Sniper Entry Bonus
+        }
+
+        // 3. Liquidity Sweep Enhancement (Volume Confirmation)
+        const rvol = item.techMetrics?.rvol || 1.0;
+        if (ictAnalysis.metrics.liquiditySweep > 50 && rvol > 1.5) {
+            ictAnalysis.score += 10;
+            ictAnalysis.metrics.liquiditySweep = Math.min(100, ictAnalysis.metrics.liquiditySweep + 20);
+        }
+
+        // Re-clamp score 0-100
+        ictAnalysis.score = Math.min(100, Math.max(0, ictAnalysis.score));
+
         const marketState = determineMarketState(ictAnalysis.metrics);
         
         // [RISK] RSI Penalty & PEG Check
