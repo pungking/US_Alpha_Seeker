@@ -1088,9 +1088,8 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           // 2. Alpha Conviction (Score >= 85)
           if (conviction >= 85) badges.push("⭐ Alpha Conviction");
           
-          // 3. Hidden Gem (ROE >= 20 && Small/Mid Cap)
-          const isSmallMid = (c.marketCapClass && ['SMALL', 'MID', 'MICRO'].includes(c.marketCapClass.toUpperCase())) || (marketCap > 0 && marketCap < 10000);
-          if (roe >= 20 && isSmallMid) badges.push("💎 Hidden Gem");
+          // 3. Hidden Gem (ROE >= 20)
+          if (roe >= 20) badges.push("💎 Hidden Gem");
           
           // 4. Discount (ICT PD Zone)
           if (pdZone === 'DISCOUNT' || pdZone === 'OTE') badges.push("🏷️ Discount");
@@ -1121,6 +1120,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           let koreanVerdict = verdictMap[c?.aiVerdict] || "매수";
           if (!c?.aiVerdict && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
 
+          // [SMART MONEY TAG]
+          const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 90 ? " [🔥SMART MONEY]" : "";
+
           // [FORMATTING] Newline Restoration
           const reasons = Array.isArray(c?.selectionReasons) ? c.selectionReasons : [];
           const r1 = reasons[0] ? String(reasons[0]).replace(/\\n/g, ' ').trim() : "섹터 모멘텀 양호";
@@ -1137,7 +1139,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` 
               : "기관 수급 및 기술적 지지 구간 분석 반영";
 
-          return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${badgeStr}
+          return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
    • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
