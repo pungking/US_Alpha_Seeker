@@ -1626,15 +1626,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 // [NEW] Consensus Check
                 const isConsensus = resultsCache[ApiProvider.GEMINI]?.some(c => c.symbol === item.symbol) && resultsCache[ApiProvider.PERPLEXITY]?.some(c => c.symbol === item.symbol);
                 
-                // [NEW] Badge Conditions
-                const showInstitutional = (item.heldPercentInstitutions || item.instOwn || 0) >= 60;
+                // [NEW] Badge Conditions (Fault Tolerant)
+                const showInstitutional = (item.heldPercentInstitutions ?? item.instOwn ?? 0) >= 60;
                 const showDiscount = item.pdZone === 'DISCOUNT' || item.pdZone === 'OTE';
-                const showHyperGrowth = (item.revenueGrowth || 0) >= 50;
-                const showGem = (item.roe || 0) >= 20;
+                const showHyperGrowth = (item.revenueGrowth ?? 0) >= 50;
+                const showGem = (item.roe ?? 0) >= 20;
 
                 // [NEW] Alpha Conviction & Visual Effects
-                const alphaConviction = ((item.convictionScore || 0) + (item.ictScore || 0)) / 2;
-                const isNeonGlow = (item.ictMetrics?.smartMoneyFlow || 0) > 90;
+                const alphaConviction = ((item.convictionScore ?? 0) + (item.ictScore ?? 0)) / 2;
+                
+                // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
+                // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
+                const isNeonGlow = (item.ictMetrics?.smartMoneyFlow ?? 0) > 90;
 
                 return (
                   <div 
