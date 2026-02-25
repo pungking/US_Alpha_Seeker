@@ -193,6 +193,49 @@ const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
     }
 };
 
+const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
+    'FINALIST': {
+        title: "🔴 Final Selection",
+        desc: "수백 개의 후보 중 모든 AI 필터링과 재무 검증을 통과한 **'오늘의 주인공'**입니다. 가장 우선적으로 검토해야 할 최우수 종목입니다."
+    },
+    'CONVICTION': {
+        title: "⭐ Alpha Conviction",
+        desc: "AI가 과거의 성공 패턴과 현재 수급 상황을 대조해 도출한 '상승 가능성에 대한 자신감' 수치입니다."
+    },
+    'HIDDEN_GEM': {
+        title: "💎 Hidden Gem",
+        desc: "내실(ROE)이 매우 탄탄하지만 아직 시장의 주목을 덜 받은 종목으로, 향후 **'강력한 가격 폭발'**을 일으킬 가능성이 높은 보석입니다."
+    },
+    'DISCOUNT': {
+        title: "🏷️ Discount",
+        desc: "현재 주가가 기관의 평균 매수 단가보다 낮거나 최적 진입 구간(OTE)에 위치하여 '가장 싸고 안전한' 진입 시점임을 뜻합니다."
+    },
+    'HYPER_GROWTH': {
+        title: "🚀 Hyper Growth",
+        desc: "산업 평균보다 몇 배는 빠른 속도로 성장하고 있는 종목입니다. '상승 추세에 올라타는' 공격적 매수 전략에 적합합니다."
+    },
+    'INSTITUTIONAL': {
+        title: "🏢 Institutional",
+        desc: "거대 자본인 **'기관 및 세력'**의 매집이 확인된 종목입니다. 개인 주도주보다 수급이 안정적이며 몸통 세력의 흐름을 따릅니다."
+    },
+    'CROSS_CHECK': {
+        title: "🤝 Cross-Check",
+        desc: "서로 다른 알고리즘을 가진 두 AI 전문가(Gemini & Sonar)가 **'동시에 합격점'**을 준 종목으로, 데이터 신뢰도가 가장 높습니다."
+    },
+    'VALUE': {
+        title: "💰 Value",
+        desc: "실적 대비 주가가 저평가되어 **'가격 방어력'**이 뛰어난 종목입니다. 하락장에서도 상대적으로 안전한 가치 투자를 지향합니다."
+    },
+    'MOMENTUM': {
+        title: "🔥 Momentum",
+        desc: "주가에 상승 탄력이 붙어 **'추세적 상승'**이 진행 중인 종목입니다. 단기 및 중기 수익을 극대화하기에 유리합니다."
+    },
+    'DEFENSIVE': {
+        title: "🛡️ Defensive",
+        desc: "시장 변동성이 커져도 주가 하락폭이 작은 '방어적' 성격의 우량주입니다. 포트폴리오의 리스크를 낮춰주는 방패 역할을 합니다."
+    }
+};
+
 // [FORCED STYLE FIX] Markdown Component Overrides
 // This function handles "Main Title (Subtitle)" splitting and styling
 const renderStyledHeader = (props: any) => {
@@ -332,6 +375,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   const [activeOverlay, setActiveOverlay] = useState<string | null>(null);
   const [activeAlphaInsight, setActiveAlphaInsight] = useState<string | null>(null); 
+  const [selectedSignal, setSelectedSignal] = useState<{ title: string; desc: string } | null>(null);
 
   const [autoPhase, setAutoPhase] = useState<'IDLE' | 'ENGINE' | 'MATRIX' | 'DONE'>('IDLE');
   
@@ -621,6 +665,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const handleStockClick = (item: AlphaCandidate) => {
       setSelectedStock(item);
       onStockSelected?.(item);
+  };
+
+  const handleSignalClick = (e: React.MouseEvent, key: string) => {
+      e.stopPropagation();
+      if (SIGNAL_DEFINITIONS[key]) {
+          setSelectedSignal(SIGNAL_DEFINITIONS[key]);
+      }
   };
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
@@ -1601,28 +1652,49 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="flex flex-col gap-1 mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
+                             <span 
+                                onClick={(e) => handleSignalClick(e, 'FINALIST')}
+                                className="text-[7px] px-1.5 py-0.5 rounded-sm bg-red-500/20 text-red-200 border border-red-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-red-500/40 transition-colors"
+                             >
+                                FINALIST
+                             </span>
                              {!!showInstitutional && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap">
+                                <span 
+                                    onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')}
+                                    className="text-[7px] px-1.5 py-0.5 rounded-sm bg-blue-500/20 text-blue-200 border border-blue-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-blue-500/40 transition-colors"
+                                >
                                     INSTITUTIONAL
                                 </span>
                              )}
                              {!!showDiscount && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-black tracking-tight whitespace-nowrap">
+                                <span 
+                                    onClick={(e) => handleSignalClick(e, 'DISCOUNT')}
+                                    className="text-[7px] px-1.5 py-0.5 rounded-sm bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-emerald-500/40 transition-colors"
+                                >
                                     DISCOUNT
                                 </span>
                              )}
                              {!!showAlphaPlus && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight whitespace-nowrap">
-                                    ALPHA+
+                                <span 
+                                    onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')}
+                                    className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-rose-500/40 transition-colors"
+                                >
+                                    HYPER GROWTH
                                 </span>
                              )}
                              {!!showGem && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 font-black tracking-tight whitespace-nowrap">
+                                <span 
+                                    onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')}
+                                    className="text-[7px] px-1.5 py-0.5 rounded-sm bg-purple-500/20 text-purple-200 border border-purple-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-purple-500/40 transition-colors"
+                                >
                                     GEM
                                 </span>
                              )}
                              {!!isConsensus && (
-                                <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight whitespace-nowrap">
+                                <span 
+                                    onClick={(e) => handleSignalClick(e, 'CROSS_CHECK')}
+                                    className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-amber-500/40 transition-colors"
+                                >
                                     AI CONSENSUS
                                 </span>
                              )}
@@ -1638,15 +1710,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                             
                             <div className="flex flex-col justify-end items-end gap-0.5 ml-auto h-[45px]">
-                                <div className="flex items-center gap-1 mb-1 whitespace-nowrap leading-none">
-                                    <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest">ALPHA CONVICTION</span>
+                                <div 
+                                    className="flex items-center gap-1 mb-1 whitespace-nowrap leading-none cursor-help group"
+                                    onClick={(e) => handleSignalClick(e, 'CONVEXITY')} // Using Convexity as proxy or Conviction
+                                >
+                                    <span 
+                                        className="text-[7px] font-black text-slate-500 uppercase tracking-widest group-hover:text-amber-400 transition-colors"
+                                        onClick={(e) => handleSignalClick(e, 'CONVICTION')}
+                                    >
+                                        ALPHA CONVICTION
+                                    </span>
                                     <span className={`text-[9px] font-black ${alphaConviction > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
-                                        {alphaConviction.toFixed(1)}
+                                        {(Number(alphaConviction) || 0).toFixed(1)}
                                     </span>
                                 </div>
                                 {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
                                 <span className={`text-xl font-mono font-black tracking-tighter ${rtData?.direction === 'up' ? 'text-emerald-400' : rtData?.direction === 'down' ? 'text-rose-400' : 'text-slate-400'}`}>
-                                    ${Number(displayPrice)?.toFixed(2)}
+                                    ${(Number(displayPrice) || 0).toFixed(2)}
                                 </span>
                             </div>
                         </div>
@@ -1850,14 +1930,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Hybrid Alpha Signals</h4>
                             <div className="flex flex-wrap gap-2">
-                                {!!selectedStock.spyAlpha && <span className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm">SPY Alpha</span>}
-                                {!!selectedStock.qqqAlpha && <span className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm">QQQ Alpha</span>}
-                                {!!selectedStock.isInstitutionalEntry && <span className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm">Institutional Entry</span>}
-                                {!!selectedStock.isHighGrowthQuality && <span className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm">High Quality Growth</span>}
-                                {!!selectedStock.isTechnicalBreakout && <span className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm">Tech Breakout</span>}
-                                {!!selectedStock.sectorRankBonus && <span className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm">Sector Leader</span>}
-                                {!!(selectedStock.pdZone === 'DISCOUNT') && <span className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm">Discount Zone</span>}
-                                {!!selectedStock.isHiddenGem && <span className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm">Hidden Gem</span>}
+                                {!!selectedStock.spyAlpha && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-blue-900/50 transition-colors">SPY Alpha</span>}
+                                {!!selectedStock.qqqAlpha && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-violet-900/50 transition-colors">QQQ Alpha</span>}
+                                {!!selectedStock.isInstitutionalEntry && <span onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')} className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-indigo-900/50 transition-colors">Institutional Entry</span>}
+                                {!!selectedStock.isHighGrowthQuality && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">High Quality Growth</span>}
+                                {!!selectedStock.isTechnicalBreakout && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-rose-900/50 transition-colors">Tech Breakout</span>}
+                                {!!selectedStock.sectorRankBonus && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-amber-900/50 transition-colors">Sector Leader</span>}
+                                {!!(selectedStock.pdZone === 'DISCOUNT') && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
+                                {!!selectedStock.isHiddenGem && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
                             </div>
                         </div>
 
@@ -2314,6 +2394,45 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           </div>
         </div>
       </div>
+      {/* Signal Explanation Modal */}
+      {selectedSignal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 bg-black/60 backdrop-blur-md animate-in fade-in duration-300" onClick={() => setSelectedSignal(null)}>
+            <div className="bg-[#0f172a] border border-white/10 rounded-[32px] p-8 max-w-md w-full shadow-2xl relative transform transition-all scale-100" onClick={(e) => e.stopPropagation()}>
+                <button 
+                    onClick={() => setSelectedSignal(null)}
+                    className="absolute top-4 right-4 text-slate-500 hover:text-white p-2 rounded-full hover:bg-white/10 transition-colors"
+                >
+                    <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+                
+                <div className="flex flex-col items-center text-center space-y-6">
+                    <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-slate-800 to-slate-900 border border-white/10 flex items-center justify-center shadow-inner">
+                        <span className="text-3xl">{selectedSignal.title.split(' ')[0]}</span>
+                    </div>
+                    
+                    <div className="space-y-2">
+                        <h3 className="text-xl font-black text-white uppercase tracking-tight">
+                            {selectedSignal.title.replace(/^[^\s]+\s/, '')}
+                        </h3>
+                        <div className="h-1 w-12 bg-rose-500 rounded-full mx-auto"></div>
+                    </div>
+                    
+                    <p className="text-sm text-slate-300 leading-relaxed font-medium whitespace-pre-wrap">
+                        <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
+                            {selectedSignal.desc}
+                        </ReactMarkdown>
+                    </p>
+                    
+                    <button 
+                        onClick={() => setSelectedSignal(null)}
+                        className="w-full py-3 bg-white/5 hover:bg-white/10 border border-white/5 rounded-xl text-xs font-black uppercase tracking-widest text-slate-400 hover:text-white transition-all"
+                    >
+                        Close Insight
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
     </div>
   );
 };
