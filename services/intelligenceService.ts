@@ -911,163 +911,179 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
 
-  // 1. Fetch Live Market Data with Robust Fallback
-  let vix = "20.00", spx = "N/A", ndx = "N/A";
-  let spxChg = 0, ndxChg = 0;
+  let finalReport = "";
 
   try {
-      // Primary: Portal Indices
-      const indexRes = await fetchWithRetry(async () => {
-          const res = await fetch('/api/portal_indices');
-          if (!res.ok) throw new Error("Index API Failed");
-          return res;
-      }, 3, 2000);
+      // 1. Fetch Live Market Data with Robust Fallback
+      let vix = "N/A", spx = "N/A", ndx = "N/A";
+      let spxChg = 0, ndxChg = 0;
+      let vixVal = 0;
 
-      if (indexRes.ok) {
-          const indices = await indexRes.json();
-          const v = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
-          const s = indices.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX');
-          const n = indices.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX');
-          
-          if(v) vix = v.price.toFixed(2);
-          if(s) { spx = s.price.toFixed(2); spxChg = s.changePercent || 0; }
-          if(n) { ndx = n.price.toFixed(2); ndxChg = n.changePercent || 0; }
-      }
-  } catch(e) {
-      console.warn("Primary Index Fetch Failed, attempting fallbacks...");
-  }
-
-  // Fallback 1: Scan Candidates (Stage 0-3 Data Injection)
-  if (spx === "N/A" || ndx === "N/A") {
-      const spyCand = candidates.find(c => c.symbol === 'SPY' || c.symbol === 'SP500');
-      const qqqCand = candidates.find(c => c.symbol === 'QQQ' || c.symbol === 'NASDAQ');
-      
-      if (spyCand) { spx = Number(spyCand.price).toFixed(2); spxChg = spyCand.changePercent || 0; }
-      if (qqqCand) { ndx = Number(qqqCand.price).toFixed(2); ndxChg = qqqCand.changePercent || 0; }
-  }
-
-  // Fallback 2: Finnhub Direct
-  if (spx === "N/A" || ndx === "N/A") {
       try {
-          const fhKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-          if (fhKey) {
-              const [spyRes, qqqRes] = await Promise.all([
-                  fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${fhKey}`).then(r => r.json()),
-                  fetch(`https://finnhub.io/api/v1/quote?symbol=QQQ&token=${fhKey}`).then(r => r.json())
-              ]);
-              if (spyRes.c) { spx = spyRes.c.toFixed(2); spxChg = spyRes.dp || 0; }
-              if (qqqRes.c) { ndx = qqqRes.c.toFixed(2); ndxChg = qqqRes.dp || 0; }
+          // Primary: Portal Indices
+          const indexRes = await fetchWithRetry(async () => {
+              const res = await fetch('/api/portal_indices');
+              if (!res.ok) throw new Error("Index API Failed");
+              return res;
+          }, 3, 2000);
+
+          if (indexRes.ok) {
+              const indices = await indexRes.json();
+              const v = indices?.find((i: any) => i?.symbol === 'VIX' || i?.symbol === '.VIX');
+              const s = indices?.find((i: any) => i?.symbol === 'SP500' || i?.symbol === 'SPX');
+              const n = indices?.find((i: any) => i?.symbol === 'NASDAQ' || i?.symbol === 'NDX');
+              
+              if(v?.price) { vixVal = Number(v.price) || 0; vix = vixVal.toFixed(2); }
+              if(s?.price) { spx = (Number(s.price) || 0).toFixed(2); spxChg = Number(s.changePercent) || 0; }
+              if(n?.price) { ndx = (Number(n.price) || 0).toFixed(2); ndxChg = Number(n.changePercent) || 0; }
           }
-      } catch (e) { console.error("Finnhub Fallback Failed", e); }
-  }
-
-  // Formatter with Emoji
-  const fmt = (val: string, chg: number) => {
-      if (val === "N/A") return val;
-      const emoji = chg > 0 ? "🟢" : chg < 0 ? "🔴" : "⚪";
-      return `${val} (${chg > 0 ? '+' : ''}${chg.toFixed(2)}%) ${emoji}`;
-  };
-
-  const spxStr = fmt(spx, spxChg);
-  const ndxStr = fmt(ndx, ndxChg);
-
-  // 2. Generate "Market Pulse" Text via AI
-  const macroPrompt = `
-  [Task] Write a concise "Market Pulse" summary in Korean (max 3 lines).
-  Data: VIX: ${vix}, S&P500: ${spxStr}, NASDAQ: ${ndxStr}.
-  Focus on market sentiment (Risk-On/Off) based on VIX and Index moves.
-  `;
-
-  let macroSection = "";
-  try {
-     if (provider === ApiProvider.GEMINI) {
-          const ai = new GoogleGenAI({ apiKey });
-          const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
-          macroSection = res.text.trim();
-      } else {
-          const body = JSON.stringify({ 
-              model: 'sonar-pro', 
-              messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
-              temperature: 0
-          });
-          let res;
-          try {
-             res = await fetch('/api/perplexity', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
-                body
-             });
-             if (res.status === 404) throw new Error("Proxy 404");
-          } catch(e) {
-             res = await fetch('https://api.perplexity.ai/chat/completions', {
-                method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
-                body
-             });
-          }
-
-          const json = await res.json();
-          macroSection = json.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
+      } catch(e) {
+          console.warn("Primary Index Fetch Failed, attempting fallbacks...");
       }
-  } catch (e) {
-     macroSection = `Macro: 시장 데이터 분석 중... (VIX: ${vix})`;
-  }
-  
-  macroSection = removeCitations(macroSection);
 
-  // 3. Format Candidates Programmatically
-  const top6 = candidates.slice(0, 6);
-  
-  const sectorCounts: Record<string, number> = {};
-  top6.forEach(c => {
-      const s = c.sectorTheme || c.sector || "Unknown";
-      sectorCounts[s] = (sectorCounts[s] || 0) + 1;
-  });
-
-  let sectorWarning = "";
-  Object.entries(sectorCounts).forEach(([sector, count]) => {
-      if (count >= 3) {
-          sectorWarning += `\n⚠️ Sector Concentration: ${sector} 비중 높음 (분산 투자 권장)`;
-      }
-  });
-
-  // Name Cleaner
-  const cleanName = (name: string) => {
-      return name.replace(/,?\s*(?:Inc\.?|Corp\.?|Corporation|Holdings?|Group|Ltd\.?|Limited|Co\.?|PLC|L\.?P\.?|S\.?A\.?|N\.?V\.?|Company)\b\.?.*$/i, '').trim();
-  };
-
-  const selections = top6.map((c, i) => {
-      const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
-      let koreanVerdict = verdictMap[c.aiVerdict] || "매수";
-      if (!c.aiVerdict && (c.compositeAlpha > 80 || c.convictionScore > 80)) koreanVerdict = "강력 매수";
-
-      const reasons = c.selectionReasons || [];
-      const r1 = reasons[0] || "섹터 모멘텀 양호";
-      const r2 = reasons[1] || "안정적 펀더멘털";
-      const r3 = reasons[2] || "기술적 반등 위치";
-
-      const entryPrice = c.otePrice ? c.otePrice.toFixed(2) : (c.supportLevel?.toFixed(2) || '0.00');
-      const stopPrice = c.ictStopLoss ? c.ictStopLoss.toFixed(2) : (c.stopLoss?.toFixed(2) || '0.00');
+      // Fallback 1: Scan Candidates (Stage 0-3 Data Injection)
+      const safeCandidates = Array.isArray(candidates) ? candidates : [];
       
-      // [ICT & Data Enhancement]
-      const pdZoneInfo = c.pdZone 
-          ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` 
-          : "기관 수급 및 기술적 지지 구간 분석 반영";
+      if (spx === "N/A" || ndx === "N/A") {
+          const spyCand = safeCandidates.find(c => c?.symbol === 'SPY' || c?.symbol === 'SP500');
+          const qqqCand = safeCandidates.find(c => c?.symbol === 'QQQ' || c?.symbol === 'NASDAQ');
+          
+          if (spyCand?.price) { spx = (Number(spyCand.price) || 0).toFixed(2); spxChg = Number(spyCand.changePercent) || 0; }
+          if (qqqCand?.price) { ndx = (Number(qqqCand.price) || 0).toFixed(2); ndxChg = Number(qqqCand.changePercent) || 0; }
+      }
 
-      return `${i + 1}. ${c.symbol} (${koreanVerdict}) : ${cleanName(c.name)}
-   - 🏢 Sector: ${c.sectorTheme || c.sector}
-   - 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${c.resistanceLevel?.toFixed(2) || '0.00'} | 손절 $${stopPrice}
-   - 📈 Exp.Return: ${c.expectedReturn || "N/A"}
+      // Fallback 2: Finnhub Direct
+      if (spx === "N/A" || ndx === "N/A") {
+          try {
+              const fhKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
+              if (fhKey) {
+                  const [spyRes, qqqRes] = await Promise.all([
+                      fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${fhKey}`).then(r => r.json()).catch(() => ({})),
+                      fetch(`https://finnhub.io/api/v1/quote?symbol=QQQ&token=${fhKey}`).then(r => r.json()).catch(() => ({}))
+                  ]);
+                  if (spyRes?.c) { spx = (Number(spyRes.c) || 0).toFixed(2); spxChg = Number(spyRes.dp) || 0; }
+                  if (qqqRes?.c) { ndx = (Number(qqqRes.c) || 0).toFixed(2); ndxChg = Number(qqqRes.dp) || 0; }
+              }
+          } catch (e) { console.error("Finnhub Fallback Failed", e); }
+      }
+
+      // Formatter with Emoji
+      const fmt = (val: string, chg: number) => {
+          if (val === "N/A") return val;
+          const safeChg = Number(chg) || 0;
+          const emoji = safeChg > 0 ? "🟢" : safeChg < 0 ? "🔴" : "⚪";
+          return `${val} (${safeChg > 0 ? '+' : ''}${safeChg.toFixed(2)}%) ${emoji}`;
+      };
+
+      const spxStr = fmt(spx, spxChg);
+      const ndxStr = fmt(ndx, ndxChg);
+
+      // 2. Generate "Market Pulse" Text via AI
+      const macroPrompt = `
+      [Task] Write a concise "Market Pulse" summary in Korean (max 3 lines).
+      Data: VIX: ${vix}, S&P500: ${spxStr}, NASDAQ: ${ndxStr}.
+      Focus on market sentiment (Risk-On/Off) based on VIX and Index moves.
+      `;
+
+      let macroSection = "";
+      try {
+         if (provider === ApiProvider.GEMINI) {
+              const ai = new GoogleGenAI({ apiKey });
+              const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
+              macroSection = res.text ? res.text.trim() : "";
+          } else {
+              const body = JSON.stringify({ 
+                  model: 'sonar-pro', 
+                  messages: [{ role: "user", content: macroPrompt + " Return plain text only." }],
+                  temperature: 0
+              });
+              
+              let res;
+              try {
+                 res = await fetch('/api/perplexity', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}` },
+                    body
+                 });
+                 if (res.status === 404) throw new Error("Proxy 404");
+              } catch(e) {
+                 res = await fetch('https://api.perplexity.ai/chat/completions', {
+                    method: 'POST', headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${apiKey}`, 'Accept': 'application/json' },
+                    body
+                 });
+              }
+
+              const json = await res.json();
+              macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
+          }
+      } catch (e) {
+         macroSection = `Macro: 시장 데이터 분석 중... (VIX: ${vix})`;
+      }
+      
+      macroSection = removeCitations(macroSection);
+
+      // 3. Format Candidates Programmatically
+      const top6 = safeCandidates.slice(0, 6);
+      
+      const sectorCounts: Record<string, number> = {};
+      top6.forEach(c => {
+          const s = c?.sectorTheme || c?.sector || "Unknown";
+          sectorCounts[s] = (sectorCounts[s] || 0) + 1;
+      });
+
+      let sectorWarning = "";
+      Object.entries(sectorCounts).forEach(([sector, count]) => {
+          if (count >= 3) {
+              sectorWarning += `\n⚠️ Sector Concentration: ${sector} 비중 높음 (분산 투자 권장)`;
+          }
+      });
+
+      // Name Cleaner
+      const cleanName = (name: any) => {
+          if (!name || typeof name !== 'string') return "Unknown";
+          return name.replace(/,?\s*(?:Inc\.?|Corp\.?|Corporation|Holdings?|Group|Ltd\.?|Limited|Co\.?|PLC|L\.?P\.?|S\.?A\.?|N\.?V\.?|Company)\b\.?.*$/i, '').trim();
+      };
+
+      const selections = top6.map((c, i) => {
+          if (!c) return "";
+          const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
+          let koreanVerdict = verdictMap[c?.aiVerdict] || "매수";
+          if (!c?.aiVerdict && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
+
+          const reasons = Array.isArray(c?.selectionReasons) ? c.selectionReasons : [];
+          const r1 = reasons[0] || "섹터 모멘텀 양호";
+          const r2 = reasons[1] || "안정적 펀더멘털";
+          const r3 = reasons[2] || "기술적 반등 위치";
+
+          const entryPrice = (Number(c?.otePrice) || Number(c?.supportLevel) || 0).toFixed(2);
+          const targetPrice = (Number(c?.resistanceLevel) || 0).toFixed(2);
+          const stopPrice = (Number(c?.ictStopLoss) || Number(c?.stopLoss) || 0).toFixed(2);
+          
+          // [ICT & Data Enhancement]
+          const pdZoneInfo = c?.pdZone 
+              ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` 
+              : "기관 수급 및 기술적 지지 구간 분석 반영";
+
+          return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}
+   - 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
+   - 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
+   - 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
    - 💡 Logic:
      - 섹터 성장: ${removeCitations(r1)}
      - 실적 요인: ${removeCitations(r2)}
      - ${pdZoneInfo}`;
-  }).join('\n\n');
+      }).filter(s => s !== "").join('\n\n');
 
-  // 4. Construct Final Message
-  const riskNote = Number(vix) >= 20 
-    ? `⚠️ 현재 VIX(${vix})가 높은 수준입니다. 변동성 확대에 대비해 손절가를 엄격히 준수하십시오.`
-    : `⚠️ Risk Note: 개별 종목별로 제시된 손절가(Stop)를 엄격히 준수하고, 섹터별 비중 조절을 통해 포트폴리오 리스크를 관리하시기 바랍니다.`;
+      // 4. Construct Final Message
+      let riskNote = "";
+      if (vix !== "N/A" && vixVal >= 20) {
+          riskNote = `⚠️ 현재 VIX(${vix})가 높은 수준입니다. 변동성 확대에 대비해 손절가를 엄격히 준수하십시오.`;
+      } else if (vix !== "N/A") {
+          riskNote = `⚠️ Risk Note: 개별 종목별로 제시된 손절가(Stop)를 엄격히 준수하고, 섹터별 비중 조절을 통해 포트폴리오 리스크를 관리하시기 바랍니다.`;
+      } else {
+          riskNote = `⚠️ Risk Note: 변동성 데이터 부재로 인한 표준 리스크 관리 적용. 손절가를 엄격히 준수하십시오.`;
+      }
 
-  return `🚀 US Alpha Seeker Report 🚀
+      finalReport = `🚀 US Alpha Seeker Report 🚀
 
 📅 ${dateStr} | Daily Alpha Insight
 
@@ -1081,4 +1097,19 @@ ${sectorWarning}
 ${selections}
 
 ${riskNote}`.trim();
+
+  } catch (criticalError: any) {
+      console.error("CRITICAL_TELEGRAM_GEN_FAILURE", criticalError);
+      // Fallback Report for Archiving
+      finalReport = `🚀 US Alpha Seeker Report (Recovery Mode) 🚀
+      
+📅 ${dateStr}
+
+⚠️ 시스템 에러로 인해 요약 리포트 생성에 실패했습니다.
+Error: ${criticalError?.message || "Unknown Error"}
+
+데이터는 보존되었으므로 대시보드에서 상세 내용을 확인하시기 바랍니다.`;
+  }
+
+  return finalReport;
 }
