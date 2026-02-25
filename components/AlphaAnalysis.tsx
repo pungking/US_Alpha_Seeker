@@ -695,7 +695,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const loadStage5Data = async () => {
-    if (!accessToken) return;
+    if (!accessToken) return [];
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
@@ -710,11 +710,269 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         if (content && content.ict_universe) {
             setElite50(content.ict_universe);
             addLog("Vault Synchronized: Stage 5 leaders loaded.", "ok");
+            return content.ict_universe;
         }
       }
+      return [];
     } catch (e: any) {
       addLog(`Sync Error: ${e.message}`, "err");
+      return [];
     }
+  };
+
+  // [NEW] Stage 1: Data Preparation & Scoring
+  const runStage1 = async (inputData: AlphaCandidate[]) => {
+      addLog("STAGE 1: Data Preparation & Scoring...", "signal");
+      
+      // 1. Fetch Benchmarks
+      const { spy, qqq } = await fetchMarketBenchmarks();
+      addLog(`Benchmark Reference: SPY ${spy.toFixed(2)}% | QQQ ${qqq.toFixed(2)}%`, "info");
+
+      // 2. Score Candidates
+      const scoredCandidates = inputData.map((c: any) => {
+          const gap = Number(c.fairValueGap || 0);
+          const ict = Number(c.ictScore || 0);
+          const rvol = Number(c.techMetrics?.rawRvol || 0);
+          const dp = Number(c.changePercent || 0);
+          
+          const isUndervaluedGrowth = gap > 100 && ict > 60;
+          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0; 
+          const isHiddenGem = isUndervaluedGrowth || isVolumeRunner;
+          
+          let sortScore = c.compositeAlpha || 0;
+          let convictionScore = c.convictionScore || c.compositeAlpha || 0;
+
+          // Dual-Alpha Engine
+          let spyAlpha = false;
+          let qqqAlpha = false;
+
+          if (dp > spy) {
+              sortScore *= 1.1;
+              convictionScore *= 1.1;
+              spyAlpha = true;
+          }
+          if (dp > qqq) {
+              sortScore *= 1.15;
+              convictionScore *= 1.15;
+              qqqAlpha = true;
+          }
+
+          // ICT PD-Array Filter
+          let isOverheated = false;
+          if (c.pdZone === 'DISCOUNT') {
+              convictionScore += 15;
+              sortScore += 15;
+          } else if (c.pdZone === 'PREMIUM') {
+              isOverheated = true;
+              sortScore -= 50; 
+          }
+
+          // Institutional Entry Badge
+          const displacement = c.ictMetrics?.displacement || 0;
+          const isInstitutionalEntry = displacement > 65;
+
+          if (isHiddenGem) sortScore += 25; 
+          
+          return { 
+              ...c, 
+              isHiddenGem, 
+              sortScore, 
+              convictionScore: Math.min(99, Math.round(convictionScore)),
+              spyAlpha,
+              qqqAlpha,
+              isInstitutionalEntry,
+              isOverheated
+          };
+      });
+
+      // 3. Filter Top 12
+      const topCandidates = scoredCandidates
+          .sort((a: any, b: any) => b.sortScore - a.sortScore)
+          .slice(0, 12);
+
+      if (topCandidates.length === 0) throw new Error("No candidates available after scoring.");
+
+      // 4. Archive Stage 1 Result (Fail-safe Dump)
+      if (accessToken) {
+          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportSubFolder);
+          await uploadFile(accessToken, folderId, `STAGE6_PART1_SCORED_${getKstTimestamp()}.json`, topCandidates);
+      }
+
+      return topCandidates;
+  };
+
+  // [NEW] Stage 2: AI Analysis
+  const runStage2 = async (candidates: AlphaCandidate[]) => {
+      addLog("STAGE 2: AI Alpha Synthesis...", "signal");
+      
+      let response: any = { data: [] };
+      let usedProvider = selectedBrain;
+      let aiFailed = false;
+
+      try {
+          addLog(`사용 중인 엔진: [${selectedBrain === ApiProvider.GEMINI ? 'GMAIL' : 'PERPLEXITY'}]`, "info");
+          response = await generateAlphaSynthesis(candidates, selectedBrain);
+      } catch (err: any) {
+          if (selectedBrain === ApiProvider.GEMINI) {
+              if (!autoStart) {
+                  addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
+                  setSelectedBrain(ApiProvider.PERPLEXITY);
+                  setLoading(false);
+                  throw new Error("MANUAL_STOP_REQUIRED");
+              } else {
+                  addLog(`Primary Engine (${selectedBrain}) Failed: ${err.message}. Engaging Failover...`, "warn");
+                  usedProvider = ApiProvider.PERPLEXITY;
+                  setSelectedBrain(ApiProvider.PERPLEXITY);
+                  try {
+                      response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY);
+                  } catch (retryErr: any) {
+                      addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
+                      aiFailed = true;
+                  }
+              }
+          } else {
+              addLog(`Engine Failed: ${err.message}`, "err");
+              aiFailed = true;
+          }
+      }
+
+      if (response?.error) {
+           addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
+           if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
+               if (!autoStart) {
+                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
+                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                   setLoading(false);
+                   throw new Error("MANUAL_STOP_REQUIRED");
+               }
+               addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
+               setSelectedBrain(ApiProvider.PERPLEXITY); 
+               usedProvider = ApiProvider.PERPLEXITY;
+               try {
+                   response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY);
+               } catch (e) {
+                   aiFailed = true;
+               }
+           } else {
+               aiFailed = true;
+           }
+      }
+
+      let finalData = candidates;
+      if (!aiFailed && response?.data) {
+          const aiMap = new Map(response.data.map((i: any) => [i.symbol, i]));
+          finalData = candidates.map(item => {
+              const aiData = aiMap.get(item.symbol);
+              if (!aiData) return item;
+              
+              // Merge Logic
+              const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
+              const safeVerdict = aiData?.aiVerdict || "ACCUMULATE";
+              const safeOutlook = aiData?.investmentOutlook || "";
+              const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
+
+              return {
+                  ...item,
+                  ...aiData,
+                  convictionScore: safeConviction,
+                  aiVerdict: safeVerdict,
+                  investmentOutlook: safeOutlook,
+                  expectedReturn: safeExpectedReturn
+              };
+          });
+          addLog(`AI Synthesis Complete. Provider: ${usedProvider}`, "ok");
+      } else {
+          addLog("AI Analysis Failed. Using Quantitative Fallback.", "warn");
+      }
+
+      // Update Cache & UI
+      setResultsCache(prev => ({ ...prev, [usedProvider]: finalData }));
+      
+      // Archive Stage 2 Result
+      if (accessToken) {
+          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportSubFolder);
+          await uploadFile(accessToken, folderId, `STAGE6_PART2_AI_RESULT_${getKstTimestamp()}.json`, finalData);
+      }
+
+      return finalData;
+  };
+
+  // [NEW] Stage 3: Reporting
+  const runStage3 = async (aiResults: AlphaCandidate[]) => {
+      addLog("STAGE 3: Generating Final Report...", "signal");
+      
+      const resultsToCheck = aiResults;
+      
+      if (resultsToCheck.length > 0) {
+          addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
+          
+          let telegramPayload = ""; 
+          const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram Brief Timeout")), 15000));
+          
+          try {
+              const brainToUse = selectedBrain; 
+              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse);
+              const brief = await Promise.race([briefPromise, timeout]) as string;
+              
+              telegramPayload = brief;
+              addLog("Brief Generated. Relaying...", "ok");
+
+              if (accessToken) {
+                const fileName = `TELEGRAM_BRIEF_REPORT_${getKstTimestamp()}.md`;
+                await archiveReport(accessToken, fileName, brief);
+                addLog("Telegram Brief Archived to Drive.", "ok");
+              }
+
+          } catch (e: any) {
+              addLog(`Brief Gen Failed: ${e.message}. Sending plain status.`, "err");
+              telegramPayload = "Telegram Brief Generation Failed. Check logs.";
+          }
+
+          return telegramPayload;
+      } else {
+           throw new Error("No Alpha Candidates found for reporting.");
+      }
+  };
+
+  // [NEW] Auto Pilot Orchestrator (In-Memory Data Chaining)
+  const runAutoPilot = async () => {
+      if (loading) return;
+      setLoading(true);
+      setAutoPhase('ENGINE');
+
+      try {
+          // Step 0: Load Initial Data (Memory or Drive)
+          let currentData = elite50;
+          if (!currentData || currentData.length === 0) {
+              addLog("Memory Empty. Fetching Stage 5 Data from Vault...", "info");
+              currentData = await loadStage5Data(); 
+              if (!currentData || currentData.length === 0) throw new Error("Stage 5 Data Not Found");
+          }
+
+          // Pipeline Execution
+          const result1 = await runStage1(currentData);
+          await new Promise(r => setTimeout(r, 3000)); 
+
+          const result2 = await runStage2(result1);
+          await new Promise(r => setTimeout(r, 3000)); 
+
+          addLog("AUTO-PILOT: Skipping Deep Matrix Audit (Token Saver)...", "signal");
+          setAutoPhase('MATRIX');
+          
+          const result3 = await runStage3(result2);
+          
+          setAutoPhase('DONE');
+          if (onComplete) onComplete(result3);
+
+      } catch (e: any) {
+          if (e.message === "MANUAL_STOP_REQUIRED") {
+              // Handled
+          } else {
+              addLog(`AutoPilot Failed: ${e.message}`, "err");
+          }
+      } finally {
+          setLoading(false);
+      }
   };
 
   const handleExecuteEngine = async () => {
