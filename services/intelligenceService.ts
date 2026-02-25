@@ -1081,16 +1081,39 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
           // [BADGE LOGIC] 10-Point Alpha Signal System
           const badges = [];
-          if (i === 0) badges.push("🔴 Final Selection");
-          if (conviction >= 90) badges.push("⭐ Alpha Conviction");
-          if (roe >= 15 && marketCap <= 2000 && marketCap > 0) badges.push("💎 Hidden Gem");
+          
+          // 1. Final Selection (Top 2)
+          if (i < 2) badges.push("🔴 Final Selection");
+          
+          // 2. Alpha Conviction (Score >= 85)
+          if (conviction >= 85) badges.push("⭐ Alpha Conviction");
+          
+          // 3. Hidden Gem (ROE >= 20 && Small/Mid Cap)
+          const isSmallMid = (c.marketCapClass && ['SMALL', 'MID', 'MICRO'].includes(c.marketCapClass.toUpperCase())) || (marketCap > 0 && marketCap < 10000);
+          if (roe >= 20 && isSmallMid) badges.push("💎 Hidden Gem");
+          
+          // 4. Discount (ICT PD Zone)
           if (pdZone === 'DISCOUNT' || pdZone === 'OTE') badges.push("🏷️ Discount");
+          
+          // 5. Hyper Growth (Rev Growth >= 50%)
           if (revenueGrowth >= 50) badges.push("🚀 Hyper Growth");
+          
+          // 6. Institutional (Inst Own >= 60%)
           if (instOwn >= 60) badges.push("🏢 Institutional");
+          
+          // 7. Cross-Check (Consensus)
           if (aiSentiment.includes('Bullish') || c.isConsensus) badges.push("🤝 Cross-Check");
+          
+          // 8. Value (PBR < 1.5)
           if (pbr < 1.5 && pbr > 0) badges.push("💰 Value");
+          
+          // 9. Momentum (Price > SMA50 & RSI > 50)
           if (price > sma50 && rsi > 50 && sma50 > 0) badges.push("🔥 Momentum");
-          if (beta < 0.8 && beta > -5) badges.push("🛡️ Defensive");
+          
+          // 10. Defensive (Beta < 0.8 OR Defensive Sector)
+          const defensiveSectors = ['Utilities', 'Consumer Staples', 'Healthcare', 'Health Care', 'Consumer Defensive'];
+          const isDefensiveSector = defensiveSectors.some(s => (c.sector || "").includes(s) || (c.sectorTheme || "").includes(s));
+          if ((beta < 0.8 && beta > -5) || isDefensiveSector) badges.push("🛡️ Defensive");
 
           const badgeStr = badges.length > 0 ? `\n   ${badges.join(' ')}` : "";
 
@@ -1116,7 +1139,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
           return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   • 🎯 Plan: 진입 ${entryPrice} 🎯 | 목표 ${targetPrice} | 손절 ${stopPrice}
+   • 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
    • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
    • 💎 Logic:
      - ${removeCitations(r1)}
