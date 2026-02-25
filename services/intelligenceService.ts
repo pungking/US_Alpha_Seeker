@@ -903,7 +903,7 @@ export async function analyzePipelineStatus(data: {
   }
 }
 
-export async function generateTelegramBrief(candidates: any[], provider: ApiProvider): Promise<string> {
+export async function generateTelegramBrief(candidates: any[], provider: ApiProvider, marketPulse?: any): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
@@ -919,9 +919,10 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       let spxChg = 0, ndxChg = 0;
       let vixVal = 0;
 
-      // [HYDRATION] Check Global Cache First
-      if (typeof window !== 'undefined' && (window as any).latestMarketPulse) {
-          const pulse = (window as any).latestMarketPulse;
+      // [HYDRATION] Check Explicit Argument OR Global Cache
+      const pulse = marketPulse || (typeof window !== 'undefined' ? (window as any).latestMarketPulse : null);
+      
+      if (pulse) {
           if (pulse.spy) {
               spx = (Number(pulse.spy.price) || 0).toFixed(2);
               spxChg = Number(pulse.spy.change) || 0;
