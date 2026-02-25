@@ -955,6 +955,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       } catch(e) {
           console.warn("Primary Index Fetch Failed, attempting fallbacks...");
       }
+      }
 
       // 3. Fallback: Scan Candidates
       const safeCandidates = Array.isArray(candidates) ? candidates : [];
@@ -1081,7 +1082,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
           return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   • 🎯 Plan: 진입 ${entryPrice} 🎯 | 목표 ${targetPrice} | 손절 ${stopPrice}
+   • 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
    • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
    • 💎 Logic:
      - ${removeCitations(r1)}
