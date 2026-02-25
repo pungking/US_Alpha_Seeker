@@ -914,13 +914,28 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   let finalReport = "";
 
   try {
-      // 1. Fetch Live Market Data with Robust Fallback
+      // 1. Hybrid Data Hydration (Global Override)
       let vix = "N/A", spx = "N/A", ndx = "N/A";
       let spxChg = 0, ndxChg = 0;
       let vixVal = 0;
 
-      try {
-          // Primary: Portal Indices
+      // [HYDRATION] Check Global Cache First
+      if (typeof window !== 'undefined' && (window as any).latestMarketPulse) {
+          const pulse = (window as any).latestMarketPulse;
+          if (pulse.spy) {
+              spx = (Number(pulse.spy.price) || 0).toFixed(2);
+              spxChg = Number(pulse.spy.change) || 0;
+          }
+          if (pulse.qqq) {
+              ndx = (Number(pulse.qqq.price) || 0).toFixed(2);
+              ndxChg = Number(pulse.qqq.change) || 0;
+          }
+      }
+
+      // 2. Fetch Live Market Data (If Global Cache Missed)
+      if (spx === "N/A" || ndx === "N/A") {
+          try {
+              // Primary: Portal Indices
           const indexRes = await fetchWithRetry(async () => {
               const res = await fetch('/api/portal_indices');
               if (!res.ok) throw new Error("Index API Failed");
@@ -941,15 +956,15 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           console.warn("Primary Index Fetch Failed, attempting fallbacks...");
       }
 
-      // Fallback 1: Scan Candidates (Stage 0-3 Data Injection)
+      // 3. Fallback: Scan Candidates
       const safeCandidates = Array.isArray(candidates) ? candidates : [];
       
       if (spx === "N/A" || ndx === "N/A") {
           const spyCand = safeCandidates.find(c => c?.symbol === 'SPY' || c?.symbol === 'SP500');
           const qqqCand = safeCandidates.find(c => c?.symbol === 'QQQ' || c?.symbol === 'NASDAQ');
           
-          if (spyCand?.price) { spx = (Number(spyCand.price) || 0).toFixed(2); spxChg = Number(spyCand.changePercent) || 0; }
-          if (qqqCand?.price) { ndx = (Number(qqqCand.price) || 0).toFixed(2); ndxChg = Number(qqqCand.changePercent) || 0; }
+          if (spx === "N/A" && spyCand?.price) { spx = (Number(spyCand.price) || 0).toFixed(2); spxChg = Number(spyCand.changePercent) || 0; }
+          if (ndx === "N/A" && qqqCand?.price) { ndx = (Number(qqqCand.price) || 0).toFixed(2); ndxChg = Number(qqqCand.changePercent) || 0; }
       }
 
       // Fallback 2: Finnhub Direct
@@ -967,11 +982,12 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           } catch (e) { console.error("Finnhub Fallback Failed", e); }
       }
 
-      // Formatter with Emoji
+      // 4. Formatter with Zero-Change Defense
       const fmt = (val: string, chg: number) => {
           if (val === "N/A") return val;
           const safeChg = Number(chg) || 0;
-          const emoji = safeChg > 0 ? "🟢" : safeChg < 0 ? "🔴" : "⚪";
+          if (Math.abs(safeChg) < 0.01) return `${val} (보합/확인중) ⚪`;
+          const emoji = safeChg > 0 ? "🟢" : "🔴";
           return `${val} (${safeChg > 0 ? '+' : ''}${safeChg.toFixed(2)}%) ${emoji}`;
       };
 
@@ -1050,9 +1066,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           if (!c?.aiVerdict && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
 
           const reasons = Array.isArray(c?.selectionReasons) ? c.selectionReasons : [];
-          const r1 = reasons[0] || "섹터 모멘텀 양호";
-          const r2 = reasons[1] || "안정적 펀더멘털";
-          const r3 = reasons[2] || "기술적 반등 위치";
+          const r1 = reasons[0] ? String(reasons[0]).replace(/\\n/g, ' ').trim() : "섹터 모멘텀 양호";
+          const r2 = reasons[1] ? String(reasons[1]).replace(/\\n/g, ' ').trim() : "안정적 펀더멘털";
+          const r3 = reasons[2] ? String(reasons[2]).replace(/\\n/g, ' ').trim() : "기술적 반등 위치";
 
           const entryPrice = (Number(c?.otePrice) || Number(c?.supportLevel) || 0).toFixed(2);
           const targetPrice = (Number(c?.resistanceLevel) || 0).toFixed(2);
@@ -1064,12 +1080,12 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               : "기관 수급 및 기술적 지지 구간 분석 반영";
 
           return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}
-   - 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   - 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
-   - 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
-   - 💡 Logic:
-     - 섹터 성장: ${removeCitations(r1)}
-     - 실적 요인: ${removeCitations(r2)}
+   • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
+   • 🎯 Plan: 진입 ${entryPrice} 🎯 | 목표 ${targetPrice} | 손절 ${stopPrice}
+   • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
+   • 💎 Logic:
+     - ${removeCitations(r1)}
+     - ${removeCitations(r2)}
      - ${pdZoneInfo}`;
       }).filter(s => s !== "").join('\n\n');
 
