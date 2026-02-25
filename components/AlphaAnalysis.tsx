@@ -1155,7 +1155,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let aiFailed = false;
 
       try {
-          addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GMAIL' : 'PERPLEXITY'}]`, "info");
+          addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
           // Attempt 1: Try with current provider
           response = await generateAlphaSynthesis(topCandidates, currentProvider);
       } catch (err: any) {
@@ -1627,10 +1627,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const isConsensus = resultsCache[ApiProvider.GEMINI]?.some(c => c.symbol === item.symbol) && resultsCache[ApiProvider.PERPLEXITY]?.some(c => c.symbol === item.symbol);
                 
                 // [NEW] Badge Conditions
-                const showInstitutional = (item.ictMetrics?.displacement || 0) > 80;
-                const showDiscount = item.pdZone === 'DISCOUNT';
-                const showAlphaPlus = (item.sortScore || 0) > 90 && (item.spyAlpha || item.qqqAlpha);
-                const showGem = item.isHiddenGem;
+                const showInstitutional = (item.heldPercentInstitutions || item.instOwn || 0) >= 60;
+                const showDiscount = item.pdZone === 'DISCOUNT' || item.pdZone === 'OTE';
+                const showHyperGrowth = (item.revenueGrowth || 0) >= 50;
+                const showGem = (item.roe || 0) >= 20;
 
                 // [NEW] Alpha Conviction & Visual Effects
                 const alphaConviction = ((item.convictionScore || 0) + (item.ictScore || 0)) / 2;
@@ -1657,12 +1657,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="flex flex-col gap-1 mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
-                             <span 
-                                onClick={(e) => handleSignalClick(e, 'FINALIST')}
-                                className="text-[7px] px-1.5 py-0.5 rounded-sm bg-red-500/20 text-red-200 border border-red-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-red-500/40 transition-colors"
-                             >
-                                FINALIST
-                             </span>
+                             {index < 2 && (
+                                 <span 
+                                    onClick={(e) => handleSignalClick(e, 'FINALIST')}
+                                    className="text-[7px] px-1.5 py-0.5 rounded-sm bg-red-500/20 text-red-200 border border-red-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-red-500/40 transition-colors"
+                                 >
+                                    FINALIST
+                                 </span>
+                             )}
                              {!!showInstitutional && (
                                 <span 
                                     onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')}
@@ -1679,7 +1681,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     DISCOUNT
                                 </span>
                              )}
-                             {!!showAlphaPlus && (
+                             {!!showHyperGrowth && (
                                 <span 
                                     onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')}
                                     className="text-[7px] px-1.5 py-0.5 rounded-sm bg-rose-500/20 text-rose-200 border border-rose-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-rose-500/40 transition-colors"
@@ -1937,12 +1939,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             <div className="flex flex-wrap gap-2">
                                 {!!selectedStock.spyAlpha && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-blue-900/50 transition-colors">SPY Alpha</span>}
                                 {!!selectedStock.qqqAlpha && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-violet-900/50 transition-colors">QQQ Alpha</span>}
-                                {!!selectedStock.isInstitutionalEntry && <span onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')} className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-indigo-900/50 transition-colors">Institutional Entry</span>}
-                                {!!selectedStock.isHighGrowthQuality && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">High Quality Growth</span>}
+                                {!!((selectedStock.heldPercentInstitutions || selectedStock.instOwn || 0) >= 60) && <span onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')} className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-indigo-900/50 transition-colors">Institutional Entry</span>}
+                                {!!((selectedStock.revenueGrowth || 0) >= 50) && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">Hyper Growth</span>}
                                 {!!selectedStock.isTechnicalBreakout && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-rose-900/50 transition-colors">Tech Breakout</span>}
                                 {!!selectedStock.sectorRankBonus && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-amber-900/50 transition-colors">Sector Leader</span>}
-                                {!!(selectedStock.pdZone === 'DISCOUNT') && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
-                                {!!selectedStock.isHiddenGem && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
+                                {!!(selectedStock.pdZone === 'DISCOUNT' || selectedStock.pdZone === 'OTE') && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
+                                {!!((selectedStock.roe || 0) >= 20) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
                             </div>
                         </div>
 
