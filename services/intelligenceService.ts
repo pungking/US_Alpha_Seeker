@@ -639,6 +639,50 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   };
 
   try {
+    // [NEW] Data Re-hydration & Cross-Validation Logic
+    const hydrateAndValidate = (aiResults: any[], providerName: string) => {
+        if (!Array.isArray(aiResults)) return aiResults;
+
+        const stage5Map = new Map(candidates.map(c => [c.symbol, c]));
+
+        return aiResults.map(aiItem => {
+            const original = stage5Map.get(aiItem.symbol);
+            if (!original) return aiItem;
+
+            // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
+            const merged = {
+                ...aiItem,
+                ictMetrics: original.ictMetrics,
+                pdZone: original.pdZone,
+                roe: original.roe,
+                revenueGrowth: original.revenueGrowth,
+                instOwn: original.instOwn || original.heldPercentInstitutions,
+                marketCapClass: original.marketCapClass,
+                sector: original.sector,
+                sectorTheme: original.sectorTheme || aiItem.sectorTheme,
+                price: original.price,
+                beta: original.beta,
+                pbr: original.pbr,
+                rsi: original.rsi,
+                sma50: original.sma50,
+                techMetrics: original.techMetrics
+            };
+
+            // 2. Cross-Validation Flags
+            const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow || 0;
+            const conviction = Number(merged.convictionScore) || 0;
+            const roe = Number(merged.roe) || 0;
+            const pdZone = merged.pdZone || "";
+            const aiVerdict = (merged.aiVerdict || "").toUpperCase();
+
+            merged.isConfirmedSmartMoney = (smartMoneyFlow > 90) && (conviction >= 80);
+            merged.isConfirmedValue = (pdZone === 'DISCOUNT' || pdZone === 'OTE') && (aiVerdict.includes('BUY') || aiVerdict.includes('ACCUMULATE'));
+            merged.isConfirmedGem = (roe >= 20) && (aiVerdict.includes('BUY') || conviction >= 70);
+
+            return merged;
+        });
+    };
+
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       
@@ -660,12 +704,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         const parsedPro = sanitizeAndParseJson(resultPro.text);
         
         if (parsedPro && Array.isArray(parsedPro)) {
-            const uniqueMap = new Map();
-            parsedPro.forEach(item => {
-                if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                if (item.symbol && !uniqueMap.has(item.symbol)) uniqueMap.set(item.symbol, item);
-            });
-            return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI_PRO' };
+            const hydratedData = hydrateAndValidate(parsedPro, 'GEMINI_PRO');
+            return { data: hydratedData, usedProvider: 'GEMINI_PRO' };
         }
         return { data: parsedPro, usedProvider: 'GEMINI_PRO' };
 
@@ -689,12 +729,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             const parsedFlash = sanitizeAndParseJson(resultFlash.text);
             
             if (parsedFlash && Array.isArray(parsedFlash)) {
-                const uniqueMap = new Map();
-                parsedFlash.forEach(item => {
-                    if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                    if (item.symbol && !uniqueMap.has(item.symbol)) uniqueMap.set(item.symbol, item);
-                });
-                return { data: Array.from(uniqueMap.values()), usedProvider: 'GEMINI_FLASH' };
+                const hydratedData = hydrateAndValidate(parsedFlash, 'GEMINI_FLASH');
+                return { data: hydratedData, usedProvider: 'GEMINI_FLASH' };
             }
             return { data: parsedFlash, usedProvider: 'GEMINI_FLASH' };
 
@@ -706,7 +742,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
              try {
                 const pResult = await executePerplexityAnalysis();
                 if (pResult.data) {
-                    return { ...pResult, usedProvider: 'PERPLEXITY_FALLBACK' };
+                    const hydratedData = hydrateAndValidate(pResult.data, 'PERPLEXITY_FALLBACK');
+                    return { data: hydratedData, usedProvider: 'PERPLEXITY_FALLBACK', error: null };
                 }
                 throw new Error(pResult.error || "Perplexity Fallback Failed");
              } catch (pError: any) {
@@ -733,7 +770,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                      analysisLogic: "Fallback Recovery",
                      chartPattern: "N/A"
                  }));
-                 return { data: fallbackData, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
+                 // Even fallback data should be hydrated
+                 const hydratedFallback = hydrateAndValidate(fallbackData, 'FALLBACK_RECOVERY');
+                 return { data: hydratedFallback, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
              }
         }
       }
@@ -741,6 +780,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
     if (provider === ApiProvider.PERPLEXITY) {
         const result = await executePerplexityAnalysis();
+        if (result.data) {
+            const hydratedData = hydrateAndValidate(result.data, 'PERPLEXITY');
+            return { data: hydratedData, usedProvider: 'PERPLEXITY', error: null };
+        }
         if (result.error) {
             trackUsage(ApiProvider.PERPLEXITY, 0, true, result.error);
         }
