@@ -1936,18 +1936,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
                         )}
 
-                        {/* [NEW] Hybrid Alpha Signals Chips */}
+                        {/* [NEW] Hybrid Alpha Signals Chips (Fault Tolerant & Cross-Validated) */}
                         <div className="p-6 bg-black/30 rounded-[40px] border border-white/5 shadow-inner">
                             <h4 className="text-[9px] font-black text-slate-500 uppercase tracking-widest mb-4">Hybrid Alpha Signals</h4>
                             <div className="flex flex-wrap gap-2">
                                 {!!selectedStock.spyAlpha && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-blue-900/30 border border-blue-500/30 text-blue-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-blue-900/50 transition-colors">SPY Alpha</span>}
                                 {!!selectedStock.qqqAlpha && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-violet-900/30 border border-violet-500/30 text-violet-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-violet-900/50 transition-colors">QQQ Alpha</span>}
-                                {!!((selectedStock.heldPercentInstitutions || selectedStock.instOwn || 0) >= 60) && <span onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')} className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-indigo-900/50 transition-colors">Institutional Entry</span>}
-                                {!!((selectedStock.revenueGrowth || 0) >= 50) && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">Hyper Growth</span>}
+                                {!!((selectedStock.heldPercentInstitutions ?? selectedStock.instOwn ?? 0) >= 60) && <span onClick={(e) => handleSignalClick(e, 'INSTITUTIONAL')} className="px-3 py-1 bg-indigo-900/30 border border-indigo-500/30 text-indigo-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-indigo-900/50 transition-colors">Institutional Entry</span>}
+                                {!!((selectedStock.revenueGrowth ?? 0) >= 50) && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">Hyper Growth</span>}
                                 {!!selectedStock.isTechnicalBreakout && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-rose-900/50 transition-colors">Tech Breakout</span>}
                                 {!!selectedStock.sectorRankBonus && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-amber-900/50 transition-colors">Sector Leader</span>}
                                 {!!(selectedStock.pdZone === 'DISCOUNT' || selectedStock.pdZone === 'OTE') && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
-                                {!!((selectedStock.roe || 0) >= 20) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
+                                {!!((selectedStock.roe ?? 0) >= 20) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
                             </div>
                         </div>
 
