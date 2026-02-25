@@ -680,7 +680,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             const aiVerdict = (merged.aiVerdict || "").toUpperCase();
 
             merged.isConfirmedSmartMoney = (smartMoneyFlow > 90) && (conviction >= 80);
-            merged.isConfirmedValue = (pdZone === 'DISCOUNT' || pdZone === 'OTE') && (aiVerdict.includes('BUY') || aiVerdict.includes('ACCUMULATE'));
+            merged.isConfirmedDiscount = (pdZone === 'DISCOUNT' || pdZone === 'OTE') && (aiVerdict.includes('BUY') || aiVerdict.includes('ACCUMULATE'));
             merged.isConfirmedGem = (roe >= 20) && (aiVerdict.includes('BUY') || conviction >= 70);
 
             return merged;
