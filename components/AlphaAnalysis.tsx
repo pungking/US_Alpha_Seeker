@@ -800,24 +800,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let aiFailed = false;
 
       try {
+          addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GMAIL' : 'PERPLEXITY'}]`, "info");
           // Attempt 1: Try with current provider
           response = await generateAlphaSynthesis(topCandidates, currentProvider);
       } catch (err: any) {
-          // If first attempt fails and it wasn't already Perplexity, try failover
-          if (currentProvider !== ApiProvider.PERPLEXITY) {
-             addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
-             usedProvider = ApiProvider.PERPLEXITY;
-             // Don't auto-set brain in manual mode, just use it for this execution
-             if (autoStart) setSelectedBrain(ApiProvider.PERPLEXITY); 
-             try {
-                response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
-             } catch (retryErr: any) {
-                addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
-                aiFailed = true;
-             }
+          // If first attempt fails
+          if (currentProvider === ApiProvider.GEMINI) {
+              if (!autoStart) {
+                  // [MANUAL MODE] Strict Failover: Stop and Switch
+                  addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
+                  setSelectedBrain(ApiProvider.PERPLEXITY);
+                  setLoading(false);
+                  return; // EXIT IMMEDIATELY
+              } else {
+                  // [AUTO MODE] Automatic Failover
+                  addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
+                  usedProvider = ApiProvider.PERPLEXITY;
+                  setSelectedBrain(ApiProvider.PERPLEXITY);
+                  try {
+                      response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+                  } catch (retryErr: any) {
+                      addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
+                      aiFailed = true;
+                  }
+              }
           } else {
-             addLog(`Engine Failed: ${err.message}`, "err");
-             aiFailed = true;
+              // Perplexity failed
+              addLog(`Engine Failed: ${err.message}`, "err");
+              aiFailed = true;
           }
       }
 
@@ -826,17 +836,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
            addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
            
            if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
-               // [MANUAL FAILOVER FIX] If manual mode, switch toggle and stop.
                if (!autoStart) {
-                   addLog("Gemini Quota Exceeded/Error. Switched to Sonar. Click Execute to retry.", "warn");
+                   // [MANUAL MODE] Strict Failover
+                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
                    setSelectedBrain(ApiProvider.PERPLEXITY);
                    setLoading(false);
-                   return;
+                   return; // EXIT IMMEDIATELY
                }
 
                // Auto Mode: Proceed with auto-retry
                addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
-               setSelectedBrain(ApiProvider.PERPLEXITY); // UI Toggle
+               setSelectedBrain(ApiProvider.PERPLEXITY); 
                usedProvider = ApiProvider.PERPLEXITY;
                // Retry with Perplexity
                try {
@@ -875,7 +885,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         // [MODIFIED] Use the enhanced conviction score calculated above
         const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
         const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
-        const safeOutlook = aiData?.investmentOutlook || "Quantitative metrics suggest strong potential. AI analysis unavailable.";
+        const safeOutlook = aiData?.investmentOutlook || "";
 
         // [NEW] Prioritize Perplexity Metrics
         const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
