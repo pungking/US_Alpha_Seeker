@@ -606,7 +606,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   // Use the currently active brain or fallback to Perplexity
                   const brainToUse = resultsCache[selectedBrain] ? selectedBrain : ApiProvider.PERPLEXITY;
                   
-                  const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse);
+                  // [HYDRATION] Explicitly pass market pulse data
+                  const marketPulse = (window as any).latestMarketPulse;
+                  const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse);
                   const brief = await Promise.race([briefPromise, timeout]) as string;
                   
                   telegramPayload = brief;
