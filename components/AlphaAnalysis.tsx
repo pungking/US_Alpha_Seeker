@@ -1626,18 +1626,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 // [NEW] Consensus Check
                 const isConsensus = resultsCache[ApiProvider.GEMINI]?.some(c => c.symbol === item.symbol) && resultsCache[ApiProvider.PERPLEXITY]?.some(c => c.symbol === item.symbol);
                 
-                // [NEW] Badge Conditions (Fault Tolerant)
+                // [NEW] Badge Conditions (Fault Tolerant & Cross-Validated)
                 const showInstitutional = (item.heldPercentInstitutions ?? item.instOwn ?? 0) >= 60;
-                const showDiscount = item.pdZone === 'DISCOUNT' || item.pdZone === 'OTE';
+                const showDiscount = item.isConfirmedDiscount ?? (item.pdZone === 'DISCOUNT' || item.pdZone === 'OTE');
                 const showHyperGrowth = (item.revenueGrowth ?? 0) >= 50;
-                const showGem = (item.roe ?? 0) >= 20;
+                const showGem = item.isConfirmedGem ?? ((item.roe ?? 0) >= 20);
 
                 // [NEW] Alpha Conviction & Visual Effects
                 const alphaConviction = ((item.convictionScore ?? 0) + (item.ictScore ?? 0)) / 2;
                 
                 // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
                 // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
-                const isNeonGlow = (item.ictMetrics?.smartMoneyFlow ?? 0) > 90;
+                const isNeonGlow = item.isConfirmedSmartMoney ?? ((item.ictMetrics?.smartMoneyFlow ?? 0) > 90);
 
                 return (
                   <div 
@@ -1946,8 +1946,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 {!!((selectedStock.revenueGrowth ?? 0) >= 50) && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">Hyper Growth</span>}
                                 {!!selectedStock.isTechnicalBreakout && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-rose-900/50 transition-colors">Tech Breakout</span>}
                                 {!!selectedStock.sectorRankBonus && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-amber-900/50 transition-colors">Sector Leader</span>}
-                                {!!(selectedStock.pdZone === 'DISCOUNT' || selectedStock.pdZone === 'OTE') && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
-                                {!!((selectedStock.roe ?? 0) >= 20) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
+                                {!!(selectedStock.isConfirmedDiscount ?? (selectedStock.pdZone === 'DISCOUNT' || selectedStock.pdZone === 'OTE')) && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
+                                {!!(selectedStock.isConfirmedGem ?? ((selectedStock.roe ?? 0) >= 20)) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
                             </div>
                         </div>
 
