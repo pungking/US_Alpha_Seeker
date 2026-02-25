@@ -647,6 +647,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
         return aiResults.map(aiItem => {
             const original = stage5Map.get(aiItem.symbol);
+            
+            // [SAFETY] If AI hallucinates a symbol not in our universe, return it as is (or filter it out)
             if (!original) return aiItem;
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
@@ -665,7 +667,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 pbr: original.pbr,
                 rsi: original.rsi,
                 sma50: original.sma50,
-                techMetrics: original.techMetrics
+                techMetrics: original.techMetrics,
+                otePrice: original.otePrice,     // [ADDED]
+                ictStopLoss: original.ictStopLoss // [ADDED]
             };
 
             // 2. Cross-Validation Flags
