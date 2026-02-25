@@ -1063,27 +1063,60 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
       const selections = top6.map((c, i) => {
           if (!c) return "";
+          
+          // [DATA INTEGRITY] Safe Number Conversion & ROE Capping
+          const safeNum = (v: any) => Number(v) || 0;
+          const roe = Math.min(safeNum(c.roe), 100);
+          const marketCap = safeNum(c.marketCap);
+          const revenueGrowth = safeNum(c.revenueGrowth);
+          const instOwn = safeNum(c.heldPercentInstitutions || c.instOwn);
+          const conviction = safeNum(c.convictionScore);
+          const beta = safeNum(c.beta);
+          const rsi = safeNum(c.techMetrics?.rsRating || c.rsi);
+          const price = safeNum(c.price);
+          const sma50 = safeNum(c.techMetrics?.sma50 || c.sma50);
+          const pbr = safeNum(c.pbr);
+          const pdZone = c.pdZone || "";
+          const aiSentiment = c.aiSentiment || "";
+
+          // [BADGE LOGIC] 10-Point Alpha Signal System
+          const badges = [];
+          if (i === 0) badges.push("🔴 Final Selection");
+          if (conviction >= 90) badges.push("⭐ Alpha Conviction");
+          if (roe >= 15 && marketCap <= 2000 && marketCap > 0) badges.push("💎 Hidden Gem");
+          if (pdZone === 'DISCOUNT' || pdZone === 'OTE') badges.push("🏷️ Discount");
+          if (revenueGrowth >= 50) badges.push("🚀 Hyper Growth");
+          if (instOwn >= 60) badges.push("🏢 Institutional");
+          if (aiSentiment.includes('Bullish') || c.isConsensus) badges.push("🤝 Cross-Check");
+          if (pbr < 1.5 && pbr > 0) badges.push("💰 Value");
+          if (price > sma50 && rsi > 50 && sma50 > 0) badges.push("🔥 Momentum");
+          if (beta < 0.8 && beta > -5) badges.push("🛡️ Defensive");
+
+          const badgeStr = badges.length > 0 ? `\n   ${badges.join(' ')}` : "";
+
           const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
           let koreanVerdict = verdictMap[c?.aiVerdict] || "매수";
           if (!c?.aiVerdict && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
 
+          // [FORMATTING] Newline Restoration
           const reasons = Array.isArray(c?.selectionReasons) ? c.selectionReasons : [];
           const r1 = reasons[0] ? String(reasons[0]).replace(/\\n/g, ' ').trim() : "섹터 모멘텀 양호";
           const r2 = reasons[1] ? String(reasons[1]).replace(/\\n/g, ' ').trim() : "안정적 펀더멘털";
           const r3 = reasons[2] ? String(reasons[2]).replace(/\\n/g, ' ').trim() : "기술적 반등 위치";
+          
+          const analysisLogic = (c.analysisLogic || "").replace(/\\n/g, '\n').trim();
 
           const entryPrice = (Number(c?.otePrice) || Number(c?.supportLevel) || 0).toFixed(2);
           const targetPrice = (Number(c?.resistanceLevel) || 0).toFixed(2);
           const stopPrice = (Number(c?.ictStopLoss) || Number(c?.stopLoss) || 0).toFixed(2);
           
-          // [ICT & Data Enhancement]
           const pdZoneInfo = c?.pdZone 
               ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` 
               : "기관 수급 및 기술적 지지 구간 분석 반영";
 
-          return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}
+          return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   • 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
+   • 🎯 Plan: 진입 ${entryPrice} 🎯 | 목표 ${targetPrice} | 손절 ${stopPrice}
    • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
    • 💎 Logic:
      - ${removeCitations(r1)}
@@ -1114,7 +1147,19 @@ ${sectorWarning}
 
 ${selections}
 
-${riskNote}`.trim();
+${riskNote}
+
+[Alpha Signal Guide]
+🔴 Final Selection: 수백 개의 후보 중 모든 AI 필터링과 재무 검증을 통과한 **'오늘의 주인공'**입니다. 가장 우선적으로 검토해야 할 최우수 종목입니다.
+⭐ Alpha Conviction: AI가 과거의 성공 패턴과 현재 수급 상황을 대조해 도출한 '상승 가능성에 대한 자신감' 수치입니다.
+💎 Hidden Gem: 내실(ROE)이 매우 탄탄하지만 아직 시장의 주목을 덜 받은 종목으로, 향후 **'강력한 가격 폭발'**을 일으킬 가능성이 높은 보석입니다.
+🏷️ Discount: 현재 주가가 기관의 평균 매수 단가보다 낮거나 최적 진입 구간(OTE)에 위치하여 '가장 싸고 안전한' 진입 시점임을 뜻합니다.
+🚀 Hyper Growth: 산업 평균보다 몇 배는 빠른 속도로 성장하고 있는 종목입니다. '상승 추세에 올라타는' 공격적 매수 전략에 적합합니다.
+🏢 Institutional: 거대 자본인 **'기관 및 세력'**의 매집이 확인된 종목입니다. 개인 주도주보다 수급이 안정적이며 몸통 세력의 흐름을 따릅니다.
+🤝 Cross-Check: 서로 다른 알고리즘을 가진 두 AI 전문가(Gemini & Sonar)가 **'동시에 합격점'**을 준 종목으로, 데이터 신뢰도가 가장 높습니다.
+💰 Value: 실적 대비 주가가 저평가되어 **'가격 방어력'**이 뛰어난 종목입니다. 하락장에서도 상대적으로 안전한 가치 투자를 지향합니다.
+🔥 Momentum: 주가가 50일 이평선 위이고 RSI > 50인 **'추세적 상승'**이 진행 중인 종목입니다. 단기 및 중기 수익을 극대화하기에 유리합니다.
+🛡️ Defensive: 시장 변동성이 커져도 주가 하락폭이 작은 '방어적' 성격의 우량주입니다. 포트폴리오의 리스크를 낮춰주는 방패 역할을 합니다.`.trim();
 
   } catch (criticalError: any) {
       console.error("CRITICAL_TELEGRAM_GEN_FAILURE", criticalError);
