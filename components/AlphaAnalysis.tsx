@@ -624,8 +624,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     }
                     const timestamp = getKstTimestamp();
                     const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
-                    await archiveReport(token, fileName, brief);
-                    addLog("Telegram Brief Archived to Drive.", "ok");
+                    // [FIXED] Fire-and-Forget Archive to prevent timeout
+                    archiveReport(token, fileName, brief)
+                        .then(() => addLog("Telegram Brief Archived to Drive.", "ok"))
+                        .catch(e => addLog(`Archive Failed: ${e.message}`, "warn"));
                   }
 
               } catch (e: any) {
@@ -684,10 +686,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const cleanInsightText = (text: any) => {
     if (!text) return "";
     let str = String(text);
+    // [FIX] Replace literal "\n" with actual newline character for Markdown processing
     str = str.replace(/\\n/g, '\n').replace(/\r/g, '');
     
-    // [CLEANUP] Remove extra newlines aggressively
-    str = str.replace(/\n\s*\n/g, '\n'); 
+    // [CLEANUP] Remove surrounding quotes if any
+    str = str.replace(/^["']|["']$/g, '');
     
     // [HARD FIX] Remove specific conversational prefixes
     str = str.replace(/이 종목에 대해.*?토론을 벌입니다.*?(?=\n)/g, '');
@@ -880,52 +883,52 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       let aiFailed = false;
 
       try {
-          addLog(`사용 중인 엔진: [${selectedBrain === ApiProvider.GEMINI ? 'GMAIL' : 'PERPLEXITY'}]`, "info");
+          // [FIX] Corrected Engine Name Display
+          addLog(`사용 중인 엔진: [${selectedBrain === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
+          
           response = await generateAlphaSynthesis(candidates, selectedBrain);
+          
+          // [CRITICAL] Error Propagation for Branching Logic
+          if (response.error) {
+              throw new Error(response.error);
+          }
+
       } catch (err: any) {
-          if (selectedBrain === ApiProvider.GEMINI) {
+          const isGeminiError = selectedBrain === ApiProvider.GEMINI;
+          
+          if (isGeminiError) {
+              // [CASE A: Manual Execution]
               if (!autoStart) {
-                  addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
+                  addLog("Gemini 크레딧 초과로 엔진을 Sonar로 전환했습니다. 다시 실행 버튼을 눌러주세요.", "err");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   setLoading(false);
+                  // [STOP] Throw Error to halt process
                   throw new Error("MANUAL_STOP_REQUIRED");
-              } else {
-                  addLog(`Primary Engine (${selectedBrain}) Failed: ${err.message}. Engaging Failover...`, "warn");
+              } 
+              // [CASE B: Autopilot Execution]
+              else {
+                  addLog(`Primary Engine (Gemini) Failed: ${err.message}. Engaging Sonar Failover...`, "warn");
+                  
+                  // [FAILOVER] Switch to Perplexity immediately
                   usedProvider = ApiProvider.PERPLEXITY;
                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                  
                   try {
+                      // [RETRY] Execute with Perplexity
                       response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY);
+                      if (response.error) throw new Error(response.error);
+                      
+                      addLog("Sonar Failover Successful. Continuing Analysis...", "ok");
                   } catch (retryErr: any) {
                       addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
                       aiFailed = true;
                   }
               }
           } else {
+              // Non-Gemini Error (e.g. Perplexity failed directly)
               addLog(`Engine Failed: ${err.message}`, "err");
               aiFailed = true;
           }
-      }
-
-      if (response?.error) {
-           addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
-           if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
-               if (!autoStart) {
-                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
-                   setSelectedBrain(ApiProvider.PERPLEXITY);
-                   setLoading(false);
-                   throw new Error("MANUAL_STOP_REQUIRED");
-               }
-               addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
-               setSelectedBrain(ApiProvider.PERPLEXITY); 
-               usedProvider = ApiProvider.PERPLEXITY;
-               try {
-                   response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY);
-               } catch (e) {
-                   aiFailed = true;
-               }
-           } else {
-               aiFailed = true;
-           }
       }
 
       let finalData = candidates;
