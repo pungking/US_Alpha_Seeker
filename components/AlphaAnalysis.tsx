@@ -8,6 +8,15 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
 import { sendTelegramReport } from '../services/telegramService';
 
+declare global {
+  interface Window {
+    latestMarketPulse?: {
+      spy: { price: number; change: number };
+      qqq: { price: number; change: number };
+    };
+  }
+}
+
 interface AlphaCandidate {
   symbol: string;
   name: string;
@@ -281,19 +290,19 @@ const getLegendStrategy = (logicStr: string = "") => {
 const fetchMarketBenchmarks = async () => {
     try {
         const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-        if (!finnhubKey) return { spy: 0, qqq: 0 };
+        if (!finnhubKey) return { spy: { price: 0, change: 0 }, qqq: { price: 0, change: 0 } };
 
         const getQuote = async (sym: string) => {
             const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${finnhubKey}`);
             const data = await res.json();
-            return data.dp || 0; // dp is percent change
+            return { price: Number(data.c) || 0, change: Number(data.dp) || 0 };
         };
 
         const [spy, qqq] = await Promise.all([getQuote('SPY'), getQuote('QQQ')]);
         return { spy, qqq };
     } catch (e) {
         console.error("Benchmark Fetch Error", e);
-        return { spy: 0, qqq: 0 };
+        return { spy: { price: 0, change: 0 }, qqq: { price: 0, change: 0 } };
     }
 };
 
@@ -725,8 +734,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       addLog("STAGE 1: Data Preparation & Scoring...", "signal");
       
       // 1. Fetch Benchmarks
-      const { spy, qqq } = await fetchMarketBenchmarks();
-      addLog(`Benchmark Reference: SPY ${spy.toFixed(2)}% | QQQ ${qqq.toFixed(2)}%`, "info");
+      const benchmarks = await fetchMarketBenchmarks();
+      const spyChange = benchmarks.spy.change;
+      const qqqChange = benchmarks.qqq.change;
+      
+      // [NEW] Global Caching for Report Hydration
+      if (typeof window !== 'undefined') {
+          window.latestMarketPulse = benchmarks;
+      }
+
+      addLog(`Benchmark Reference: SPY ${spyChange.toFixed(2)}% | QQQ ${qqqChange.toFixed(2)}%`, "info");
 
       // 2. Score Candidates
       const scoredCandidates = inputData.map((c: any) => {
@@ -746,12 +763,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           let spyAlpha = false;
           let qqqAlpha = false;
 
-          if (dp > spy) {
+          if (dp > spyChange) {
               sortScore *= 1.1;
               convictionScore *= 1.1;
               spyAlpha = true;
           }
-          if (dp > qqq) {
+          if (dp > qqqChange) {
               sortScore *= 1.15;
               convictionScore *= 1.15;
               qqqAlpha = true;
@@ -959,7 +976,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog("AUTO-PILOT: Skipping Deep Matrix Audit (Token Saver)...", "signal");
           setAutoPhase('MATRIX');
           
-          const result3 = await runStage3(result2);
+          // [NEW] Hydrate with Market Pulse for Report
+          let finalDataForReport = [...result2];
+          if (typeof window !== 'undefined' && window.latestMarketPulse) {
+              const pulse = window.latestMarketPulse;
+              // Inject SPY/QQQ as dummy candidates so generateTelegramBrief can find them
+              finalDataForReport.push({
+                  symbol: 'SPY',
+                  price: pulse.spy.price,
+                  changePercent: pulse.spy.change,
+                  name: 'S&P 500 ETF',
+                  compositeAlpha: 0
+              } as any);
+              finalDataForReport.push({
+                  symbol: 'QQQ',
+                  price: pulse.qqq.price,
+                  changePercent: pulse.qqq.change,
+                  name: 'Invesco QQQ Trust',
+                  compositeAlpha: 0
+              } as any);
+              addLog("Market Pulse Data Hydrated into Report Pipeline.", "info");
+          }
+
+          const result3 = await runStage3(finalDataForReport);
           
           setAutoPhase('DONE');
           if (onComplete) onComplete(result3);
@@ -985,8 +1024,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     try {
       // [NEW] Fetch Benchmark Data
-      const { spy, qqq } = await fetchMarketBenchmarks();
-      addLog(`Benchmark Reference: SPY ${spy.toFixed(2)}% | QQQ ${qqq.toFixed(2)}%`, "info");
+      const benchmarks = await fetchMarketBenchmarks();
+      const spyChange = benchmarks.spy.change;
+      const qqqChange = benchmarks.qqq.change;
+      addLog(`Benchmark Reference: SPY ${spyChange.toFixed(2)}% | QQQ ${qqqChange.toFixed(2)}%`, "info");
 
       // [MODIFIED] Hidden Gem & Priority Logic + Dual Alpha + ICT Hybrid
       const scoredCandidates = elite50.map((c: any) => {
@@ -1006,12 +1047,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           let spyAlpha = false;
           let qqqAlpha = false;
 
-          if (dp > spy) {
+          if (dp > spyChange) {
               sortScore *= 1.1;
               convictionScore *= 1.1;
               spyAlpha = true;
           }
-          if (dp > qqq) {
+          if (dp > qqqChange) {
               sortScore *= 1.15; // Additional boost for beating Nasdaq
               convictionScore *= 1.15;
               qqqAlpha = true;
