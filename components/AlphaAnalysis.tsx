@@ -1064,6 +1064,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               // Handled
           } else {
               addLog(`AutoPilot Failed: ${e.message}`, "err");
+              if (onComplete) onComplete("STAGE6_FAILED");
           }
       } finally {
           setLoading(false);
@@ -1147,7 +1148,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           .sort((a: any, b: any) => b.sortScore - a.sortScore)
           .slice(0, 12);
           
-      if (topCandidates.length === 0) throw new Error("No candidates available to analyze. Please ensure Stage 5 has completed successfully.");
+      if (topCandidates.length === 0) {
+          addLog("분석 결과가 없습니다. Stage 5 데이터를 확인해주세요.", "err");
+          setLoading(false);
+          return;
+      }
 
       // [CRITICAL FIX] Robust Failover Logic for GitHub Actions
       let response: any = { data: [] };
@@ -1292,7 +1297,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
       } else {
           // If 0 results, treat as warning but let pipeline finish
-          addLog("AI returned valid JSON but no valid stock objects found.", "warn");
+          addLog("분석 결과가 없습니다. AI가 유효한 데이터를 반환하지 않았습니다.", "err");
       }
 
       addLog(`${finalElite.length} Elite Alpha targets identified and mapped via ${usedProvider}.`, "ok");
@@ -1307,8 +1312,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
              // Must call onComplete to let Puppeteer know we are done
              if (onComplete) onComplete("STAGE6_FAILED");
         }
+    } finally { 
+        setLoading(false); 
     }
-    finally { setLoading(false); }
   };
 
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
