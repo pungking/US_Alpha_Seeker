@@ -453,9 +453,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const sorosRatio = beta > 0 ? (B * (ictScore / 50)) / beta : B;
           const ivg = selectedStock.fairValueGap || ((intrinsic - selectedStock.price)/selectedStock.price * 100);
           const squeeze = selectedStock.techMetrics?.squeezeState === 'SQUEEZE_ON';
-          const displacement = selectedStock.ictMetrics?.displacement > 60;
+          const displacement = (selectedStock.ictMetrics?.displacement ?? 0) > 60;
           const convexity = squeeze ? (displacement ? "Explosive" : "Building") : "Standard";
-          const ifs = selectedStock.ictMetrics?.smartMoneyFlow || 50;
+          const ifs = selectedStock.ictMetrics?.smartMoneyFlow ?? 50;
           const expectancy = (P * B) - (Q * 1);
           const aic = selectedStock.aiVerdict === 'STRONG_BUY' ? 95 : selectedStock.aiVerdict === 'BUY' ? 80 : 50;
 
@@ -841,7 +841,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
 
           // Institutional Entry Badge
-          const displacement = c.ictMetrics?.displacement || 0;
+          const displacement = c.ictMetrics?.displacement ?? 0;
           const isInstitutionalEntry = displacement > 65;
 
           if (isHiddenGem) sortScore += 25; 
@@ -1126,7 +1126,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
 
           // 3. Institutional Entry Badge
-          const displacement = c.ictMetrics?.displacement || 0;
+          const displacement = c.ictMetrics?.displacement ?? 0;
           const isInstitutionalEntry = displacement > 65;
 
           if (isHiddenGem) sortScore += 25; 
@@ -1628,16 +1628,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 
                 // [NEW] Badge Conditions (Fault Tolerant & Cross-Validated)
                 const showInstitutional = (item.heldPercentInstitutions ?? item.instOwn ?? 0) >= 60;
-                const showDiscount = item.isConfirmedDiscount ?? (item.pdZone === 'DISCOUNT' || item.pdZone === 'OTE');
+                const showDiscount = item.isConfirmedDiscount === true;
                 const showHyperGrowth = (item.revenueGrowth ?? 0) >= 50;
-                const showGem = item.isConfirmedGem ?? ((item.roe ?? 0) >= 20);
+                const showGem = item.isConfirmedGem === true;
 
                 // [NEW] Alpha Conviction & Visual Effects
                 const alphaConviction = ((item.convictionScore ?? 0) + (item.ictScore ?? 0)) / 2;
                 
                 // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
                 // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
-                const isNeonGlow = item.isConfirmedSmartMoney ?? ((item.ictMetrics?.smartMoneyFlow ?? 0) > 90);
+                const isNeonGlow = item.isConfirmedSmartMoney === true;
 
                 return (
                   <div 
@@ -1946,8 +1946,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 {!!((selectedStock.revenueGrowth ?? 0) >= 50) && <span onClick={(e) => handleSignalClick(e, 'HYPER_GROWTH')} className="px-3 py-1 bg-emerald-900/30 border border-emerald-500/30 text-emerald-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-emerald-900/50 transition-colors">Hyper Growth</span>}
                                 {!!selectedStock.isTechnicalBreakout && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-rose-900/30 border border-rose-500/30 text-rose-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-rose-900/50 transition-colors">Tech Breakout</span>}
                                 {!!selectedStock.sectorRankBonus && <span onClick={(e) => handleSignalClick(e, 'MOMENTUM')} className="px-3 py-1 bg-amber-900/30 border border-amber-500/30 text-amber-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-amber-900/50 transition-colors">Sector Leader</span>}
-                                {!!(selectedStock.isConfirmedDiscount ?? (selectedStock.pdZone === 'DISCOUNT' || selectedStock.pdZone === 'OTE')) && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
-                                {!!(selectedStock.isConfirmedGem ?? ((selectedStock.roe ?? 0) >= 20)) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
+                                {!!(selectedStock.isConfirmedDiscount === true) && <span onClick={(e) => handleSignalClick(e, 'DISCOUNT')} className="px-3 py-1 bg-teal-900/30 border border-teal-500/30 text-teal-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-teal-900/50 transition-colors">Discount Zone</span>}
+                                {!!(selectedStock.isConfirmedGem === true) && <span onClick={(e) => handleSignalClick(e, 'HIDDEN_GEM')} className="px-3 py-1 bg-purple-900/30 border border-purple-500/30 text-purple-400 rounded-full text-[9px] font-black uppercase shadow-sm cursor-help hover:bg-purple-900/50 transition-colors">Hidden Gem</span>}
                             </div>
                         </div>
 
