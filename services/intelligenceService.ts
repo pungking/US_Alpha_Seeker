@@ -327,14 +327,49 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
   }
 }
 
+// [INTERNAL] Robust API Key Resolver
+const getProviderApiKey = (provider: ApiProvider): string => {
+  // 1. Absolute Hardcoded Fallbacks (Last Resort)
+  const fallbacks: Record<string, string> = {
+    [ApiProvider.GEMINI]: 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc',
+    [ApiProvider.PERPLEXITY]: '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',
+    [ApiProvider.GOOGLE_DRIVE]: 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY'
+  };
+
+  // 2. Try to find in config
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  let key = config?.key || '';
+  
+  // 3. Platform-specific overrides (GitHub Actions / AI Studio / Vercel)
+  // @ts-ignore
+  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
+  
+  // 4. Resolve based on provider type
+  const providerStr = String(provider);
+  
+  if (providerStr.includes('Gemini')) {
+      // Priority: Env > Config > Fallback
+      return env.GEMINI_API_KEY || env.API_KEY || key || fallbacks[ApiProvider.GEMINI];
+  }
+  
+  if (providerStr.includes('Perplexity')) {
+      return env.PERPLEXITY_API_KEY || key || fallbacks[ApiProvider.PERPLEXITY];
+  }
+  
+  if (providerStr.includes('Drive')) {
+      return env.GDRIVE_API_KEY || key || fallbacks[ApiProvider.GOOGLE_DRIVE];
+  }
+  
+  return key || fallbacks[provider] || '';
+};
+
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
   const realData = await runDeterministicBacktest(stock);
   if (realData) {
       return { data: realData, isRealData: true };
   }
 
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = getProviderApiKey(provider);
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
@@ -408,16 +443,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  
-  // [FIX] Priority: Platform Injected Key > Config Key (which includes hardcoded fallback)
-  let apiKey = config?.key;
-  if (provider === ApiProvider.GEMINI) {
-      // For Gemini, we check platform-specific environment variables first
-      // @ts-ignore
-      const platformKey = (typeof process !== 'undefined' && process.env) ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : '';
-      if (platformKey) apiKey = platformKey;
-  }
+  const apiKey = getProviderApiKey(provider);
   
   if (!apiKey) {
       console.error(`API Key missing for provider: ${provider}`);
@@ -863,8 +889,7 @@ export async function analyzePipelineStatus(data: {
   mode: 'SINGLE_STOCK' | 'PORTFOLIO' | 'INTEGRITY_CHECK';
   recommendedData?: any[];
 }, provider: ApiProvider): Promise<string> {
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = getProviderApiKey(provider);
   if (!apiKey) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
@@ -1006,8 +1031,7 @@ export async function analyzePipelineStatus(data: {
 }
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider, marketPulse?: any): Promise<string> {
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = getProviderApiKey(provider);
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
