@@ -364,6 +364,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
   
   const [sendingTelegram, setSendingTelegram] = useState(false);
+  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // Define derived state explicitly to avoid scope issues
   // [MODIFIED] currentResults sorted by conviction score descending
@@ -1170,6 +1171,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   // [MANUAL MODE] Strict Failover: Stop and Switch
                   addLog("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                  setAnalysisError("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.");
                   setLoading(false);
                   return; // EXIT IMMEDIATELY
               } else {
@@ -1187,6 +1189,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           } else {
               // Perplexity failed
               addLog(`Engine Failed: ${err.message}`, "err");
+              setAnalysisError(`Engine Failed: ${err.message}`);
               aiFailed = true;
           }
       }
@@ -1200,6 +1203,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    // [MANUAL MODE] Strict Failover
                    addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
                    setSelectedBrain(ApiProvider.PERPLEXITY);
+                   setAnalysisError("Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.");
                    setLoading(false);
                    return; // EXIT IMMEDIATELY
                }
@@ -1211,10 +1215,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                // Retry with Perplexity
                try {
                    response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
-               } catch (e) {
+               } catch (e: any) {
+                   setAnalysisError(`Failover Engine (Perplexity) also failed: ${e.message}`);
                    aiFailed = true;
                }
            } else {
+               setAnalysisError(`Engine Returned Error: ${response.error}`);
                aiFailed = true;
            }
       }
@@ -1226,6 +1232,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                // Use existing candidates as fallback result
                response = { data: topCandidates.map((c: any) => ({ ...c, aiVerdict: 'HOLD', investmentOutlook: 'Analysis Failed. Hold for review.' })), usedProvider: 'FALLBACK' };
           } else {
+               setAnalysisError(`Synthesis Failed after retries: ${response.error}`);
                throw new Error(`Synthesis Failed after retries: ${response.error}`);
           }
       }
@@ -1580,6 +1587,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   // [NEW] Safe Check for isVisible + isHeadless to prevent Recharts warnings in CI
   const shouldRenderChart = isVisible && !isHeadless;
+
+  if (analysisError && currentResults.length === 0) {
+      return (
+          <div className="flex flex-col items-center justify-center h-64 bg-black/40 rounded-[40px] border border-rose-500/30">
+              <div className="text-rose-500 mb-4">
+                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
+              </div>
+              <h3 className="text-xl font-black text-white mb-2">Analysis Failed</h3>
+              <p className="text-slate-400 text-sm mb-6">{analysisError}</p>
+              <button 
+                  onClick={() => { setAnalysisError(null); handleExecuteEngine(); }}
+                  className="px-6 py-2 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-500 transition-colors"
+              >
+                  Retry Analysis
+              </button>
+          </div>
+      );
+  }
 
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
