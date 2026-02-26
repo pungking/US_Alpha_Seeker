@@ -409,10 +409,18 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  // [FIX] Ensure we check process.env.GEMINI_API_KEY as well, and don't fail immediately if it's Gemini and we might have a fallback
-  let apiKey = (provider === ApiProvider.GEMINI) ? (process.env.GEMINI_API_KEY || process.env.API_KEY || config?.key) : config?.key;
+  
+  // [FIX] Priority: Platform Injected Key > Config Key (which includes hardcoded fallback)
+  let apiKey = config?.key;
+  if (provider === ApiProvider.GEMINI) {
+      // For Gemini, we check platform-specific environment variables first
+      // @ts-ignore
+      const platformKey = (typeof process !== 'undefined' && process.env) ? (process.env.GEMINI_API_KEY || process.env.API_KEY) : '';
+      if (platformKey) apiKey = platformKey;
+  }
   
   if (!apiKey) {
+      console.error(`API Key missing for provider: ${provider}`);
       return { data: null, error: "API_KEY_MISSING" };
   }
 
