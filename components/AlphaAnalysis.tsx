@@ -1650,13 +1650,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
                 // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
                 const isNeonGlow = item.isConfirmedSmartMoney === true;
+                const isTopPick = index < 2;
 
                 return (
                   <div 
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
-                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${flashClass || (isSelected ? 'border-emerald-400 bg-emerald-500/10 shadow-xl ring-2 ring-emerald-400/50 z-10' : (isNeonGlow ? 'shadow-[0_0_20px_rgba(225,29,72,0.15)] border-rose-500/40 bg-black/40 hover:bg-white/5' : 'border-white/5 bg-black/40 hover:bg-white/5'))} ${isConsensus && !isSelected ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
+                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${
+                        flashClass || (
+                            isSelected ? 'border-emerald-400 bg-emerald-500/10 shadow-xl ring-2 ring-emerald-400/50 z-10' : 
+                            (isTopPick ? 'border-red-500/60 bg-red-500/5 shadow-[0_0_30px_rgba(220,38,38,0.25)] animate-pulse' : 
+                            (isNeonGlow ? 'shadow-[0_0_25px_rgba(251,191,36,0.2)] border-amber-400/40 bg-amber-500/5 hover:bg-amber-500/10' : 
+                            'border-white/5 bg-black/40 hover:bg-white/5'))
+                        )
+                    } ${isConsensus && !isSelected && !isTopPick ? 'shadow-[0_0_15px_rgba(245,158,11,0.15)]' : ''}`}
                   >
                     {/* [FIX] Use shouldRenderChart to ensure component is not rendered when hidden/headless */}
                     {shouldRenderChart && ((loading && isSelected) || isAuditRunning) && (
