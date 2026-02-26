@@ -152,7 +152,7 @@ function sanitizeAndParseJson(text: string): any | null {
     // Remove control characters except newlines
     cleanText = cleanText.replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g, "");
     
-    // [NEW] Regex extraction for array
+    // [USER_REQUEST_APPLIED] Regex extraction for array (순수 배열만 추출)
     const arrayMatch = cleanText.match(/\[\s*\{.*\}\s*\]/s);
     if (arrayMatch) {
       cleanText = arrayMatch[0];
@@ -648,7 +648,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   };
 
   try {
-    // [NEW] Data Re-hydration & Cross-Validation Logic
+    // [USER_REQUEST_APPLIED] Data Re-hydration & Cross-Validation Logic
     const hydrateAndValidate = (aiInput: any, providerName: string) => {
         // [FIX] Handle potential object wrapper from AI
         let aiResults = aiInput;
@@ -661,23 +661,31 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return aiResults; 
         }
 
+        // [USER_REQUEST_APPLIED] Map 기반 최적화 및 심볼 정규화 전수 적용
         const aiMap = new Map(aiResults.map(a => [String(a.symbol || '').trim().toUpperCase(), a]));
 
         return candidates.map(original => {
             const normalizedSymbol = String(original.symbol || '').trim().toUpperCase();
+            
+            // [USER_REQUEST_APPLIED] Fallback 보장: 매칭 실패 시 수치 0, 문자 N/A 초기화
             const aiItem = aiMap.get(normalizedSymbol) || { 
                 ...original,
                 aiVerdict: "HOLD",
                 investmentOutlook: "N/A",
-                convictionScore: original.convictionScore || 50,
+                convictionScore: 0,
                 expectedReturn: "N/A",
                 riskRewardRatio: "N/A",
-                supportLevel: original.price ? original.price * 0.98 : 0,
-                resistanceLevel: original.price ? original.price * 1.10 : 0,
-                stopLoss: original.price ? original.price * 0.95 : 0,
+                supportLevel: 0,
+                resistanceLevel: 0,
+                stopLoss: 0,
                 chartPattern: "N/A",
                 analysisLogic: "N/A",
-                selectionReasons: ["N/A"]
+                selectionReasons: ["N/A", "N/A", "N/A"],
+                newsSentiment: "N/A",
+                newsScore: 0,
+                theme: "N/A",
+                aiSentiment: "N/A",
+                kellyWeight: "0%"
             };
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
