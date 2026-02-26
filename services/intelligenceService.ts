@@ -144,7 +144,7 @@ const BACKTEST_SCHEMA = {
 };
 
 function sanitizeAndParseJson(text: string): any | null {
-  if (!text) return null;
+  if (!text) return [];
   try {
     let cleanText = text.trim();
     // Remove markdown code blocks if present
@@ -176,12 +176,15 @@ function sanitizeAndParseJson(text: string): any | null {
   } catch (e) {
     // Only log critical errors to avoid console noise for minor partial failures
     // console.error("JSON_PARSE_CRITICAL_FAILURE:", e, "Raw Text:", text); 
-    return null;
+    return [];
   }
 }
 
-async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000): Promise<any> {
-  try { return await fn(); } catch (error: any) {
+async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000, timeoutMs = 30000): Promise<any> {
+  try { 
+    const timeoutPromise = new Promise((_, reject) => setTimeout(() => reject(new Error("API_TIMEOUT")), timeoutMs));
+    return await Promise.race([fn(), timeoutPromise]); 
+  } catch (error: any) {
     const msg = (error.message || JSON.stringify(error)).toLowerCase();
     
     // Fatal errors that shouldn't be retried immediately
@@ -194,7 +197,7 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000)
 
     if (retries > 0) {
       await new Promise(r => setTimeout(r, delay));
-      return fetchWithRetry(fn, retries - 1, delay * 2); // Exponential backoff
+      return fetchWithRetry(fn, retries - 1, delay * 2, timeoutMs); // Exponential backoff
     }
     throw error;
   }
@@ -655,7 +658,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
 
         return candidates.map(original => {
-            const aiItem = aiMap.get(original.symbol) || {};
+            const aiItem = aiMap.get(original.symbol) || original; // [FIX] Fallback to original if not found
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
             const merged = {
