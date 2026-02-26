@@ -401,7 +401,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
-export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
@@ -749,8 +749,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return { data: parsedFlash, usedProvider: 'GEMINI_FLASH' };
 
         } catch (flashError: any) {
-             console.warn("[FALLBACK] Gemini Ecosystem Down -> Engaging Perplexity Sonar...");
              trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
+             
+             if (!isAutoMode) {
+                 throw new Error('GEMINI_QUOTA_EXCEEDED');
+             }
+
+             console.warn("[FALLBACK] Gemini Ecosystem Down -> Engaging Perplexity Sonar...");
 
              // [STAGE 3] Perplexity Sonar
              try {
