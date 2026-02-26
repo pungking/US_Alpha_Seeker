@@ -1175,10 +1175,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   setAnalysisError("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.");
+                  setLoading(false); // [USER_REQUEST_APPLIED] Added here for manual exit
                   return; // EXIT IMMEDIATELY
               } else {
                   // [AUTO MODE] Automatic Failover (Sequential, no recursion)
                   addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover to Sonar...`, "warn");
+                  addLog("전환 중... API 키 검증 중...", "info"); // [USER_REQUEST_APPLIED]
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   usedProvider = ApiProvider.PERPLEXITY;
                   
@@ -1216,6 +1218,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       // [ENHANCED MERGE] Left Join: Iterate over topCandidates to ensure we don't lose items if AI returns partial list
       const mergedFinal = topCandidates.map((item: any) => {
+        if (!item || !item.symbol) return null; // [USER_REQUEST_APPLIED] Safeguard
+        
         // Find matching AI result if available
         const aiData = safeAiResults.find((r: any) => r.symbol?.trim().toUpperCase() === item.symbol.trim().toUpperCase());
         
@@ -1252,7 +1256,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             isOverheated: item.isOverheated,
             pdZone: item.pdZone
         };
-      }) as AlphaCandidate[];
+      }).filter(Boolean) as AlphaCandidate[]; // Remove nulls
       
       // [FIX] Slice to Top 6
       const finalElite = mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0)).slice(0, 6);
