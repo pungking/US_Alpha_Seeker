@@ -327,49 +327,14 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
   }
 }
 
-// [INTERNAL] Robust API Key Resolver
-const getProviderApiKey = (provider: ApiProvider): string => {
-  // 1. Absolute Hardcoded Fallbacks (Last Resort)
-  const fallbacks: Record<string, string> = {
-    [ApiProvider.GEMINI]: 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc',
-    [ApiProvider.PERPLEXITY]: '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',
-    [ApiProvider.GOOGLE_DRIVE]: 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY'
-  };
-
-  // 2. Try to find in config
-  const config = API_CONFIGS.find(c => c.provider === provider);
-  let key = config?.key || '';
-  
-  // 3. Platform-specific overrides (GitHub Actions / AI Studio / Vercel)
-  // @ts-ignore
-  const env = (typeof process !== 'undefined' && process.env) ? process.env : {};
-  
-  // 4. Resolve based on provider type
-  const providerStr = String(provider);
-  
-  if (providerStr.includes('Gemini')) {
-      // Priority: Env > Config > Fallback
-      return env.GEMINI_API_KEY || env.API_KEY || key || fallbacks[ApiProvider.GEMINI];
-  }
-  
-  if (providerStr.includes('Perplexity')) {
-      return env.PERPLEXITY_API_KEY || key || fallbacks[ApiProvider.PERPLEXITY];
-  }
-  
-  if (providerStr.includes('Drive')) {
-      return env.GDRIVE_API_KEY || key || fallbacks[ApiProvider.GOOGLE_DRIVE];
-  }
-  
-  return key || fallbacks[provider] || '';
-};
-
 export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<{data: any | null, error?: string, isRealData?: boolean}> {
   const realData = await runDeterministicBacktest(stock);
   if (realData) {
       return { data: realData, isRealData: true };
   }
 
-  const apiKey = getProviderApiKey(provider);
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
@@ -443,11 +408,19 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
-  const apiKey = getProviderApiKey(provider);
+  // [USER_REQUEST_APPLIED] API 참조 최적화: 배열 검색 방식 사용
+  const sonarConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY || (ApiProvider as any).SONAR && c.provider === (ApiProvider as any).SONAR);
+  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
+  
+  let apiKey = "";
+  if (provider === ApiProvider.GEMINI) {
+      apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || geminiConfig?.key || "";
+  } else {
+      apiKey = sonarConfig?.key || "";
+  }
   
   if (!apiKey) {
-      console.error(`API Key missing for provider: ${provider}`);
-      return { data: null, error: "API_KEY_MISSING" };
+      return { data: null, error: `API_KEY_MISSING: Check API_CONFIGS in constants.ts for ${provider === ApiProvider.GEMINI ? 'GEMINI' : 'PERPLEXITY/SONAR'} provider` };
   }
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
@@ -686,9 +659,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   };
 
   try {
-    // [USER_REQUEST_APPLIED] Data Re-hydration & Cross-Validation Logic
+    // [USER_REQUEST_APPLIED] Data Re-hydration & Cross-Validation Logic (Map 기반 O(1) 최적화)
     const hydrateAndValidate = (aiInput: any, providerName: string) => {
-        // [FIX] Handle potential object wrapper from AI
         let aiResults = aiInput;
         if (!Array.isArray(aiResults) && aiResults?.alpha_candidates && Array.isArray(aiResults.alpha_candidates)) {
             aiResults = aiResults.alpha_candidates;
@@ -699,56 +671,28 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return aiResults; 
         }
 
-        // [USER_REQUEST_APPLIED] Map 기반 최적화 및 심볼 정규화 전수 적용
+        // AI 결과를 Map으로 변환하여 O(1) 조회 보장
         const aiMap = new Map(aiResults.map(a => [String(a.symbol || '').trim().toUpperCase(), a]));
 
+        // Stage 5 데이터(candidates)를 순회하며 AI 분석 결과 병합
         return candidates.map(original => {
             const normalizedSymbol = String(original.symbol || '').trim().toUpperCase();
+            const aiItem = aiMap.get(normalizedSymbol);
             
-            // [USER_REQUEST_APPLIED] Fallback 보장: 매칭 실패 시 수치 0, 문자 N/A 초기화
-            const aiItem = aiMap.get(normalizedSymbol) || { 
-                ...original,
-                aiVerdict: "HOLD",
-                investmentOutlook: "N/A",
-                convictionScore: 0,
-                expectedReturn: "N/A",
-                riskRewardRatio: "N/A",
-                supportLevel: 0,
-                resistanceLevel: 0,
-                stopLoss: 0,
-                chartPattern: "N/A",
-                analysisLogic: "N/A",
-                selectionReasons: ["N/A", "N/A", "N/A"],
-                newsSentiment: "N/A",
-                newsScore: 0,
-                theme: "N/A",
-                aiSentiment: "N/A",
-                kellyWeight: "0%"
-            };
-
-            // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
+            // 병합 로직 (AI 결과가 없으면 원본 유지)
             const merged = {
                 ...original,
-                ...aiItem,
-                ictMetrics: { ...(original.ictMetrics || { smartMoneyFlow: 0, displacement: 0 }) }, // Deep copy to prevent reference issues
+                ...(aiItem || {}),
+                // 중요 지표 강제 보존 (Stage 5 데이터 우선)
+                ictMetrics: { ...(original.ictMetrics || { smartMoneyFlow: 0, displacement: 0 }) },
                 pdZone: original.pdZone || 'UNKNOWN',
                 roe: original.roe,
                 revenueGrowth: original.revenueGrowth,
                 instOwn: original.instOwn || original.heldPercentInstitutions,
-                marketCapClass: original.marketCapClass,
-                sector: original.sector,
-                sectorTheme: original.sectorTheme || aiItem.sectorTheme,
-                price: original.price,
-                beta: original.beta,
-                pbr: original.pbr,
-                rsi: original.rsi,
-                sma50: original.sma50,
-                techMetrics: original.techMetrics,
-                otePrice: original.otePrice,
-                ictStopLoss: original.ictStopLoss
+                price: original.price
             };
 
-            // 2. Cross-Validation Flags
+            // 교차 검증 플래그 설정
             const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow ?? 0;
             const conviction = Number(merged.convictionScore) || 0;
             const roe = Number(merged.roe) || 0;
@@ -889,7 +833,8 @@ export async function analyzePipelineStatus(data: {
   mode: 'SINGLE_STOCK' | 'PORTFOLIO' | 'INTEGRITY_CHECK';
   recommendedData?: any[];
 }, provider: ApiProvider): Promise<string> {
-  const apiKey = getProviderApiKey(provider);
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
@@ -1031,7 +976,8 @@ export async function analyzePipelineStatus(data: {
 }
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider, marketPulse?: any): Promise<string> {
-  const apiKey = getProviderApiKey(provider);
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
