@@ -1645,7 +1645,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const showGem = item.isConfirmedGem === true;
 
                 // [NEW] Alpha Conviction & Visual Effects
-                const alphaConviction = ((item.convictionScore ?? 0) + (item.ictScore ?? 0)) / 2;
+                // Formula: (ICT Score * 0.4) + (Fundamental Score * 0.3) + (Technical Score * 0.2) + (AI Conviction * 0.1)
+                const rawAiScore = Number(item.convictionScore) || 50;
+                // If AI score is exactly 50 (fallback), use ICT score as proxy for AI sentiment to avoid "neutral" dragging down good stocks
+                const effectiveAiScore = rawAiScore === 50 ? (item.ictScore || 50) : rawAiScore;
+                
+                const alphaConviction = (
+                    ((item.ictScore || 0) * 0.4) + 
+                    ((item.fundamentalScore || 0) * 0.3) + 
+                    ((item.technicalScore || 0) * 0.2) + 
+                    (effectiveAiScore * 0.1)
+                ).toFixed(1);
                 
                 // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
                 // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
@@ -1750,8 +1760,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     >
                                         ALPHA CONVICTION
                                     </span>
-                                    <span className={`text-[9px] font-black ${alphaConviction > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
-                                        {(Number(alphaConviction) || 0).toFixed(1)}
+                                    <span className={`text-[9px] font-black ${Number(alphaConviction) > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
+                                        {alphaConviction}
                                     </span>
                                 </div>
                                 {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
@@ -1866,7 +1876,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     </div>
                     <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
                         <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
-                        <p className="text-2xl font-black text-emerald-400 italic">{selectedStock.convictionScore}%</p>
+                        <p className="text-2xl font-black text-emerald-400 italic">
+                            {/* Use pure AI score, but fallback to ICT score if AI returned default 50 */}
+                            {selectedStock.convictionScore === 50 ? (selectedStock.ictScore || 50) : selectedStock.convictionScore}%
+                        </p>
                     </div>
                  </div>
                  
