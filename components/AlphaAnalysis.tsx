@@ -942,7 +942,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               // Merge Logic
               const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
               const safeVerdict = aiData?.aiVerdict || "ACCUMULATE";
-              const safeOutlook = aiData?.investmentOutlook || "";
+              const safeOutlook = aiData?.investmentOutlook || "N/A";
               const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
 
               return {
