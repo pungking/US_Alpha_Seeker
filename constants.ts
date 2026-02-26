@@ -11,15 +11,23 @@ export interface ApiConfig {
 }
 
 // [HYBRID CONFIG] Priority: Environment Variables (GitHub Actions) > Hardcoded Fallback (Local Dev)
-const getEnvVar = (key: string) => {
-    // @ts-ignore
-    if (typeof import.meta !== 'undefined' && import.meta.env && import.meta.env[key]) {
+const getEnvVar = (key: string): string => {
+    try {
         // @ts-ignore
-        return import.meta.env[key];
-    }
-    if (typeof process !== 'undefined' && process.env && process.env[key]) {
-        return process.env[key];
-    }
+        if (typeof import.meta !== 'undefined' && import.meta.env) {
+            // Static access for common keys to ensure Vite includes them
+            if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
+            if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || '';
+            if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
+            if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
+            
+            // Fallback to dynamic access
+            return import.meta.env[key] || '';
+        }
+        if (typeof process !== 'undefined' && process.env) {
+            return process.env[key] || '';
+        }
+    } catch (e) {}
     return '';
 };
 
