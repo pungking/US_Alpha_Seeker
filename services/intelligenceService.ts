@@ -723,64 +723,155 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       
-      try {
-        // [STAGE 1] Gemini Pro (High Reasoning)
-        console.warn("[ATTEMPT] Stage 1: Engaging Gemini Pro (High Reasoning)...");
-        const resultPro = await fetchWithRetry(() => ai.models.generateContent({
-          model: 'gemini-3.1-pro-preview',
-          contents: prompt,
-          config: { 
-              responseMimeType: "application/json", 
-              responseSchema: ALPHA_SCHEMA,
-              systemInstruction: SYSTEM_INSTRUCTION,
-              tools: [{ googleSearch: {} }] 
+      // [NEW] Batch Processing Implementation (25 items per batch)
+      const BATCH_SIZE = 25;
+      const batches = [];
+      for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
+          batches.push(candidates.slice(i, i + BATCH_SIZE));
+      }
+
+      let allProcessedCandidates: any[] = [];
+      let hasAnySuccess = false;
+
+      console.log(`[Gemini] Starting batch processing. Total items: ${candidates.length}, Batches: ${batches.length}`);
+
+      for (let i = 0; i < batches.length; i++) {
+          const batchCandidates = batches[i];
+          console.log(`[Gemini] Processing Batch ${i + 1}/${batches.length} (${batchCandidates.length} items)...`);
+
+          // Re-construct prompt for this specific batch
+          const batchPrompt = `
+          You are an elite hedge fund manager and master market strategist.
+          Analyze the following ${batchCandidates.length} stock candidates (Batch ${i + 1}) selected by our quantitative engine.
+          
+          Current Market Context:
+          - VIX: ${marketPulse.vix}
+          - Market Trend: ${marketPulse.trend}
+          - Sector Rotation: ${marketPulse.sectorRotation}
+          
+          Candidates Data (JSON):
+          ${JSON.stringify(batchCandidates.map(c => ({
+              symbol: c.symbol,
+              name: c.name,
+              price: c.price,
+              sector: c.sector,
+              industry: c.industry,
+              pe: c.pe,
+              revenueGrowth: c.revenueGrowth,
+              debtToEquity: c.debtToEquity,
+              operatingMargins: c.operatingMargins,
+              ictScore: c.ictScore,
+              smartMoney: c.isConfirmedSmartMoney,
+              discount: c.isConfirmedDiscount,
+              gem: c.isConfirmedGem
+          })))}
+
+          [TASK]
+          For EACH stock in the list, provide a structured analysis.
+          You MUST return a JSON object with a "candidates" array containing ${batchCandidates.length} objects.
+          
+          Each object must follow this schema:
+          {
+              "symbol": "TICKER",
+              "aiVerdict": "BUY" | "HOLD" | "WATCH",
+              "convictionScore": 0-100 (Integer),
+              "investmentOutlook": "Concise strategic summary (max 2 sentences). Focus on WHY this is a winner.",
+              "selectionReasons": ["Reason 1", "Reason 2", "Reason 3"],
+              "newsSentiment": "Bullish" | "Neutral" | "Bearish",
+              "newsScore": 0.0-1.0 (Float),
+              "expectedReturn": "e.g. +15%",
+              "supportLevel": Price (Float),
+              "resistanceLevel": Price (Float),
+              "stopLoss": Price (Float),
+              "riskRewardRatio": "e.g. 1:3",
+              "kellyWeight": "e.g. 5%",
+              "marketCapClass": "Large" | "Mid" | "Small",
+              "sectorTheme": "Sector Name",
+              "theme": "e.g. AI Boom, Rate Cut Beneficiary",
+              "aiSentiment": "Bullish" | "Neutral" | "Bearish",
+              "analysisLogic": "Brief explanation of the verdict"
           }
-        }), 0, 2000);
 
-        trackUsage(ApiProvider.GEMINI, resultPro.usageMetadata?.totalTokenCount || 0);
-        const parsedPro = sanitizeAndParseJson(resultPro.text);
-        
-        if (parsedPro && Array.isArray(parsedPro)) {
-            const hydratedData = hydrateAndValidate(parsedPro, 'GEMINI_PRO');
-            return { data: hydratedData, usedProvider: 'GEMINI_PRO' };
-        }
-        return { data: parsedPro, usedProvider: 'GEMINI_PRO' };
+          [CRITICAL RULES]
+          1. Output ONLY valid JSON. No markdown formatting.
+          2. Do not hallucinate data. If unsure, use conservative estimates.
+          3. Ensure "symbol" matches exactly.
+          `;
 
-      } catch (proError: any) {
-        console.warn(`[RETRY] Gemini Pro Failed (${proError.message}). Switching to Flash Mode...`);
-        
-        try {
-            // [STAGE 2] Gemini Flash (Speed & Stability)
-            const resultFlash = await fetchWithRetry(() => ai.models.generateContent({
-              model: 'gemini-3-flash-preview',
-              contents: prompt,
+          try {
+            // [STAGE 1] Gemini Pro (High Reasoning) - Per Batch
+            console.warn(`[ATTEMPT] Batch ${i+1}: Engaging Gemini Pro...`);
+            const resultPro = await fetchWithRetry(() => ai.models.generateContent({
+              model: 'gemini-3.1-pro-preview',
+              contents: batchPrompt,
               config: { 
                   responseMimeType: "application/json", 
                   responseSchema: ALPHA_SCHEMA,
                   systemInstruction: SYSTEM_INSTRUCTION,
                   tools: [{ googleSearch: {} }] 
               }
-            }), 1, 2000); 
+            }), 0, 2000);
+
+            trackUsage(ApiProvider.GEMINI, resultPro.usageMetadata?.totalTokenCount || 0);
+            const parsedPro = sanitizeAndParseJson(resultPro.text);
             
-            trackUsage(ApiProvider.GEMINI, resultFlash.usageMetadata?.totalTokenCount || 0);
-            const parsedFlash = sanitizeAndParseJson(resultFlash.text);
-            
-            if (parsedFlash && Array.isArray(parsedFlash)) {
-                const hydratedData = hydrateAndValidate(parsedFlash, 'GEMINI_FLASH');
-                return { data: hydratedData, usedProvider: 'GEMINI_FLASH' };
+            if (parsedPro && Array.isArray(parsedPro)) {
+                allProcessedCandidates = [...allProcessedCandidates, ...parsedPro];
+                hasAnySuccess = true;
+                console.log(`[Gemini] Batch ${i + 1} success (Pro). Retrieved ${parsedPro.length} items.`);
+                continue; // Skip to next batch
             }
-            return { data: parsedFlash, usedProvider: 'GEMINI_FLASH' };
+            
+            // If Pro fails to return array, try Flash for this batch
+            throw new Error("Gemini Pro returned invalid format for batch");
 
-        } catch (flashError: any) {
-             trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
-             
-             if (!isAutoMode) {
-                 throw new Error('GEMINI_QUOTA_EXCEEDED');
-             }
+          } catch (proError: any) {
+            console.warn(`[RETRY] Batch ${i+1}: Gemini Pro Failed (${proError.message}). Switching to Flash Mode...`);
+            
+            try {
+                // [STAGE 2] Gemini Flash (Speed & Stability) - Per Batch
+                const resultFlash = await fetchWithRetry(() => ai.models.generateContent({
+                  model: 'gemini-3-flash-preview',
+                  contents: batchPrompt,
+                  config: { 
+                      responseMimeType: "application/json", 
+                      responseSchema: ALPHA_SCHEMA,
+                      systemInstruction: SYSTEM_INSTRUCTION,
+                      tools: [{ googleSearch: {} }] 
+                  }
+                }), 1, 2000); 
+                
+                trackUsage(ApiProvider.GEMINI, resultFlash.usageMetadata?.totalTokenCount || 0);
+                const parsedFlash = sanitizeAndParseJson(resultFlash.text);
+                
+                if (parsedFlash && Array.isArray(parsedFlash)) {
+                    allProcessedCandidates = [...allProcessedCandidates, ...parsedFlash];
+                    hasAnySuccess = true;
+                    console.log(`[Gemini] Batch ${i + 1} success (Flash). Retrieved ${parsedFlash.length} items.`);
+                } else {
+                     console.error(`[Gemini] Batch ${i + 1} failed (Flash). Invalid format.`);
+                }
+    
+            } catch (flashError: any) {
+                 trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
+                 console.error(`[Gemini] Batch ${i + 1} failed completely.`);
+            }
+          }
+      } // End Batch Loop
 
-             console.warn("[FALLBACK] Gemini Ecosystem Down -> Engaging Perplexity Sonar...");
+      if (hasAnySuccess && allProcessedCandidates.length > 0) {
+          const hydratedData = hydrateAndValidate(allProcessedCandidates, 'GEMINI_BATCH');
+          return { data: hydratedData, usedProvider: 'GEMINI_BATCH' };
+      }
 
-             // [STAGE 3] Perplexity Sonar
+      // If ALL batches failed, proceed to Perplexity Fallback
+      if (!isAutoMode) {
+          throw new Error('GEMINI_QUOTA_EXCEEDED');
+      }
+
+      console.warn("[FALLBACK] Gemini Ecosystem Down -> Engaging Perplexity Sonar...");
+
+      // [STAGE 3] Perplexity Sonar
              try {
                 const pResult = await executePerplexityAnalysis();
                 if (pResult.data) {
@@ -816,8 +907,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                  const hydratedFallback = hydrateAndValidate(fallbackData, 'FALLBACK_RECOVERY');
                  return { data: hydratedFallback, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
              }
-        }
-      }
     }
 
     if (provider === ApiProvider.PERPLEXITY) {
