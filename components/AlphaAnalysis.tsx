@@ -1587,7 +1587,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         <div className={`glass-panel p-6 md:p-8 rounded-[40px] border-t-2 shadow-2xl transition-all duration-500 border-t-rose-500`}>
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-8 gap-6">
             <div className="flex items-center space-x-6">
-              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-rose-600/10 flex items-center justify-center border border-rose-500/20 shadow-inner ${loading ? 'animate-pulse' : ''}`}>
+              <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-rose-600/10 flex items-center justify-center border border-rose-500/20 shadow-inner`}>
                  <svg className={`w-5 h-5 md:w-6 md:h-6 text-rose-500 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
               </div>
               <div>
@@ -1620,7 +1620,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {currentResults.length > 0 ? currentResults.map((item) => {
+              {currentResults.length > 0 ? currentResults.map((item, index) => {
+                if (!item) return null;
                 const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
                 const rtData = realtimePrices[item.symbol];
