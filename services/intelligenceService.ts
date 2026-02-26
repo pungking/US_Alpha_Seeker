@@ -671,7 +671,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 investmentOutlook: "N/A",
                 convictionScore: original.convictionScore || 50,
                 expectedReturn: "N/A",
-                riskRewardRatio: "N/A"
+                riskRewardRatio: "N/A",
+                supportLevel: original.price ? original.price * 0.98 : 0,
+                resistanceLevel: original.price ? original.price * 1.10 : 0,
+                stopLoss: original.price ? original.price * 0.95 : 0,
+                chartPattern: "N/A",
+                analysisLogic: "N/A",
+                selectionReasons: ["N/A"]
             };
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
