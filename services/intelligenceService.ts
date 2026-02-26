@@ -412,7 +412,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   // [FIX] Ensure we check process.env.GEMINI_API_KEY as well, and don't fail immediately if it's Gemini and we might have a fallback
   let apiKey = (provider === ApiProvider.GEMINI) ? (process.env.GEMINI_API_KEY || process.env.API_KEY || config?.key) : config?.key;
   
-  if (!apiKey && provider !== ApiProvider.GEMINI) {
+  if (!apiKey) {
       return { data: null, error: "API_KEY_MISSING" };
   }
 
@@ -730,10 +730,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     };
 
     if (provider === ApiProvider.GEMINI) {
-      if (!apiKey) {
-          console.warn("GEMINI API KEY MISSING. Falling back to Perplexity.");
-          throw new Error("API_KEY_MISSING");
-      }
       const ai = new GoogleGenAI({ apiKey: apiKey || "" });
       
       try {
@@ -787,7 +783,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         } catch (flashError: any) {
              trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
              
-             if (!isAutoMode) {
+             if (!isAutoMode && !flashError.message.includes("API_KEY_MISSING")) {
                  throw new Error('GEMINI_QUOTA_EXCEEDED');
              }
 
