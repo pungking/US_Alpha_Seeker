@@ -152,24 +152,30 @@ function sanitizeAndParseJson(text: string): any | null {
     // Remove control characters except newlines
     cleanText = cleanText.replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g, "");
     
-    // Find the first '[' or '{' to ignore any preamble
-    const firstBracket = cleanText.indexOf('[');
-    const firstCurly = cleanText.indexOf('{');
-    
-    // Determine if it looks like an array or object and slice
-    let startIdx = -1;
-    let endIdx = -1;
+    // [NEW] Regex extraction for array
+    const arrayMatch = cleanText.match(/\[\s*\{.*\}\s*\]/s);
+    if (arrayMatch) {
+      cleanText = arrayMatch[0];
+    } else {
+      // Find the first '[' or '{' to ignore any preamble
+      const firstBracket = cleanText.indexOf('[');
+      const firstCurly = cleanText.indexOf('{');
+      
+      // Determine if it looks like an array or object and slice
+      let startIdx = -1;
+      let endIdx = -1;
 
-    if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
-       startIdx = firstBracket;
-       endIdx = cleanText.lastIndexOf(']');
-    } else if (firstCurly !== -1) {
-       startIdx = firstCurly;
-       endIdx = cleanText.lastIndexOf('}');
-    }
+      if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
+         startIdx = firstBracket;
+         endIdx = cleanText.lastIndexOf(']');
+      } else if (firstCurly !== -1) {
+         startIdx = firstCurly;
+         endIdx = cleanText.lastIndexOf('}');
+      }
 
-    if (startIdx !== -1 && endIdx !== -1) {
-        cleanText = cleanText.substring(startIdx, endIdx + 1);
+      if (startIdx !== -1 && endIdx !== -1) {
+          cleanText = cleanText.substring(startIdx, endIdx + 1);
+      }
     }
     
     return JSON.parse(cleanText);
@@ -655,17 +661,25 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return aiResults; 
         }
 
-        const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
+        const aiMap = new Map(aiResults.map(a => [String(a.symbol || '').trim().toUpperCase(), a]));
 
         return candidates.map(original => {
-            const aiItem = aiMap.get(original.symbol) || original; // [FIX] Fallback to original if not found
+            const normalizedSymbol = String(original.symbol || '').trim().toUpperCase();
+            const aiItem = aiMap.get(normalizedSymbol) || { 
+                ...original,
+                aiVerdict: "HOLD",
+                investmentOutlook: "N/A",
+                convictionScore: original.convictionScore || 50,
+                expectedReturn: "N/A",
+                riskRewardRatio: "N/A"
+            };
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
             const merged = {
                 ...original,
                 ...aiItem,
-                ictMetrics: { ...original.ictMetrics }, // Deep copy to prevent reference issues
-                pdZone: original.pdZone,
+                ictMetrics: { ...(original.ictMetrics || { smartMoneyFlow: 0, displacement: 0 }) }, // Deep copy to prevent reference issues
+                pdZone: original.pdZone || 'UNKNOWN',
                 roe: original.roe,
                 revenueGrowth: original.revenueGrowth,
                 instOwn: original.instOwn || original.heldPercentInstitutions,
