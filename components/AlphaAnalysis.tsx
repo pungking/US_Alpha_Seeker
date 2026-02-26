@@ -1168,8 +1168,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (currentProvider === ApiProvider.GEMINI || err.message === 'GEMINI_QUOTA_EXCEEDED') {
               if (!autoStart) {
                   // [MANUAL MODE] Strict Failover: Stop and Switch
-                  addLog("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
-                  setSelectedBrain(ApiProvider.PERPLEXITY);
+                  addLog("Gemini 할당량 초과 또는 오류. Sonar(Perplexity)로 전환하여 분석하시겠습니까?", "warn");
+                  // Do NOT automatically switch provider here in manual mode.
+                  // Just stop loading and let user click the Sonar button.
                   setLoading(false);
                   return; // EXIT IMMEDIATELY
               } else {
@@ -1247,9 +1248,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
         const safeOutlook = aiData?.investmentOutlook || "";
 
-        // [NEW] Prioritize Perplexity Metrics
-        const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
-        const safeRiskReward = (usedProvider === ApiProvider.PERPLEXITY && aiData?.riskRewardRatio) ? aiData.riskRewardRatio : (item.riskRewardRatio || aiData?.riskRewardRatio);
+        // [NEW] Prioritize Perplexity Metrics but Fallback to Original Item Data to prevent TBD
+        const safeExpectedReturn = (aiData?.expectedReturn && aiData.expectedReturn !== "0%") ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn || "TBD");
+        const safeRiskReward = (aiData?.riskRewardRatio && aiData.riskRewardRatio !== "1:2") ? aiData.riskRewardRatio : (item.riskRewardRatio || aiData?.riskRewardRatio || "1:2");
 
         return {
             ...item, 
@@ -1268,7 +1269,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             qqqAlpha: item.qqqAlpha,
             isInstitutionalEntry: item.isInstitutionalEntry,
             isOverheated: item.isOverheated,
-            pdZone: item.pdZone
+            pdZone: item.pdZone,
+            // [CRITICAL] Preserve Stage 5 Badges - Do not overwrite if AI data is missing them
+            isConfirmedSmartMoney: item.isConfirmedSmartMoney,
+            isConfirmedDiscount: item.isConfirmedDiscount,
+            isConfirmedGem: item.isConfirmedGem
         };
       }) as AlphaCandidate[];
       
