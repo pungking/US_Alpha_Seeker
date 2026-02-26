@@ -886,7 +886,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           // [FIX] Corrected Engine Name Display
           addLog(`사용 중인 엔진: [${selectedBrain === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
           
-          response = await generateAlphaSynthesis(candidates, selectedBrain);
+          response = await generateAlphaSynthesis(candidates, selectedBrain, autoStart);
           
           // [CRITICAL] Error Propagation for Branching Logic
           if (response.error) {
@@ -915,7 +915,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   
                   try {
                       // [RETRY] Execute with Perplexity
-                      response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY);
+                      response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY, autoStart);
                       if (response.error) throw new Error(response.error);
                       
                       addLog("Sonar Failover Successful. Continuing Analysis...", "ok");
@@ -1162,13 +1162,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       try {
           addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
           // Attempt 1: Try with current provider
-          response = await generateAlphaSynthesis(topCandidates, currentProvider);
+          response = await generateAlphaSynthesis(topCandidates, currentProvider, autoStart);
       } catch (err: any) {
           // If first attempt fails
-          if (currentProvider === ApiProvider.GEMINI) {
+          if (currentProvider === ApiProvider.GEMINI || err.message === 'GEMINI_QUOTA_EXCEEDED') {
               if (!autoStart) {
                   // [MANUAL MODE] Strict Failover: Stop and Switch
-                  addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
+                  addLog("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   setLoading(false);
                   return; // EXIT IMMEDIATELY
@@ -1178,7 +1178,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   usedProvider = ApiProvider.PERPLEXITY;
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   try {
-                      response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+                      response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
                   } catch (retryErr: any) {
                       addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
                       aiFailed = true;
@@ -1210,7 +1210,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                usedProvider = ApiProvider.PERPLEXITY;
                // Retry with Perplexity
                try {
-                   response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY);
+                   response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
                } catch (e) {
                    aiFailed = true;
                }
