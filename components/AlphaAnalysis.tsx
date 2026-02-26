@@ -395,7 +395,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const distributionData = useMemo(() => {
     if (!selectedStock) return null;
     let mean = 10; 
-    if (selectedStock.expectedReturn) {
+    if (selectedStock.expectedReturn && typeof selectedStock.expectedReturn === 'string') {
         const match = selectedStock.expectedReturn.match(/([+-]?\d+\.?\d*)%/);
         if (match) mean = parseFloat(match[1]);
     } else {
@@ -428,7 +428,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               B = parseFloat(simMetrics.profitFactor || "1.5");
           } else {
               P = 0.30 + (conviction / 100) * 0.30; 
-              if (selectedStock.riskRewardRatio) {
+              if (selectedStock.riskRewardRatio && typeof selectedStock.riskRewardRatio === 'string') {
                   const parts = selectedStock.riskRewardRatio.split(':');
                   B = parts.length === 2 ? parseFloat(parts[1]) : 2.0;
               } else {
