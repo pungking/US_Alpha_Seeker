@@ -640,21 +640,28 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
   try {
     // [NEW] Data Re-hydration & Cross-Validation Logic
-    const hydrateAndValidate = (aiResults: any[], providerName: string) => {
-        if (!Array.isArray(aiResults)) return aiResults;
+    const hydrateAndValidate = (aiInput: any, providerName: string) => {
+        // [FIX] Handle potential object wrapper from AI
+        let aiResults = aiInput;
+        if (!Array.isArray(aiResults) && aiResults?.alpha_candidates && Array.isArray(aiResults.alpha_candidates)) {
+            aiResults = aiResults.alpha_candidates;
+        }
+        
+        if (!Array.isArray(aiResults)) {
+            console.warn(`[Hydration] Expected array, got ${typeof aiResults}`, aiResults);
+            return aiResults; 
+        }
 
-        const stage5Map = new Map(candidates.map(c => [c.symbol, c]));
+        const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
 
-        return aiResults.map(aiItem => {
-            const original = stage5Map.get(aiItem.symbol);
-            
-            // [SAFETY] If AI hallucinates a symbol not in our universe, return it as is (or filter it out)
-            if (!original) return aiItem;
+        return candidates.map(original => {
+            const aiItem = aiMap.get(original.symbol) || {};
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
             const merged = {
+                ...original,
                 ...aiItem,
-                ictMetrics: original.ictMetrics,
+                ictMetrics: { ...original.ictMetrics }, // Deep copy to prevent reference issues
                 pdZone: original.pdZone,
                 roe: original.roe,
                 revenueGrowth: original.revenueGrowth,
@@ -668,12 +675,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 rsi: original.rsi,
                 sma50: original.sma50,
                 techMetrics: original.techMetrics,
-                otePrice: original.otePrice,     // [ADDED]
-                ictStopLoss: original.ictStopLoss // [ADDED]
+                otePrice: original.otePrice,
+                ictStopLoss: original.ictStopLoss
             };
 
             // 2. Cross-Validation Flags
-            const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow || 0;
+            const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow ?? 0;
             const conviction = Number(merged.convictionScore) || 0;
             const roe = Number(merged.roe) || 0;
             const pdZone = merged.pdZone || "";
