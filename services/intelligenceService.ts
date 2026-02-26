@@ -402,6 +402,10 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
+  if (provider !== ApiProvider.GEMINI && provider !== ApiProvider.PERPLEXITY) {
+      return { data: null, error: "INVALID_PROVIDER" };
+  }
+
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
@@ -658,7 +662,25 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
 
         return candidates.map(original => {
-            const aiItem = aiMap.get(original.symbol) || original; // [FIX] Fallback to original if not found
+            const aiItem = aiMap.get(original.symbol) || {
+                symbol: original.symbol,
+                aiVerdict: "HOLD",
+                convictionScore: 50,
+                investmentOutlook: "AI Analysis Unavailable for this symbol.",
+                selectionReasons: ["Data Missing", "Manual Review Required"],
+                newsSentiment: "Neutral",
+                newsScore: 0.5,
+                expectedReturn: "0%",
+                supportLevel: original.price * 0.95,
+                resistanceLevel: original.price * 1.05,
+                stopLoss: original.price * 0.90,
+                riskRewardRatio: "1:2",
+                kellyWeight: "0%",
+                theme: "Fallback",
+                aiSentiment: "Neutral",
+                analysisLogic: "Fallback Recovery",
+                chartPattern: "N/A"
+            }; // [FIX] Fallback to basic object if not found
 
             // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
             const merged = {
@@ -682,16 +704,17 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 ictStopLoss: original.ictStopLoss
             };
 
-            // 2. Cross-Validation Flags
+            // 2. Cross-Validation Flags (Prioritize Quant Data)
             const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow ?? 0;
             const conviction = Number(merged.convictionScore) || 0;
             const roe = Number(merged.roe) || 0;
             const pdZone = merged.pdZone || "";
             const aiVerdict = (merged.aiVerdict || "").toUpperCase();
 
-            merged.isConfirmedSmartMoney = (smartMoneyFlow > 90) && (conviction >= 80);
-            merged.isConfirmedDiscount = (pdZone === 'DISCOUNT' || pdZone === 'OTE') && (aiVerdict.includes('BUY') || aiVerdict.includes('ACCUMULATE'));
-            merged.isConfirmedGem = (roe >= 20) && (aiVerdict.includes('BUY') || conviction >= 70);
+            // [FIX] Badge Preservation Logic: Quant Data is Authority. AI confirms but does not veto.
+            merged.isConfirmedSmartMoney = (smartMoneyFlow > 85); // Pure Quant
+            merged.isConfirmedDiscount = (pdZone === 'DISCOUNT' || pdZone === 'OTE'); // Pure Quant
+            merged.isConfirmedGem = (roe >= 15); // Pure Quant
 
             return merged;
         });
