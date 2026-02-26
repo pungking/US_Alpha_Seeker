@@ -10,7 +10,6 @@ export enum ApiProvider {
   RAPID_API = 'RapidAPI',
   GOOGLE_DRIVE = 'Google Drive',
   GEMINI = 'Google Gemini',
-  SONAR = 'Sonar',
   NASDAQ = 'Nasdaq Exchange'
 }
 
