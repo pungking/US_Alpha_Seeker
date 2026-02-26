@@ -1151,7 +1151,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
       if (topCandidates.length === 0) {
           addLog("분석 결과가 없습니다. Stage 5 데이터를 확인해주세요.", "err");
-          setLoading(false);
           return;
       }
 
@@ -1172,7 +1171,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   addLog("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   setAnalysisError("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.");
-                  setLoading(false);
                   return; // EXIT IMMEDIATELY
               } else {
                   // [AUTO MODE] Automatic Failover
@@ -1199,7 +1197,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                    addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
                    setSelectedBrain(ApiProvider.PERPLEXITY);
                    setAnalysisError("Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.");
-                   setLoading(false);
                    return; // EXIT IMMEDIATELY
                }
 
