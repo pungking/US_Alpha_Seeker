@@ -1072,10 +1072,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
   };
 
-  const handleExecuteEngine = async () => {
-    if (loading) return;
+  const handleExecuteEngine = async (overrideProvider?: ApiProvider) => {
+    if (loading && !overrideProvider) return;
     setLoading(true);
-    let currentProvider = selectedBrain;
+    let currentProvider = overrideProvider || selectedBrain;
     
     addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
     addLog("[OK] Dual-Benchmark Engine: Scanning SPY & QQQ Overperformance", "ok");
@@ -1177,14 +1177,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               } else {
                   // [AUTO MODE] Automatic Failover
                   addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
-                  usedProvider = ApiProvider.PERPLEXITY;
                   setSelectedBrain(ApiProvider.PERPLEXITY);
-                  try {
-                      response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
-                  } catch (retryErr: any) {
-                      addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
-                      aiFailed = true;
-                  }
+                  await handleExecuteEngine(ApiProvider.PERPLEXITY);
+                  return;
               }
           } else {
               // Perplexity failed
@@ -1211,14 +1206,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                // Auto Mode: Proceed with auto-retry
                addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
                setSelectedBrain(ApiProvider.PERPLEXITY); 
-               usedProvider = ApiProvider.PERPLEXITY;
-               // Retry with Perplexity
-               try {
-                   response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
-               } catch (e: any) {
-                   setAnalysisError(`Failover Engine (Perplexity) also failed: ${e.message}`);
-                   aiFailed = true;
-               }
+               await handleExecuteEngine(ApiProvider.PERPLEXITY);
+               return;
            } else {
                setAnalysisError(`Engine Returned Error: ${response.error}`);
                aiFailed = true;
@@ -1646,6 +1635,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
+                if (!item || !item.symbol) return null;
                 const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
                 const rtData = realtimePrices[item.symbol];
