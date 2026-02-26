@@ -1066,8 +1066,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               addLog(`AutoPilot Failed: ${e.message}`, "err");
               if (onComplete) onComplete("STAGE6_FAILED");
           }
-      } finally {
-          setLoading(false);
       }
   };
 
