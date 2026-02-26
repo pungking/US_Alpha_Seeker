@@ -1252,7 +1252,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         // [MODIFIED] Use the enhanced conviction score calculated above
         const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
         const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
-        const safeOutlook = aiData?.investmentOutlook || "";
+        const safeOutlook = aiData?.investmentOutlook || "N/A";
 
         // [NEW] Prioritize Perplexity Metrics
         const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
@@ -1922,7 +1922,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
 
                             <div className="min-h-[200px]">
-                                {selectedStock.investmentOutlook ? (
+                                {selectedStock.investmentOutlook && selectedStock.investmentOutlook !== "N/A" ? (
                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                         {cleanInsightText(removeCitations(selectedStock.investmentOutlook))}
                                     </ReactMarkdown>
