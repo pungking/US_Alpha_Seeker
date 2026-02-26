@@ -1650,7 +1650,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 // If AI score is exactly 50 (fallback), use ICT score as proxy for AI sentiment to avoid "neutral" dragging down good stocks
                 const effectiveAiScore = rawAiScore === 50 ? (item.ictScore || 50) : rawAiScore;
                 
-                const alphaConviction = (
+                // [MODIFIED] Calculate Quant System Score (Weighted Average)
+                const quantSystemScore = (
                     ((item.ictScore || 0) * 0.4) + 
                     ((item.fundamentalScore || 0) * 0.3) + 
                     ((item.technicalScore || 0) * 0.2) + 
@@ -1760,8 +1761,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     >
                                         ALPHA CONVICTION
                                     </span>
-                                    <span className={`text-[9px] font-black ${Number(alphaConviction) > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
-                                        {alphaConviction}
+                                    <span className={`text-[9px] font-black ${effectiveAiScore > 90 ? 'text-amber-400 animate-pulse' : 'text-slate-300'}`}>
+                                        {effectiveAiScore}
                                     </span>
                                 </div>
                                 {rtData && <span className="text-[7px] font-black text-slate-500 uppercase tracking-widest animate-pulse">LIVE</span>}
@@ -1875,10 +1876,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <p className="text-xs font-bold text-slate-500 uppercase tracking-[0.3em] mt-2">{selectedStock.name}</p>
                     </div>
                     <div className="ml-auto bg-black/40 px-8 py-4 rounded-[30px] border border-white/10 text-center shadow-inner min-w-[160px]">
-                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">AI Conviction</p>
+                        <p className="text-[8px] font-black text-slate-500 uppercase tracking-widest mb-1">QUANT SYSTEM SCORE</p>
                         <p className="text-2xl font-black text-emerald-400 italic">
-                            {/* Use pure AI score, but fallback to ICT score if AI returned default 50 */}
-                            {selectedStock.convictionScore === 50 ? (selectedStock.ictScore || 50) : selectedStock.convictionScore}%
+                            {/* Display the calculated weighted average score */}
+                            {(() => {
+                                const rawAi = Number(selectedStock.convictionScore) || 50;
+                                const effAi = rawAi === 50 ? (selectedStock.ictScore || 50) : rawAi;
+                                return (
+                                    ((selectedStock.ictScore || 0) * 0.4) + 
+                                    ((selectedStock.fundamentalScore || 0) * 0.3) + 
+                                    ((selectedStock.technicalScore || 0) * 0.2) + 
+                                    (effAi * 0.1)
+                                ).toFixed(1);
+                            })()}%
                         </p>
                     </div>
                  </div>
