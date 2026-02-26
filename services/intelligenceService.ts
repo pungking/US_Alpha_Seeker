@@ -152,30 +152,24 @@ function sanitizeAndParseJson(text: string): any | null {
     // Remove control characters except newlines
     cleanText = cleanText.replace(/[\u0000-\u0009\u000B-\u001F\u007F-\u009F]/g, "");
     
-    // [USER_REQUEST_APPLIED] Regex extraction for array (순수 배열만 추출)
-    const arrayMatch = cleanText.match(/\[\s*\{.*\}\s*\]/s);
-    if (arrayMatch) {
-      cleanText = arrayMatch[0];
-    } else {
-      // Find the first '[' or '{' to ignore any preamble
-      const firstBracket = cleanText.indexOf('[');
-      const firstCurly = cleanText.indexOf('{');
-      
-      // Determine if it looks like an array or object and slice
-      let startIdx = -1;
-      let endIdx = -1;
+    // Find the first '[' or '{' to ignore any preamble
+    const firstBracket = cleanText.indexOf('[');
+    const firstCurly = cleanText.indexOf('{');
+    
+    // Determine if it looks like an array or object and slice
+    let startIdx = -1;
+    let endIdx = -1;
 
-      if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
-         startIdx = firstBracket;
-         endIdx = cleanText.lastIndexOf(']');
-      } else if (firstCurly !== -1) {
-         startIdx = firstCurly;
-         endIdx = cleanText.lastIndexOf('}');
-      }
+    if (firstBracket !== -1 && (firstCurly === -1 || firstBracket < firstCurly)) {
+       startIdx = firstBracket;
+       endIdx = cleanText.lastIndexOf(']');
+    } else if (firstCurly !== -1) {
+       startIdx = firstCurly;
+       endIdx = cleanText.lastIndexOf('}');
+    }
 
-      if (startIdx !== -1 && endIdx !== -1) {
-          cleanText = cleanText.substring(startIdx, endIdx + 1);
-      }
+    if (startIdx !== -1 && endIdx !== -1) {
+        cleanText = cleanText.substring(startIdx, endIdx + 1);
     }
     
     return JSON.parse(cleanText);
@@ -408,20 +402,9 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 }
 
 export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
-  // [USER_REQUEST_APPLIED] API 참조 최적화: 배열 검색 방식 사용
-  const sonarConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY || (ApiProvider as any).SONAR && c.provider === (ApiProvider as any).SONAR);
-  const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  
-  let apiKey = "";
-  if (provider === ApiProvider.GEMINI) {
-      apiKey = process.env.GEMINI_API_KEY || process.env.API_KEY || geminiConfig?.key || "";
-  } else {
-      apiKey = sonarConfig?.key || "";
-  }
-  
-  if (!apiKey) {
-      return { data: null, error: `API_KEY_MISSING: Check API_CONFIGS in constants.ts for ${provider === ApiProvider.GEMINI ? 'GEMINI' : 'PERPLEXITY/SONAR'} provider` };
-  }
+  const config = API_CONFIGS.find(c => c.provider === provider);
+  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
@@ -659,8 +642,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   };
 
   try {
-    // [USER_REQUEST_APPLIED] Data Re-hydration & Cross-Validation Logic (Map 기반 O(1) 최적화)
+    // [NEW] Data Re-hydration & Cross-Validation Logic
     const hydrateAndValidate = (aiInput: any, providerName: string) => {
+        // [FIX] Handle potential object wrapper from AI
         let aiResults = aiInput;
         if (!Array.isArray(aiResults) && aiResults?.alpha_candidates && Array.isArray(aiResults.alpha_candidates)) {
             aiResults = aiResults.alpha_candidates;
@@ -671,28 +655,34 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return aiResults; 
         }
 
-        // AI 결과를 Map으로 변환하여 O(1) 조회 보장
-        const aiMap = new Map(aiResults.map(a => [String(a.symbol || '').trim().toUpperCase(), a]));
+        const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
 
-        // Stage 5 데이터(candidates)를 순회하며 AI 분석 결과 병합
         return candidates.map(original => {
-            const normalizedSymbol = String(original.symbol || '').trim().toUpperCase();
-            const aiItem = aiMap.get(normalizedSymbol);
-            
-            // 병합 로직 (AI 결과가 없으면 원본 유지)
+            const aiItem = aiMap.get(original.symbol) || original; // [FIX] Fallback to original if not found
+
+            // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
             const merged = {
                 ...original,
-                ...(aiItem || {}),
-                // 중요 지표 강제 보존 (Stage 5 데이터 우선)
-                ictMetrics: { ...(original.ictMetrics || { smartMoneyFlow: 0, displacement: 0 }) },
-                pdZone: original.pdZone || 'UNKNOWN',
+                ...aiItem,
+                ictMetrics: { ...original.ictMetrics }, // Deep copy to prevent reference issues
+                pdZone: original.pdZone,
                 roe: original.roe,
                 revenueGrowth: original.revenueGrowth,
                 instOwn: original.instOwn || original.heldPercentInstitutions,
-                price: original.price
+                marketCapClass: original.marketCapClass,
+                sector: original.sector,
+                sectorTheme: original.sectorTheme || aiItem.sectorTheme,
+                price: original.price,
+                beta: original.beta,
+                pbr: original.pbr,
+                rsi: original.rsi,
+                sma50: original.sma50,
+                techMetrics: original.techMetrics,
+                otePrice: original.otePrice,
+                ictStopLoss: original.ictStopLoss
             };
 
-            // 교차 검증 플래그 설정
+            // 2. Cross-Validation Flags
             const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow ?? 0;
             const conviction = Number(merged.convictionScore) || 0;
             const roe = Number(merged.roe) || 0;
@@ -708,7 +698,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     };
 
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: apiKey || "" });
+      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       
       try {
         // [STAGE 1] Gemini Pro (High Reasoning)
@@ -761,7 +751,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         } catch (flashError: any) {
              trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
              
-             if (!isAutoMode && !flashError.message.includes("API_KEY_MISSING")) {
+             if (!isAutoMode) {
                  throw new Error('GEMINI_QUOTA_EXCEEDED');
              }
 
