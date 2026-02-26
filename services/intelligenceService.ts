@@ -730,7 +730,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     };
 
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      if (!apiKey) {
+          console.warn("GEMINI API KEY MISSING. Falling back to Perplexity.");
+          throw new Error("API_KEY_MISSING");
+      }
+      const ai = new GoogleGenAI({ apiKey: apiKey || "" });
       
       try {
         // [STAGE 1] Gemini Pro (High Reasoning)
