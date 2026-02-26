@@ -364,7 +364,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
   
   const [sendingTelegram, setSendingTelegram] = useState(false);
-  const [analysisError, setAnalysisError] = useState<string | null>(null);
 
   // Define derived state explicitly to avoid scope issues
   // [MODIFIED] currentResults sorted by conviction score descending
@@ -902,6 +901,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               if (!autoStart) {
                   addLog("Gemini 크레딧 초과로 엔진을 Sonar로 전환했습니다. 다시 실행 버튼을 눌러주세요.", "err");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                  setLoading(false);
                   // [STOP] Throw Error to halt process
                   throw new Error("MANUAL_STOP_REQUIRED");
               } 
@@ -941,7 +941,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               // Merge Logic
               const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
               const safeVerdict = aiData?.aiVerdict || "ACCUMULATE";
-              const safeOutlook = aiData?.investmentOutlook || "N/A";
+              const safeOutlook = aiData?.investmentOutlook || "";
               const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
 
               return {
@@ -1066,13 +1066,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               addLog(`AutoPilot Failed: ${e.message}`, "err");
               if (onComplete) onComplete("STAGE6_FAILED");
           }
+      } finally {
+          setLoading(false);
       }
   };
 
-  const handleExecuteEngine = async (overrideProvider?: ApiProvider) => {
-    if (loading && !overrideProvider) return;
+  const handleExecuteEngine = async () => {
+    if (loading) return;
     setLoading(true);
-    let currentProvider = overrideProvider || selectedBrain;
+    let currentProvider = selectedBrain;
     
     addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
     addLog("[OK] Dual-Benchmark Engine: Scanning SPY & QQQ Overperformance", "ok");
@@ -1148,6 +1150,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
       if (topCandidates.length === 0) {
           addLog("분석 결과가 없습니다. Stage 5 데이터를 확인해주세요.", "err");
+          setLoading(false);
           return;
       }
 
@@ -1160,55 +1163,70 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
           // Attempt 1: Try with current provider
           response = await generateAlphaSynthesis(topCandidates, currentProvider, autoStart);
-          
-          // Check for 'soft' errors returned in response object (like Quota Limit)
-          if (response?.error) {
-              throw new Error(response.error);
-          }
       } catch (err: any) {
           // If first attempt fails
-          if (currentProvider === ApiProvider.GEMINI || err.message.includes('GEMINI_QUOTA_EXCEEDED') || err.message.includes('Quota') || err.message.includes('429')) {
+          if (currentProvider === ApiProvider.GEMINI || err.message === 'GEMINI_QUOTA_EXCEEDED') {
               if (!autoStart) {
                   // [MANUAL MODE] Strict Failover: Stop and Switch
-                  addLog("[QUOTA_ERR] Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
+                  addLog("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
-                  setAnalysisError("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.");
-                  setLoading(false); // [USER_REQUEST_APPLIED] Added here for manual exit
+                  setLoading(false);
                   return; // EXIT IMMEDIATELY
               } else {
-                  // [AUTO MODE] Automatic Failover (Sequential, no recursion)
-                  addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover to Sonar...`, "warn");
-                  addLog("전환 중... API 키 검증 중...", "info"); // [USER_REQUEST_APPLIED]
-                  setSelectedBrain(ApiProvider.PERPLEXITY);
+                  // [AUTO MODE] Automatic Failover
+                  addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
                   usedProvider = ApiProvider.PERPLEXITY;
-                  
+                  setSelectedBrain(ApiProvider.PERPLEXITY);
                   try {
                       response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
-                      if (response?.error) throw new Error(response.error);
-                  } catch (fallbackErr: any) {
-                      addLog(`Failover Engine Failed: ${fallbackErr.message}`, "err");
-                      setAnalysisError(`Engine Failed: ${fallbackErr.message}`);
+                  } catch (retryErr: any) {
+                      addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
                       aiFailed = true;
                   }
               }
           } else {
-              // Perplexity failed or other error
+              // Perplexity failed
               addLog(`Engine Failed: ${err.message}`, "err");
-              setAnalysisError(`Engine Failed: ${err.message}`);
               aiFailed = true;
           }
       }
 
-      if (aiFailed || response?.error) {
+      // Check for 'soft' errors returned in response object (like Quota Limit)
+      if (response?.error) {
+           addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
+           
+           if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
+               if (!autoStart) {
+                   // [MANUAL MODE] Strict Failover
+                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
+                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                   setLoading(false);
+                   return; // EXIT IMMEDIATELY
+               }
+
+               // Auto Mode: Proceed with auto-retry
+               addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
+               setSelectedBrain(ApiProvider.PERPLEXITY); 
+               usedProvider = ApiProvider.PERPLEXITY;
+               // Retry with Perplexity
+               try {
+                   response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
+               } catch (e) {
+                   aiFailed = true;
+               }
+           } else {
+               aiFailed = true;
+           }
+      }
+
+      if (response.error) {
           // In Auto Mode, suppress total failure to ensure onComplete runs
           if (autoStart) {
                addLog("Synthesis Failed partially. Forcing completion to unblock pipeline.", "warn");
                // Use existing candidates as fallback result
                response = { data: topCandidates.map((c: any) => ({ ...c, aiVerdict: 'HOLD', investmentOutlook: 'Analysis Failed. Hold for review.' })), usedProvider: 'FALLBACK' };
           } else {
-               const errMsg = response?.error || "Unknown Error";
-               setAnalysisError(`Synthesis Failed after retries: ${errMsg}`);
-               throw new Error(`Synthesis Failed after retries: ${errMsg}`);
+               throw new Error(`Synthesis Failed after retries: ${response.error}`);
           }
       }
 
@@ -1216,8 +1234,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       
       // [ENHANCED MERGE] Left Join: Iterate over topCandidates to ensure we don't lose items if AI returns partial list
       const mergedFinal = topCandidates.map((item: any) => {
-        if (!item || !item.symbol) return null; // [USER_REQUEST_APPLIED] Safeguard
-        
         // Find matching AI result if available
         const aiData = safeAiResults.find((r: any) => r.symbol?.trim().toUpperCase() === item.symbol.trim().toUpperCase());
         
@@ -1229,7 +1245,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         // [MODIFIED] Use the enhanced conviction score calculated above
         const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
         const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
-        const safeOutlook = aiData?.investmentOutlook || "N/A";
+        const safeOutlook = aiData?.investmentOutlook || "";
 
         // [NEW] Prioritize Perplexity Metrics
         const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
@@ -1254,7 +1270,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             isOverheated: item.isOverheated,
             pdZone: item.pdZone
         };
-      }).filter(Boolean) as AlphaCandidate[]; // Remove nulls
+      }) as AlphaCandidate[];
       
       // [FIX] Slice to Top 6
       const finalElite = mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0)).slice(0, 6);
@@ -1565,24 +1581,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   // [NEW] Safe Check for isVisible + isHeadless to prevent Recharts warnings in CI
   const shouldRenderChart = isVisible && !isHeadless;
 
-  if (analysisError && currentResults.length === 0) {
-      return (
-          <div className="flex flex-col items-center justify-center h-64 bg-black/40 rounded-[40px] border border-rose-500/30">
-              <div className="text-rose-500 mb-4">
-                  <svg className="w-12 h-12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" /></svg>
-              </div>
-              <h3 className="text-xl font-black text-white mb-2">Analysis Failed</h3>
-              <p className="text-slate-400 text-sm mb-6">{analysisError}</p>
-              <button 
-                  onClick={() => { setAnalysisError(null); handleExecuteEngine(); }}
-                  className="px-6 py-2 bg-rose-600 text-white rounded-xl font-bold hover:bg-rose-500 transition-colors"
-              >
-                  Retry Analysis
-              </button>
-          </div>
-      );
-  }
-
   return (
     <div className="grid grid-cols-1 xl:grid-cols-4 gap-6 animate-in fade-in duration-700">
       <div className="xl:col-span-3 space-y-6">
@@ -1623,11 +1621,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
-                if (!item?.symbol) return null;
                 const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
                 const rtData = realtimePrices[item.symbol];
-                const displayPrice = rtData?.price || item.price || 0;
+                const displayPrice = rtData?.price || item.price;
                 const flashClass = rtData?.direction === 'up' ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]' 
                                  : rtData?.direction === 'down' ? 'bg-rose-500/20 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.3)]' 
                                  : '';
@@ -1725,7 +1722,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 <div className="flex items-baseline gap-2">
                                     <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none shrink-0">{item.symbol}</h4>
                                 </div>
-                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name ?? "N/A"}</span>
+                                <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                             </div>
                             
                             <div className="flex flex-col justify-end items-end gap-0.5 ml-auto h-[45px]">
@@ -1900,7 +1897,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                             </div>
 
                             <div className="min-h-[200px]">
-                                {selectedStock.investmentOutlook && selectedStock.investmentOutlook !== "N/A" ? (
+                                {selectedStock.investmentOutlook ? (
                                     <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
                                         {cleanInsightText(removeCitations(selectedStock.investmentOutlook))}
                                     </ReactMarkdown>
