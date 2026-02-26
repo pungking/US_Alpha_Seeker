@@ -33,49 +33,49 @@ export const API_CONFIGS: ApiConfig[] = [
   // Acquisition Node (Data Feeders)
   { 
     provider: ApiProvider.RAPID_API, 
-    key: process.env.RAPID_API_KEY || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e', 
+    key: getEnvVar('RAPID_API_KEY') || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e', 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.POLYGON, 
-    key: process.env.POLYGON_API_KEY || 'ArKrr9dmI2FxH71B_YTSWk8YXC2AG9KQ', 
+    key: getEnvVar('POLYGON_API_KEY') || 'ArKrr9dmI2FxH71B_YTSWk8YXC2AG9KQ', 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.ALPACA, 
-    key: process.env.ALPACA_KEY || 'PKHWDYDOEWWLYZKMUG9L', 
+    key: getEnvVar('ALPACA_KEY') || 'PKHWDYDOEWWLYZKMUG9L', 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.FINNHUB, 
-    key: process.env.FINNHUB_KEY || 'd2pjjgpr01qnf9nlc7ngd2pjjgpr01qnf9nlc7o0', 
+    key: getEnvVar('FINNHUB_KEY') || 'd2pjjgpr01qnf9nlc7ngd2pjjgpr01qnf9nlc7o0', 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.FMP, 
-    key: process.env.FMP_KEY || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7', 
+    key: getEnvVar('FMP_KEY') || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7', 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.TWELVE_DATA, 
-    key: process.env.TWELVE_DATA_KEY || '5ef1dfe22fe7463688783c6787e8f2bf', 
+    key: getEnvVar('TWELVE_DATA_KEY') || '5ef1dfe22fe7463688783c6787e8f2bf', 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.ALPHA_VANTAGE, 
-    key: process.env.ALPHA_VANTAGE_KEY || '8PBTS3IDZM85B3QE', 
+    key: getEnvVar('ALPHA_VANTAGE_KEY') || '8PBTS3IDZM85B3QE', 
     category: 'Acquisition' 
   },
   
   // Intelligence Node (AI Brains)
   { 
     provider: ApiProvider.GEMINI, 
-    key: process.env.GEMINI_API_KEY || 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc', 
+    key: getEnvVar('GEMINI_API_KEY') || getEnvVar('API_KEY') || 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc', 
     category: 'Intelligence' 
   },
   { 
     provider: ApiProvider.PERPLEXITY, 
-    key: process.env.PERPLEXITY_API_KEY || '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', 
+    key: getEnvVar('PERPLEXITY_API_KEY') || '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', 
     category: 'Intelligence' 
   },
   
@@ -83,7 +83,7 @@ export const API_CONFIGS: ApiConfig[] = [
   { 
     provider: ApiProvider.GOOGLE_DRIVE, 
     // [CRITICAL REVERT] Restored original API Key format for status checks.
-    key: process.env.GDRIVE_API_KEY || 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY', 
+    key: getEnvVar('GDRIVE_API_KEY') || 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY', 
     category: 'Infrastructure' 
   }
 ];
