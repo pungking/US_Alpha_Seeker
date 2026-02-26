@@ -1163,63 +1163,53 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
           // Attempt 1: Try with current provider
           response = await generateAlphaSynthesis(topCandidates, currentProvider, autoStart);
+          
+          // Check for 'soft' errors returned in response object (like Quota Limit)
+          if (response?.error) {
+              throw new Error(response.error);
+          }
       } catch (err: any) {
           // If first attempt fails
-          if (currentProvider === ApiProvider.GEMINI || err.message === 'GEMINI_QUOTA_EXCEEDED') {
+          if (currentProvider === ApiProvider.GEMINI || err.message.includes('GEMINI_QUOTA_EXCEEDED') || err.message.includes('Quota') || err.message.includes('429')) {
               if (!autoStart) {
                   // [MANUAL MODE] Strict Failover: Stop and Switch
-                  addLog("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
+                  addLog("[QUOTA_ERR] Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
                   setAnalysisError("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.");
                   return; // EXIT IMMEDIATELY
               } else {
-                  // [AUTO MODE] Automatic Failover
-                  addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
+                  // [AUTO MODE] Automatic Failover (Sequential, no recursion)
+                  addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover to Sonar...`, "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
-                  await handleExecuteEngine(ApiProvider.PERPLEXITY);
-                  return;
+                  usedProvider = ApiProvider.PERPLEXITY;
+                  
+                  try {
+                      response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
+                      if (response?.error) throw new Error(response.error);
+                  } catch (fallbackErr: any) {
+                      addLog(`Failover Engine Failed: ${fallbackErr.message}`, "err");
+                      setAnalysisError(`Engine Failed: ${fallbackErr.message}`);
+                      aiFailed = true;
+                  }
               }
           } else {
-              // Perplexity failed
+              // Perplexity failed or other error
               addLog(`Engine Failed: ${err.message}`, "err");
               setAnalysisError(`Engine Failed: ${err.message}`);
               aiFailed = true;
           }
       }
 
-      // Check for 'soft' errors returned in response object (like Quota Limit)
-      if (response?.error) {
-           addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
-           
-           if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
-               if (!autoStart) {
-                   // [MANUAL MODE] Strict Failover
-                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
-                   setSelectedBrain(ApiProvider.PERPLEXITY);
-                   setAnalysisError("Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.");
-                   return; // EXIT IMMEDIATELY
-               }
-
-               // Auto Mode: Proceed with auto-retry
-               addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
-               setSelectedBrain(ApiProvider.PERPLEXITY); 
-               await handleExecuteEngine(ApiProvider.PERPLEXITY);
-               return;
-           } else {
-               setAnalysisError(`Engine Returned Error: ${response.error}`);
-               aiFailed = true;
-           }
-      }
-
-      if (response.error) {
+      if (aiFailed || response?.error) {
           // In Auto Mode, suppress total failure to ensure onComplete runs
           if (autoStart) {
                addLog("Synthesis Failed partially. Forcing completion to unblock pipeline.", "warn");
                // Use existing candidates as fallback result
                response = { data: topCandidates.map((c: any) => ({ ...c, aiVerdict: 'HOLD', investmentOutlook: 'Analysis Failed. Hold for review.' })), usedProvider: 'FALLBACK' };
           } else {
-               setAnalysisError(`Synthesis Failed after retries: ${response.error}`);
-               throw new Error(`Synthesis Failed after retries: ${response.error}`);
+               const errMsg = response?.error || "Unknown Error";
+               setAnalysisError(`Synthesis Failed after retries: ${errMsg}`);
+               throw new Error(`Synthesis Failed after retries: ${errMsg}`);
           }
       }
 
@@ -1632,11 +1622,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {currentResults.length > 0 ? currentResults.map((item) => {
-                if (!item || !item.symbol) return null;
+                if (!item?.symbol) return null;
                 const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
                 const rtData = realtimePrices[item.symbol];
-                const displayPrice = rtData?.price || item.price;
+                const displayPrice = rtData?.price || item.price || 0;
                 const flashClass = rtData?.direction === 'up' ? 'bg-emerald-500/20 border-emerald-500 shadow-[0_0_20px_rgba(16,185,129,0.3)]' 
                                  : rtData?.direction === 'down' ? 'bg-rose-500/20 border-rose-500 shadow-[0_0_20px_rgba(244,63,94,0.3)]' 
                                  : '';
