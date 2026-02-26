@@ -1174,6 +1174,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   // [MANUAL MODE] Strict Failover: Stop and Switch
                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.", "warn");
                   setSelectedBrain(ApiProvider.PERPLEXITY);
+                  setAnalysisError("Gemini 할당량 초과. 엔진이 Sonar로 전환되었습니다. 다시 분석을 실행하세요.");
                   return; // EXIT IMMEDIATELY
               } else {
                   // [AUTO MODE] Automatic Failover (Sequential, no recursion)
@@ -1186,12 +1187,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       if (response?.error) throw new Error(response.error);
                   } catch (fallbackErr: any) {
                       addLog(`Failover Engine Failed: ${fallbackErr.message}`, "err");
+                      setAnalysisError(`Engine Failed: ${fallbackErr.message}`);
                       aiFailed = true;
                   }
               }
           } else {
               // Perplexity failed or other error
               addLog(`Engine Failed: ${err.message}`, "err");
+              setAnalysisError(`Engine Failed: ${err.message}`);
               aiFailed = true;
           }
       }
@@ -1204,6 +1207,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                response = { data: topCandidates.map((c: any) => ({ ...c, aiVerdict: 'HOLD', investmentOutlook: 'Analysis Failed. Hold for review.' })), usedProvider: 'FALLBACK' };
           } else {
                const errMsg = response?.error || "Unknown Error";
+               setAnalysisError(`Synthesis Failed after retries: ${errMsg}`);
                throw new Error(`Synthesis Failed after retries: ${errMsg}`);
           }
       }
