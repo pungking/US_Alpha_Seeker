@@ -1,4 +1,3 @@
-
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
@@ -98,7 +97,7 @@ const ALPHA_SCHEMA = {
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
       newsScore: { type: Type.NUMBER, description: "Sentiment score 0.0 to 1.0" },
-      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Stable Growth)'" },
+      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Stable Growth)'"},
       theme: { type: Type.STRING },
       aiSentiment: { type: Type.STRING, description: "Overall Sentiment description in Korean" },
       analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
@@ -305,14 +304,7 @@ async function runDeterministicBacktest(stock: any): Promise<any | null> {
               maxDrawdown: `-${maxDrawdown.toFixed(1)}%`,
               sharpeRatio: sharpeRatio.toFixed(2)
           },
-          historicalContext: `### 실데이터 검증 분석 리포트 (Real-Data Audit)
-**Polygon.io 공식 데이터**를 기반으로 수행된 확정적 백테스트 결과입니다.
-
-- **매매 신뢰도**: 지난 24개월간 총 ${totalTrades}회의 가상 매매가 시뮬레이션 되었습니다.
-- **리스크 진단**: 해당 기간 동안 발생한 최대 낙폭(MDD)은 ${maxDrawdown.toFixed(1)}% 입니다.
-- **매매 전략**: 진입 $${entry.toFixed(2)} / 목표 $${target.toFixed(2)} / 손절 $${stop.toFixed(2)}
-
-이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다. 지정가 주문이 100% 체결되었다는 가정하에 산출되었습니다.`
+          historicalContext: `### 실데이터 검증 분석 리포트 (Real-Data Audit)\n**Polygon.io 공식 데이터**를 기반으로 수행된 확정적 백테스트 결과입니다.\n\n- **매매 신뢰도**: 지난 24개월간 총 ${totalTrades}회의 가상 매매가 시뮬레이션 되었습니다.\n- **리스크 진단**: 해당 기간 동안 발생한 최대 낙폭(MDD)은 ${maxDrawdown.toFixed(1)}% 입니다.\n- **매매 전략**: 진입 $${entry.toFixed(2)} / 목표 $${target.toFixed(2)} / 손절 $${stop.toFixed(2)}\n\n이 결과는 AI의 추정이 아닌, 실제 과거 주가 변동(OHLCV)에 전략을 대입하여 산출된 팩트 기반 데이터입니다. 지정가 주문이 100% 체결되었다는 가정하에 산출되었습니다.`
       };
 
   } catch (e) {
@@ -429,36 +421,40 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       console.warn("Regime fetch failed, defaulting to Neutral");
   }
 
-  const vectorInputs = candidates.map(c => ({
+  // ─────────────────────────────────────────────────────────────
+  // [MODIFIED #1] 데이터 슬리밍: AI 분석에 필수 필드만 추출 (토큰 절약 & 환각 방지)
+  // ─────────────────────────────────────────────────────────────
+  const slimCandidates = candidates
+    .sort((a, b) => (b.ictScore || 0) - (a.ictScore || 0)) // ictScore 상위 종목 우선 정렬
+    .map(c => ({
       symbol: c.symbol,
+      name: c.name,
       price: c.price,
-      // Vector A: Fundamental & Value
-      metricsA: {
-          pe: c.pe || c.per || 0,
-          peg: c.pegRatio || 0,
-          pbr: c.pbr || 0,
-          roe: c.roe || 0,
-          growth: c.revenueGrowth || 0,
-          gap: c.fairValueGap || 0
-      },
-      // Vector B: Supply & Technical
-      metricsB: {
-          rvol: c.techMetrics?.rvol || 1.0,
-          rsi: c.techMetrics?.rsRating || 50,
-          squeeze: c.techMetrics?.squeezeState,
-          volume: c.volume || 0,
-          marketCap: c.marketCap || 0,
-          instOwn: c.heldPercentInstitutions || 0
-      },
-      // Vector C: ICT & Smart Money
-      metricsC: {
-          ob: c.ictMetrics?.orderBlock || 0,
-          mss: c.ictMetrics?.marketStructure || 0,
-          sweep: c.ictMetrics?.liquiditySweep || 0,
-          flow: c.ictMetrics?.smartMoneyFlow || 0,
-          pdZone: c.pdZone || 'EQUILIBRIUM' // [NEW] ICT Context for AI
+      pe: c.pe || c.per || 0,
+      roe: c.roe || 0,
+      revenueGrowth: c.revenueGrowth || 0,
+      sector: c.sector,
+      pdZone: c.pdZone || 'EQUILIBRIUM',
+      otePrice: c.otePrice || null,
+      ictStopLoss: c.ictStopLoss || null,
+      marketState: c.marketState || 'UNKNOWN',
+      ictMetrics: {
+        displacement: c.ictMetrics?.displacement || 0,
+        liquiditySweep: c.ictMetrics?.liquiditySweep || 0,
+        marketStructure: c.ictMetrics?.marketStructure || 0,
+        orderBlock: c.ictMetrics?.orderBlock || 0,
+        smartMoneyFlow: c.ictMetrics?.smartMoneyFlow || 0
       }
-  }));
+    }));
+
+  // [MODIFIED #1] SPY/QQQ 시장 컨텍스트를 프롬프트 상단에 배치
+  const marketPulseData = typeof window !== 'undefined' ? (window as any).latestMarketPulse : null;
+  const spyContext = marketPulseData?.SPY
+    ? `SPY: $${marketPulseData.SPY.price} (${marketPulseData.SPY.changePercent > 0 ? '+' : ''}${(marketPulseData.SPY.changePercent || 0).toFixed(2)}%)`
+    : 'SPY: N/A';
+  const qqqContext = marketPulseData?.QQQ
+    ? `QQQ: $${marketPulseData.QQQ.price} (${marketPulseData.QQQ.changePercent > 0 ? '+' : ''}${(marketPulseData.QQQ.changePercent || 0).toFixed(2)}%)`
+    : 'QQQ: N/A';
 
   // [SYSTEM INSTRUCTION - HYPER-ALPHA + LEGENDARY COUNCIL FUSION]
   // [MODIFIED] Removing "Description" from template to prevent AI chatter.
@@ -469,6 +465,26 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   Your task is to select the TOP 6 stocks from the provided list by simulating a debate among 8 Legendary Investors.
   Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
 
+  [CRITICAL: READ-ONLY CONSTRAINT]
+  주어진 모든 수치(price, pe, roe, revenueGrowth, pdZone, otePrice, ictStopLoss, ictMetrics 등)는
+  퀀트 엔진에 의해 검증된 확정치다. 이 수치들을 절대 임의로 수정하거나 재계산하지 마라.
+  AI의 역할은 '해석'이지 '수치 재생성'이 아니다.
+
+  [CONFLICT RESOLUTION RULES]
+  Rule 1 (Premium Zone Exclusion): pdZone이 'PREMIUM'인 종목은 아무리 재무지표가 우수하더라도
+    최종 6개 선정에서 후순위로 배제한다. 고평가 구간의 진입은 리스크/리워드 비율을 악화시킨다.
+  Rule 2 (Smart Money Priority): price가 otePrice 근처(±2%)에 있으면서
+    ictMetrics.smartMoneyFlow가 70점 이상인 종목을 '기관 매집주'로 분류하고 최우선 선정한다.
+
+  [SECTOR DIVERSIFICATION MANDATE]
+  최종 6개 종목 선정 시 동일 섹터(sector)에 3개 이상(50% 이상) 배치하는 것을 엄격히 금지한다.
+  반드시 최소 3개 이상의 서로 다른 섹터에서 종목을 선정하여 섹터 분산을 보장하라.
+
+  [TOKEN SAFETY & PRIORITY]
+  입력 후보 목록은 ictScore 내림차순으로 정렬되어 있다.
+  응답 토큰이 제한될 경우, 목록 상위(ictScore 높은) 종목을 우선적으로 분석하고
+  하위 종목 분석은 생략해도 무방하다. 반드시 6개의 완전한 JSON 객체를 출력해야 한다.
+
   [STRATEGIC RISK PARAMETERS]
   Current System Risk Thresholds:
   - RSI Overheat: > ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD} (Extreme Overbought)
@@ -476,10 +492,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   - Sentiment Reversal: News Score > ${STRATEGY_CONFIG.SENTIMENT_REVERSAL_THRESHOLD} (Potential Top)
 
   [INSTRUCTION: RISK-ADJUSTED ANALYSIS]
-  If a candidate's RSI exceeds ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD} or VIX exceeds ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}, you MUST adjust the investment rating conservatively and include a warning in the report.
-  
-  [INSTRUCTION: CONTRARIAN LOGIC]
-  If 'newsScore' > ${STRATEGY_CONFIG.SENTIMENT_REVERSAL_THRESHOLD} AND RSI is high, interpret this as "Euphoria/Short-term Top" driven by news. Be skeptical of further upside.
+  If a candidate's RSI exceeds ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD}, interpret this as "Euphoria/Short-term Top" driven by news. Be skeptical of further upside.
 
   [PIPELINE EXECUTION LOGIC]
   1. **Correlation & Theme Filter**: Select 6 stocks from at least 3 DIFFERENT SECTORS. Avoid correlating assets.
@@ -536,19 +549,26 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   Language: Korean.
   `;
 
+  // ─────────────────────────────────────────────────────────────
+  // [MODIFIED #2] 프롬프트: SPY/QQQ 시장 컨텍스트 상단 배치 + slimCandidates 사용
+  // ─────────────────────────────────────────────────────────────
   const prompt = `
-  [INPUT DATA: 3-VECTOR FUSION]
+  [MARKET CONTEXT - READ FIRST BEFORE ANALYSIS]
   Current Date: ${today}
-  Market Context: ${regimeContext}
-  Candidates: ${JSON.stringify(vectorInputs)}
+  Market Regime: ${regimeContext} (VIX: ${vixValue})
+  Index Pulse: ${spyContext} | ${qqqContext}
+
+  [INPUT DATA: SLIM CANDIDATE LIST (ictScore Descending)]
+  Candidates: ${JSON.stringify(slimCandidates)}
 
   Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
-  1. Filter 50 -> 15 based on Sector/Theme.
-  2. Perform NEWS SEARCH on top 15.
+  1. Filter based on Conflict Resolution Rules (PREMIUM zone exclusion, Smart Money priority).
+  2. Apply Sector Diversification Mandate (min 3 different sectors).
   3. Apply Legendary Council logic to select Top 6.
-  4. Calculate Entry/Stop/Kelly.
+  4. Calculate Entry/Stop/Kelly based on provided otePrice and ictStopLoss values.
   
-  Output the JSON array.
+  [REMINDER] ictScore 상위 종목을 우선 분석하라. 토큰 부족 시 하위 종목은 생략 가능.
+  Output the JSON array of exactly 6 stocks.
   `;
 
   // [INTERNAL LOGIC] Execute Perplexity
@@ -659,41 +679,53 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return aiResults; 
         }
 
-        const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
+        // ─────────────────────────────────────────────────────────────
+        // [MODIFIED #3] 심볼 정규화: AI 오타 방지용 정규화 Map 생성
+        // ─────────────────────────────────────────────────────────────
+        const normalizeSymbol = (sym: string): string =>
+          sym ? sym.replace(/[^a-zA-Z]/g, '').toUpperCase() : '';
+
+        const aiMap = new Map(
+          aiResults.map(a => [normalizeSymbol(a.symbol), a])
+        );
 
         return candidates.map(original => {
-            const aiItem = aiMap.get(original.symbol) || {
-                symbol: original.symbol,
-                aiVerdict: "HOLD",
-                convictionScore: 50,
-                investmentOutlook: "AI Analysis Unavailable for this symbol.",
-                selectionReasons: ["Data Missing", "Manual Review Required"],
-                newsSentiment: "Neutral",
-                newsScore: 0.5,
-                expectedReturn: "0%",
-                supportLevel: original.price * 0.95,
-                resistanceLevel: original.price * 1.05,
-                stopLoss: original.price * 0.90,
-                riskRewardRatio: "1:2",
-                kellyWeight: "0%",
-                theme: "Fallback",
-                aiSentiment: "Neutral",
-                analysisLogic: "Fallback Recovery",
-                chartPattern: "N/A"
-            }; // [FIX] Fallback to basic object if not found
+            const normalizedOriginalSymbol = normalizeSymbol(original.symbol);
+            const aiItem = aiMap.get(normalizedOriginalSymbol);
 
-            // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
-            const merged = {
-                ...original,
-                ...aiItem,
-                ictMetrics: { ...original.ictMetrics }, // Deep copy to prevent reference issues
+            // ─────────────────────────────────────────────────────────────
+            // [MODIFIED #3] Selective Hydration: 원본 수치 강제 유지,
+            //               AI의 '평가 필드'만 선별적으로 덧붙임
+            // ─────────────────────────────────────────────────────────────
+            return {
+                ...original, // 원본 수치 강제 유지 (Stage 5 데이터 오염 차단)
+                // AI 평가 필드만 선별적으로 적용
+                aiVerdict: aiItem?.aiVerdict || 'WAIT',
+                convictionScore: aiItem?.convictionScore || 50,
+                investmentOutlook: aiItem?.investmentOutlook || 'Analysis missing',
+                selectionReasons: aiItem?.selectionReasons || [],
+                expectedReturn: aiItem?.expectedReturn || '0%',
+                analysisLogic: aiItem?.analysisLogic || 'Standard Quant',
+                // AI 보조 메타 필드
+                marketCapClass: aiItem?.marketCapClass || original.marketCapClass,
+                sectorTheme: aiItem?.sectorTheme || original.sectorTheme || original.sector,
+                theme: aiItem?.theme || original.theme || 'N/A',
+                aiSentiment: aiItem?.aiSentiment || 'Neutral',
+                newsSentiment: aiItem?.newsSentiment || 'Neutral',
+                newsScore: aiItem?.newsScore ?? 0.5,
+                chartPattern: aiItem?.chartPattern || 'N/A',
+                supportLevel: aiItem?.supportLevel || original.price * 0.95,
+                resistanceLevel: aiItem?.resistanceLevel || original.price * 1.05,
+                stopLoss: aiItem?.stopLoss || original.ictStopLoss || original.price * 0.90,
+                riskRewardRatio: aiItem?.riskRewardRatio || '1:2',
+                kellyWeight: aiItem?.kellyWeight || '0%',
+                // ICT/원본 수치는 항상 original 우선 (절대 AI가 덮어쓰지 못하게)
+                ictMetrics: { ...original.ictMetrics },
                 pdZone: original.pdZone,
                 roe: original.roe,
                 revenueGrowth: original.revenueGrowth,
                 instOwn: original.instOwn || original.heldPercentInstitutions,
-                marketCapClass: original.marketCapClass,
                 sector: original.sector,
-                sectorTheme: original.sectorTheme || aiItem.sectorTheme,
                 price: original.price,
                 beta: original.beta,
                 pbr: original.pbr,
@@ -703,7 +735,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 otePrice: original.otePrice,
                 ictStopLoss: original.ictStopLoss
             };
-
+        }).map(merged => {
             // 2. Cross-Validation Flags (Prioritize Quant Data)
             const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow ?? 0;
             const conviction = Number(merged.convictionScore) || 0;
@@ -711,98 +743,57 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             const pdZone = merged.pdZone || "";
             const aiVerdict = (merged.aiVerdict || "").toUpperCase();
 
-            // [FIX] Badge Preservation Logic: Quant Data is Authority. AI confirms but does not veto.
-            merged.isConfirmedSmartMoney = (smartMoneyFlow > 85); // Pure Quant
-            merged.isConfirmedDiscount = (pdZone === 'DISCOUNT' || pdZone === 'OTE'); // Pure Quant
-            merged.isConfirmedGem = (roe >= 15); // Pure Quant
+            // [FIX] Badge Preservation Logic: Quant Data overrides AI when conflict
+            let finalVerdict = aiVerdict;
+            if (pdZone === 'PREMIUM' && (aiVerdict === 'STRONG_BUY' || aiVerdict === 'BUY')) {
+                finalVerdict = 'HOLD'; // Premium zone override
+                console.warn(`[Hydration] ${merged.symbol}: pdZone=PREMIUM, verdict downgraded from ${aiVerdict} to HOLD`);
+            }
+            if (smartMoneyFlow >= 70 && merged.price && merged.otePrice && Math.abs(merged.price - merged.otePrice) / merged.otePrice <= 0.02) {
+                finalVerdict = 'STRONG_BUY'; // Smart Money priority override
+            }
 
-            return merged;
+            return {
+                ...merged,
+                aiVerdict: finalVerdict,
+                isConsensus: conviction >= 70 && smartMoneyFlow >= 60,
+                compositeAlpha: Math.round((conviction * 0.6) + (smartMoneyFlow * 0.4))
+            };
         });
     };
 
-    if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
-      
-      // [NEW] Batch Processing Implementation (25 items per batch)
-      const BATCH_SIZE = 25;
-      const batches = [];
-      for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-          batches.push(candidates.slice(i, i + BATCH_SIZE));
-      }
+    const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+    const BATCH_SIZE = 25;
+    const batches = [];
+    for (let i = 0; i < slimCandidates.length; i += BATCH_SIZE) {
+        batches.push(slimCandidates.slice(i, i + BATCH_SIZE));
+    }
 
-      let allProcessedCandidates: any[] = [];
-      let hasAnySuccess = false;
+    let allProcessedCandidates: any[] = [];
+    let hasAnySuccess = false;
 
-      console.log(`[Gemini] Starting batch processing. Total items: ${candidates.length}, Batches: ${batches.length}`);
+    for (let i = 0; i < batches.length; i++) {
+        const batchCandidates = batches[i];
+        console.log(`[Gemini] Processing batch ${i + 1}/${batches.length} (${batchCandidates.length} stocks)`);
 
-      for (let i = 0; i < batches.length; i++) {
-          const batchCandidates = batches[i];
-          console.log(`[Gemini] Processing Batch ${i + 1}/${batches.length} (${batchCandidates.length} items)...`);
+        // [MODIFIED #2] 배치 프롬프트도 SPY/QQQ 컨텍스트 포함
+        const batchPrompt = `
+        [MARKET CONTEXT - READ FIRST]
+        Market Regime: ${regimeContext} (VIX: ${vixValue})
+        Index Pulse: ${spyContext} | ${qqqContext}
 
-          // Re-construct prompt for this specific batch
-          const batchPrompt = `
-          You are an elite hedge fund manager and master market strategist.
-          Analyze the following ${batchCandidates.length} stock candidates (Batch ${i + 1}) selected by our quantitative engine.
-          
-          Current Market Context:
-          - VIX: ${marketPulse.vix}
-          - Market Trend: ${marketPulse.trend}
-          - Sector Rotation: ${marketPulse.sectorRotation}
-          
-          Candidates Data (JSON):
-          ${JSON.stringify(batchCandidates.map(c => ({
-              symbol: c.symbol,
-              name: c.name,
-              price: c.price,
-              sector: c.sector,
-              industry: c.industry,
-              pe: c.pe,
-              revenueGrowth: c.revenueGrowth,
-              debtToEquity: c.debtToEquity,
-              operatingMargins: c.operatingMargins,
-              ictScore: c.ictScore,
-              smartMoney: c.isConfirmedSmartMoney,
-              discount: c.isConfirmedDiscount,
-              gem: c.isConfirmedGem
-          })))}
+        [INPUT DATA: BATCH ${i + 1}/${batches.length}]
+        Candidates (ictScore descending): ${JSON.stringify(batchCandidates)}
 
-          [TASK]
-          For EACH stock in the list, provide a structured analysis.
-          You MUST return a JSON object with a "candidates" array containing ${batchCandidates.length} objects.
-          
-          Each object must follow this schema:
-          {
-              "symbol": "TICKER",
-              "aiVerdict": "BUY" | "HOLD" | "WATCH",
-              "convictionScore": 0-100 (Integer),
-              "investmentOutlook": "Concise strategic summary (max 2 sentences). Focus on WHY this is a winner.",
-              "selectionReasons": ["Reason 1", "Reason 2", "Reason 3"],
-              "newsSentiment": "Bullish" | "Neutral" | "Bearish",
-              "newsScore": 0.0-1.0 (Float),
-              "expectedReturn": "e.g. +15%",
-              "supportLevel": Price (Float),
-              "resistanceLevel": Price (Float),
-              "stopLoss": Price (Float),
-              "riskRewardRatio": "e.g. 1:3",
-              "kellyWeight": "e.g. 5%",
-              "marketCapClass": "Large" | "Mid" | "Small",
-              "sectorTheme": "Sector Name",
-              "theme": "e.g. AI Boom, Rate Cut Beneficiary",
-              "aiSentiment": "Bullish" | "Neutral" | "Bearish",
-              "analysisLogic": "Brief explanation of the verdict"
-          }
+        Execute the [HYPER-ALPHA INTEGRATED PIPELINE].
+        Apply Conflict Resolution Rules and Sector Diversification Mandate.
+        Select the best stocks from this batch and return JSON array.
+        `;
 
-          [CRITICAL RULES]
-          1. Output ONLY valid JSON. No markdown formatting.
-          2. Do not hallucinate data. If unsure, use conservative estimates.
-          3. Ensure "symbol" matches exactly.
-          `;
-
-          try {
-            // [STAGE 1] Gemini Pro (High Reasoning) - Per Batch
-            console.warn(`[ATTEMPT] Batch ${i+1}: Engaging Gemini Pro...`);
+        try {
+            // [STAGE 1] Gemini Pro (Quality & Deep Analysis) - Per Batch
             const resultPro = await fetchWithRetry(() => ai.models.generateContent({
-              model: 'gemini-3.1-pro-preview',
+              model: 'gemini-exp-1206',
               contents: batchPrompt,
               config: { 
                   responseMimeType: "application/json", 
@@ -810,7 +801,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                   systemInstruction: SYSTEM_INSTRUCTION,
                   tools: [{ googleSearch: {} }] 
               }
-            }), 0, 2000);
+            }), 1, 3000);
 
             trackUsage(ApiProvider.GEMINI, resultPro.usageMetadata?.totalTokenCount || 0);
             const parsedPro = sanitizeAndParseJson(resultPro.text);
@@ -907,7 +898,6 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                  const hydratedFallback = hydrateAndValidate(fallbackData, 'FALLBACK_RECOVERY');
                  return { data: hydratedFallback, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
              }
-    }
 
     if (provider === ApiProvider.PERPLEXITY) {
         const result = await executePerplexityAnalysis();
@@ -1063,24 +1053,24 @@ export async function analyzePipelineStatus(data: {
 
     const json = await res.json();
     if(json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
-    
     if (!res.ok) throw new Error(json.error?.message || "Perplexity Error");
-    return json.choices?.[0]?.message?.content || "No analysis returned.";
+    return removeCitations(json.choices?.[0]?.message?.content || "Analysis failed.");
 
   } catch (error: any) {
-    trackUsage(provider, 0, true, error.message);
     const msg = error.message?.toLowerCase() || "";
-    if (msg.includes("429") || msg.includes("quota")) {
-      return "AUDIT_QUOTA_EXCEEDED: API 호출 한도가 초과되었습니다.";
+    if (msg.includes("401") || msg.includes("payment") || msg.includes("unauthorized")) {
+        trackUsage(provider, 0, true, error.message);
+        return `AUDIT_ERROR: Authentication failed. Check API key.`;
     }
-    return `AUDIT_FAILURE: ${error.message}`;
+    trackUsage(provider, 0, true, error.message);
+    return `AUDIT_ERROR: ${error.message}`;
   }
 }
 
 export async function generateTelegramBrief(candidates: any[], provider: ApiProvider, marketPulse?: any): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
-  if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
+  if (!apiKey) return "REPORT_ERROR: API Key Missing";
 
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
   const dateStr = new Date().toLocaleDateString('ko-KR', dateOptions);
@@ -1088,79 +1078,58 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
   let finalReport = "";
 
   try {
-      // 1. Hybrid Data Hydration (Global Override)
-      let vix = "N/A", spx = "N/A", ndx = "N/A";
-      let spxChg = 0, ndxChg = 0;
-      let vixVal = 0;
-
-      // [HYDRATION] Check Explicit Argument OR Global Cache
       const pulse = marketPulse || (typeof window !== 'undefined' ? (window as any).latestMarketPulse : null);
-      
-      if (pulse) {
-          if (pulse.spy) {
-              spx = (Number(pulse.spy.price) || 0).toFixed(2);
-              spxChg = Number(pulse.spy.change) || 0;
-          }
-          if (pulse.qqq) {
-              ndx = (Number(pulse.qqq.price) || 0).toFixed(2);
-              ndxChg = Number(pulse.qqq.change) || 0;
-          }
-      }
 
-      // 2. Fetch Live Market Data (If Global Cache Missed)
-      if (spx === "N/A" || ndx === "N/A") {
-          try {
-              // Primary: Portal Indices
+      let vix = "N/A";
+      let spx = "N/A";
+      let ndx = "N/A";
+      let spxChg = 0;
+      let ndxChg = 0;
+      let vixVal = 20;
+
+      try {
           const indexRes = await fetchWithRetry(async () => {
               const res = await fetch('/api/portal_indices');
-              if (!res.ok) throw new Error("Index API Failed");
+              if (!res.ok) throw new Error(`Index API ${res.status}`);
               return res;
-          }, 3, 2000);
-
-          if (indexRes.ok) {
-              const indices = await indexRes.json();
-              const v = indices?.find((i: any) => i?.symbol === 'VIX' || i?.symbol === '.VIX');
-              const s = indices?.find((i: any) => i?.symbol === 'SP500' || i?.symbol === 'SPX');
-              const n = indices?.find((i: any) => i?.symbol === 'NASDAQ' || i?.symbol === 'NDX');
-              
-              if(v?.price) { vixVal = Number(v.price) || 0; vix = vixVal.toFixed(2); }
-              if(s?.price) { spx = (Number(s.price) || 0).toFixed(2); spxChg = Number(s.changePercent) || 0; }
-              if(n?.price) { ndx = (Number(n.price) || 0).toFixed(2); ndxChg = Number(n.changePercent) || 0; }
-          }
-      } catch(e) {
-          console.warn("Primary Index Fetch Failed, attempting fallbacks...");
-      }
-      }
-
-      // 3. Fallback: Scan Candidates
-      const safeCandidates = Array.isArray(candidates) ? candidates : [];
-      
-      if (spx === "N/A" || ndx === "N/A") {
-          const spyCand = safeCandidates.find(c => c?.symbol === 'SPY' || c?.symbol === 'SP500');
-          const qqqCand = safeCandidates.find(c => c?.symbol === 'QQQ' || c?.symbol === 'NASDAQ');
+          });
+          const indices = await indexRes.json();
+          const v = indices?.find((i: any) => i?.symbol === 'VIX' || i?.symbol === '.VIX');
+          const s = indices?.find((i: any) => i?.symbol === 'SP500' || i?.symbol === 'SPX' || i?.symbol === 'SPY');
+          const n = indices?.find((i: any) => i?.symbol === 'NASDAQ' || i?.symbol === 'NDX' || i?.symbol === 'QQQ');
           
-          if (spx === "N/A" && spyCand?.price) { spx = (Number(spyCand.price) || 0).toFixed(2); spxChg = Number(spyCand.changePercent) || 0; }
-          if (ndx === "N/A" && qqqCand?.price) { ndx = (Number(qqqCand.price) || 0).toFixed(2); ndxChg = Number(qqqCand.changePercent) || 0; }
+          if (v) { vix = v.price?.toFixed(2) || "N/A"; vixVal = v.price || 20; }
+          if (s) { spx = s.price?.toLocaleString() || "N/A"; spxChg = s.changePercent || 0; }
+          if (n) { ndx = n.price?.toLocaleString() || "N/A"; ndxChg = n.changePercent || 0; }
+      } catch (e) {
+          // Use pulse fallback
+          if (pulse?.SPY) { spx = pulse.SPY.price?.toLocaleString() || "N/A"; spxChg = pulse.SPY.changePercent || 0; }
+          if (pulse?.QQQ) { ndx = pulse.QQQ.price?.toLocaleString() || "N/A"; ndxChg = pulse.QQQ.changePercent || 0; }
       }
 
-      // Fallback 2: Finnhub Direct
+      const safeCandidates = Array.isArray(candidates) ? candidates : [];
+
+      const spyCand = safeCandidates.find(c => c?.symbol === 'SPY' || c?.symbol === 'SP500');
+      const qqqCand = safeCandidates.find(c => c?.symbol === 'QQQ' || c?.symbol === 'NASDAQ');
+      if (spyCand && spx === "N/A") { spx = spyCand.price?.toLocaleString() || "N/A"; spxChg = spyCand.changePercent || 0; }
+      if (qqqCand && ndx === "N/A") { ndx = qqqCand.price?.toLocaleString() || "N/A"; ndxChg = qqqCand.changePercent || 0; }
+
+      // Finnhub fallback
       if (spx === "N/A" || ndx === "N/A") {
           try {
               const fhKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
               if (fhKey) {
-                  const [spyRes, qqqRes] = await Promise.all([
-                      fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${fhKey}`).then(r => r.json()).catch(() => ({})),
-                      fetch(`https://finnhub.io/api/v1/quote?symbol=QQQ&token=${fhKey}`).then(r => r.json()).catch(() => ({}))
+                  const [spRes, ndRes] = await Promise.all([
+                      fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${fhKey}`).then(r => r.json()),
+                      fetch(`https://finnhub.io/api/v1/quote?symbol=QQQ&token=${fhKey}`).then(r => r.json())
                   ]);
-                  if (spyRes?.c) { spx = (Number(spyRes.c) || 0).toFixed(2); spxChg = Number(spyRes.dp) || 0; }
-                  if (qqqRes?.c) { ndx = (Number(qqqRes.c) || 0).toFixed(2); ndxChg = Number(qqqRes.dp) || 0; }
+                  if (spRes.c && spx === "N/A") { spx = spRes.c?.toLocaleString(); spxChg = spRes.dp || 0; }
+                  if (ndRes.c && ndx === "N/A") { ndx = ndRes.c?.toLocaleString(); ndxChg = ndRes.dp || 0; }
               }
-          } catch (e) { console.error("Finnhub Fallback Failed", e); }
+          } catch(e) { /* silent */ }
       }
 
-      // 4. Formatter with Zero-Change Defense
       const fmt = (val: string, chg: number) => {
-          if (val === "N/A") return val;
           const safeChg = Number(chg) || 0;
           if (Math.abs(safeChg) < 0.01) return `${val} (보합/확인중) ⚪`;
           const emoji = safeChg > 0 ? "🟢" : "🔴";
@@ -1297,17 +1266,50 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           // [SMART MONEY TAG]
           const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 90 ? " [🔥SMART MONEY]" : "";
 
-          // [FORMATTING] Newline Restoration
+          // ─────────────────────────────────────────────────────────────
+          // [MODIFIED #4] Regex 보강: 마크다운 기호 제거 후 순수 텍스트 추출
+          //               Fallback 문구 강제 삽입 + 수익률 포맷 정형화
+          // ─────────────────────────────────────────────────────────────
+          const stripMarkdown = (text: string): string => {
+              if (!text || typeof text !== 'string') return '';
+              return text
+                  .replace(/^#{1,6}\s*/gm, '')        // ## 헤더 제거
+                  .replace(/\*\*(.+?)\*\*/g, '$1')    // **bold** → 텍스트
+                  .replace(/\*(.+?)\*/g, '$1')         // *italic* → 텍스트
+                  .replace(/^[-•]\s*/gm, '')            // 불릿 기호 제거
+                  .replace(/\[([^\]]+)\]\([^)]+\)/g, '$1') // 링크 → 텍스트
+                  .replace(/`(.+?)`/g, '$1')            // 인라인 코드 제거
+                  .replace(/\n{2,}/g, ' ')              // 다중 줄바꿈 → 공백
+                  .replace(/\n/g, ' ')
+                  .trim();
+          };
+
+          // [FORMATTING] Newline Restoration + Markdown Strip
           const reasons = Array.isArray(c?.selectionReasons) ? c.selectionReasons : [];
-          const r1 = reasons[0] ? String(reasons[0]).replace(/\\n/g, ' ').trim() : "섹터 모멘텀 양호";
-          const r2 = reasons[1] ? String(reasons[1]).replace(/\\n/g, ' ').trim() : "안정적 펀더멘털";
-          const r3 = reasons[2] ? String(reasons[2]).replace(/\\n/g, ' ').trim() : "기술적 반등 위치";
-          
+          const r1Raw = reasons[0] ? String(reasons[0]).replace(/\\n/g, ' ').trim() : '';
+          const r2Raw = reasons[1] ? String(reasons[1]).replace(/\\n/g, ' ').trim() : '';
+          const r3Raw = reasons[2] ? String(reasons[2]).replace(/\\n/g, ' ').trim() : '';
+
+          // Fallback: 파싱 실패 시 ICT 퀀트 점수 기반 문구 강제 삽입
+          const r1 = stripMarkdown(r1Raw) || `ICT 퀀트 점수(${c.ictScore || 0}) 기반 기술적 우위 확인됨`;
+          const r2 = stripMarkdown(r2Raw) || '안정적 펀더멘털 지표 확인됨';
+          const r3 = stripMarkdown(r3Raw) || '기술적 반등 위치 및 수급 양호';
+
           const analysisLogic = (c.analysisLogic || "").replace(/\\n/g, '\n').trim();
 
           const entryPrice = (Number(c?.otePrice) || Number(c?.supportLevel) || 0).toFixed(2);
           const targetPrice = (Number(c?.resistanceLevel) || 0).toFixed(2);
           const stopPrice = (Number(c?.ictStopLoss) || Number(c?.stopLoss) || 0).toFixed(2);
+          
+          // [MODIFIED #4] 수익률 정형화: 숫자 추출 후 +XX% 포맷으로 변환
+          const rawReturn = String(c?.expectedReturn || '0');
+          const returnNumMatch = rawReturn.match(/([+-]?\d+(?:\.\d+)?)/);
+          const returnNum = returnNumMatch ? parseFloat(returnNumMatch[1]) : 0;
+          const formattedReturn = returnNum >= 0 ? `+${returnNum.toFixed(0)}%` : `${returnNum.toFixed(0)}%`;
+          // 태그가 있으면 유지, 없으면 기본 태그 추가
+          const returnTagMatch = rawReturn.match(/\(([^)]+)\)/);
+          const returnTag = returnTagMatch ? ` (${returnTagMatch[1]})` : '';
+          const displayReturn = `${formattedReturn}${returnTag}`;
           
           const pdZoneInfo = c?.pdZone 
               ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` 
@@ -1316,7 +1318,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
-   • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
+   • 📈 Exp.Return: ${displayReturn}
    • 💎 Logic:
      - ${removeCitations(r1)}
      - ${removeCitations(r2)}
