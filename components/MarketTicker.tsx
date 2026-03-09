@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { ApiProvider } from '../types';
 import { API_CONFIGS } from '../constants';
+import { fetchPortalIndices, type PortalIndexPoint } from '../services/portalIndicesService';
 
 type WsProvider = 'FINNHUB' | 'ALPACA' | 'POLLING';
 
@@ -17,22 +18,29 @@ interface MarketItem {
   isProxy?: boolean;
 }
 
+const toSafeNumber = (value: any, fallback = 0) => {
+  const parsed = typeof value === 'number' ? value : Number(value);
+  return Number.isFinite(parsed) ? parsed : fallback;
+};
+
 // Sub-component for individual ticker card to handle flash animation state locally
 const TickerCard: React.FC<{ item: MarketItem }> = ({ item }) => {
   const [flash, setFlash] = useState<'up' | 'down' | null>(null);
   const prevPriceRef = useRef<number>(item.price);
+  const displayPrice = toSafeNumber(item.price);
+  const displayChange = toSafeNumber(item.change);
 
   useEffect(() => {
-    if (item.price > prevPriceRef.current) {
+    if (displayPrice > prevPriceRef.current) {
       setFlash('up');
-    } else if (item.price < prevPriceRef.current) {
+    } else if (displayPrice < prevPriceRef.current) {
       setFlash('down');
     }
-    prevPriceRef.current = item.price;
+    prevPriceRef.current = displayPrice;
 
     const timer = setTimeout(() => setFlash(null), 300); // 300ms flash duration
     return () => clearTimeout(timer);
-  }, [item.price]);
+  }, [displayPrice]);
 
   // Visual Logic: "Band" (Border) Flashing
   // Resting State: Based on daily change (Green/Red)
@@ -43,7 +51,7 @@ const TickerCard: React.FC<{ item: MarketItem }> = ({ item }) => {
       if (flash === 'down') return '#f87171'; // Bright Red (Flash)
       
       if (item.typeLabel.includes('FEAR')) return '#a855f7'; // VIX Purple (Base)
-      return item.change >= 0 ? '#10b981' : '#ef4444'; // Daily Change (Base)
+      return displayChange >= 0 ? '#10b981' : '#ef4444'; // Daily Change (Base)
   };
 
   const getBackgroundColor = () => {
@@ -69,10 +77,10 @@ const TickerCard: React.FC<{ item: MarketItem }> = ({ item }) => {
       </div>
       <div className="text-right">
         <p className={`text-[10px] font-mono font-bold tracking-tighter ${flash === 'up' ? 'text-green-300' : flash === 'down' ? 'text-red-300' : 'text-white'}`}>
-          {item.price > 1000 ? item.price.toLocaleString(undefined, { maximumFractionDigits: 0 }) : item.price.toFixed(2)}
+          {displayPrice > 1000 ? displayPrice.toLocaleString(undefined, { maximumFractionDigits: 0 }) : displayPrice.toFixed(2)}
         </p>
-        <p className={`text-[8px] font-black ${item.change >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
-          {item.change >= 0 ? '▲' : '▼'} {Math.abs(item.change).toFixed(2)}%
+        <p className={`text-[8px] font-black ${displayChange >= 0 ? 'text-emerald-400' : 'text-red-400'}`}>
+          {displayChange >= 0 ? '▲' : '▼'} {Math.abs(displayChange).toFixed(2)}%
         </p>
       </div>
     </div>
@@ -97,7 +105,11 @@ const MarketTicker: React.FC = () => {
 
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const alpacaKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPACA)?.key;
-  const alpacaSecret = ''; // Secret logic not fully implemented in frontend config
+  const alpacaSecret =
+    // @ts-ignore
+    (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ALPACA_SECRET) ||
+    process.env.ALPACA_SECRET ||
+    '';
 
   // [PRESERVED] Index Order: NASDAQ Comp First, then NASDAQ 100
   const indexConfig = [
@@ -116,6 +128,8 @@ const MarketTicker: React.FC = () => {
   ];
 
   const updatePrice = (symbol: string, newPrice: number) => {
+      const safeNewPrice = toSafeNumber(newPrice, NaN);
+      if (!Number.isFinite(safeNewPrice)) return;
       setMarketData(prev => {
           const next = [...prev];
           const idx = next.findIndex(i => i.symbol === symbol);
@@ -124,9 +138,9 @@ const MarketTicker: React.FC = () => {
               // Recalculate change based on derived prevClose if available
               let newChange = item.change;
               if (item.prevClose) {
-                  newChange = ((newPrice - item.prevClose) / item.prevClose) * 100;
+                  newChange = ((safeNewPrice - item.prevClose) / item.prevClose) * 100;
               }
-              next[idx] = { ...item, price: newPrice, change: newChange };
+              next[idx] = { ...item, price: safeNewPrice, change: toSafeNumber(newChange) };
           }
           return next;
       });
@@ -134,27 +148,39 @@ const MarketTicker: React.FC = () => {
       setLastUpdate(new Date().toLocaleTimeString('en-GB', { hour12: false }));
   };
 
+  const resolveIndexPoint = (rows: PortalIndexPoint[], id: string) => {
+      const alias: Record<string, string[]> = {
+          IXIC: ['IXIC', 'NASDAQ_COMP', 'NASDAQCOMPOSITE'],
+          NDX: ['NDX', 'NASDAQ', 'NASDAQ100'],
+          SPX: ['SPX', 'SP500'],
+          DJI: ['DJI', 'DOW'],
+          VIX: ['VIX'],
+      };
+      const lookup = new Set([id, ...(alias[id] || [])]);
+      return rows.find((row) => lookup.has(String(row.symbol || '').toUpperCase()));
+  };
+
   const fetchMarketData = async () => {
       try {
-          const res = await fetch('/api/portal_indices');
-          if (!res.ok) throw new Error('Portal API Failed');
-          const data = await res.json();
-          
-          const map = new Map<string, any>(data.map((d: any) => [d.symbol, d]));
+          const data = await fetchPortalIndices();
+          const map = new Map<string, any>(data.map((d: any) => [String(d.symbol).toUpperCase(), d]));
           const formatted: MarketItem[] = [];
           let source = "PORTAL_HYBRID";
 
           indexConfig.forEach(cfg => {
-              const d = map.get(cfg.portalId);
+              const d = resolveIndexPoint(data, cfg.id);
               if (d) {
                   if (d.source) source = d.source;
+                  const price = toSafeNumber(d.price, NaN);
+                  const change = toSafeNumber(d.change, NaN);
+                  if (!Number.isFinite(price) || !Number.isFinite(change)) return;
                   // Derive prevClose for dynamic change calculation
-                  const prevClose = d.price / (1 + (d.change / 100));
+                  const prevClose = price / (1 + (change / 100));
                   formatted.push({
                       symbol: cfg.id,
                       label: cfg.label,
-                      price: d.price,
-                      change: d.change,
+                      price,
+                      change,
                       prevClose: prevClose,
                       isIndex: true,
                       typeLabel: cfg.id === 'VIX' ? 'FEAR_INDEX' : 'Composite',
@@ -164,14 +190,17 @@ const MarketTicker: React.FC = () => {
           });
 
           stockConfig.forEach(cfg => {
-              const d = map.get(cfg.symbol);
+              const d = map.get(String(cfg.symbol).toUpperCase());
               if (d) {
-                  const prevClose = d.price / (1 + (d.change / 100));
+                  const price = toSafeNumber(d.price, NaN);
+                  const change = toSafeNumber(d.change, NaN);
+                  if (!Number.isFinite(price) || !Number.isFinite(change)) return;
+                  const prevClose = price / (1 + (change / 100));
                   formatted.push({
                       symbol: cfg.symbol,
                       label: cfg.label,
-                      price: d.price,
-                      change: d.change,
+                      price,
+                      change,
                       prevClose: prevClose,
                       isIndex: false,
                       typeLabel: 'Equity'
@@ -265,7 +294,7 @@ const MarketTicker: React.FC = () => {
     };
 
     const connectAlpaca = () => {
-        if (!alpacaKey) return failover('ALPACA');
+        if (!alpacaKey || !alpacaSecret) return failover('ALPACA');
         setSocketStatus('CONNECTING (ALP)...');
         
         try {
@@ -306,7 +335,12 @@ const MarketTicker: React.FC = () => {
     const failover = (failedProvider: WsProvider) => {
         console.warn(`WebSocket Provider ${failedProvider} failed. Switching...`);
         if (failedProvider === 'FINNHUB') {
-            setActiveProvider('ALPACA');
+            if (alpacaKey && alpacaSecret) {
+                setActiveProvider('ALPACA');
+            } else {
+                setActiveProvider('POLLING');
+                setSocketStatus('POLLING (BACKUP)');
+            }
         } else if (failedProvider === 'ALPACA') {
             setActiveProvider('POLLING');
             setSocketStatus('POLLING (BACKUP)');

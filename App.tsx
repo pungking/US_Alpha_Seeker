@@ -14,6 +14,7 @@ import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
 import LegalDocs from './components/LegalDocs';
+import RenderGuard from './components/RenderGuard';
 import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
 import { sendTelegramReport } from './services/telegramService';
 
@@ -503,7 +504,9 @@ const App: React.FC = () => {
             <ApiStatusCard key={`${status.provider}-${idx}`} status={status} isAuthConnected={status.isConnected} />
           ))}
         </div>
-        <MarketTicker />
+        <RenderGuard label="Market Ticker">
+          <MarketTicker />
+        </RenderGuard>
       </div>
 
       <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
@@ -527,67 +530,81 @@ const App: React.FC = () => {
 
       <main className="min-h-[450px] flex-1">
         <div className="w-full h-full" style={{ display: currentStage === 0 ? 'block' : 'none' }}>
-          <UniverseGathering 
-            isActive={currentStage === 0} 
-            apiStatuses={apiStatuses}
-            onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
-            onStockSelected={setSelectedStock}
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
-            onComplete={() => handleStageComplete(0)}
-          />
+          <RenderGuard label="Stage 0">
+            <UniverseGathering 
+              isActive={currentStage === 0} 
+              apiStatuses={apiStatuses}
+              onAuthSuccess={(status) => { setIsGdriveConnected(status); fetchDriveQuota(); }}
+              onStockSelected={setSelectedStock}
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 0}
+              onComplete={() => handleStageComplete(0)}
+            />
+          </RenderGuard>
         </div>
         <div className="w-full h-full" style={{ display: currentStage === 1 ? 'block' : 'none' }}>
-          <PreliminaryFilter 
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
-            onComplete={() => handleStageComplete(1)}
-          />
+          <RenderGuard label="Stage 1">
+            <PreliminaryFilter 
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 1}
+              onComplete={() => handleStageComplete(1)}
+            />
+          </RenderGuard>
         </div>
         <div className="w-full h-full" style={{ display: currentStage === 2 ? 'block' : 'none' }}>
-          <DeepQualityFilter 
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
-            onComplete={() => handleStageComplete(2)}
-            onStockSelected={setSelectedStock}
-            isVisible={currentStage === 2}
-          />
+          <RenderGuard label="Stage 2">
+            <DeepQualityFilter 
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 2}
+              onComplete={() => handleStageComplete(2)}
+              onStockSelected={setSelectedStock}
+              isVisible={currentStage === 2}
+            />
+          </RenderGuard>
         </div>
         <div className="w-full h-full" style={{ display: currentStage === 3 ? 'block' : 'none' }}>
-          <FundamentalAnalysis 
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
-            onComplete={() => handleStageComplete(3)}
-            onStockSelected={setSelectedStock}
-            isVisible={currentStage === 3}
-          />
+          <RenderGuard label="Stage 3">
+            <FundamentalAnalysis 
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 3}
+              onComplete={() => handleStageComplete(3)}
+              onStockSelected={setSelectedStock}
+              isVisible={currentStage === 3}
+            />
+          </RenderGuard>
         </div>
         <div className="w-full h-full" style={{ display: currentStage === 4 ? 'block' : 'none' }}>
-          <TechnicalAnalysis 
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
-            onComplete={() => handleStageComplete(4)}
-            onStockSelected={setSelectedStock}
-            isVisible={currentStage === 4}
-          />
+          <RenderGuard label="Stage 4">
+            <TechnicalAnalysis 
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 4}
+              onComplete={() => handleStageComplete(4)}
+              onStockSelected={setSelectedStock}
+              isVisible={currentStage === 4}
+            />
+          </RenderGuard>
         </div>
         <div className="w-full h-full" style={{ display: currentStage === 5 ? 'block' : 'none' }}>
-          <IctAnalysis 
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
-            onComplete={() => handleStageComplete(5)}
-            onStockSelected={setSelectedStock}
-            isVisible={currentStage === 5}
-          />
+          <RenderGuard label="Stage 5">
+            <IctAnalysis 
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 5}
+              onComplete={() => handleStageComplete(5)}
+              onStockSelected={setSelectedStock}
+              isVisible={currentStage === 5}
+            />
+          </RenderGuard>
         </div>
         <div className="w-full h-full" style={{ display: currentStage === 6 ? 'block' : 'none' }}>
-          <AlphaAnalysis 
-            selectedBrain={selectedBrain} 
-            setSelectedBrain={setSelectedBrain}
-            onFinalSymbolsDetected={(symbols, fullData) => {
-              setFinalSymbols(symbols);
-              setRecommendedData(fullData);
-            }}
-            onStockSelected={setSelectedStock}
-            analyzingSymbols={analyzingStocks}
-            autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
-            onComplete={(report) => handleStageComplete(6, report)}
-            isVisible={currentStage === 6}
-          />
+          <RenderGuard label="Stage 6">
+            <AlphaAnalysis 
+              selectedBrain={selectedBrain} 
+              setSelectedBrain={setSelectedBrain}
+              onFinalSymbolsDetected={(symbols, fullData) => {
+                setFinalSymbols(symbols);
+                setRecommendedData(fullData);
+              }}
+              onStockSelected={setSelectedStock}
+              analyzingSymbols={analyzingStocks}
+              autoStart={isMirror && isAutoPilotRunning && currentStage === 6}
+              onComplete={(report) => handleStageComplete(6, report)}
+              isVisible={currentStage === 6}
+            />
+          </RenderGuard>
         </div>
       </main>
 

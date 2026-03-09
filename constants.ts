@@ -20,6 +20,7 @@ const getEnvVar = (key: string): string => {
             if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || '';
             if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
             if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
+            if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
             
             // Fallback to dynamic access
             return import.meta.env[key] || '';
@@ -31,10 +32,28 @@ const getEnvVar = (key: string): string => {
     return '';
 };
 
+// ============================================================
+// [GITHUB DISPATCH CONFIG]
+// Stage 3 완료 후 → US_Alpha_Seeker_Harvester 워크플로우 트리거
+// main.yml types: [stage3_completed] 와 일치
+// ============================================================
+export const GITHUB_DISPATCH_CONFIG = {
+  OWNER: 'pungking',
+  REPO: 'US_Alpha_Seeker_Harvester',
+  EVENT_TYPE: 'stage3_completed',
+  // 환경변수 우선, 없으면 PAT 폴백
+  TOKEN: getEnvVar('GITHUB_PAT') || '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',
+  get API_URL() {
+    return `https://api.github.com/repos/${this.OWNER}/${this.REPO}/dispatches`;
+  }
+};
+
 export const TELEGRAM_CONFIG = {
   TOKEN: getEnvVar('TELEGRAM_TOKEN') || process.env.TELEGRAM_TOKEN || '8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs',
   // [FIX] Hardcoded Chat ID to ensure delivery as per user validation
-  CHAT_ID: '-1003800785574'
+  CHAT_ID: '-1003800785574',
+  // [SIMULATION CHANNEL] Backtest/simulation execution events are routed here.
+  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID') || '1281749368'
 };
 
 export const API_CONFIGS: ApiConfig[] = [
@@ -112,7 +131,9 @@ export const GOOGLE_DRIVE_TARGET = {
   // [NEW] V12 Engine Data Map Folders
   systemMapSubFolder: 'System_Identity_Maps',
   financialDailyFolder: 'Financial_Data_Daily', // Daily Metrics (A-Z)
-  financialHistoryFolder: 'Financial_Data_History_5Y' // Historical Data (A-Z)
+  financialHistoryFolder: 'Financial_Data_History_5Y', // Historical Data (A-Z)
+  financialOhlcvFolder: 'Financial_Data_OHLCV',
+  stage4ReadyFile: 'LATEST_STAGE4_READY.json'
 };
 
 export const STAGES_FLOW = [

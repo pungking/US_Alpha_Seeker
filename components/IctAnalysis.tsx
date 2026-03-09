@@ -35,9 +35,46 @@ interface IctScoredTicker {
   
   sector: string;
   scoringEngine?: string;
+  rankRaw?: number;
+  rankFinal?: number;
+  majorPenaltyCause?: 'SECTOR_DIVERSIFICATION' | 'DATA_QUALITY' | 'RSI_OVERHEAT' | 'PEG_DOUBT' | 'SIGNAL_HEAT' | 'NONE';
+  regimeMode?: 'RISK_OFF' | 'RISK_ON' | 'FALLBACK';
+  compositeBreakdown?: {
+      mode: 'RISK_OFF' | 'RISK_ON' | 'FALLBACK';
+      baseFundamentalPart: number;
+      baseTechnicalPart: number;
+      baseIctPart: number;
+      fallbackPart: number;
+      signalQualityBonus: number;
+      signalComboBonus: number;
+      minerviniBonus: number;
+      rsiPenalty: number;
+      heatPenalty: number;
+      dataDoubtfulMultiplier: number;
+      dataQualityMultiplier: number;
+      preDiversificationComposite: number;
+      sectorDiversificationMultiplier: number;
+      postDiversificationComposite: number;
+      sectorCount: number;
+      sectorBucket: 'LEADER' | 'WARNING' | 'SATURATION';
+  };
   
   // [DATA PRESERVATION]
   [key: string]: any;
+}
+
+interface Stage5MarketRegimeSnapshot {
+  trigger_file?: string;
+  sourceStage3File?: string;
+  stage3_file?: string;
+  manifest?: {
+    sourceStage3File?: string;
+  };
+  benchmarks?: {
+    vix?: {
+      close?: number;
+    };
+  };
 }
 
 interface Props {
@@ -84,6 +121,16 @@ const calculateIctScore = (item: any) => {
     const rvol = item.techMetrics?.rawRvol || item.techMetrics?.rvol || 1.0;
     const momentum = item.techMetrics?.momentum || 50;
     const trendScore = item.techMetrics?.trend || 50;
+    const macdHistogram = item.techMetrics?.macdHistogram || 0;
+    const mfi = item.techMetrics?.mfi || 50;
+    const diPlus = item.techMetrics?.diPlus || 0;
+    const diMinus = item.techMetrics?.diMinus || 0;
+    const minerviniScore = item.techMetrics?.minerviniScore || 0;
+    const minerviniPassCount = item.techMetrics?.minerviniPassCount || 0;
+    const signalComboBonus = item.techMetrics?.signalComboBonus || 0;
+    const signalHeatPenalty = item.techMetrics?.signalHeatPenalty || 0;
+    const signalQualityState = item.techMetrics?.signalQualityState || 'NEUTRAL';
+    const dataQualityState = item.techMetrics?.dataQualityState || 'NORMAL';
     const priceHistory = item.priceHistory || [];
     const dailyChange = item.change || 0; // Keep sign for direction
     const absChange = Math.abs(dailyChange);
@@ -138,13 +185,21 @@ const calculateIctScore = (item: any) => {
     if (bodyStrength > 60) displacement += 15; 
     if (recentGap > 0) displacement += 15; 
     if (trendScore > 80) displacement += 10;
+    if (macdHistogram > 0) displacement += Math.min(6, macdHistogram * 10);
+    else if (macdHistogram < -0.3) displacement -= 4;
+    if (signalComboBonus > 0) displacement += Math.min(6, signalComboBonus * 2);
     
     // Normalize Fallback: if data missing but change is high positive
     if (!hasFullData && dailyChange > 1.5) displacement = Math.max(displacement, 70);
 
     // --- 3. Market Structure (MSS) ---
     // If trend is strong and displacement is high, structure is bullish
-    const mss = (trendScore + displacement) / 2; 
+    let mss = (trendScore + displacement) / 2; 
+    if (diPlus > diMinus) mss += Math.min(10, (diPlus - diMinus) * 0.6);
+    else if (diMinus > diPlus) mss -= Math.min(8, (diMinus - diPlus) * 0.6);
+    if (minerviniPassCount >= 7) mss += 8;
+    else if (minerviniPassCount >= 5) mss += 4;
+    else if (minerviniPassCount < 4) mss -= 6;
 
     // --- 4. Liquidity Sweep (Stop Hunt Detection) ---
     const isSqueeze = item.techMetrics?.squeezeState === 'SQUEEZE_ON';
@@ -154,12 +209,15 @@ const calculateIctScore = (item: any) => {
     if (isSqueeze) sweepScore += 30; 
     if (wickScore > 0) sweepScore = (sweepScore + wickScore) / 2; 
     if (rsi < 40 && rvol > 1.2) sweepScore += 10; 
+    if (signalQualityState === 'SETUP' && diPlus > diMinus) sweepScore += 5;
 
     // --- 5. Smart Money Flow (VSA - Effort vs Result) ---
     let obScore = 50; 
     if (trendScore > 60 && rsi >= 40 && rsi <= 65) obScore = 90; 
     else if (trendScore > 60 && rsi > 70) obScore = 70; 
     else if (trendScore < 40) obScore = 30; 
+    if (minerviniScore >= 87.5) obScore += 10;
+    else if (minerviniScore < 50) obScore -= 10;
 
     let smFlow = 50;
     // Effort (Volume) vs Result (Price Change)
@@ -170,9 +228,30 @@ const calculateIctScore = (item: any) => {
     } else {
         smFlow = trendScore; // Follow trend if vol is normal
     }
+    if (mfi >= 55 && mfi <= 80) smFlow += 10;
+    else if (mfi > 85) smFlow -= 10;
+    if (signalQualityState === 'ALIGNED') smFlow += 8;
+    else if (signalQualityState === 'SETUP') smFlow += 4;
+    if (signalHeatPenalty > 0) smFlow -= Math.min(12, signalHeatPenalty * 0.6);
+
+    if (dataQualityState === 'THIN') {
+        obScore -= 8;
+        smFlow -= 4;
+    } else if (dataQualityState === 'ILLIQUID') {
+        obScore -= 20;
+        smFlow -= 12;
+    } else if (dataQualityState === 'STALE') {
+        obScore -= 25;
+        smFlow -= 15;
+    }
 
     // Final Composite Score weighting
-    const finalScore = (displacement * 0.25) + (mss * 0.2) + (sweepScore * 0.15) + (obScore * 0.15) + (smFlow * 0.25);
+    let finalScore = (displacement * 0.25) + (mss * 0.2) + (sweepScore * 0.15) + (obScore * 0.15) + (smFlow * 0.25);
+    if (signalComboBonus > 0) finalScore += Math.min(8, signalComboBonus * 1.5);
+    if (signalHeatPenalty > 0) finalScore -= Math.min(10, signalHeatPenalty);
+    if (dataQualityState === 'THIN') finalScore -= 4;
+    else if (dataQualityState === 'ILLIQUID') finalScore -= 15;
+    else if (dataQualityState === 'STALE') finalScore -= 20;
 
     return {
         score: Number(Math.min(100, Math.max(0, finalScore)).toFixed(2)),
@@ -286,22 +365,113 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
     addLog("Phase 5: Initiating Institutional Liquidity Sieve...", "info");
     
     try {
-      const q = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      const fullQuery = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
 
-      if (!listRes.files?.length) {
-        addLog("Stage 4 source missing. Run Stage 4 first.", "err");
-        setLoading(false); return;
+      // [RESILIENCE] Retry Logic for Drive Latency (3 Attempts)
+      let fullRes: any = { files: [] };
+      for (let attempt = 1; attempt <= 3; attempt++) {
+          try {
+              const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${fullQuery}&orderBy=createdTime desc&pageSize=5`, {
+                  headers: { 'Authorization': `Bearer ${accessToken}` }
+              });
+              if (res.ok) {
+                  fullRes = await res.json();
+                  if (fullRes.files?.length > 0) break;
+              }
+          } catch (e) { console.warn(`Drive Scan Attempt ${attempt} failed.`); }
+          
+          if (attempt < 3) {
+              addLog(`Scanning Vault... (Attempt ${attempt}/3)`, "warn");
+              await new Promise(r => setTimeout(r, 2000)); // Wait 2s
+          }
       }
 
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      let mergedUniverse: any[] = [];
+      let stage4SourceStage3File: string | null = null;
+
+      if (fullRes.files?.length) {
+          const latestFull = fullRes.files[0];
+          try {
+              const content = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFull.id}?alt=media`, {
+                  headers: { 'Authorization': `Bearer ${accessToken}` }
+              }).then(r => r.json());
+
+              if (content.technical_universe && Array.isArray(content.technical_universe)) {
+                  mergedUniverse = content.technical_universe;
+                  stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
+                  addLog(`Stage 4 Full Vault Locked: ${latestFull.name}`, "ok");
+              }
+          } catch (e) {
+              console.warn(`Failed to load Stage 4 full file ${latestFull.name}`, e);
+              addLog(`Warning: Failed to load ${latestFull.name}`, "warn");
+          }
+      }
+
+      if (mergedUniverse.length === 0) {
+          addLog("CRITICAL: Stage 4 data missing or unreadable. Pipeline Aborted.", "err");
+          setLoading(false);
+          return;
+      }
+
+      addLog(`Data Load Complete. ${mergedUniverse.length} Tickers Loaded.`, "ok");
+
+      // [Stage5-B] Contract validation (warn-only): required field completeness check
+      const contractRequiredChecks: Array<{ label: string; valid: (ticker: any) => boolean }> = [
+          { label: 'symbol', valid: (t) => typeof t?.symbol === 'string' && t.symbol.trim().length > 0 },
+          { label: 'name', valid: (t) => typeof t?.name === 'string' && t.name.trim().length > 0 },
+          { label: 'price', valid: (t) => Number.isFinite(Number(t?.price)) && Number(t.price) > 0 },
+          { label: 'fundamentalScore', valid: (t) => Number.isFinite(Number(t?.fundamentalScore)) },
+          { label: 'technicalScore', valid: (t) => Number.isFinite(Number(t?.technicalScore)) },
+          { label: 'techMetrics', valid: (t) => !!t?.techMetrics && typeof t.techMetrics === 'object' },
+          { label: 'techMetrics.rsRating', valid: (t) => Number.isFinite(Number(t?.techMetrics?.rsRating)) },
+          { label: 'techMetrics.rvol', valid: (t) => Number.isFinite(Number(t?.techMetrics?.rvol)) }
+      ];
+
+      const missingRows = mergedUniverse
+          .map((ticker: any, idx: number) => {
+              const missing = contractRequiredChecks
+                  .filter((check) => !check.valid(ticker))
+                  .map((check) => check.label);
+              return {
+                  symbol: ticker?.symbol || `IDX_${idx + 1}`,
+                  missing
+              };
+          })
+          .filter((row) => row.missing.length > 0);
+
+      const missingRate = mergedUniverse.length > 0
+          ? (missingRows.length / mergedUniverse.length) * 100
+          : 0;
+      const contractWarnThresholdPct = 5;
+      const contractAbortThresholdPct = 10;
+
+      if (missingRows.length > 0) {
+          addLog(
+              `Stage4 Contract Check: ${missingRows.length}/${mergedUniverse.length} incomplete rows (${missingRate.toFixed(1)}%).`,
+              "warn"
+          );
+          missingRows.slice(0, 3).forEach((row) => {
+              addLog(`[CONTRACT_WARN] ${row.symbol} missing -> ${row.missing.join(', ')}`, "warn");
+          });
+          if (missingRate >= contractAbortThresholdPct) {
+              addLog(
+                  `Stage4 Contract Hard Stop: missing rate ${missingRate.toFixed(1)}% >= ${contractAbortThresholdPct}%. Pipeline aborted.`,
+                  "err"
+              );
+              throw new Error("STAGE4_CONTRACT_ABORT_THRESHOLD_EXCEEDED");
+          }
+          if (missingRate >= contractWarnThresholdPct) {
+              addLog(
+                  `Stage4 Contract Alert: missing rate ${missingRate.toFixed(1)}% >= ${contractWarnThresholdPct}%.`,
+                  "warn"
+              );
+          }
+      } else {
+          addLog(`Stage4 Contract Check: 0/${mergedUniverse.length} incomplete rows.`, "ok");
+      }
 
         // [CHECK] Sort by technical score to prioritize momentum, but also respect Fundamental
-      const targets = (content.technical_universe || [])
+      const targets = mergedUniverse
          .map((t: any) => ({
              ...t,
              // Create a temporary Total Alpha for pre-sorting
@@ -309,11 +479,49 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
          }))
          .sort((a: any, b: any) => b.tempScore - a.tempScore);
          
+      // [Stage5 P0-1] Sync VIX from Stage4 snapshot (fallback to 20 only when unavailable)
+      let vix = 20;
+      const regimeSourceFolderId =
+          (await findFolderId(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder)) ||
+          (await findFolderId(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder));
+      if (regimeSourceFolderId) {
+          const snapshotRes = await loadLatestJsonFromFolder<Stage5MarketRegimeSnapshot>(
+              accessToken,
+              regimeSourceFolderId,
+              'MARKET_REGIME_SNAPSHOT.json'
+          );
+          const snapshotTrigger =
+              snapshotRes?.data?.trigger_file ||
+              snapshotRes?.data?.sourceStage3File ||
+              snapshotRes?.data?.stage3_file ||
+              snapshotRes?.data?.manifest?.sourceStage3File ||
+              null;
+
+          if (stage4SourceStage3File && snapshotTrigger) {
+              if (stage4SourceStage3File === snapshotTrigger) {
+                  addLog(`Stage4↔Regime Contract: trigger matched (${stage4SourceStage3File})`, "ok");
+              } else {
+                  addLog(`Stage4↔Regime Contract mismatch: Stage4=${stage4SourceStage3File} / Regime=${snapshotTrigger}`, "warn");
+              }
+          } else {
+              addLog(`Stage4↔Regime Contract: trigger metadata incomplete (warn-only).`, "warn");
+          }
+
+          const snapshotVix = Number(snapshotRes?.data?.benchmarks?.vix?.close);
+          if (Number.isFinite(snapshotVix) && snapshotVix > 0) {
+              vix = snapshotVix;
+              addLog(`Risk Protocol Synced: VIX ${vix.toFixed(2)} from ${snapshotRes.name}`, "ok");
+          } else {
+              addLog(`Risk Protocol Fallback: VIX 20 (snapshot unavailable)`, "warn");
+          }
+      } else {
+          addLog(`Risk Protocol Fallback: VIX 20 (Stage4 folder not found)`, "warn");
+      }
+
       const total = targets.length;
       setProgress({ current: 0, total });
 
-      // [VIX] Dynamic Risk Weighting (Default 20 if not provided)
-      const vix = 20; 
+      // [VIX] Dynamic Risk Weighting (synced from snapshot when available)
       const isFearMode = vix > STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL;
       if (isFearMode) addLog(`Risk Protocol: VIX ${vix} > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}. Defensive Mode Active.`, "warn");
 
@@ -386,30 +594,75 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         // Composite Alpha Calculation (Weighted)
         // Note: We keep this for Stage 5 ranking, but Stage 6 will do the final AI synthesis.
         let composite = 0;
+        let baseFundamentalPart = 0;
+        let baseTechnicalPart = 0;
+        let baseIctPart = 0;
+        let fallbackPart = 0;
+        let scoringMode: 'RISK_OFF' | 'RISK_ON' | 'FALLBACK' = 'FALLBACK';
         
         if (item.technicalScore > 0) {
             if (isFearMode) {
                 // [VIX > 22] Fear Mode: Fundamental Heavy (70%) + Tech (30%) + Small ICT Bonus
-                composite = (item.fundamentalScore * 0.70) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.10);
+                baseFundamentalPart = item.fundamentalScore * 0.70;
+                baseTechnicalPart = item.technicalScore * 0.30;
+                baseIctPart = ictAnalysis.score * 0.10;
+                composite = baseFundamentalPart + baseTechnicalPart + baseIctPart;
+                scoringMode = 'RISK_OFF';
             } else {
                 // [VIX <= 22] Normal Mode: Balanced (Fund 20% / Tech 30% / ICT 50%)
-                composite = (item.fundamentalScore * 0.20) + (item.technicalScore * 0.30) + (ictAnalysis.score * 0.50);
+                baseFundamentalPart = item.fundamentalScore * 0.20;
+                baseTechnicalPart = item.technicalScore * 0.30;
+                baseIctPart = ictAnalysis.score * 0.50;
+                composite = baseFundamentalPart + baseTechnicalPart + baseIctPart;
+                scoringMode = 'RISK_ON';
             }
         } else {
             // Penalize missing data items to push them to bottom
-            composite = (item.fundamentalScore || 0) * 0.1; 
+            fallbackPart = (item.fundamentalScore || 0) * 0.1;
+            composite = fallbackPart;
         }
 
         // [PENALTY] RSI Overheat Defense
+        let rsiPenalty = 0;
         if (rsi > STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD) {
-            const penalty = Math.pow(rsi - STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD, 1.5);
-            composite -= penalty;
+            rsiPenalty = Math.pow(rsi - STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD, 1.5);
+            composite -= rsiPenalty;
         }
 
         // [PENALTY] PEG Doubtful Data
+        let dataDoubtfulMultiplier = 1;
         if (isDataDoubtful) {
-            composite *= 0.85; // 15% Haircut for fake valuation
+            dataDoubtfulMultiplier = 0.85;
+            composite *= dataDoubtfulMultiplier; // 15% Haircut for fake valuation
         }
+
+        const signalComboBonus = item.techMetrics?.signalComboBonus || 0;
+        const signalHeatPenalty = item.techMetrics?.signalHeatPenalty || 0;
+        const signalQualityState = item.techMetrics?.signalQualityState || 'NEUTRAL';
+        const minerviniScore = item.techMetrics?.minerviniScore || 0;
+        const dataQualityState = item.techMetrics?.dataQualityState || 'NORMAL';
+
+        const signalQualityBonus = signalQualityState === 'ALIGNED'
+            ? 4
+            : signalQualityState === 'SETUP'
+            ? 2
+            : 0;
+        composite += signalQualityBonus;
+
+        const signalComboBonusApplied = signalComboBonus > 0 ? Math.min(4, signalComboBonus) : 0;
+        const signalHeatPenaltyApplied = signalHeatPenalty > 0 ? Math.min(6, signalHeatPenalty * 0.75) : 0;
+        const minerviniBonus = minerviniScore >= 87.5 ? 2 : 0;
+        composite += signalComboBonusApplied;
+        composite -= signalHeatPenaltyApplied;
+        composite += minerviniBonus;
+
+        let dataQualityMultiplier = 1;
+        if (dataQualityState === 'THIN') dataQualityMultiplier = 0.97;
+        else if (dataQualityState === 'ILLIQUID') dataQualityMultiplier = 0.82;
+        else if (dataQualityState === 'STALE') dataQualityMultiplier = 0.75;
+        composite *= dataQualityMultiplier;
+
+        const preDiversificationComposite = Number(composite.toFixed(2));
 
         const ticker: IctScoredTicker = {
             ...item, // [CRITICAL] Grand Consolidation: Merge all previous stage data
@@ -427,6 +680,25 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             sector: item.sector,
             scoringEngine: "ICT_Wyckoff_Algo_Only",
             isDataDoubtful, 
+            compositeBreakdown: {
+                mode: scoringMode,
+                baseFundamentalPart: Number(baseFundamentalPart.toFixed(2)),
+                baseTechnicalPart: Number(baseTechnicalPart.toFixed(2)),
+                baseIctPart: Number(baseIctPart.toFixed(2)),
+                fallbackPart: Number(fallbackPart.toFixed(2)),
+                signalQualityBonus: Number(signalQualityBonus.toFixed(2)),
+                signalComboBonus: Number(signalComboBonusApplied.toFixed(2)),
+                minerviniBonus: Number(minerviniBonus.toFixed(2)),
+                rsiPenalty: Number(rsiPenalty.toFixed(2)),
+                heatPenalty: Number(signalHeatPenaltyApplied.toFixed(2)),
+                dataDoubtfulMultiplier: Number(dataDoubtfulMultiplier.toFixed(4)),
+                dataQualityMultiplier: Number(dataQualityMultiplier.toFixed(4)),
+                preDiversificationComposite,
+                sectorDiversificationMultiplier: 1,
+                postDiversificationComposite: preDiversificationComposite,
+                sectorCount: 1,
+                sectorBucket: 'LEADER'
+            },
             
             // [NEW] ICT 5-Step Data
             pdZone,
@@ -444,46 +716,130 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       }
 
       // [LOGS] Modernized Terminal Output
-      addLog(`[OK] ICT PD-Array: Institutional Zones Mapped (Discount/Premium)`, "ok");
-      addLog(`[OK] Smart Money Flow: Displacement Checked`, "ok");
-      addLog(`[DATA-SYNC] Final Bridge Constructed: All Alpha Tags Encoded for Stage 6 Final`, "ok");
+      addLog(`ICT PD-Array: Institutional Zones Mapped (Discount/Premium)`, "ok");
+      addLog(`Smart Money Flow: Displacement Checked`, "ok");
+      addLog(`Stage 4 Signal Bridge: Minervini / MACD / DMI Context Ingested`, "ok");
+      addLog(`Final Bridge Constructed: All Alpha Tags Encoded for Stage 6 Final`, "ok");
 
-      // [NEW] Sector Diversification Logic (Step 6)
-      // Apply penalty to stocks if their sector is already crowded in the top ranks.
-      // We need to sort first to see who is on top, then apply penalty, then re-sort?
-      // Actually, the request says "Before sorting... iterate...". 
-      // But to know if a stock is the "3rd" or "4th" best in its sector, we implicitly need an initial sort or a running count based on score.
-      // However, the user prompt implies: "iterate through the list... count... apply penalty".
-      // If we iterate the unsorted list, the order is arbitrary. 
-      // A better approach to strictly follow the "Dynamic Filtering" intent:
-      // 1. Sort by current compositeAlpha (Descending) to establish initial rank.
-      // 2. Iterate and apply penalties based on sector count.
-      // 3. Re-sort.
-      
-      // Initial Sort
+      // [NEW] Sector Diversification Logic (Step 6) - Progressive Penalty Protocol
+      // Strategy: Allow Momentum leaders (Top 4) but aggressively kill followers to ensure diversity.
       results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
 
       const sectorCounts: Record<string, number> = {};
-      const diversifiedResults = results.map(ticker => {
+      const diversifiedResults = results.map((ticker, rawIndex) => {
           const sector = ticker.sectorTheme || ticker.sector || 'Unknown';
           sectorCounts[sector] = (sectorCounts[sector] || 0) + 1;
+          const count = sectorCounts[sector];
 
           let adjustedAlpha = ticker.compositeAlpha;
-          // 3rd stock in sector -> 5% penalty
-          if (sectorCounts[sector] === 3) adjustedAlpha *= 0.95;
-          // 4th+ stock in sector -> 10% penalty
-          if (sectorCounts[sector] >= 4) adjustedAlpha *= 0.90;
+          let sectorDiversificationMultiplier = 1;
+          let sectorBucket: 'LEADER' | 'WARNING' | 'SATURATION' = 'LEADER';
+      
+          // [Stage5-D] Smoothed sector concentration penalty
+          if (count <= 4) {
+              // Leader zone: keep top names untouched
+              sectorDiversificationMultiplier = 1;
+              sectorBucket = 'LEADER';
+          } else if (count <= 6) {
+              // Warning zone: keep diversity pressure but avoid over-cut
+              sectorDiversificationMultiplier = 0.92;
+              sectorBucket = 'WARNING';
+              adjustedAlpha *= sectorDiversificationMultiplier; 
+          } else {
+              // Saturation zone: progressively penalize, with floor guard
+              sectorDiversificationMultiplier = Math.max(0.70, 1 - 0.06 * (count - 4));
+              sectorBucket = 'SATURATION';
+              adjustedAlpha *= sectorDiversificationMultiplier; 
+          }
 
-          return { ...ticker, compositeAlpha: Number(adjustedAlpha.toFixed(2)) };
+          const postDiversificationComposite = Number(adjustedAlpha.toFixed(2));
+          const prevBreakdown = ticker.compositeBreakdown;
+          const compositeBreakdown = prevBreakdown
+              ? {
+                    ...prevBreakdown,
+                    sectorDiversificationMultiplier: Number(sectorDiversificationMultiplier.toFixed(4)),
+                    postDiversificationComposite,
+                    sectorCount: count,
+                    sectorBucket
+                }
+              : undefined;
+
+          return {
+              ...ticker,
+              rankRaw: rawIndex + 1,
+              compositeAlpha: postDiversificationComposite,
+              compositeBreakdown
+          };
       });
 
       // Final Sort after Penalty
       diversifiedResults.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
 
-      // Select Top 50 to pass to Stage 6 (Final AI Analysis)
-      const finalSurvivors = diversifiedResults.slice(0, 50); 
+      const finalRankedResults = diversifiedResults.map((ticker, finalIndex) => {
+          const breakdown = ticker.compositeBreakdown;
+          let majorPenaltyCause: IctScoredTicker['majorPenaltyCause'] = 'NONE';
+
+          if (breakdown) {
+              if ((breakdown.sectorDiversificationMultiplier || 1) < 1) majorPenaltyCause = 'SECTOR_DIVERSIFICATION';
+              else if ((breakdown.dataQualityMultiplier || 1) < 1) majorPenaltyCause = 'DATA_QUALITY';
+              else if ((breakdown.dataDoubtfulMultiplier || 1) < 1) majorPenaltyCause = 'PEG_DOUBT';
+              else if ((breakdown.rsiPenalty || 0) > 0) majorPenaltyCause = 'RSI_OVERHEAT';
+              else if ((breakdown.heatPenalty || 0) > 0) majorPenaltyCause = 'SIGNAL_HEAT';
+          }
+
+          return {
+              ...ticker,
+              rankFinal: finalIndex + 1,
+              majorPenaltyCause,
+              regimeMode: breakdown?.mode || 'FALLBACK'
+          };
+      });
+
+      finalRankedResults.slice(0, 5).forEach((ticker, index) => {
+          const breakdown = ticker.compositeBreakdown;
+          if (!breakdown) return;
+          addLog(
+              `[ALPHA_BREAKDOWN] #${index + 1} ${ticker.symbol} | rank ${ticker.rankRaw}->${ticker.rankFinal} | pre ${breakdown.preDiversificationComposite.toFixed(2)} x sector ${breakdown.sectorDiversificationMultiplier.toFixed(2)} (${breakdown.sectorBucket}) => final ${ticker.compositeAlpha.toFixed(2)} | mode ${ticker.regimeMode} | cause ${ticker.majorPenaltyCause}`,
+              "ok"
+          );
+      });
+
+      // [Stage5-F] Sparse data guard: preserve data, but limit sparse names in Top50
+      const sparseCap = 5;
+      const targetCount = 50;
+      const isSparseCandidate = (ticker: IctScoredTicker) => {
+          const bars = Array.isArray(ticker.priceHistory) ? ticker.priceHistory.length : 0;
+          const dataQualityState = ticker.techMetrics?.dataQualityState || 'NORMAL';
+          return bars < 60 || dataQualityState === 'ILLIQUID' || dataQualityState === 'STALE';
+      };
+
+      const denseCandidates = finalRankedResults.filter((ticker) => !isSparseCandidate(ticker));
+      const sparseCandidates = finalRankedResults.filter((ticker) => isSparseCandidate(ticker));
+
+      let finalSurvivors = [
+          ...denseCandidates.slice(0, targetCount),
+          ...sparseCandidates.slice(0, sparseCap)
+      ].slice(0, targetCount);
+
+      if (finalSurvivors.length < targetCount) {
+          const selectedSymbols = new Set(finalSurvivors.map((ticker) => ticker.symbol));
+          const sparseOverflow = sparseCandidates
+              .filter((ticker) => !selectedSymbols.has(ticker.symbol))
+              .slice(0, targetCount - finalSurvivors.length);
+          finalSurvivors = [...finalSurvivors, ...sparseOverflow];
+          if (sparseOverflow.length > 0) {
+              addLog(`[SPARSE_GUARD] Dense pool shortage: relaxed sparse cap by +${sparseOverflow.length}.`, "warn");
+          }
+      }
+
+      const selectedSparseCount = finalSurvivors.filter((ticker) => isSparseCandidate(ticker)).length;
+      const sparseLogType = selectedSparseCount > sparseCap ? "warn" : "ok";
+      addLog(
+          `[SPARSE_GUARD] dense ${denseCandidates.length} | sparse ${sparseCandidates.length} | selected sparse ${selectedSparseCount}/${sparseCap} (Top${targetCount})`,
+          sparseLogType
+      );
       
-      setProcessedData(diversifiedResults); 
+      setProcessedData(finalRankedResults); 
       if (finalSurvivors.length > 0) handleTickerSelect(finalSurvivors[0]);
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
@@ -494,7 +850,14 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       const fileName = `STAGE5_ICT_ELITE_50_${timestamp}.json`;
       
       const payload = {
-        manifest: { version: "6.9.0", count: finalSurvivors.length, timestamp: new Date().toISOString(), strategy: "Smart_Money_Composite_Wyckoff_Algo_V2" },
+        manifest: {
+          version: "6.9.0",
+          count: finalSurvivors.length,
+          timestamp: new Date().toISOString(),
+          strategy: "Smart_Money_Composite_Wyckoff_Algo_V2",
+          scoringContractVersion: "stage5-e-v1",
+          stage6ContractVersion: "stage5to6-e-v1"
+        },
         ict_universe: finalSurvivors
       };
 
@@ -533,6 +896,36 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
     }).then(r => r.json()).then(r => r.id);
   };
 
+  const findFolderId = async (token: string, name: string) => {
+    const q = encodeURIComponent(
+      `name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false and mimeType = 'application/vnd.google-apps.folder'`
+    );
+    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1`, {
+      headers: { 'Authorization': `Bearer ${token}` }
+    }).then(r => r.json());
+    return res.files?.[0]?.id || null;
+  };
+
+  const loadLatestJsonFromFolder = async <T,>(token: string, folderId: string, fileName: string): Promise<{ data: T | null; name: string | null }> => {
+    try {
+      const q = encodeURIComponent(`name = '${fileName}' and '${folderId}' in parents and trashed = false`);
+      const search = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+
+      const latest = search.files?.[0];
+      if (!latest?.id) return { data: null, name: null };
+
+      const data = await fetch(`https://www.googleapis.com/drive/v3/files/${latest.id}?alt=media`, {
+        headers: { 'Authorization': `Bearer ${token}` }
+      }).then(r => r.json());
+
+      return { data: data as T, name: latest.name || fileName };
+    } catch {
+      return { data: null, name: null };
+    }
+  };
+
   const getSectorStyle = (sector: string) => {
     const s = (sector || '').toLowerCase();
     if (s.includes('tech') || s.includes('software')) return 'bg-indigo-500/20 text-indigo-400 border-indigo-500/30';
@@ -548,7 +941,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
             <div className="flex items-center space-x-6">
               <div className="w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-indigo-600/10 flex items-center justify-center border border-indigo-500/20">
-                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-pulse' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                 <svg className={`w-5 h-5 md:w-6 md:h-6 text-indigo-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
               </div>
               <div>
                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">ICT_Nexus v6.9.0</h2>

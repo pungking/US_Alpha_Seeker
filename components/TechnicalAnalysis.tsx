@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip as RechartsTooltip, XAxis, YAxis } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS, STRATEGY_CONFIG } from '../constants';
 import { ApiProvider } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -39,6 +39,41 @@ interface TechnicalTicker {
       isBlueSky: boolean;
       goldenSetup: boolean;
       volatilityRange?: number; // [NEW] ICT Volatility Score
+      dataQualityPenalty?: number;
+      freshnessPenalty?: number;
+      liquidityPenalty?: number;
+      benchmarkGapBars?: number;
+      zeroVolumeTailBars?: number;
+      avgDollarVolume20?: number;
+      dataQualityState?: 'NORMAL' | 'THIN' | 'ILLIQUID' | 'STALE';
+      dataQualityScoreCap?: number | null;
+      macdLine?: number;
+      macdSignal?: number;
+      macdHistogram?: number;
+      mfi?: number;
+      diPlus?: number;
+      diMinus?: number;
+      minerviniScore?: number;
+      minerviniPassCount?: number;
+      stage31SignalScore?: number;
+      signalComboBonus?: number;
+      signalHeatPenalty?: number;
+      signalQualityState?: 'ALIGNED' | 'SETUP' | 'OVERHEATED' | 'NEUTRAL';
+      marketRegime?: 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF' | 'UNKNOWN';
+      marketRegimeScore?: number;
+      breadth50Pct?: number;
+      breadth200Pct?: number;
+      near52wHighPct?: number;
+      vixClose?: number | null;
+      vixDistanceFromRiskOff?: number | null;
+      regimeDistancePenalty?: number;
+      macroOverlayScore?: number;
+      earningsDate?: string | null;
+      daysToEarnings?: number | null;
+      eventRiskState?: 'HIGH' | 'MEDIUM' | 'NONE';
+      eventDistanceBand?: 'D_MINUS_1_TO_PLUS_1' | 'D_MINUS_2_TO_MINUS_5' | 'NONE';
+      eventRiskSource?: 'DISTANCE' | 'LABEL' | 'NONE';
+      eventRiskPenalty?: number;
   };
   
   priceHistory: { date: string; close: number; open?: number; high?: number; low?: number; volume?: number }[];
@@ -55,6 +90,15 @@ interface TechnicalTicker {
   // Previous Stage Data Persistence
   fundamentalScore?: number;
   qualityScore?: number;
+  scoreBreakdown: {
+      rawSignalScore: number;
+      signalBonus: number;
+      regimePenalty: number;
+      eventPenalty: number;
+      liquidityPenalty: number;
+      hygienePenalty: number;
+      finalScore: number;
+  };
   
   [key: string]: any;
 }
@@ -64,6 +108,55 @@ interface Props {
   onComplete?: () => void;
   onStockSelected?: (stock: any) => void;
   isVisible?: boolean; // [NEW] Added prop
+}
+
+type MarketRegimeState = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF' | 'UNKNOWN';
+
+interface MarketRegimeSnapshot {
+    trigger_file?: string;
+    timestamp?: string;
+    benchmarks?: {
+        sp500?: {
+            close?: number;
+            return_20d?: number | null;
+            above_sma50?: boolean;
+            above_sma200?: boolean;
+        };
+        nasdaq?: {
+            close?: number;
+            return_20d?: number | null;
+            above_sma50?: boolean;
+            above_sma200?: boolean;
+        };
+        vix?: {
+            close?: number;
+            risk_state?: string;
+        };
+    };
+    breadth?: {
+        above_sma50_pct?: number;
+        above_sma200_pct?: number;
+        near_52w_high_pct?: number;
+        total?: number;
+        valid_count?: number;
+    };
+    regime?: {
+        state?: MarketRegimeState;
+        score?: number;
+        reasons?: string[];
+    };
+}
+
+interface EarningsEventMap {
+    trigger_file?: string;
+    timestamp?: string;
+    source?: string;
+    universe_count?: number;
+    events?: Record<string, {
+        earnings_date?: string;
+        days_to_event?: number;
+        event_risk?: 'HIGH' | 'MEDIUM' | 'NONE';
+    }>;
 }
 
 // [KNOWLEDGE BASE] Expanded Technical Definitions
@@ -113,6 +206,31 @@ const TECH_DEFINITIONS: Record<string, { title: string; desc: string; interpreta
         desc: "평소 거래량 대비 현재 거래량의 비율을 로그 스케일로 정규화한 점수입니다.",
         interpretation: "Score > 75 (1.5x 이상): 기관/세력의 자금이 평소보다 강하게 유입되고 있다는 신호입니다."
     },
+    'TTM_SQUEEZE': {
+        title: "TTM Squeeze (변동성 응축/분출)",
+        desc: "볼린저 밴드가 켈트너 채널 안으로 들어오면 응축(Squeeze ON), 응축이 풀리며 위로 전개되면 FIRED_LONG으로 해석합니다.",
+        interpretation: "ON은 에너지 응축, FIRED_LONG은 실제 추세 분출 신호로 봅니다."
+    },
+    'MINERVINI': {
+        title: "Minervini Template (기관형 정배열 체크리스트)",
+        desc: "50/150/200일 이동평균 정렬, 200일선 상승, 52주 고점/저점 위치 등 8개 구조 조건의 통과 개수를 점검합니다.",
+        interpretation: "7/8 이상이면 구조적으로 강한 추세주일 가능성이 높습니다."
+    },
+    'MACD': {
+        title: "MACD Histogram (추세 가속도)",
+        desc: "MACD Line과 Signal Line의 차이를 Histogram으로 표시합니다. 양수 확대는 상승 가속, 음수 확대는 하락 가속으로 해석합니다.",
+        interpretation: "0선 위 양전환 및 Histogram 증가 구간을 우선적으로 봅니다."
+    },
+    'DMI': {
+        title: "DMI Bias (+DI / -DI)",
+        desc: "+DI가 -DI 위에 있으면 상승 추세 우위, -DI가 +DI 위에 있으면 하락 추세 우위로 해석합니다.",
+        interpretation: "ADX와 함께 볼 때 추세의 방향성과 힘을 동시에 판단할 수 있습니다."
+    },
+    'MFI': {
+        title: "MFI (Money Flow Index)",
+        desc: "가격과 거래량을 함께 반영한 자금 흐름 지표입니다. RSI보다 실제 수급의 흔적을 더 많이 반영합니다.",
+        interpretation: "55~80 구간은 건전한 기관성 수급 유입으로 해석하기 좋습니다."
+    },
     'MOMENTUM': {
         title: "Momentum (상승 탄력)",
         desc: "가격 변화의 속도와 가속도를 측정한 복합 지표입니다.",
@@ -149,6 +267,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
   const alphaVantageKey = API_CONFIGS.find(c => c.provider === ApiProvider.ALPHA_VANTAGE)?.key;
+  const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
 
@@ -203,6 +322,32 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     return `${mins}:${secs.toString().padStart(2, '0')}`;
   };
 
+  const getStatusBadgeText = () => {
+      if (loading) return `Processing: ${progress.status} (${progress.current}/${progress.total})`;
+      if (processedData.length === 0) return 'Drive OHLCV Scan Ready';
+
+      const driveCount = processedData.filter(item => item.dataSource === 'DRIVE').length;
+      const heuristicCount = processedData.filter(item => item.dataSource === 'HEURISTIC').length;
+      const failureCount = processedData.filter(item => item.dataSource === 'FAILURE').length;
+
+      if (heuristicCount === 0 && failureCount === 0) return `Drive OHLCV Verified (${driveCount})`;
+      if (failureCount === 0) return `Hybrid Output: ${driveCount} Drive / ${heuristicCount} Est.`;
+      return `Mixed Output: ${driveCount} Drive / ${heuristicCount} Est. / ${failureCount} Fail`;
+  };
+
+  const formatSqueezeBadge = (state: TechnicalTicker['techMetrics']['squeezeState']) => {
+      if (state === 'FIRED_LONG') return 'FIRED';
+      if (state === 'FIRED_SHORT') return 'SHORT';
+      if (state === 'SQUEEZE_ON') return 'ON';
+      return 'OFF';
+  };
+
+  const getDmiBiasLabel = (diPlus = 0, diMinus = 0) => {
+      if (diPlus > diMinus) return 'BULL';
+      if (diPlus < diMinus) return 'BEAR';
+      return 'NEUTRAL';
+  };
+
   const handleTickerSelect = (ticker: TechnicalTicker) => {
       setSelectedTicker(ticker);
       setActiveMetric(null);
@@ -224,6 +369,35 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const mean = slice.reduce((a, b) => a + b, 0) / period;
       const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / period;
       return Math.sqrt(variance);
+  };
+
+  const calculateAverage = (data: number[], period: number) => {
+      const slice = data.slice(-period);
+      if (slice.length === 0) return 0;
+      return slice.reduce((a, b) => a + b, 0) / slice.length;
+  };
+
+  const calculateEMAArray = (data: number[], period: number) => {
+      if (data.length === 0) return [];
+      const multiplier = 2 / (period + 1);
+      const ema: number[] = [data[0]];
+      for (let i = 1; i < data.length; i++) {
+          ema.push((data[i] * multiplier) + (ema[i - 1] * (1 - multiplier)));
+      }
+      return ema;
+  };
+
+  const calculateATR = (highs: number[], lows: number[], closes: number[], period = 20) => {
+      if (highs.length < period + 1 || lows.length < period + 1 || closes.length < period + 1) return 0;
+      const trValues: number[] = [];
+      for (let i = 1; i < highs.length; i++) {
+          trValues.push(Math.max(
+              highs[i] - lows[i],
+              Math.abs(highs[i] - closes[i - 1]),
+              Math.abs(lows[i] - closes[i - 1])
+          ));
+      }
+      return calculateAverage(trValues, period);
   };
 
   const calculateOBV = (closes: number[], volumes: number[]) => {
@@ -318,6 +492,391 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     return Number(finalADX.toFixed(2));
   };
 
+  const calculateDMI = (highs: number[], lows: number[], closes: number[], period = 14) => {
+      if (highs.length < period + 1 || lows.length < period + 1 || closes.length < period + 1) {
+          return { diPlus: 0, diMinus: 0 };
+      }
+
+      const tr: number[] = [];
+      const dmPlus: number[] = [];
+      const dmMinus: number[] = [];
+
+      for (let i = 1; i < highs.length; i++) {
+          const upMove = highs[i] - highs[i - 1];
+          const downMove = lows[i - 1] - lows[i];
+          tr.push(Math.max(
+              highs[i] - lows[i],
+              Math.abs(highs[i] - closes[i - 1]),
+              Math.abs(lows[i] - closes[i - 1])
+          ));
+          dmPlus.push((upMove > downMove && upMove > 0) ? upMove : 0);
+          dmMinus.push((downMove > upMove && downMove > 0) ? downMove : 0);
+      }
+
+      let smoothTR = tr.slice(0, period).reduce((a, b) => a + b, 0);
+      let smoothPlus = dmPlus.slice(0, period).reduce((a, b) => a + b, 0);
+      let smoothMinus = dmMinus.slice(0, period).reduce((a, b) => a + b, 0);
+
+      for (let i = period; i < tr.length; i++) {
+          smoothTR = smoothTR - (smoothTR / period) + tr[i];
+          smoothPlus = smoothPlus - (smoothPlus / period) + dmPlus[i];
+          smoothMinus = smoothMinus - (smoothMinus / period) + dmMinus[i];
+      }
+
+      if (smoothTR === 0) return { diPlus: 0, diMinus: 0 };
+
+      return {
+          diPlus: Number(((smoothPlus / smoothTR) * 100).toFixed(2)),
+          diMinus: Number(((smoothMinus / smoothTR) * 100).toFixed(2))
+      };
+  };
+
+  const calculateMACD = (prices: number[]) => {
+      if (prices.length < 35) {
+          return { macdLine: 0, signalLine: 0, histogram: 0, previousHistogram: 0 };
+      }
+
+      const ema12 = calculateEMAArray(prices, 12);
+      const ema26 = calculateEMAArray(prices, 26);
+      const macdSeries = prices.map((_, index) => (ema12[index] || 0) - (ema26[index] || 0));
+      const signalSeries = calculateEMAArray(macdSeries, 9);
+      const histogramSeries = macdSeries.map((value, index) => value - (signalSeries[index] || 0));
+
+      const lastIndex = histogramSeries.length - 1;
+      const previousIndex = Math.max(0, lastIndex - 1);
+
+      return {
+          macdLine: Number((macdSeries[lastIndex] || 0).toFixed(4)),
+          signalLine: Number((signalSeries[lastIndex] || 0).toFixed(4)),
+          histogram: Number((histogramSeries[lastIndex] || 0).toFixed(4)),
+          previousHistogram: Number((histogramSeries[previousIndex] || 0).toFixed(4))
+      };
+  };
+
+  const calculateMFI = (highs: number[], lows: number[], closes: number[], volumes: number[], period = 14) => {
+      if (highs.length < period + 1 || lows.length < period + 1 || closes.length < period + 1 || volumes.length < period + 1) return 50;
+
+      let positiveFlow = 0;
+      let negativeFlow = 0;
+
+      for (let i = highs.length - period; i < highs.length; i++) {
+          const typicalPrice = (highs[i] + lows[i] + closes[i]) / 3;
+          const prevTypicalPrice = (highs[i - 1] + lows[i - 1] + closes[i - 1]) / 3;
+          const rawMoneyFlow = typicalPrice * (volumes[i] || 0);
+
+          if (typicalPrice > prevTypicalPrice) positiveFlow += rawMoneyFlow;
+          else if (typicalPrice < prevTypicalPrice) negativeFlow += rawMoneyFlow;
+      }
+
+      if (negativeFlow === 0) return 100;
+      const moneyRatio = positiveFlow / negativeFlow;
+      return Number((100 - (100 / (1 + moneyRatio))).toFixed(2));
+  };
+
+  const calculateMinerviniTemplate = (closes: number[], high52: number, low52: number) => {
+      const currentPrice = closes[closes.length - 1] || 0;
+      const sma50 = calculateSMA(closes, 50);
+      const sma150 = calculateSMA(closes, 150);
+      const sma200 = calculateSMA(closes, 200);
+      const historicalSma200 = closes.length >= 220
+          ? closes.slice(-(200 + 20), -20).reduce((sum, price) => sum + price, 0) / 200
+          : 0;
+
+      const checks = [
+          sma150 > 0 && currentPrice > sma150,
+          sma200 > 0 && currentPrice > sma200,
+          sma150 > 0 && sma200 > 0 && sma150 > sma200,
+          sma200 > 0 && historicalSma200 > 0 && sma200 > historicalSma200,
+          sma50 > 0 && sma150 > 0 && sma200 > 0 && sma50 > sma150 && sma50 > sma200,
+          sma50 > 0 && currentPrice > sma50,
+          low52 > 0 ? currentPrice >= low52 * 1.25 : false,
+          high52 > 0 ? currentPrice >= high52 * 0.75 : false
+      ];
+
+      const passCount = checks.filter(Boolean).length;
+      const score = Number(((passCount / checks.length) * 100).toFixed(2));
+
+      return {
+          passCount,
+          score
+      };
+  };
+
+  const calculateTTMSqueezeState = (
+      highs: number[],
+      lows: number[],
+      closes: number[],
+      momentumBias = 0
+  ): 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT' => {
+      const getSqueezeFlag = (offset = 0) => {
+          const end = closes.length - offset;
+          if (end < 20) return false;
+
+          const closeWindow = closes.slice(0, end);
+          const highWindow = highs.slice(0, end);
+          const lowWindow = lows.slice(0, end);
+          const basis = calculateSMA(closeWindow, 20);
+          const deviation = calculateStdDev(closeWindow, 20);
+          const atr = calculateATR(highWindow, lowWindow, closeWindow, 20);
+
+          if (basis === 0 || atr === 0) return false;
+
+          const bbUpper = basis + (deviation * 2);
+          const bbLower = basis - (deviation * 2);
+          const kcUpper = basis + (atr * 1.5);
+          const kcLower = basis - (atr * 1.5);
+
+          return bbLower > kcLower && bbUpper < kcUpper;
+      };
+
+      const currentOn = getSqueezeFlag(0);
+      const previousOn = getSqueezeFlag(1);
+
+      if (currentOn) return 'SQUEEZE_ON';
+      if (previousOn && !currentOn) return momentumBias >= 0 ? 'FIRED_LONG' : 'FIRED_SHORT';
+      return 'SQUEEZE_OFF';
+  };
+
+  const calculateStage31SignalOverlay = (signals: {
+      minerviniScore: number;
+      minerviniPassCount: number;
+      macdLine: number;
+      signalLine: number;
+      histogram: number;
+      previousHistogram: number;
+      mfi: number;
+      diPlus: number;
+      diMinus: number;
+      adx: number;
+      rsi: number;
+      rawRvol: number;
+      priceChange: number;
+      squeezeState: 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT';
+  }) => {
+      let structureBonus = 0;
+      if (signals.minerviniPassCount >= 8) structureBonus += 5;
+      else if (signals.minerviniPassCount >= 7) structureBonus += 4;
+      else if (signals.minerviniPassCount >= 6) structureBonus += 2;
+      else if (signals.minerviniPassCount >= 5) structureBonus += 1;
+
+      let momentumBonus = 0;
+      if (signals.macdLine > signals.signalLine && signals.histogram > 0) momentumBonus += 3;
+      else if (signals.macdLine < signals.signalLine && signals.histogram < 0) momentumBonus -= 2;
+
+      if (signals.histogram > signals.previousHistogram && signals.histogram > -0.05) momentumBonus += 1.5;
+      if (signals.mfi >= 55 && signals.mfi <= 80) momentumBonus += 2;
+      else if (signals.mfi > 85) momentumBonus -= 2.5;
+      else if (signals.mfi < 30) momentumBonus -= 1.5;
+
+      let directionBonus = 0;
+      if (signals.diPlus > signals.diMinus && signals.adx >= 20) directionBonus += 3;
+      else if (signals.diPlus < signals.diMinus && signals.adx >= 20) directionBonus -= 2.5;
+
+      let squeezeBonus = 0;
+      if (signals.squeezeState === 'FIRED_LONG') squeezeBonus += 4;
+      else if (signals.squeezeState === 'SQUEEZE_ON') squeezeBonus += 2;
+      else if (signals.squeezeState === 'FIRED_SHORT') squeezeBonus -= 4;
+
+      let signalComboBonus = 0;
+      const bullishMomentumAligned =
+          signals.macdLine > signals.signalLine &&
+          signals.histogram > 0 &&
+          signals.diPlus > signals.diMinus &&
+          signals.mfi >= 55 &&
+          signals.mfi <= 80;
+
+      if (signals.squeezeState === 'FIRED_LONG' && bullishMomentumAligned) signalComboBonus += 4;
+      else if (signals.squeezeState === 'SQUEEZE_ON' && signals.histogram > signals.previousHistogram && signals.diPlus > signals.diMinus) signalComboBonus += 2;
+
+      if (signals.minerviniPassCount >= 7 && bullishMomentumAligned) signalComboBonus += 2;
+
+      let signalHeatPenalty = 0;
+      if (signals.rsi >= 82) signalHeatPenalty += 3;
+      else if (signals.rsi >= 78) signalHeatPenalty += 1.5;
+
+      if (signals.mfi >= 88) signalHeatPenalty += 3;
+      if (signals.rawRvol >= 2.5 && signals.priceChange >= 0.045) signalHeatPenalty += 2;
+
+      const stage31SignalScore = Number(
+          Math.max(
+              -10,
+              Math.min(16, structureBonus + momentumBonus + directionBonus + squeezeBonus + signalComboBonus - signalHeatPenalty)
+          ).toFixed(2)
+      );
+
+      let signalQualityState: 'ALIGNED' | 'SETUP' | 'OVERHEATED' | 'NEUTRAL' = 'NEUTRAL';
+      if (signalHeatPenalty >= 4) signalQualityState = 'OVERHEATED';
+      else if (signalComboBonus >= 4) signalQualityState = 'ALIGNED';
+      else if (stage31SignalScore > 0) signalQualityState = 'SETUP';
+
+      return {
+          stage31SignalScore,
+          signalComboBonus: Number(signalComboBonus.toFixed(2)),
+          signalHeatPenalty: Number(signalHeatPenalty.toFixed(2)),
+          signalQualityState
+      };
+  };
+
+  const MARKET_REGIME_FILE = 'MARKET_REGIME_SNAPSHOT.json';
+  const EARNINGS_EVENT_FILE = 'EARNINGS_EVENT_MAP.json';
+
+  const calculateMacroOverlay = (
+      snapshot: MarketRegimeSnapshot | null,
+      context: {
+          trendAlignment?: TechnicalTicker['techMetrics']['trendAlignment'];
+          rsRating?: number;
+          minerviniPassCount?: number;
+      }
+  ) => {
+      const breadth50Pct = Number(snapshot?.breadth?.above_sma50_pct || 0);
+      const breadth200Pct = Number(snapshot?.breadth?.above_sma200_pct || 0);
+      const near52wHighPct = Number(snapshot?.breadth?.near_52w_high_pct || 0);
+      const vixClose = snapshot?.benchmarks?.vix?.close;
+      const vixRiskOffLevel = Number(STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL || 22);
+      const marketRegime = (snapshot?.regime?.state || 'UNKNOWN') as MarketRegimeState;
+      const marketRegimeScore = Number(snapshot?.regime?.score || 0);
+      const vixDistanceFromRiskOff = typeof vixClose === 'number'
+          ? Number((vixClose - vixRiskOffLevel).toFixed(2))
+          : null;
+      let regimeDistancePenalty = 0;
+
+      if (!snapshot) {
+          return {
+              marketRegime,
+              marketRegimeScore,
+              breadth50Pct,
+              breadth200Pct,
+              near52wHighPct,
+              vixClose: vixClose ?? null,
+              vixDistanceFromRiskOff,
+              regimeDistancePenalty,
+              macroOverlayScore: 0
+          };
+      }
+
+      let macroOverlayScore = 0;
+
+      if (marketRegime === 'RISK_ON') macroOverlayScore += 3;
+      else if (marketRegime === 'RISK_OFF') macroOverlayScore -= 6;
+
+      if (breadth50Pct >= 60) macroOverlayScore += 1;
+      else if (breadth50Pct < 45) macroOverlayScore -= 1.5;
+
+      if (breadth200Pct >= 55) macroOverlayScore += 2;
+      else if (breadth200Pct < 40) macroOverlayScore -= 2.5;
+
+      if (near52wHighPct >= 18) macroOverlayScore += 1;
+      else if (near52wHighPct < 8) macroOverlayScore -= 1;
+
+      if (typeof vixDistanceFromRiskOff === 'number') {
+          if (vixDistanceFromRiskOff >= 6) regimeDistancePenalty = 3;
+          else if (vixDistanceFromRiskOff >= 3) regimeDistancePenalty = 2.25;
+          else if (vixDistanceFromRiskOff >= 1) regimeDistancePenalty = 1.5;
+          else if (vixDistanceFromRiskOff > 0) regimeDistancePenalty = 0.75;
+
+          macroOverlayScore -= regimeDistancePenalty;
+
+          if (vixDistanceFromRiskOff <= -7) macroOverlayScore += 1;
+          else if (vixDistanceFromRiskOff <= -3) macroOverlayScore += 0.5;
+      }
+
+      if ((context.trendAlignment === 'POWER_TREND' || context.trendAlignment === 'BULLISH') && marketRegime === 'RISK_ON') {
+          macroOverlayScore += 1;
+      }
+
+      if ((context.trendAlignment === 'BEARISH' || (context.rsRating || 0) < 50) && marketRegime === 'RISK_OFF') {
+          macroOverlayScore -= 1.5;
+      }
+
+      if ((context.minerviniPassCount || 0) >= 7 && marketRegime === 'RISK_ON') {
+          macroOverlayScore += 1;
+      }
+
+      return {
+          marketRegime,
+          marketRegimeScore,
+          breadth50Pct: Number(breadth50Pct.toFixed(1)),
+          breadth200Pct: Number(breadth200Pct.toFixed(1)),
+          near52wHighPct: Number(near52wHighPct.toFixed(1)),
+          vixClose: typeof vixClose === 'number' ? Number(vixClose.toFixed(2)) : null,
+          vixDistanceFromRiskOff,
+          regimeDistancePenalty: Number(regimeDistancePenalty.toFixed(2)),
+          macroOverlayScore: Number(Math.max(-10, Math.min(8, macroOverlayScore)).toFixed(2))
+      };
+  };
+
+  const calculateEventRiskOverlay = (
+      eventMap: EarningsEventMap | null,
+      symbol: string,
+      marketRegime: MarketRegimeState = 'UNKNOWN'
+  ) => {
+      const event = eventMap?.events?.[symbol.toUpperCase()];
+      const earningsDate = event?.earnings_date || null;
+      const labelRiskState = (event?.event_risk || 'NONE') as 'HIGH' | 'MEDIUM' | 'NONE';
+      let daysToEarnings = typeof event?.days_to_event === 'number' ? event.days_to_event : null;
+
+      // Fallback: derive D-day distance from earnings_date when numeric distance is unavailable.
+      if (daysToEarnings === null && earningsDate) {
+          const earningsTime = new Date(earningsDate).getTime();
+          if (Number.isFinite(earningsTime)) {
+              const now = new Date();
+              const todayUtc = Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate());
+              const earningsUtc = Date.UTC(
+                  new Date(earningsTime).getUTCFullYear(),
+                  new Date(earningsTime).getUTCMonth(),
+                  new Date(earningsTime).getUTCDate()
+              );
+              daysToEarnings = Math.round((earningsUtc - todayUtc) / (24 * 60 * 60 * 1000));
+          }
+      }
+
+      let eventDistanceBand: 'D_MINUS_1_TO_PLUS_1' | 'D_MINUS_2_TO_MINUS_5' | 'NONE' = 'NONE';
+      let eventRiskState: 'HIGH' | 'MEDIUM' | 'NONE' = 'NONE';
+      let eventRiskSource: 'DISTANCE' | 'LABEL' | 'NONE' = 'NONE';
+
+      let eventRiskPenalty = 0;
+      if (typeof daysToEarnings === 'number') {
+          if (daysToEarnings >= -1 && daysToEarnings <= 1) {
+              eventDistanceBand = 'D_MINUS_1_TO_PLUS_1';
+              eventRiskState = 'HIGH';
+              eventRiskPenalty = 8;
+              eventRiskSource = 'DISTANCE';
+          } else if (daysToEarnings >= -5 && daysToEarnings <= -2) {
+              eventDistanceBand = 'D_MINUS_2_TO_MINUS_5';
+              eventRiskState = 'MEDIUM';
+              eventRiskPenalty = 3;
+              eventRiskSource = 'DISTANCE';
+          } else {
+              eventDistanceBand = 'NONE';
+              eventRiskState = 'NONE';
+              eventRiskPenalty = 0;
+              eventRiskSource = 'NONE';
+          }
+      } else if (labelRiskState === 'HIGH') {
+          eventRiskState = 'HIGH';
+          eventRiskPenalty = 8;
+          eventRiskSource = 'LABEL';
+      } else if (labelRiskState === 'MEDIUM') {
+          eventRiskState = 'MEDIUM';
+          eventRiskPenalty = 3;
+          eventRiskSource = 'LABEL';
+      }
+
+      if (marketRegime === 'RISK_OFF') {
+          if (eventRiskState === 'HIGH') eventRiskPenalty += 2;
+          else if (eventRiskState === 'MEDIUM') eventRiskPenalty += 1;
+      }
+
+      return {
+          earningsDate,
+          daysToEarnings,
+          eventRiskState,
+          eventDistanceBand,
+          eventRiskSource,
+          eventRiskPenalty: Number(eventRiskPenalty.toFixed(2))
+      };
+  };
+
   // [NEW] Logarithmic Scaling for RVOL
   // Transforms raw ratio (e.g., 0.5, 2.0, 10.0) into 0-100 Score
   // Logic: 1.0 -> 50, 2.0 -> 75, 4.0 -> 100, 0.5 -> 25
@@ -350,6 +909,164 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       return JSON.parse(safeText);
   };
 
+  const findLatestFileIdByName = async (token: string, name: string) => {
+      const q = encodeURIComponent(`name = '${name}' and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      const data = await res.json();
+      return data.files?.[0]?.id || null;
+  };
+
+  const normalizeDriveOhlcv = (rawData: any) => {
+      const rows = Array.isArray(rawData)
+          ? rawData
+          : Array.isArray(rawData?.data)
+              ? rawData.data
+              : Array.isArray(rawData?.candles)
+                  ? rawData.candles
+                  : [];
+
+      return rows
+          .map((row: any) => ({
+              c: Number(row.close),
+              h: Number(row.high),
+              l: Number(row.low),
+              o: Number(row.open),
+              v: Number(row.volume),
+              t: new Date(row.date).getTime()
+          }))
+          .filter((row: any) => Number.isFinite(row.c) && Number.isFinite(row.h) && Number.isFinite(row.l) && Number.isFinite(row.o) && Number.isFinite(row.v) && Number.isFinite(row.t))
+          .sort((a: any, b: any) => a.t - b.t);
+  };
+
+  const loadOhlcvFromDrive = async (token: string, folderId: string, symbol: string) => {
+      const fileName = `${symbol.toUpperCase()}_OHLCV.json`;
+      const fileId = await findFileId(token, fileName, folderId);
+      if (!fileId) return null;
+      const rawData = await downloadFile(token, fileId);
+      const hasSupportedShape = Array.isArray(rawData) || Array.isArray(rawData?.data) || Array.isArray(rawData?.candles);
+      if (!hasSupportedShape) {
+          throw new Error(`INVALID_OHLCV_FORMAT:${fileName}`);
+      }
+      return normalizeDriveOhlcv(rawData);
+  };
+
+  const countTrailingZeroVolumeFlatBars = (candles: any[]) => {
+      let count = 0;
+      for (let i = candles.length - 1; i >= 0; i--) {
+          const candle = candles[i];
+          const prev = candles[i - 1];
+          const isFlatBar = candle.o === candle.h && candle.h === candle.l && candle.l === candle.c;
+          const isZeroVolume = Number(candle.v || 0) === 0;
+          const isSameAsPrevClose = !prev || candle.c === prev.c;
+          if (isFlatBar && isZeroVolume && isSameAsPrevClose) count++;
+          else break;
+      }
+      return count;
+  };
+
+  const countMissingBenchmarkBars = (benchmarkCandles: any[], lastTimestamp: number) => {
+      if (!benchmarkCandles.length || !lastTimestamp) return 0;
+      return benchmarkCandles.reduce((count, candle) => count + (candle.t > lastTimestamp ? 1 : 0), 0);
+  };
+
+  const evaluateDataQualityPenalty = (candles: any[], benchmarkCandles: any[], currentPrice: number) => {
+      const lastTimestamp = candles[candles.length - 1]?.t || 0;
+      const benchmarkGapBars = countMissingBenchmarkBars(benchmarkCandles, lastTimestamp);
+      const zeroVolumeTailBars = countTrailingZeroVolumeFlatBars(candles);
+      const avgVolume20 = calculateAverage(candles.map((c: any) => Number(c.v) || 0), 20);
+      const avgDollarVolume20 = avgVolume20 * Math.max(currentPrice || 0, 0);
+      const recentVolumes = candles.slice(-5).map((c: any) => Number(c.v) || 0);
+      const nonZeroRecentVolumeCount = recentVolumes.filter((v: number) => v > 0).length;
+      const lastVolume = Number(candles[candles.length - 1]?.v) || 0;
+      const volumeCompressionRatio = avgVolume20 > 0 ? lastVolume / avgVolume20 : 1;
+
+      let gapPenalty = 0;
+      if (benchmarkGapBars >= 8) gapPenalty = 16;
+      else if (benchmarkGapBars >= 5) gapPenalty = 11;
+      else if (benchmarkGapBars >= 3) gapPenalty = 7;
+      else if (benchmarkGapBars >= 1) gapPenalty = 3;
+
+      let staleTailPenalty = 0;
+      if (zeroVolumeTailBars >= 8) staleTailPenalty = 14;
+      else if (zeroVolumeTailBars >= 5) staleTailPenalty = 10;
+      else if (zeroVolumeTailBars >= 3) staleTailPenalty = 6;
+      else if (zeroVolumeTailBars >= 1) staleTailPenalty = 2;
+
+      let volumeHygienePenalty = 0;
+      if (nonZeroRecentVolumeCount <= 1) volumeHygienePenalty += 6;
+      else if (nonZeroRecentVolumeCount <= 3) volumeHygienePenalty += 3;
+
+      if (volumeCompressionRatio < 0.12) volumeHygienePenalty += 3;
+      else if (volumeCompressionRatio < 0.25) volumeHygienePenalty += 1.5;
+
+      const freshnessPenalty = Math.min(25, gapPenalty + staleTailPenalty + volumeHygienePenalty);
+
+      let liquidityPenalty = 0;
+      if (avgDollarVolume20 < 750_000 || avgVolume20 < 30_000) liquidityPenalty += 16;
+      else if (avgDollarVolume20 < 2_000_000 || avgVolume20 < 80_000) liquidityPenalty += 9;
+      else if (avgDollarVolume20 < 5_000_000 || avgVolume20 < 200_000) liquidityPenalty += 4;
+      else if (avgDollarVolume20 < 8_000_000 || avgVolume20 < 350_000) liquidityPenalty += 2;
+
+      // Micro-cap names with thin prints can carry disproportionate slippage risk.
+      if ((currentPrice || 0) < 2 && avgVolume20 < 150_000) liquidityPenalty += 2;
+
+      liquidityPenalty = Math.min(20, liquidityPenalty);
+
+      const dataQualityPenalty = Math.min(30, freshnessPenalty + liquidityPenalty);
+
+      let dataQualityState: 'NORMAL' | 'THIN' | 'ILLIQUID' | 'STALE' = 'NORMAL';
+      if (benchmarkGapBars >= 8 || zeroVolumeTailBars >= 8 || freshnessPenalty >= 20) dataQualityState = 'STALE';
+      else if (avgDollarVolume20 < 750_000 || avgVolume20 < 30_000 || liquidityPenalty >= 16) dataQualityState = 'ILLIQUID';
+      else if (dataQualityPenalty > 0) dataQualityState = 'THIN';
+
+      return {
+          dataQualityPenalty: Number(dataQualityPenalty.toFixed(2)),
+          freshnessPenalty: Number(freshnessPenalty.toFixed(2)),
+          liquidityPenalty: Number(liquidityPenalty.toFixed(2)),
+          gapPenalty: Number(gapPenalty.toFixed(2)),
+          staleTailPenalty: Number(staleTailPenalty.toFixed(2)),
+          volumeHygienePenalty: Number(volumeHygienePenalty.toFixed(2)),
+          benchmarkGapBars,
+          zeroVolumeTailBars,
+          nonZeroRecentVolumeCount,
+          volumeCompressionRatio: Number(volumeCompressionRatio.toFixed(2)),
+          avgDollarVolume20: Number(avgDollarVolume20.toFixed(2)),
+          dataQualityState
+      };
+  };
+
+  const applyDataQualityControls = (
+      baseScore: number,
+      dataQualityPenalty: ReturnType<typeof evaluateDataQualityPenalty>
+  ) => {
+      const postPenaltyScore = Number(Math.min(99, Math.max(1, baseScore - dataQualityPenalty.dataQualityPenalty)).toFixed(2));
+
+      let dataQualityScoreCap: number | null = null;
+      if (
+          dataQualityPenalty.dataQualityState === 'STALE' &&
+          (dataQualityPenalty.benchmarkGapBars >= 8 || dataQualityPenalty.zeroVolumeTailBars >= 8 || dataQualityPenalty.freshnessPenalty >= 22)
+      ) {
+          dataQualityScoreCap = 68;
+      } else if (
+          dataQualityPenalty.dataQualityState === 'ILLIQUID' &&
+          (dataQualityPenalty.avgDollarVolume20 < 750_000 || dataQualityPenalty.liquidityPenalty >= 16)
+      ) {
+          dataQualityScoreCap = 58;
+      }
+
+      const finalScore = dataQualityScoreCap !== null
+          ? Number(Math.min(postPenaltyScore, dataQualityScoreCap).toFixed(2))
+          : postPenaltyScore;
+
+      return {
+          finalScore,
+          postPenaltyScore,
+          dataQualityScoreCap
+      };
+  };
+
   const fetchCandlesFromAPI = async (symbol: string): Promise<any[] | null> => {
       // [FIX] Ensure 'to' date is yesterday to avoid empty data issues on current trading day/pre-market
       const endDate = new Date();
@@ -359,6 +1076,32 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const fromDate = new Date();
       fromDate.setDate(fromDate.getDate() - 250); 
       const from = fromDate.toISOString().split('T')[0];
+
+      // [PRIORITY 1] Finnhub (Fastest, Batch Friendly)
+      if (finnhubKey) {
+          try {
+              const fromUnix = Math.floor(fromDate.getTime() / 1000);
+              const toUnix = Math.floor(endDate.getTime() / 1000);
+              const url = `https://finnhub.io/api/v1/stock/candle?symbol=${symbol}&resolution=D&from=${fromUnix}&to=${toUnix}&token=${finnhubKey}`;
+              const res = await fetch(url);
+              
+              if (res.status === 429) throw new Error("RATE_LIMIT");
+              const json = await res.json();
+              
+              if (json.s === "ok" && json.c && json.c.length > 20) {
+                  return json.c.map((c: number, i: number) => ({
+                      c: Number(c),
+                      h: Number(json.h[i]),
+                      l: Number(json.l[i]),
+                      o: Number(json.o[i]),
+                      v: Number(json.v[i]),
+                      t: json.t[i] * 1000 // Convert seconds to ms
+                  }));
+              }
+          } catch (e: any) {
+              if (e.message === "RATE_LIMIT") console.warn(`Finnhub Limit for ${symbol}.`);
+          }
+      }
       
       if (polygonKey) {
           try {
@@ -443,6 +1186,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       
       let score = (trendScore * 0.6) + (estRsi * 0.4);
       const rawRvol = Math.abs(change) > 2 ? 1.5 : 1.0;
+      const clampedScore = Number(Math.min(99, Math.max(1, isNaN(score) ? 50 : score)).toFixed(2));
 
       // [SYNTHETIC CHART GENERATION]
       // Create plausible data points based on trend to prevent "Missing Chart" UI
@@ -476,7 +1220,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const volatilityRange = ((price - yearLow) / (yearHigh - yearLow)) * 100;
 
       return {
-          technicalScore: Number(score.toFixed(2)),
+          technicalScore: clampedScore,
           techMetrics: {
               rsi: Number(estRsi.toFixed(2)),
               adx: 50,
@@ -491,7 +1235,28 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               obvSlope: 'NEUTRAL',
               isBlueSky: price >= yearHigh * 0.98,
               goldenSetup: trendAlignment === 'POWER_TREND',
-              volatilityRange: Number(volatilityRange.toFixed(2))
+              volatilityRange: Number(volatilityRange.toFixed(2)),
+              macdLine: 0,
+              macdSignal: 0,
+              macdHistogram: 0,
+              mfi: 50,
+              diPlus: 0,
+              diMinus: 0,
+              minerviniScore: trendAlignment === 'POWER_TREND' ? 75 : trendAlignment === 'BULLISH' ? 50 : 25,
+              minerviniPassCount: trendAlignment === 'POWER_TREND' ? 6 : trendAlignment === 'BULLISH' ? 4 : 2,
+              stage31SignalScore: 0,
+              signalComboBonus: 0,
+              signalHeatPenalty: 0,
+              signalQualityState: 'NEUTRAL'
+          },
+          scoreBreakdown: {
+              rawSignalScore: clampedScore,
+              signalBonus: 0,
+              regimePenalty: 0,
+              eventPenalty: 0,
+              liquidityPenalty: 0,
+              hygienePenalty: 0,
+              finalScore: clampedScore
           },
           priceHistory: syntheticHistory, 
           // [NEW] ICT Data
@@ -510,41 +1275,114 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     startTimeRef.current = Date.now();
     
     try {
-      addLog("Phase 1: Retrieving Stage 3 Candidates...", "info");
-      const q = encodeURIComponent(`name contains 'STAGE3_FUNDAMENTAL_FULL' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      addLog("Phase 1: Resolving Stage 4 Ready Signal...", "info");
 
-      if (!listRes.files?.length) {
-        addLog("Stage 3 Data Missing. Please run Stage 3.", "err");
-        setLoading(false); return;
+      let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+
+      if (!systemMapId) {
+        addLog("System Map Folder Missing. Stage 4 cannot start.", "err");
+        return;
       }
-      
-      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+
+      const readyFileId = await findFileId(accessToken, GOOGLE_DRIVE_TARGET.stage4ReadyFile, systemMapId);
+      if (!readyFileId) {
+        addLog("Stage 4 Ready Signal Missing. Wait for OHLCV sync completion.", "err");
+        return;
+      }
+
+      const readyData = await downloadFile(accessToken, readyFileId);
+      const stage3TriggerFile = readyData?.trigger_file;
+      if (readyData?.status !== 'COMPLETED' || !stage3TriggerFile) {
+        addLog("Stage 4 Ready Signal Invalid. Pipeline Aborted.", "err");
+        return;
+      }
+      addLog(`Ready Signal Locked: ${stage3TriggerFile}`, "ok");
+
+      let marketRegimeSnapshot: MarketRegimeSnapshot | null = null;
+      let earningsEventMap: EarningsEventMap | null = null;
+      try {
+        const regimeFileId = await findFileId(accessToken, MARKET_REGIME_FILE, systemMapId);
+        if (regimeFileId) {
+          const snapshot = await downloadFile(accessToken, regimeFileId);
+          if (snapshot?.trigger_file === stage3TriggerFile) {
+            marketRegimeSnapshot = snapshot;
+            const regimeState = snapshot?.regime?.state || 'UNKNOWN';
+            const regimeScore = Number(snapshot?.regime?.score || 0);
+            addLog(`Market Regime Locked: ${regimeState} (${regimeScore})`, "ok");
+          } else {
+            addLog("Market Regime Snapshot trigger mismatch. Macro overlay skipped.", "warn");
+          }
+        } else {
+          addLog("Market Regime Snapshot Missing. Macro overlay skipped.", "warn");
+        }
+      } catch {
+        addLog("Market Regime Snapshot Invalid. Macro overlay skipped.", "warn");
+      }
+
+      try {
+        const earningsFileId = await findFileId(accessToken, EARNINGS_EVENT_FILE, systemMapId);
+        if (earningsFileId) {
+          const snapshot = await downloadFile(accessToken, earningsFileId);
+          if (snapshot?.trigger_file === stage3TriggerFile) {
+            earningsEventMap = snapshot;
+            addLog(`Earnings Event Map Locked: ${Object.keys(snapshot?.events || {}).length} tracked events`, "ok");
+          } else {
+            addLog("Earnings Event Map trigger mismatch. Event overlay skipped.", "warn");
+          }
+        } else {
+          addLog("Earnings Event Map Missing. Event overlay skipped.", "warn");
+        }
+      } catch {
+        addLog("Earnings Event Map Invalid. Event overlay skipped.", "warn");
+      }
+
+      addLog("Phase 2: Retrieving Stage 3 Candidates...", "info");
+      let stage3FolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      if (!stage3FolderId) stage3FolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder, 'root');
+
+      let stage3FileId = stage3FolderId ? await findFileId(accessToken, stage3TriggerFile, stage3FolderId) : null;
+      if (!stage3FileId) {
+        stage3FileId = await findLatestFileIdByName(accessToken, stage3TriggerFile);
+      }
+      if (!stage3FileId) {
+        addLog(`Triggered Stage 3 file not found: ${stage3TriggerFile}`, "err");
+        return;
+      }
+
+      const content = await fetch(`https://www.googleapis.com/drive/v3/files/${stage3FileId}?alt=media`, {
         headers: { 'Authorization': `Bearer ${accessToken}` }
       }).then(r => r.json());
 
       const universe = content.fundamental_universe || [];
-      const candidates = universe.sort((a: any, b: any) => b.fundamentalScore - a.fundamentalScore).slice(0, 300); 
-      
-      setProgress({ current: 0, total: candidates.length, status: 'Fetching Benchmark...' });
-
-      // [NEW] Attempt to fetch SPY data for Relative Strength Calculation
-      let spyCandles: any[] = [];
-      try {
-          spyCandles = await fetchCandlesFromAPI("SPY") || [];
-          if (spyCandles.length > 0) addLog("Benchmark (SPY) Data Acquired. RS Rating Active.", "ok");
-      } catch {
-          addLog("Benchmark (SPY) unavailable. Using Internal Relative Strength.", "warn");
+      const candidates = universe.sort((a: any, b: any) => b.fundamentalScore - a.fundamentalScore).slice(0, 300);
+      if (!candidates.length) {
+        addLog("Triggered Stage 3 file contains no candidates.", "err");
+        return;
       }
 
-      // Map System setup
-      let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
-      if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
-      
-      const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
-      if (!historyFolderId) addLog("Drive History Folder Not Found. Using Hybrid Mode.", "warn");
+      const ohlcvFolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialOhlcvFolder, systemMapId);
+      if (!ohlcvFolderId) {
+        addLog("Drive OHLCV Folder Missing. Stage 4 cannot load chart data.", "err");
+        return;
+      }
+      addLog("Drive OHLCV Vault Connected. Ticker-linked chart loading active.", "ok");
+
+      setProgress({ current: 0, total: candidates.length, status: 'Fetching Benchmark...' });
+
+      let benchmarkCandles: any[] = [];
+      try {
+          benchmarkCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, "SP500_INDEX") || [];
+          if (benchmarkCandles.length > 0) {
+              addLog("Benchmark (S&P 500 Index) Data Acquired from Drive. RS Rating Active.", "ok");
+          } else {
+              benchmarkCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, "NASDAQ_INDEX") || [];
+              if (benchmarkCandles.length > 0) addLog("Primary benchmark missing. NASDAQ Index backup engaged.", "warn");
+              else addLog("Benchmark index unavailable. Using Internal Relative Strength.", "warn");
+          }
+      } catch {
+          addLog("Benchmark index unavailable. Using Internal Relative Strength.", "warn");
+      }
 
       const grouped: Record<string, any[]> = {};
       candidates.forEach((c: any) => {
@@ -556,63 +1394,56 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       const results: TechnicalTicker[] = [];
       const letters = Object.keys(grouped).sort();
       let droppedCount = 0;
+      let scannedCount = 0;
+      let dataQualityPenaltyCount = 0;
+      let stalePenaltyCount = 0;
+      let liquidityPenaltyCount = 0;
+      let dataQualityCapCount = 0;
+      let staleCapCount = 0;
+      let illiquidCapCount = 0;
+      let macroBoostCount = 0;
+      let macroPenaltyCount = 0;
+      let macroOverlayTotal = 0;
+      let eventRiskPenaltyCount = 0;
+      let eventHighRiskCount = 0;
+      let eventMediumRiskCount = 0;
+      let eventOverlayTotal = 0;
 
       for (const letter of letters) {
           setProgress(prev => ({ ...prev, status: `Scanning Sector ${letter}...` }));
-          
-          let historyMap = new Map();
-          if (historyFolderId) {
-              const fileName = `${letter}_stocks_history.json`;
-              const fileId = await findFileId(accessToken, fileName, historyFolderId);
-              
-              if (fileId) {
-                  try {
-                      const fileData = await downloadFile(accessToken, fileId);
-                      if (Array.isArray(fileData)) {
-                          fileData.forEach((item: any) => historyMap.set(item.symbol, item.financials || []));
-                      } else {
-                          Object.entries(fileData).forEach(([sym, val]: [string, any]) => {
-                              historyMap.set(sym, val.financials || val);
-                          });
-                      }
-                  } catch (e) { console.warn(`Failed to parse ${fileName}`, e); }
-              }
-          }
 
           const batch = grouped[letter];
           for (const item of batch) {
-              // [STRICT VALIDATION]
+              scannedCount++;
+
               if (!item.symbol || item.price <= 0) {
                   droppedCount++;
                   continue;
               }
 
               try {
-                  let rawHistory = historyMap.get(item.symbol);
                   let candles: any[] = [];
                   let dataSrc = 'DRIVE';
 
-                  if (Array.isArray(rawHistory) && rawHistory.length > 50) {
-                       candles = rawHistory.map((h: any) => ({
-                           c: Number(h.close), h: Number(h.high), l: Number(h.low), o: Number(h.open), v: Number(h.volume), t: h.date 
-                       })).sort((a, b) => new Date(a.t).getTime() - new Date(b.t).getTime());
+                  try {
+                      const driveCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, item.symbol);
+                      if (driveCandles) candles = driveCandles;
+                  } catch {
+                      droppedCount++;
+                      addLog(`Corrupt OHLCV skipped: ${item.symbol.toUpperCase()}_OHLCV.json`, "warn");
+                      continue;
                   }
 
-                  if (candles.length < 50) {
-                      try {
-                          const apiCandles = await fetchCandlesFromAPI(item.symbol);
-                          if (apiCandles) {
-                              candles = apiCandles;
-                              dataSrc = 'API';
-                          }
-                      } catch (apiErr: any) {
-                          // Ignore API error, will fallback to Heuristic
-                      }
+                  if (candles.length === 0) {
+                      droppedCount++;
+                      addLog(`Missing OHLCV skipped: ${item.symbol.toUpperCase()}_OHLCV.json`, "warn");
+                      continue;
                   }
 
                   let techData;
-                  
+
                   if (candles.length < 30) {
+                      addLog(`Sparse OHLCV fallback: ${item.symbol.toUpperCase()} (${candles.length} bars)`, "warn");
                       techData = generateHeuristicData(item);
                   } else {
                       // Perform Real Analysis
@@ -624,10 +1455,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                       const rsi = calculateRSI(closes);
                       const adx = calculateADX(highs, lows, closes, 14);
+                      const { diPlus, diMinus } = calculateDMI(highs, lows, closes, 14);
 
                       const sma20 = calculateSMA(closes, 20);
                       const sma50 = calculateSMA(closes, 50);
-                      const sma200 = calculateSMA(closes, 200); 
+                      const sma200 = calculateSMA(closes, 200);
 
                       let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
                       let wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN' = 'ACCUM';
@@ -644,41 +1476,35 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       }
 
                       const trendScore = (trendAlignment === 'POWER_TREND' ? 95 : trendAlignment === 'BULLISH' ? 70 : 30);
-                      
-                      // [NEW] RS Rating Calculation (vs SPY)
+
+                      // [NEW] RS Rating Calculation (vs market benchmark)
                       let rsRating = 50;
-                      if (spyCandles.length > 50 && closes.length > 50) {
-                          const spyNow = spyCandles[spyCandles.length - 1].c;
-                          const spyOldIndex = Math.max(0, spyCandles.length - 63);
-                          const spyOld = spyCandles[spyOldIndex].c;
-                          
-                          let spyPerf = 0;
-                          if (spyOld > 0) spyPerf = (spyNow - spyOld) / spyOld;
+                      if (benchmarkCandles.length > 50 && closes.length > 50) {
+                          const benchmarkNow = benchmarkCandles[benchmarkCandles.length - 1].c;
+                          const benchmarkOldIndex = Math.max(0, benchmarkCandles.length - 63);
+                          const benchmarkOld = benchmarkCandles[benchmarkOldIndex].c;
+
+                          let benchmarkPerf = 0;
+                          if (benchmarkOld > 0) benchmarkPerf = (benchmarkNow - benchmarkOld) / benchmarkOld;
 
                           const stockOldIndex = Math.max(0, closes.length - 63);
                           const stockOld = closes[stockOldIndex];
-                          
+
                           let stockPerf = 0;
                           if (stockOld > 0) stockPerf = (currentPrice - stockOld) / stockOld;
-                          
-                          // Alpha = Stock - SPY. Scale: 0% diff -> 50, +20% diff -> 90
-                          const alpha = stockPerf - spyPerf;
+
+                          const alpha = stockPerf - benchmarkPerf;
                           rsRating = Math.min(99, Math.max(1, 50 + (alpha * 200)));
                           if (isNaN(rsRating)) rsRating = 50;
                       } else {
-                          // Fallback to internal strength
                           rsRating = Math.min(99, Math.max(1, (rsi * 0.5) + (trendScore * 0.5)));
                       }
-
-                      const stdDev = calculateStdDev(closes, 20);
-                      const bbWidth = sma20 > 0 ? (4 * stdDev) / sma20 : 0; 
-                      const squeezeState = bbWidth < 0.12 ? 'SQUEEZE_ON' : 'SQUEEZE_OFF';
 
                       const avgVol = calculateSMA(volumes.slice(0, -1), 20);
                       const lastVol = volumes[volumes.length - 1];
                       const rawRvol = avgVol > 0 ? lastVol / avgVol : 1;
                       const rvolScore = normalizeRvolScore(rawRvol);
-                      
+
                       const obvSlopeVal = calculateOBV(closes, volumes);
                       let obvSlope: 'ACCUMULATION' | 'DIVERGENCE' | 'NEUTRAL' = 'NEUTRAL';
                       if (obvSlopeVal > 0) obvSlope = 'ACCUMULATION';
@@ -686,62 +1512,75 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
                       const yearHigh = item.fiftyTwoWeekHigh || Math.max(...closes.slice(-250));
                       const isBlueSky = yearHigh > 0 && currentPrice >= yearHigh * 0.95;
-                      
+
                       let priceChange = 0;
                       if (closes.length >= 2) {
                            const prev = closes[closes.length - 2];
                            if (prev > 0) priceChange = (currentPrice - prev) / prev;
                       }
-                      
+
                       const goldenSetup = rawRvol > 1.5 && priceChange > 0.02 && currentPrice > sma200;
 
-                      // [NEW] ICT 5-Step Data Extraction Logic
                       const lookback252 = candles.slice(-252);
                       const high52 = Math.max(...lookback252.map((c: any) => c.h));
                       const low52 = Math.min(...lookback252.map((c: any) => c.l));
-                      
+
                       const lookback20 = candles.slice(-20);
                       const recentSwingHigh = Math.max(...lookback20.map((c: any) => c.h));
                       const recentSwingLow = Math.min(...lookback20.map((c: any) => c.l));
-                      
-                      // Volatility Range Score: (Current - Low52) / (High52 - Low52) * 100
-                      // 0 = At Low, 100 = At High
+
+                      const { macdLine, signalLine, histogram, previousHistogram } = calculateMACD(closes);
+                      const mfi = calculateMFI(highs, lows, closes, volumes, 14);
+
                       let volatilityRange = 50;
                       if (high52 > low52) {
                           volatilityRange = ((currentPrice - low52) / (high52 - low52)) * 100;
                       }
 
-                      // [NEW] ICT Displacement Logic (Accelerator)
-                      // RSI 55-70 (Sweet Spot) + ADX > 25 (Trend) + RVOL > 1.5 (Power)
+                      const { passCount: minerviniPassCount, score: minerviniScore } = calculateMinerviniTemplate(closes, high52, low52);
+                      const squeezeState = calculateTTMSqueezeState(highs, lows, closes, histogram);
+                      const stage31Signal = calculateStage31SignalOverlay({
+                          minerviniScore,
+                          minerviniPassCount,
+                          macdLine,
+                          signalLine,
+                          histogram,
+                          previousHistogram,
+                          mfi,
+                          diPlus,
+                          diMinus,
+                          adx,
+                          rsi,
+                          rawRvol,
+                          priceChange,
+                          squeezeState
+                      });
+
                       const isDisplacement = rsi >= 55 && rsi <= 70 && adx >= 25 && rawRvol >= 1.5;
-                      
+
                       let techScore = rsRating * 0.4;
                       techScore += (trendAlignment === 'POWER_TREND' ? 30 : trendAlignment === 'BULLISH' ? 15 : 0);
-                      
-                      // [NEW] Use Normalized RVOL Score for composite
-                      const rvolBonus = Math.min(20, (rvolScore - 50) * 0.5); 
+
+                      const rvolBonus = Math.min(20, (rvolScore - 50) * 0.5);
                       techScore += Math.max(0, rvolBonus);
 
-                      techScore += (squeezeState === 'SQUEEZE_ON' ? 10 : 0);
+                      techScore += (squeezeState === 'SQUEEZE_ON' ? 10 : squeezeState === 'FIRED_LONG' ? 8 : 0);
                       if (goldenSetup || isBlueSky) techScore += 10;
-                      
-                      // [LOGIC] Displacement Override
+                      techScore += stage31Signal.stage31SignalScore;
+
                       if (isDisplacement) {
-                          techScore = Math.max(techScore, 92); // Force Elite Status
-                          addLog(`[OK] Accelerator Ready: Displacement Scanned`, "ok");
+                          techScore = Math.max(techScore, 92);
+                          addLog(`Accelerator Ready: Displacement Scanned`, "ok");
                       }
-                      
-                      // [LOGIC] Low Energy Penalty
+
                       if (adx < 20 && rawRvol < 0.8) {
-                          techScore = Math.min(techScore, 45); // Filter out weak stocks
+                          techScore = Math.min(techScore, 45);
                       }
-                      
+
                       const safeTechnicalScore = Number(Math.min(99, Math.max(1, isNaN(techScore) ? 50 : techScore)).toFixed(2));
-                      
-                      // [NEW] Technical Breakout Flag
-                      const isTechnicalBreakout = trendAlignment === 'POWER_TREND' || isBlueSky;
+
                       if (trendAlignment === 'POWER_TREND') {
-                           addLog(`[OK] Power Trend Detected: ${item.symbol} is ready for launch`, "ok");
+                           addLog(`Power Trend Detected: ${item.symbol} is ready for launch`, "ok");
                       }
 
                       techData = {
@@ -750,8 +1589,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               rsi: Number(rsi.toFixed(2)),
                               adx: Number(adx.toFixed(2)),
                               trend: Number(trendScore.toFixed(2)),
-                              rvol: Number(rvolScore.toFixed(2)), // Normalized Score
-                              rawRvol: Number(rawRvol.toFixed(2)), // Display Value
+                              rvol: Number(rvolScore.toFixed(2)),
+                              rawRvol: Number(rawRvol.toFixed(2)),
                               squeezeState,
                               rsRating: Number(rsRating.toFixed(0)),
                               momentum: Number(rsRating.toFixed(2)),
@@ -760,12 +1599,32 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               obvSlope,
                               isBlueSky,
                               goldenSetup,
-                              volatilityRange: Number(volatilityRange.toFixed(2))
+                              volatilityRange: Number(volatilityRange.toFixed(2)),
+                              macdLine,
+                              macdSignal: signalLine,
+                              macdHistogram: histogram,
+                              mfi,
+                              diPlus,
+                              diMinus,
+                              minerviniScore,
+                              minerviniPassCount,
+                              stage31SignalScore: stage31Signal.stage31SignalScore,
+                              signalComboBonus: stage31Signal.signalComboBonus,
+                              signalHeatPenalty: stage31Signal.signalHeatPenalty,
+                              signalQualityState: stage31Signal.signalQualityState
+                          },
+                          scoreBreakdown: {
+                              rawSignalScore: safeTechnicalScore,
+                              signalBonus: 0,
+                              regimePenalty: 0,
+                              eventPenalty: 0,
+                              liquidityPenalty: 0,
+                              hygienePenalty: 0,
+                              finalScore: safeTechnicalScore
                           },
                           priceHistory: candles.slice(-120).map((c: any) => ({
                               date: new Date(c.t).toISOString().split('T')[0], close: c.c, open: c.o, high: c.h, low: c.l, volume: c.v
                           })),
-                          // [NEW] Pass ICT Data to Next Stage
                           high52,
                           low52,
                           recentSwingHigh,
@@ -773,29 +1632,117 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           dataSource: dataSrc
                       };
                   }
-                  
-                  // [FIX] Derive Breakout Flag from Tech Data
+
+                  const macroOverlay = calculateMacroOverlay(marketRegimeSnapshot, {
+                      trendAlignment: techData.techMetrics.trendAlignment,
+                      rsRating: techData.techMetrics.rsRating,
+                      minerviniPassCount: techData.techMetrics.minerviniPassCount
+                  });
+
+                  if (macroOverlay.macroOverlayScore > 0) macroBoostCount++;
+                  else if (macroOverlay.macroOverlayScore < 0) macroPenaltyCount++;
+                  macroOverlayTotal += macroOverlay.macroOverlayScore;
+
+                  techData = {
+                      ...techData,
+                      technicalScore: Number(Math.min(99, Math.max(1, techData.technicalScore + macroOverlay.macroOverlayScore)).toFixed(2)),
+                      scoreBreakdown: {
+                          ...techData.scoreBreakdown,
+                          signalBonus: Number((techData.scoreBreakdown.signalBonus + Math.max(0, macroOverlay.macroOverlayScore)).toFixed(2)),
+                          regimePenalty: Number((techData.scoreBreakdown.regimePenalty + Math.max(0, -macroOverlay.macroOverlayScore)).toFixed(2)),
+                          finalScore: Number(Math.min(99, Math.max(1, techData.technicalScore + macroOverlay.macroOverlayScore)).toFixed(2))
+                      },
+                      techMetrics: {
+                          ...techData.techMetrics,
+                          ...macroOverlay
+                      }
+                  };
+
+                  const eventRiskOverlay = calculateEventRiskOverlay(
+                      earningsEventMap,
+                      item.symbol,
+                      macroOverlay.marketRegime
+                  );
+
+                  if (eventRiskOverlay.eventRiskState === 'HIGH') eventHighRiskCount++;
+                  else if (eventRiskOverlay.eventRiskState === 'MEDIUM') eventMediumRiskCount++;
+                  if (eventRiskOverlay.eventRiskPenalty > 0) eventRiskPenaltyCount++;
+                  eventOverlayTotal += eventRiskOverlay.eventRiskPenalty;
+
+                  techData = {
+                      ...techData,
+                      technicalScore: Number(Math.min(99, Math.max(1, techData.technicalScore - eventRiskOverlay.eventRiskPenalty)).toFixed(2)),
+                      scoreBreakdown: {
+                          ...techData.scoreBreakdown,
+                          eventPenalty: Number((techData.scoreBreakdown.eventPenalty + eventRiskOverlay.eventRiskPenalty).toFixed(2)),
+                          finalScore: Number(Math.min(99, Math.max(1, techData.technicalScore - eventRiskOverlay.eventRiskPenalty)).toFixed(2))
+                      },
+                      techMetrics: {
+                          ...techData.techMetrics,
+                          ...eventRiskOverlay
+                      }
+                  };
+
+                  const effectivePrice = candles[candles.length - 1]?.c || item.price || 0;
+                  const dataQualityPenalty = evaluateDataQualityPenalty(candles, benchmarkCandles, effectivePrice);
+                  if (dataQualityPenalty.dataQualityPenalty > 0) {
+                      dataQualityPenaltyCount++;
+                      if (dataQualityPenalty.freshnessPenalty > 0) stalePenaltyCount++;
+                      if (dataQualityPenalty.liquidityPenalty > 0) liquidityPenaltyCount++;
+                  }
+
+                  const dataQualityControl = applyDataQualityControls(techData.technicalScore, dataQualityPenalty);
+                  if (dataQualityControl.dataQualityScoreCap !== null && dataQualityControl.finalScore < dataQualityControl.postPenaltyScore) {
+                      dataQualityCapCount++;
+                      if (dataQualityPenalty.dataQualityState === 'STALE') staleCapCount++;
+                      if (dataQualityPenalty.dataQualityState === 'ILLIQUID') illiquidCapCount++;
+                  }
+
+                  techData = {
+                      ...techData,
+                      technicalScore: dataQualityControl.finalScore,
+                      scoreBreakdown: {
+                          ...techData.scoreBreakdown,
+                          liquidityPenalty: Number((techData.scoreBreakdown.liquidityPenalty + dataQualityPenalty.liquidityPenalty).toFixed(2)),
+                          hygienePenalty: Number((techData.scoreBreakdown.hygienePenalty + dataQualityPenalty.freshnessPenalty).toFixed(2)),
+                          finalScore: dataQualityControl.finalScore
+                      },
+                      techMetrics: {
+                          ...techData.techMetrics,
+                          ...dataQualityPenalty,
+                          dataQualityScoreCap: dataQualityControl.dataQualityScoreCap
+                      }
+                  };
+
                   const isTechnicalBreakout = techData.techMetrics.trendAlignment === 'POWER_TREND' || techData.techMetrics.isBlueSky;
 
                   results.push({
-                      ...item, // [CRITICAL] Master Pass-through (Stage 3 Data)
+                      ...item,
                       ...techData,
-                      isTechnicalBreakout, 
+                      isTechnicalBreakout,
                       lastUpdate: new Date().toISOString()
                   });
 
               } catch (e) {
                   console.error(`Tech Analysis Error for ${item.symbol}`, e);
-                  // Critical Failure Fallback
                   results.push({
                       ...item,
                       technicalScore: 0,
-                      techMetrics: { 
-                          rsi: 50, adx: 0, trend: 50, rvol: 50, rawRvol: 1.0, 
-                          squeezeState: 'SQUEEZE_OFF', rsRating: 50, momentum: 50, 
-                          wyckoffPhase: 'ACCUM', trendAlignment: 'NEUTRAL', 
+                      techMetrics: {
+                          rsi: 50, adx: 0, trend: 50, rvol: 50, rawRvol: 1.0,
+                          squeezeState: 'SQUEEZE_OFF', rsRating: 50, momentum: 50,
+                          wyckoffPhase: 'ACCUM', trendAlignment: 'NEUTRAL',
                           obvSlope: 'NEUTRAL', isBlueSky: false, goldenSetup: false,
-                          volatilityRange: 50 
+                          volatilityRange: 50
+                      },
+                      scoreBreakdown: {
+                          rawSignalScore: 0,
+                          signalBonus: 0,
+                          regimePenalty: 0,
+                          eventPenalty: 0,
+                          liquidityPenalty: 0,
+                          hygienePenalty: 0,
+                          finalScore: 0
                       },
                       priceHistory: [],
                       high52: item.fiftyTwoWeekHigh || 0,
@@ -807,30 +1754,136 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   });
               }
           }
-          
-          setProgress(prev => ({ ...prev, current: results.length }));
-          await new Promise(r => setTimeout(r, 10)); 
+
+          setProgress(prev => ({ ...prev, current: scannedCount }));
+          await new Promise(r => setTimeout(r, 10));
+      }
+
+      if (results.length === 0) {
+        addLog("No OHLCV-backed candidates survived Stage 4.", "err");
+        return;
       }
 
       const survivalRate = ((results.length / candidates.length) * 100).toFixed(1);
       addLog(`Survival Rate: ${survivalRate}% (Dropped ${droppedCount} invalid assets).`, "ok");
+      if (dataQualityPenaltyCount > 0) {
+          addLog(`Data Hygiene Overlay: Penalized ${dataQualityPenaltyCount} assets (stale ${stalePenaltyCount}, liquidity ${liquidityPenaltyCount}).`, "warn");
+      }
+      if (dataQualityCapCount > 0) {
+          addLog(`Selection Guard: Capped ${dataQualityCapCount} stale/illiquid assets (stale ${staleCapCount}, illiquid ${illiquidCapCount}).`, "warn");
+      }
+      if (marketRegimeSnapshot) {
+          const regimeState = marketRegimeSnapshot?.regime?.state || 'UNKNOWN';
+          const regimeScore = Number(marketRegimeSnapshot?.regime?.score || 0);
+          const averageMacroOverlay = Number((macroOverlayTotal / Math.max(results.length, 1)).toFixed(2));
+          addLog(`Macro Overlay: ${regimeState} (${regimeScore}) adjusted ${results.length} assets (boosted ${macroBoostCount}, penalized ${macroPenaltyCount}, avg ${averageMacroOverlay}).`, "ok");
+      }
+      if (earningsEventMap) {
+          const averageEventPenalty = Number((eventOverlayTotal / Math.max(results.length, 1)).toFixed(2));
+          addLog(`Event Overlay: flagged ${eventRiskPenaltyCount} assets (high ${eventHighRiskCount}, medium ${eventMediumRiskCount}, avg -${averageEventPenalty}).`, "ok");
+      }
 
       results.sort((a, b) => b.technicalScore - a.technicalScore);
-      setProcessedData(results);
-      if (results.length > 0) handleTickerSelect(results[0]);
+
+      // Guardrail: keep JSON schema stable even if any upstream branch misses scoreBreakdown.
+      const auditReadyResults: TechnicalTicker[] = results.map((ticker) => {
+          const safeFinalScore = Number((ticker.technicalScore ?? 0).toFixed(2));
+          return {
+              ...ticker,
+              scoreBreakdown: ticker.scoreBreakdown
+                  ? { ...ticker.scoreBreakdown, finalScore: safeFinalScore }
+                  : {
+                      rawSignalScore: safeFinalScore,
+                      signalBonus: 0,
+                      regimePenalty: 0,
+                      eventPenalty: 0,
+                      liquidityPenalty: 0,
+                      hygienePenalty: 0,
+                      finalScore: safeFinalScore
+                  }
+          };
+      });
+
+      const topAuditUniverse = auditReadyResults.slice(0, 10);
+      const formatSigned = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
+      const majorPenaltyCounter: Record<'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE' | 'NONE', number> = {
+          REGIME: 0,
+          EVENT: 0,
+          LIQUIDITY: 0,
+          HYGIENE: 0,
+          NONE: 0
+      };
+
+      topAuditUniverse.forEach((ticker, index) => {
+          const sb = ticker.scoreBreakdown || {
+              rawSignalScore: ticker.technicalScore,
+              signalBonus: 0,
+              regimePenalty: 0,
+              eventPenalty: 0,
+              liquidityPenalty: 0,
+              hygienePenalty: 0,
+              finalScore: ticker.technicalScore
+          };
+
+          const penaltyLadder: Array<{ label: 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE'; value: number }> = [
+              { label: 'REGIME', value: sb.regimePenalty || 0 },
+              { label: 'EVENT', value: sb.eventPenalty || 0 },
+              { label: 'LIQUIDITY', value: sb.liquidityPenalty || 0 },
+              { label: 'HYGIENE', value: sb.hygienePenalty || 0 }
+          ];
+
+          let majorPenalty: 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE' | 'NONE' = 'NONE';
+          let majorPenaltyValue = 0;
+          penaltyLadder.forEach((penalty) => {
+              if (penalty.value > majorPenaltyValue) {
+                  majorPenalty = penalty.label;
+                  majorPenaltyValue = penalty.value;
+              }
+          });
+          majorPenaltyCounter[majorPenalty] += 1;
+
+          const vixDistance = ticker.techMetrics?.vixDistanceFromRiskOff;
+          const vixDistanceLabel = typeof vixDistance === 'number' ? vixDistance.toFixed(2) : 'N/A';
+          const eventBand = ticker.techMetrics?.eventDistanceBand || 'NONE';
+
+          addLog(
+              `[AUDIT_SCORE] #${index + 1} ${ticker.symbol} | raw ${sb.rawSignalScore.toFixed(2)} -> bonus ${formatSigned(sb.signalBonus || 0)} -> regime -${(sb.regimePenalty || 0).toFixed(2)} -> event -${(sb.eventPenalty || 0).toFixed(2)} -> liq -${(sb.liquidityPenalty || 0).toFixed(2)} -> hyg -${(sb.hygienePenalty || 0).toFixed(2)} | final ${sb.finalScore.toFixed(2)} | major ${majorPenalty}${majorPenaltyValue > 0 ? `(${majorPenaltyValue.toFixed(2)})` : ''} | VIXΔ ${vixDistanceLabel} | EVT ${eventBand}`,
+              "info"
+          );
+      });
+
+      addLog(
+          `[AUDIT_SCORE_TOP_PENALTY] Top10 major causes => REGIME:${majorPenaltyCounter.REGIME} EVENT:${majorPenaltyCounter.EVENT} LIQ:${majorPenaltyCounter.LIQUIDITY} HYG:${majorPenaltyCounter.HYGIENE} NONE:${majorPenaltyCounter.NONE}`,
+          "info"
+      );
+      setProcessedData(auditReadyResults);
+      if (auditReadyResults.length > 0) handleTickerSelect(auditReadyResults[0]);
 
       addLog(`[DATA-SYNC] Passing Fundamental Alpha Tags to ICT Stage`, "ok");
 
-      // Save to Drive
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
       const now = new Date();
       const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
       const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
-      
+
       const payload = {
-        manifest: { version: "7.5.1", count: results.length, strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS", survivalRate },
-        technical_universe: results
+          manifest: {
+              version: "7.5.1",
+              count: auditReadyResults.length,
+              strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS",
+              survivalRate,
+              sourceStage3File: stage3TriggerFile,
+              readyTimestamp: readyData?.timestamp || null,
+              dataSource: GOOGLE_DRIVE_TARGET.financialOhlcvFolder,
+              marketRegimeState: marketRegimeSnapshot?.regime?.state || null,
+              marketRegimeScore: marketRegimeSnapshot?.regime?.score ?? null,
+              earningsEventSource: earningsEventMap?.source || null,
+              earningsEventCount: Object.keys(earningsEventMap?.events || {}).length,
+              scoreBreakdownSchema: "v1",
+              scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`
+          },
+          technical_universe: auditReadyResults
       };
 
       const meta = { name: fileName, parents: [folderId], mimeType: 'application/json' };
@@ -839,10 +1892,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
       await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
-        method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
+          method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
 
-      addLog(`Tech Analysis Complete. ${results.length} Tickers Processed (Heuristic applied where needed).`, "ok");
+      addLog(`Vault Saved: ${fileName}`, "ok");
+      addLog(`Tech Analysis Complete. ${auditReadyResults.length} OHLCV-backed assets preserved.`, "ok");
       if (onComplete) onComplete();
 
     } catch (e: any) {
@@ -878,7 +1932,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                 <div className="flex flex-col mt-2 gap-1">
                    <div className="flex items-center space-x-2">
                         <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest ${loading ? 'border-orange-400 text-orange-400 animate-pulse' : 'border-orange-500/20 bg-orange-500/10 text-orange-400'}`}>
-                            {loading ? `Processing: ${progress.status} (${progress.current}/${progress.total})` : 'Heuristic Fallback Ready'}
+                            {getStatusBadgeText()}
                         </span>
                         {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse">AUTO PILOT</span>}
                    </div>
@@ -954,12 +2008,12 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                     <span className="text-[10px] font-bold text-slate-500 uppercase tracking-widest truncate max-w-[150px]">{selectedTicker.name}</span>
                                 </div>
                                 <div className="flex flex-wrap items-center gap-2 mt-2">
-                                     {selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' && (
+                                     {(selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' || selectedTicker.techMetrics.squeezeState === 'FIRED_LONG') && (
                                          <span 
-                                            onClick={() => setActiveMetric('VCP')}
+                                            onClick={() => setActiveMetric('TTM_SQUEEZE')}
                                             className="text-[8px] font-black bg-rose-500 text-white px-2 py-0.5 rounded animate-pulse uppercase cursor-help hover:opacity-80 transition-opacity tech-insight-trigger"
                                          >
-                                             VCP Squeeze Active
+                                             {selectedTicker.techMetrics.squeezeState === 'FIRED_LONG' ? 'TTM Squeeze Fired' : 'TTM Squeeze Active'}
                                          </span>
                                      )}
                                      {selectedTicker.techMetrics.goldenSetup && (
@@ -1037,11 +2091,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                         <div className="grid grid-cols-3 gap-2 mt-2">
                              {[
                                 { id: 'RS_RATING', label: 'RS Rating', val: selectedTicker.techMetrics.rsRating, good: selectedTicker.techMetrics.rsRating > 80 },
-                                { id: 'VCP', label: 'VCP (Tight)', val: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' ? 'YES' : 'NO', good: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' },
-                                { id: 'GOLDEN_SETUP', label: 'Golden Cross', val: selectedTicker.techMetrics.goldenSetup ? 'CONFIRMED' : 'NO', good: selectedTicker.techMetrics.goldenSetup },
-                                { id: 'POWER_TREND', label: 'Power Trend', val: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' ? 'ACTIVE' : 'WAIT', good: selectedTicker.techMetrics.trendAlignment === 'POWER_TREND' },
-                                { id: 'ADX', label: 'ADX Strength', val: selectedTicker.techMetrics.adx, good: selectedTicker.techMetrics.adx > 25 },
-                                { id: 'OBV', label: 'OBV Trend', val: selectedTicker.techMetrics.obvSlope, good: selectedTicker.techMetrics.obvSlope === 'ACCUMULATION' }
+                                { id: 'TTM_SQUEEZE', label: 'TTM Squeeze', val: formatSqueezeBadge(selectedTicker.techMetrics.squeezeState), good: selectedTicker.techMetrics.squeezeState === 'SQUEEZE_ON' || selectedTicker.techMetrics.squeezeState === 'FIRED_LONG' },
+                                { id: 'MINERVINI', label: 'Minervini', val: `${selectedTicker.techMetrics.minerviniPassCount ?? 0}/8`, good: (selectedTicker.techMetrics.minerviniScore || 0) >= 75 },
+                                { id: 'MACD', label: 'MACD Hist', val: (selectedTicker.techMetrics.macdHistogram || 0).toFixed(2), good: (selectedTicker.techMetrics.macdHistogram || 0) > 0 },
+                                { id: 'DMI', label: 'DMI Bias', val: getDmiBiasLabel(selectedTicker.techMetrics.diPlus, selectedTicker.techMetrics.diMinus), good: (selectedTicker.techMetrics.diPlus || 0) > (selectedTicker.techMetrics.diMinus || 0) },
+                                { id: 'MFI', label: 'MFI Flow', val: (selectedTicker.techMetrics.mfi || 0).toFixed(2), good: (selectedTicker.techMetrics.mfi || 0) >= 55 && (selectedTicker.techMetrics.mfi || 0) <= 80 }
                              ].map((m) => (
                                  <div 
                                     key={m.id} 

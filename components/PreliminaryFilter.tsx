@@ -6,6 +6,7 @@ import remarkGfm from 'remark-gfm';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
+import { fetchPortalIndices } from '../services/portalIndicesService';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
 interface MasterTicker {
@@ -180,9 +181,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const fetchMarketContext = async (): Promise<MarketContext> => {
       try {
-          const res = await fetch('/api/portal_indices');
-          if (!res.ok) throw new Error("Market Data Fetch Failed");
-          const data = await res.json();
+          const data = await fetchPortalIndices();
           const vix = data.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX')?.price || 20;
           const ndx = data.find((i: any) => i.symbol === 'NASDAQ' || i.symbol === 'NDX')?.change || 0;
           const spx = data.find((i: any) => i.symbol === 'SP500' || i.symbol === 'SPX')?.change || 0;

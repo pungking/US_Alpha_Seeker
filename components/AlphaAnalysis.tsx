@@ -4,9 +4,10 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
-import { generateAlphaSynthesis, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
-import { sendTelegramReport } from '../services/telegramService';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS, STRATEGY_CONFIG } from '../constants';
+import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
+import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
+import { fetchPortalIndices } from '../services/portalIndicesService';
 
 declare global {
   interface Window {
@@ -26,7 +27,10 @@ interface AlphaCandidate {
   marketCapClass?: 'LARGE' | 'MID' | 'SMALL';
   sectorTheme?: string;
   convictionScore?: number;
+  rawConvictionScore?: number;
   expectedReturn?: string;
+  rawExpectedReturn?: string;
+  gatedExpectedReturn?: string;
   theme?: string;
   selectionReasons?: string[];
   investmentOutlook?: string;
@@ -44,6 +48,9 @@ interface AlphaCandidate {
   kellyWeight?: string;
   isHiddenGem?: boolean;
   isImputed?: boolean;
+  integrityScore?: number; // [NEW] Data Quality Score
+  tradePlanSource?: 'RAW' | 'AI_FALLBACK' | 'DERIVED_2R' | 'INVALID';
+  tradePlanStatus?: 'VALID' | 'DERIVED' | 'INVALID';
   // [NEW] ICT 5-Step Data
   pdZone?: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT';
   otePrice?: number;
@@ -66,6 +73,43 @@ interface BacktestResult {
   historicalContext: string;
   timestamp?: number;
   isRealData?: boolean;
+}
+
+interface Stage5SourceMeta {
+  fileId: string;
+  fileName: string;
+  count: number;
+  timestamp?: string;
+  hash?: string;
+  symbols?: string[];
+  lockMode?: 'LATEST' | 'OVERRIDE_ID' | 'OVERRIDE_NAME';
+}
+
+interface Stage5LockOverrideConfig {
+  enabled: boolean;
+  fileId?: string;
+  fileName?: string;
+}
+
+interface Stage5LockDriveFile {
+  id: string;
+  name: string;
+  createdTime?: string;
+}
+
+interface TelegramContractItem {
+  symbol: string;
+  entry: number | null;
+  target: number | null;
+  stop: number | null;
+  expectedReturnPct: number | null;
+}
+
+interface TelegramContractCheckResult {
+  ok: boolean;
+  mismatches: string[];
+  expected: TelegramContractItem[];
+  actual: TelegramContractItem[];
 }
 
 interface Props {
@@ -172,7 +216,85 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
         title: "News Sentiment (뉴스 심리)",
         desc: "최근 48시간 내 뉴스 기사 및 미디어의 감성을 분석한 점수입니다.",
         strategy: "해석:\n- Positive: 호재성 재료 지배적 (모멘텀 강화)\n- Negative: 악재 발생 (기술적 지표가 좋아도 진입 보류)"
+    },
+    'EDGE_EXEC': {
+        title: "Execution Feasibility (실행 가능성 계수)",
+        desc: "유동성/변동성/갭 리스크를 반영한 체결 가능성 계수입니다. 기대수익률 보정에 직접 사용됩니다.",
+        strategy: "해석:\n- 0.95 이상: 실행 리스크 낮음\n- 0.85~0.95: 보통\n- 0.85 미만: 체결/슬리피지/갭 리스크 주의"
+    },
+    'RISK_ATR': {
+        title: "ATR% (변동성 리스크)",
+        desc: "최근 14일 평균 진폭(ATR)을 종가 대비 %로 환산한 변동성 지표입니다.",
+        strategy: "해석:\n- 3% 미만: 안정\n- 3~6%: 중간 변동성\n- 6% 이상: 리스크 관리 강화 필요"
+    },
+    'RISK_GAP': {
+        title: "Gap Risk % (갭 리스크)",
+        desc: "최근 14일 시가-전일종가 평균 괴리율입니다. 장중 손절 미체결 리스크를 반영합니다.",
+        strategy: "해석:\n- 1% 미만: 낮음\n- 1~2%: 보통\n- 2% 이상: 갭 리스크 주의"
+    },
+    'RISK_LIQ': {
+        title: "Liquidity State (유동성 상태)",
+        desc: "데이터 품질/거래대금/신선도 기반 유동성 상태입니다.",
+        strategy: "해석:\n- NORMAL: 실행 적합\n- THIN: 호가 얇음\n- ILLIQUID/STALE: 보수적 집행 필요"
+    },
+    'REGIME_VIX': {
+        title: "VIX Distance (레짐 임계거리)",
+        desc: "현재 VIX와 시스템 임계치(VIX_RISK_OFF_LEVEL) 간 거리입니다.",
+        strategy: "해석:\n- 음수: Risk-On 여지\n- 0 이상: Risk-Off 경계/진입 강도 축소"
+    },
+    'REGIME_RS': {
+        title: "Index Relative Strength (지수 상대강도)",
+        desc: "SPX/NDX 대비 종목 알파 강도입니다.",
+        strategy: "해석:\n- 양수: 지수 대비 초과강도\n- 음수: 지수 대비 열위"
+    },
+    'EVENT_DDAY': {
+        title: "Earnings D-Day (실적 이벤트 거리)",
+        desc: "다음 실적 발표까지 남은 일수입니다.",
+        strategy: "해석:\n- D-3 이내: 이벤트 리스크 급증\n- D-4~D-10: 주의 구간\n- D-10 이후: 비교적 안정"
+    },
+    'ROBUST_STABILITY': {
+        title: "Signal Stability (신호 안정성)",
+        desc: "신호 조합 보너스/과열 페널티를 합산한 안정성 점수입니다.",
+        strategy: "해석:\n- 70 이상: 신호 정합성 우수\n- 50~70: 중립\n- 50 미만: 과열/충돌 가능성"
+    },
+    'ROBUST_CONSENSUS': {
+        title: "Stage Consensus (3단계 합의도)",
+        desc: "Fundamental/Technical/ICT 3축이 동시에 강한지(>=70) 평가한 합의 지수입니다.",
+        strategy: "해석:\n- 3/3: 강한 합의\n- 2/3: 조건부 합의\n- 1/3 이하: 단일 신호 의존"
+    },
+    'INTEGRITY_SCORE': {
+        title: "Data Integrity (데이터 무결성)",
+        desc: "수집/정합성/품질 점수를 통합한 무결성 지수입니다.",
+        strategy: "해석:\n- 85 이상: 고신뢰\n- 70~85: 실무 사용 가능\n- 70 미만: 보수적 해석 필요"
+    },
+    'CONCENTRATION_SCORE': {
+        title: "Sector Concentration (섹터 쏠림)",
+        desc: "Top6 포트폴리오 내 동일 섹터 집중도입니다.",
+        strategy: "해석:\n- 35% 이하: 분산 양호\n- 35~50%: 주의\n- 50% 초과: 편중 리스크"
     }
+};
+
+const STAGE5_LOCK_OVERRIDE_KEY = 'US_ALPHA_STAGE5_LOCK_OVERRIDE';
+const STAGE5_LOCK_FILE_ID_KEY = 'US_ALPHA_STAGE5_LOCK_FILE_ID';
+const STAGE5_LOCK_FILE_NAME_KEY = 'US_ALPHA_STAGE5_LOCK_FILE_NAME';
+
+const parseBooleanFlag = (value: any): boolean => {
+  const normalized = String(value ?? '').trim().toLowerCase();
+  return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
+};
+
+const fnv1aHash = (input: string): string => {
+  let hash = 2166136261;
+  for (let i = 0; i < input.length; i++) {
+    hash ^= input.charCodeAt(i);
+    hash +=
+      (hash << 1) +
+      (hash << 4) +
+      (hash << 7) +
+      (hash << 8) +
+      (hash << 24);
+  }
+  return (hash >>> 0).toString(16).padStart(8, '0');
 };
 
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
@@ -332,24 +454,50 @@ const getLegendStrategy = (logicStr: string = "") => {
 
 const fetchMarketBenchmarks = async () => {
     try {
-        const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-        if (!finnhubKey) return { spy: { price: 0, change: 0 }, qqq: { price: 0, change: 0 } };
+        const data = await fetchPortalIndices();
 
-        const getQuote = async (sym: string) => {
-            const res = await fetch(`https://finnhub.io/api/v1/quote?symbol=${sym}&token=${finnhubKey}`);
-            const data = await res.json();
-            return { price: Number(data.c) || 0, change: Number(data.dp) || 0 };
+        const findIndex = (sym: string) => {
+            const aliases: Record<string, string[]> = {
+                SPX: ['SPX', 'SP500'],
+                NDX: ['NDX', 'NASDAQ', 'NASDAQ100'],
+                VIX: ['VIX'],
+            };
+            const keySet = new Set([sym, ...(aliases[sym] || [])]);
+            const found = data.find((d: any) => keySet.has(String(d.symbol || '').toUpperCase()));
+            return found ? { price: Number(found.price), change: Number(found.change) } : null;
         };
 
-        const [spy, qqq] = await Promise.all([getQuote('SPY'), getQuote('QQQ')]);
-        return { spy, qqq };
+        // Map Real Indices to Internal Keys (SPY->SPX, QQQ->NDX for display consistency)
+        const spx = findIndex('SPX') || { price: 0, change: 0 };
+        const ndx = findIndex('NDX') || { price: 0, change: 0 };
+        const vix = findIndex('VIX') || { price: 0, change: 0 };
+
+        const benchmarks = { 
+            spy: spx, // Mapping SPX to 'spy' key to maintain compatibility with existing UI/Logic
+            qqq: ndx, // Mapping NDX to 'qqq' key
+            vix: vix 
+        };
+
+        const isValidIndex = (index: { price: number; change?: number } | null | undefined) =>
+          !!index && Number.isFinite(index.price) && index.price > 0;
+
+        // Update Global Cache (valid benchmarks only to avoid 0.00 contamination)
+        if (typeof window !== 'undefined') {
+            if (isValidIndex(spx) && isValidIndex(ndx)) {
+                (window as any).latestMarketPulse = benchmarks;
+            }
+        }
+
+        return benchmarks;
     } catch (e) {
-        console.error("Benchmark Fetch Error", e);
-        return { spy: { price: 0, change: 0 }, qqq: { price: 0, change: 0 } };
+        console.error("Benchmark Fetch Error (Portal)", e);
+        // Fallback to zero to prevent crash, but log error
+        return { spy: { price: 0, change: 0 }, qqq: { price: 0, change: 0 }, vix: { price: 0 } };
     }
 };
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
+  const getAlphaRankScore = (stock: AlphaCandidate | null | undefined) => Number(stock?.finalSelectionScore || stock?.convictionScore || 0);
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -362,12 +510,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   
   const [matrixReports, setMatrixReports] = useState<{ [key in ApiProvider]?: string }>({});
   const [matrixBrain, setMatrixBrain] = useState<ApiProvider>(ApiProvider.GEMINI);
+  const [scoreViewMode, setScoreViewMode] = useState<'GATED' | 'RAW'>('GATED');
   
   const [sendingTelegram, setSendingTelegram] = useState(false);
+  const stage2ProviderRef = useRef<ApiProvider>(selectedBrain);
+  const stage6FinalRef = useRef<AlphaCandidate[]>([]);
+  const stage6FinalRunIdRef = useRef<string>('');
 
   // Define derived state explicitly to avoid scope issues
   // [MODIFIED] currentResults sorted by conviction score descending
-  const currentResults = (resultsCache[selectedBrain] || []).sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+  const currentResults = (resultsCache[selectedBrain] || []).sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
@@ -383,11 +535,42 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const isHeadless = typeof window !== 'undefined' && /HeadlessChrome/.test(window.navigator.userAgent);
 
   const [realtimePrices, setRealtimePrices] = useState<Record<string, { price: number, direction: 'up' | 'down' | null }>>({});
+
+  const resolveStage6OutputSource = (): { items: AlphaCandidate[]; source: string } => {
+      const finalLocked = Array.isArray(stage6FinalRef.current) ? stage6FinalRef.current : [];
+      if (finalLocked.length > 0) {
+          return { items: finalLocked, source: 'STAGE6_FINAL_LOCK' };
+      }
+      const bySelected = resultsCache[selectedBrain];
+      if (Array.isArray(bySelected) && bySelected.length > 0) {
+          return { items: bySelected, source: `CACHE_${selectedBrain}` };
+      }
+      const byGemini = resultsCache[ApiProvider.GEMINI];
+      if (Array.isArray(byGemini) && byGemini.length > 0) {
+          return { items: byGemini, source: 'CACHE_GEMINI' };
+      }
+      const bySonar = resultsCache[ApiProvider.PERPLEXITY];
+      if (Array.isArray(bySonar) && bySonar.length > 0) {
+          return { items: bySonar, source: 'CACHE_SONAR' };
+      }
+      return { items: [], source: 'EMPTY' };
+  };
+
+  useEffect(() => {
+      stage2ProviderRef.current = selectedBrain;
+  }, [selectedBrain]);
   const wsRef = useRef<WebSocket | null>(null);
 
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const logRef = useRef<HTMLDivElement>(null);
+  const stage5SourceRef = useRef<Stage5SourceMeta | null>(null);
+  const [stage5LockEnabled, setStage5LockEnabled] = useState(false);
+  const [stage5LockFileId, setStage5LockFileId] = useState('');
+  const [stage5LockFileName, setStage5LockFileName] = useState('');
+  const [stage5LockOptions, setStage5LockOptions] = useState<Stage5LockDriveFile[]>([]);
+  const [stage5LockSelectedId, setStage5LockSelectedId] = useState('');
+  const [stage5LockListLoading, setStage5LockListLoading] = useState(false);
 
   const uniqueChartId = useMemo(() => `chart-gradient-${Math.random().toString(36).substr(2, 9)}`, []);
 
@@ -459,6 +642,115 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const expectancy = (P * B) - (Q * 1);
           const aic = selectedStock.aiVerdict === 'STRONG_BUY' ? 95 : selectedStock.aiVerdict === 'BUY' ? 80 : 50;
 
+          // [NEW] Advanced Deterministic Metrics for Framework Block
+          const history = Array.isArray(selectedStock.priceHistory) ? selectedStock.priceHistory : [];
+          const recentBars = history.slice(-14);
+          const trList: number[] = [];
+          const gapList: number[] = [];
+          for (let i = 1; i < recentBars.length; i++) {
+              const prevClose = Number(recentBars[i - 1]?.close || 0);
+              const open = Number(recentBars[i]?.open || 0);
+              const high = Number(recentBars[i]?.high || 0);
+              const low = Number(recentBars[i]?.low || 0);
+              if (prevClose > 0 && open > 0) {
+                  gapList.push(Math.abs((open - prevClose) / prevClose) * 100);
+              }
+              if (prevClose > 0 && high > 0 && low > 0) {
+                  trList.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+              }
+          }
+          const lastClose = Number(recentBars[recentBars.length - 1]?.close || selectedStock.price || 0);
+          const atrPct = (trList.length > 0 && lastClose > 0)
+              ? (trList.reduce((a, b) => a + b, 0) / trList.length / lastClose) * 100
+              : 0;
+          const gapRiskPct = gapList.length > 0 ? (gapList.reduce((a, b) => a + b, 0) / gapList.length) : 0;
+          const liquidityState = String(selectedStock.techMetrics?.dataQualityState || 'NORMAL').toUpperCase();
+          const rawRvol = Number(selectedStock.techMetrics?.rawRvol || 1);
+          const eventRiskState = String(selectedStock.techMetrics?.eventRiskState || 'LOW').toUpperCase();
+          const daysToEarnings = Number(selectedStock.techMetrics?.daysToEarnings ?? -1);
+          const vixClose = Number(selectedStock.techMetrics?.vixClose || 0);
+          const vixDistance = Number.isFinite(vixClose) ? (vixClose - STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL) : 0;
+          const rsAlpha = Number(selectedStock.spyAlpha || 0);
+          const signalComboBonus = Number(selectedStock.techMetrics?.signalComboBonus || 0);
+          const signalHeatPenalty = Number(selectedStock.techMetrics?.signalHeatPenalty || 0);
+          const signalStability = Math.max(0, Math.min(100, 50 + (signalComboBonus * 8) - (signalHeatPenalty * 10)));
+          const stageConsensus =
+              (selectedStock.fundamentalScore >= 70 ? 1 : 0) +
+              (selectedStock.technicalScore >= 70 ? 1 : 0) +
+              (selectedStock.ictScore >= 70 ? 1 : 0);
+          const integrityScore = Number(selectedStock.integrityScore || selectedStock.dataConfidence || 75);
+          const top6 = (currentResults || []).slice(0, 6);
+          const top6Count = Math.max(1, top6.length);
+          const sameSector = top6.filter((x: any) => (x?.sectorTheme || x?.sector) === (selectedStock.sectorTheme || selectedStock.sector)).length;
+          const sectorConcentration = (sameSector / top6Count) * 100;
+
+          let executionFactor = 1;
+          if (liquidityState === 'THIN') executionFactor *= 0.92;
+          if (liquidityState === 'ILLIQUID') executionFactor *= 0.82;
+          if (liquidityState === 'STALE') executionFactor *= 0.75;
+          if (rawRvol < 0.8) executionFactor *= 0.90;
+          else if (rawRvol < 1.0) executionFactor *= 0.95;
+          if (atrPct >= 6) executionFactor *= 0.85;
+          else if (atrPct >= 4) executionFactor *= 0.92;
+          if (gapRiskPct >= 3) executionFactor *= 0.85;
+          else if (gapRiskPct >= 2) executionFactor *= 0.92;
+          if (eventRiskState === 'HIGH') executionFactor *= 0.88;
+          else if (eventRiskState === 'MEDIUM') executionFactor *= 0.94;
+          executionFactor = Math.max(0.55, Math.min(1, executionFactor));
+
+          const driverCandidates = [
+              {
+                  id: 'EDGE_EXEC',
+                  label: 'Execution',
+                  value: `${executionFactor.toFixed(2)}x`,
+                  score: Math.abs(1 - executionFactor) * 130
+              },
+              {
+                  id: 'RISK_ATR',
+                  label: 'ATR Risk',
+                  value: `${atrPct.toFixed(2)}%`,
+                  score: atrPct * 8
+              },
+              {
+                  id: 'RISK_GAP',
+                  label: 'Gap Risk',
+                  value: `${gapRiskPct.toFixed(2)}%`,
+                  score: gapRiskPct * 11
+              },
+              {
+                  id: 'REGIME_VIX',
+                  label: 'VIX Regime',
+                  value: `${vixDistance.toFixed(2)}`,
+                  score: Math.abs(vixDistance) * 9
+              },
+              {
+                  id: 'REGIME_RS',
+                  label: 'RS Alpha',
+                  value: `${rsAlpha.toFixed(2)}`,
+                  score: Math.abs(rsAlpha) * 35
+              },
+              {
+                  id: 'ROBUST_CONSENSUS',
+                  label: 'Stage Consensus',
+                  value: `${stageConsensus}/3`,
+                  score: Math.abs(stageConsensus - 2) * 25
+              },
+              {
+                  id: 'INTEGRITY_SCORE',
+                  label: 'Integrity',
+                  value: `${integrityScore.toFixed(1)}`,
+                  score: Math.abs(85 - integrityScore) * 1.2
+              },
+              {
+                  id: 'CONCENTRATION_SCORE',
+                  label: 'Sector Conc.',
+                  value: `${sectorConcentration.toFixed(1)}%`,
+                  score: Math.max(0, sectorConcentration - 33) * 2
+              }
+          ]
+              .sort((a, b) => b.score - a.score)
+              .slice(0, 3);
+
           return {
               sizing: {
                   kelly: halfKelly.toFixed(1),
@@ -484,6 +776,29 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   aic: aic,
                   sentiment: selectedStock.newsSentiment || 'Neutral'
               },
+              advanced: {
+                  edge: {
+                      executionFactor: Number(executionFactor.toFixed(2)),
+                      stageConsensus: `${stageConsensus}/3`,
+                      rrRatio: Number(B.toFixed(2))
+                  },
+                  risk: {
+                      atrPct: Number(atrPct.toFixed(2)),
+                      gapRiskPct: Number(gapRiskPct.toFixed(2)),
+                      liquidityState
+                  },
+                  regime: {
+                      vixDistance: Number(vixDistance.toFixed(2)),
+                      rsAlpha: Number(rsAlpha.toFixed(2)),
+                      earningsD: Number.isFinite(daysToEarnings) && daysToEarnings >= 0 ? daysToEarnings : null
+                  },
+                  integrity: {
+                      signalStability: Number(signalStability.toFixed(1)),
+                      integrityScore: Number(integrityScore.toFixed(1)),
+                      sectorConcentration: Number(sectorConcentration.toFixed(1))
+                  },
+                  drivers: driverCandidates
+              },
               radarData: [
                   { subject: 'Conviction', A: Math.round(conviction), fullMark: 100 },
                   { subject: 'Sentiment', A: Math.round((selectedStock.newsScore || 0.5) * 100), fullMark: 100 },
@@ -496,7 +811,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           console.error("Quant Metrics Error", e);
           return null;
       }
-  }, [selectedStock, backtestData]);
+  }, [selectedStock, backtestData, currentResults]);
+
+  const topDriverIdSet = useMemo(() => {
+      const ids = (quantMetrics as any)?.advanced?.drivers?.map((d: any) => d?.id).filter(Boolean) || [];
+      return new Set<string>(ids);
+  }, [quantMetrics]);
 
   // [WS UPDATED LOGIC] Use currentResults directly to ensure tracking of displayed list
   useEffect(() => {
@@ -554,7 +874,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   useEffect(() => {
     const cached = resultsCache[selectedBrain];
     if (cached && cached.length > 0) {
-      const sorted = [...cached].sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0));
+      const sorted = [...cached].sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
       if (!selectedStock || !sorted.find(c => c.symbol === selectedStock.symbol)) {
         const initialStock = sorted[0];
         setSelectedStock(initialStock);
@@ -591,11 +911,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   useEffect(() => {
       const finishAutoPilot = async () => {
-          // Robustly get results regardless of currently selected brain in UI
-          const resultsToCheck = resultsCache[selectedBrain] || resultsCache[ApiProvider.GEMINI] || resultsCache[ApiProvider.PERPLEXITY] || [];
+          // Always lock Telegram payload to the latest finalized Stage6 Top6 first.
+          const { items: resultsToCheck, source: sourceTag } = resolveStage6OutputSource();
           
           if (autoStart && autoPhase === 'MATRIX' && !matrixLoading && resultsToCheck.length > 0) {
               addLog("AUTO-PILOT: Generating Hedge Fund Brief for Telegram...", "signal");
+              addLog(
+                  `[AUDIT_SYNC] Telegram source locked: ${sourceTag} (${resultsToCheck.length})${stage6FinalRunIdRef.current ? ` run=${stage6FinalRunIdRef.current}` : ''}`,
+                  "info"
+              );
               
               let telegramPayload = ""; 
               
@@ -603,13 +927,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram Brief Timeout")), 15000));
               
               try {
-                  // Use the currently active brain or fallback to Perplexity
-                  const brainToUse = resultsCache[selectedBrain] ? selectedBrain : ApiProvider.PERPLEXITY;
+                  // Use the actual Stage2 provider whenever available to keep manual/autopilot consistent.
+                  const brainToUse = stage2ProviderRef.current || selectedBrain;
                   
                   // [HYDRATION] Explicitly pass market pulse data
                   const marketPulse = (window as any).latestMarketPulse;
                   const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse);
                   const brief = await Promise.race([briefPromise, timeout]) as string;
+
+                  const contractCheck = checkTelegramContractIntegrity(resultsToCheck, brief);
+                  if (!contractCheck.ok) {
+                      addLog(
+                          `TELEGRAM_CONTRACT_MISMATCH: ${contractCheck.mismatches[0] || 'unknown mismatch'}`,
+                          "err"
+                      );
+                      contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
+                      throw new Error(`TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`);
+                  }
                   
                   telegramPayload = brief;
                   addLog("Brief Generated. Relaying...", "ok");
@@ -624,8 +958,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     }
                     const timestamp = getKstTimestamp();
                     const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
+                    const archivedBrief = buildTelegramMessage(brief);
                     // [FIXED] Fire-and-Forget Archive to prevent timeout
-                    archiveReport(token, fileName, brief)
+                    archiveReport(token, fileName, archivedBrief)
                         .then(() => addLog("Telegram Brief Archived to Drive.", "ok"))
                         .catch(e => addLog(`Archive Failed: ${e.message}`, "warn"));
                   }
@@ -718,6 +1053,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return str.trim();
   };
 
+  // [FORMATTER] Dedicated cleanup for Portfolio Matrix report readability.
+  // Keeps markdown emphasis(**...**) intact so existing green badge styling is preserved.
+  const cleanMatrixInsightText = (text: any) => {
+    if (!text) return "";
+    let str = cleanInsightText(text);
+
+    str = str
+      // Remove decorative divider-only lines (--- / -- / ——)
+      .replace(/^\s*[-—–]{2,}\s*$/gm, '')
+      // Normalize section title lines like "— 1. Title" -> markdown heading
+      .replace(/^\s*[—–-]\s*(\d+\.\s*.+)$/gm, '## $1')
+      // Normalize arrow-prefixed lines to proper markdown bullets
+      .replace(/^\s*[→➜⇒]\s*/gm, '- ')
+      // Ensure spacing before headings for better scanability
+      .replace(/([^\n])\n(#{1,3}\s)/g, '$1\n\n$2')
+      // Collapse excessive empty lines
+      .replace(/\n{3,}/g, '\n\n')
+      .trim();
+
+    return str;
+  };
+
   const cleanMarkdown = (text?: any) => {
       if (text === null || text === undefined) return '';
       return String(text)
@@ -729,6 +1086,434 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         .replace(/#/g, '')
         .replace(/[\u{1F600}-\u{1F6FF}]/gu, "")
         .trim();
+  };
+
+  const normalizeExpectedReturnLabel = (raw?: any) => {
+      if (raw === null || raw === undefined) return '';
+      const src = String(raw).trim();
+      if (!src) return '';
+
+      const pctMatch = src.match(/([+-]?\d+(\.\d+)?)\s*%/);
+      if (!pctMatch) return src;
+
+      const percent = `${pctMatch[1]}%`;
+      const tagMatch = src.match(/\(([^)]+)\)/);
+      if (!tagMatch) return percent;
+
+      const tagRaw = String(tagMatch[1]).trim();
+      if (!tagRaw) return percent;
+
+      const koToEnMap: Record<string, string> = {
+          '단기': 'Short-Term',
+          '중기': 'Mid-Term',
+          '장기': 'Long-Term',
+          '관망': 'Watch',
+          '매수': 'Buy',
+          '매도': 'Reduce',
+          '보유': 'Hold'
+      };
+      const normalizedTag = koToEnMap[tagRaw] || tagRaw;
+      return `${percent} (${normalizedTag})`;
+  };
+
+  const toVerdictKey = (v?: any) =>
+      String(v ?? '').replace(/[^a-zA-Z0-9_가-힣]/g, '').toUpperCase().trim();
+
+  const isRiskOffVerdict = (v?: any) => {
+      const key = toVerdictKey(v);
+      return (
+          key.includes('STRONGSELL') ||
+          key.includes('SELL') ||
+          key.includes('EXIT') ||
+          key.includes('REDUCE') ||
+          key.includes('PARTIAL_EXIT') ||
+          key.includes('PARTIALEXIT') ||
+          key.includes('매도') ||
+          key.includes('청산') ||
+          key.includes('비중축소')
+      );
+  };
+
+  const isStrongBuyVerdict = (v?: any) => {
+      const key = toVerdictKey(v);
+      return (
+          key.includes('STRONGBUY') ||
+          key.includes('STRONG_BUY') ||
+          key.includes('강력매수')
+      );
+  };
+
+  const normalizeExpectedReturnByVerdict = (rawExpected: any, verdict?: any) => {
+      const normalized = normalizeExpectedReturnLabel(rawExpected);
+      if (!normalized) return '';
+      if (!isRiskOffVerdict(verdict)) return normalized;
+
+      const pctMatch = normalized.match(/([+-]?\d+(\.\d+)?)\s*%/);
+      if (!pctMatch) return '0% (Risk-Managed)';
+      const pct = Math.max(0, Number(pctMatch[1]));
+      const clipped = Math.min(pct, 15);
+      return `+${Math.round(clipped)}% (Risk-Managed)`;
+  };
+
+  const normalizeContractSymbol = (raw: any) =>
+      String(raw || '').replace(/[^a-zA-Z0-9]/g, '').toUpperCase().trim();
+
+  const parseContractNumber = (raw: any): number | null => {
+      if (raw === null || raw === undefined) return null;
+      const n = Number(String(raw).replace(/,/g, '').trim());
+      return Number.isFinite(n) ? n : null;
+  };
+
+  const parseExpectedReturnPct = (raw: any): number | null => {
+      const src = String(raw || '');
+      const m = src.match(/([+-]?\d+(\.\d+)?)\s*%/);
+      if (!m) return null;
+      const n = Number(m[1]);
+      return Number.isFinite(n) ? n : null;
+  };
+
+  const buildTelegramContractExpected = (items: AlphaCandidate[]): TelegramContractItem[] =>
+      items.slice(0, 6).map((item) => ({
+          symbol: normalizeContractSymbol(item?.symbol),
+          entry: parseContractNumber(item?.entryPrice ?? item?.otePrice ?? item?.supportLevel),
+          target: parseContractNumber(item?.targetPrice ?? item?.targetMeanPrice ?? item?.resistanceLevel),
+          stop: parseContractNumber(item?.stopLoss ?? item?.ictStopLoss),
+          expectedReturnPct: parseExpectedReturnPct(
+              item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
+          )
+      }));
+
+  const extractTelegramContractActual = (brief: string): TelegramContractItem[] => {
+      const lines = String(brief || '').split(/\r?\n/);
+      const items: TelegramContractItem[] = [];
+      let current: TelegramContractItem | null = null;
+
+      for (const line of lines) {
+          const header = line.match(/^\s*(\d+)\.\s*([A-Za-z0-9.\-]+)\s*\(/);
+          if (header) {
+              if (current) items.push(current);
+              current = {
+                  symbol: normalizeContractSymbol(header[2]),
+                  entry: null,
+                  target: null,
+                  stop: null,
+                  expectedReturnPct: null
+              };
+              continue;
+          }
+          if (!current) continue;
+
+          const plan = line.match(/진입\s*\$?\s*([0-9,]+(?:\.\d+)?)\s*.*목표\s*\$?\s*([0-9,]+(?:\.\d+)?)\s*.*손절\s*\$?\s*([0-9,]+(?:\.\d+)?)/);
+          if (plan) {
+              current.entry = parseContractNumber(plan[1]);
+              current.target = parseContractNumber(plan[2]);
+              current.stop = parseContractNumber(plan[3]);
+              continue;
+          }
+
+          const er = line.match(/Exp\.?\s*Return[^0-9+-]*([+-]?\d+(\.\d+)?)\s*%/i);
+          if (er) {
+              current.expectedReturnPct = parseContractNumber(er[1]);
+          }
+      }
+
+      if (current) items.push(current);
+      return items.slice(0, 6);
+  };
+
+  const checkTelegramContractIntegrity = (
+      sourceItems: AlphaCandidate[],
+      brief: string
+  ): TelegramContractCheckResult => {
+      const expected = buildTelegramContractExpected(sourceItems);
+      const actual = extractTelegramContractActual(brief);
+      const mismatches: string[] = [];
+      const priceTolerance = 0.05;
+      const returnTolerance = 1;
+
+      if (expected.length !== actual.length) {
+          mismatches.push(`COUNT expected=${expected.length} actual=${actual.length}`);
+      }
+
+      const compareNumeric = (
+          label: string,
+          idx: number,
+          exp: number | null,
+          act: number | null,
+          tolerance: number
+      ) => {
+          if (exp === null && act === null) return;
+          if (exp === null || act === null) {
+              mismatches.push(`#${idx + 1} ${label} missing exp=${exp ?? 'null'} act=${act ?? 'null'}`);
+              return;
+          }
+          if (Math.abs(exp - act) > tolerance) {
+              mismatches.push(`#${idx + 1} ${label} exp=${exp.toFixed(2)} act=${act.toFixed(2)}`);
+          }
+      };
+
+      const count = Math.min(expected.length, actual.length);
+      for (let i = 0; i < count; i++) {
+          if (expected[i].symbol !== actual[i].symbol) {
+              mismatches.push(`#${i + 1} SYMBOL exp=${expected[i].symbol} act=${actual[i].symbol}`);
+              continue;
+          }
+          compareNumeric('ENTRY', i, expected[i].entry, actual[i].entry, priceTolerance);
+          compareNumeric('TARGET', i, expected[i].target, actual[i].target, priceTolerance);
+          compareNumeric('STOP', i, expected[i].stop, actual[i].stop, priceTolerance);
+          compareNumeric('ER%', i, expected[i].expectedReturnPct, actual[i].expectedReturnPct, returnTolerance);
+      }
+
+      return {
+          ok: mismatches.length === 0,
+          mismatches,
+          expected,
+          actual
+      };
+  };
+
+  const getDisplayConvictionScore = (item: any, mode: 'GATED' | 'RAW') => {
+      const raw = Number(item?.rawConvictionScore ?? item?.convictionScore ?? 50);
+      const gated = Number(item?.convictionScore ?? raw);
+      return mode === 'RAW' ? raw : gated;
+  };
+
+  const getDisplayExpectedReturn = (item: any, mode: 'GATED' | 'RAW') => {
+      if (mode === 'RAW') return item?.rawExpectedReturn || item?.expectedReturn || 'TBD';
+      return item?.gatedExpectedReturn || item?.expectedReturn || 'TBD';
+  };
+
+  const normalizeTop6SelectionReasons = (item: any): string[] => {
+      const cleaned = (Array.isArray(item?.selectionReasons) ? item.selectionReasons : [])
+          .map((r: any) => cleanMarkdown(String(r || '').trim()))
+          .filter(Boolean);
+
+      const deterministic = [
+          `Fund/Tech/ICT ${Math.round(Number(item?.fundamentalScore || 0))}/${Math.round(Number(item?.technicalScore || 0))}/${Math.round(Number(item?.ictScore || 0))}`,
+          `Gate ${item?.finalGateState || 'OPEN'} (B${Number(item?.finalGateBonus || 0)}/P${Number(item?.finalGatePenalty || 0)})`,
+          `AI ${String(item?.aiVerdict || 'N/A')}`
+      ];
+
+      const merged = Array.from(new Set([...cleaned, ...deterministic]));
+      return merged.slice(0, 3);
+  };
+
+  const deriveQuantExpectedReturn = (item: any) => {
+      const entry = Number(item?.otePrice || item?.supportLevel || item?.price || 0);
+      const stop = Number(item?.ictStopLoss || item?.stopLoss || 0);
+      const targetRaw = Number(item?.resistanceLevel || item?.targetPrice || item?.targetMeanPrice || 0);
+
+      let target = targetRaw;
+      // If target is missing, estimate a conservative 2R target from ICT risk box.
+      if (!(target > entry) && entry > 0 && stop > 0 && entry > stop) {
+          target = entry + ((entry - stop) * 2);
+      }
+
+      if (!(entry > 0) || !(target > entry)) return '';
+      const pct = ((target - entry) / entry) * 100;
+      if (!(pct > 0)) return '';
+
+      const tag = pct >= 35 ? 'High Conviction' : pct >= 20 ? 'Mid-Term' : 'Short-Term';
+      return `+${Math.round(pct)}% (${tag})`;
+  };
+
+  const getExecutionFactorForItem = (item: any) => {
+      const history = Array.isArray(item?.priceHistory) ? item.priceHistory : [];
+      const recentBars = history.slice(-14);
+      const trList: number[] = [];
+      const gapList: number[] = [];
+      for (let i = 1; i < recentBars.length; i++) {
+          const prevClose = Number(recentBars[i - 1]?.close || 0);
+          const open = Number(recentBars[i]?.open || 0);
+          const high = Number(recentBars[i]?.high || 0);
+          const low = Number(recentBars[i]?.low || 0);
+          if (prevClose > 0 && open > 0) {
+              gapList.push(Math.abs((open - prevClose) / prevClose) * 100);
+          }
+          if (prevClose > 0 && high > 0 && low > 0) {
+              trList.push(Math.max(high - low, Math.abs(high - prevClose), Math.abs(low - prevClose)));
+          }
+      }
+      const lastClose = Number(recentBars[recentBars.length - 1]?.close || item?.price || 0);
+      const atrPct = (trList.length > 0 && lastClose > 0)
+          ? (trList.reduce((a, b) => a + b, 0) / trList.length / lastClose) * 100
+          : 0;
+      const gapRiskPct = gapList.length > 0 ? (gapList.reduce((a, b) => a + b, 0) / gapList.length) : 0;
+      const liquidityState = String(item?.techMetrics?.dataQualityState || 'NORMAL').toUpperCase();
+      const rawRvol = Number(item?.techMetrics?.rawRvol || 1);
+      const eventRiskState = String(item?.techMetrics?.eventRiskState || 'LOW').toUpperCase();
+
+      let executionFactor = 1;
+      if (liquidityState === 'THIN') executionFactor *= 0.92;
+      if (liquidityState === 'ILLIQUID') executionFactor *= 0.82;
+      if (liquidityState === 'STALE') executionFactor *= 0.75;
+      if (rawRvol < 0.8) executionFactor *= 0.90;
+      else if (rawRvol < 1.0) executionFactor *= 0.95;
+      if (atrPct >= 6) executionFactor *= 0.85;
+      else if (atrPct >= 4) executionFactor *= 0.92;
+      if (gapRiskPct >= 3) executionFactor *= 0.85;
+      else if (gapRiskPct >= 2) executionFactor *= 0.92;
+      if (eventRiskState === 'HIGH') executionFactor *= 0.88;
+      else if (eventRiskState === 'MEDIUM') executionFactor *= 0.94;
+      return Math.max(0.55, Math.min(1, executionFactor));
+  };
+
+  const applyExecutionFactorToExpectedReturn = (expectedReturnLabel: any, executionFactor: number) => {
+      const normalized = normalizeExpectedReturnLabel(expectedReturnLabel);
+      if (!normalized) return '';
+
+      const pctMatch = normalized.match(/([+-]?\d+(\.\d+)?)\s*%/);
+      if (!pctMatch) return normalized;
+
+      const rawPct = Math.max(0, Number(pctMatch[1]));
+      const safeFactor = Math.max(0.55, Math.min(1, Number(executionFactor) || 1));
+      const adjustedPct = Math.max(0, rawPct * safeFactor);
+      const tag = adjustedPct >= 35 ? 'High Conviction' : adjustedPct >= 20 ? 'Mid-Term' : 'Short-Term';
+      return `+${Math.round(adjustedPct)}% (${tag})`;
+  };
+
+  const toFinitePositive = (...vals: any[]) => {
+      for (const v of vals) {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) return n;
+      }
+      return 0;
+  };
+
+  const formatExpectedReturnFromGeometry = (entry: number, target: number) => {
+      if (!(entry > 0) || !(target > entry)) return '0% (No Edge)';
+      const pct = ((target - entry) / entry) * 100;
+      if (!(pct > 0)) return '0% (No Edge)';
+      const tag = pct >= 35 ? 'High Conviction' : pct >= 20 ? 'Mid-Term' : 'Short-Term';
+      return `+${Math.round(pct)}% (${tag})`;
+  };
+
+  const buildCanonicalTradePlan = (item: any) => {
+      // [QUANT LOCK] Stage 5 quant trade-box is authoritative in Stage 6.
+      // AI must not overwrite entry/target/stop geometry.
+      const entry = toFinitePositive(item?.otePrice, item?.supportLevel, item?.price);
+      const stop = toFinitePositive(item?.ictStopLoss, item?.stopLoss);
+      const rawTarget = toFinitePositive(item?.resistanceLevel, item?.targetPrice, item?.targetMeanPrice);
+
+      const hasValidRiskBox = entry > 0 && stop > 0 && stop < entry;
+      const hasValidRawTarget = rawTarget > entry;
+
+      if (hasValidRiskBox && hasValidRawTarget) {
+          return {
+              entry,
+              stop,
+              target: rawTarget,
+              source: 'RAW' as const,
+              status: 'VALID' as const,
+              expectedReturnLabel: formatExpectedReturnFromGeometry(entry, rawTarget)
+          };
+      }
+
+      return {
+          entry,
+          stop,
+          target: rawTarget > 0 ? rawTarget : entry,
+          source: 'INVALID' as const,
+          status: 'INVALID' as const,
+          expectedReturnLabel: '0% (No Edge)'
+      };
+  };
+
+  const enforceOutlookTradeBoxConsistency = (outlook: string, item: any) => {
+      const text = String(outlook || '').trim();
+      if (!text) return text;
+      const entry = Number(item?.otePrice || item?.supportLevel || 0);
+      const target = Number(item?.resistanceLevel || item?.targetPrice || 0);
+      const stop = Number(item?.ictStopLoss || item?.stopLoss || 0);
+      if (!(entry > 0) || !(target > 0) || !(stop > 0)) return text;
+
+      const trajectoryLine = `- **가격 목표 (Trajectory)** : 진입 $${entry.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}`;
+      const hasTrajectoryLine = /- \*\*가격 목표\s*\(Trajectory\)\*\*\s*:.*/m.test(text);
+      if (hasTrajectoryLine) {
+          return text.replace(/- \*\*가격 목표\s*\(Trajectory\)\*\*\s*:.*/m, trajectoryLine);
+      }
+      return `${text}\n${trajectoryLine}`;
+  };
+
+  const hasStructuredOutlookSections = (text: string) => {
+      const t = String(text || '');
+      const hasSections = /##\s*1\./i.test(t) && /##\s*2\./i.test(t) && /##\s*3\./i.test(t);
+      const hasLegendCommittee = [
+          '벤저민 그레이엄',
+          '피터 린치',
+          '워렌 버핏',
+          '윌리엄 오닐',
+          '찰리 멍거',
+          '글렌 웰링',
+          '캐시 우드',
+          '글렌 그린버그',
+          '최종 평결'
+      ].every(k => t.includes(k));
+      const hasExpertPanel = [
+          '보수적 퀀트',
+          '공격적 트레이더',
+          '마켓 메이커',
+          '종합 분석'
+      ].every(k => t.includes(k));
+      const hasThesis = [
+          '핵심 논거',
+          '상승 촉매',
+          '리스크 요인',
+          '가격 목표'
+      ].every(k => t.includes(k));
+      return hasSections && hasLegendCommittee && hasExpertPanel && hasThesis;
+  };
+
+  const buildStructuredOutlookFallback = (item: any, rawOutlook: string) => {
+      const entry = Number(item?.otePrice || item?.supportLevel || 0);
+      const target = Number(item?.resistanceLevel || item?.targetPrice || 0);
+      const stop = Number(item?.ictStopLoss || item?.stopLoss || 0);
+      const sector = item?.sectorTheme || item?.sector || 'Unknown';
+      const verdict = String(item?.aiVerdict || 'HOLD');
+      const pdZone = item?.pdZone || 'EQUILIBRIUM';
+      const fund = Math.round(Number(item?.fundamentalScore || 0));
+      const tech = Math.round(Number(item?.technicalScore || 0));
+      const ict = Math.round(Number(item?.ictScore || 0));
+      const conviction = Math.round(Number(item?.convictionScore || 0));
+      const expected = String(item?.gatedExpectedReturn || item?.expectedReturn || 'TBD');
+      const reasonList = normalizeTop6SelectionReasons(item);
+      const rawSummary = cleanMarkdown(String(rawOutlook || '')).replace(/\s+/g, ' ').trim();
+      const rawPreview = rawSummary ? rawSummary.slice(0, 140) : '세부 AI 원문을 확보하지 못해 정량 데이터 중심으로 보수 복원했습니다.';
+      const eventRisk = String(item?.techMetrics?.eventRiskState || 'LOW').toUpperCase();
+      const daysToEarnings = Number(item?.techMetrics?.daysToEarnings ?? -1);
+      const dataQuality = String(item?.techMetrics?.dataQualityState || 'NORMAL').toUpperCase();
+      const integrity = Math.round(Number(item?.integrityScore || item?.dataConfidence || 75));
+
+      return `## 1. 전설적 투자자 위원회 분석
+- **벤저민 그레이엄 (Value)** : fundamentalScore ${fund} 기준 밸류 안정성 점검, 현재 섹터(${sector}) 내 상대 가치 우위 여부 확인.
+- **피터 린치 (Growth)** : technicalScore ${tech} 및 모멘텀 지속성 기반 성장 탄력 점검.
+- **워렌 버핏 (Moat)** : convictionScore ${conviction}와 비즈니스 지속 가능성으로 경쟁우위(해자) 검증.
+- **윌리엄 오닐 (Momentum)** : ictScore ${ict} 기반 추세 진입 타이밍과 수급 강도 평가.
+- **찰리 멍거 (Quality)** : 데이터 품질 ${dataQuality}, integrity ${integrity}로 신뢰 가능한 품질 투자 여부 점검.
+- **글렌 웰링 (Event)** : 이벤트 리스크 ${eventRisk}${daysToEarnings >= 0 ? ` (D-${daysToEarnings})` : ''}로 단기 변동성 충격 가능성 평가.
+- **캐시 우드 (Innovation)** : 종목 테마/혁신성 반영, 고성장 재평가 가능성 탐색.
+- **글렌 그린버그 (Focus)** : 핵심 근거 집중 검토 — ${reasonList[0] || '핵심 근거 추출 실패'}.
+- **최종 평결 (Verdict)** : ${verdict} (Expected Return: ${expected})
+
+## 2. 전문가 3인 성향 분석
+- **보수적 퀀트** : 손절선($${stop.toFixed(1)}) 기준 리스크 통제, 무효화 구간 이탈 시 시나리오 폐기.
+- **공격적 트레이더** : 진입($${entry.toFixed(1)}) 대비 목표($${target.toFixed(1)})의 보상/위험 기하 구조 확인.
+- **마켓 메이커** : ${pdZone} 구간에서 체결/유동성 리스크와 수급 흡수 가능성 점검.
+- **종합 분석** : 정량 Trade Box(OTE/TARGET/STOP)는 고정하고, AI는 해석과 우선순위 검증만 수행.
+
+## 3. The Alpha Thesis: 전략적 투자 시나리오
+- **핵심 논거 (Key Thesis)** : ${reasonList[2] || '핵심 논거 보강 필요'}
+- **상승 촉매 (Catalysts)** : 섹터 모멘텀, 수급 흐름, 이벤트 캘린더(Earnings/Regime) 동시 정렬 여부.
+- **리스크 요인 (Risk Factors)** : 레짐 전환, 변동성 급등, 손절선 하향 이탈.
+- **가격 목표 (Trajectory)** : 진입 $${entry.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}
+
+참고 메모: ${rawPreview}`;
+  };
+
+  const ensureStructuredOutlook = (outlook: string, item: any) => {
+      const base = enforceOutlookTradeBoxConsistency(outlook, item);
+      if (hasStructuredOutlookSections(base)) return base;
+      return buildStructuredOutlookFallback(item, base);
   };
 
   const getKstTimestamp = () => {
@@ -759,30 +1544,498 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     });
   };
 
-  const loadStage5Data = async () => {
-    if (!accessToken) return [];
+  const resolveStage5LockOverride = (): Stage5LockOverrideConfig => {
+    const envEnabled = parseBooleanFlag((import.meta as any)?.env?.VITE_STAGE5_LOCK_OVERRIDE);
+    const envFileId = String((import.meta as any)?.env?.VITE_STAGE5_LOCK_FILE_ID || '').trim();
+    const envFileName = String((import.meta as any)?.env?.VITE_STAGE5_LOCK_FILE_NAME || '').trim();
+
+    let storageEnabled = false;
+    let storageFileId = '';
+    let storageFileName = '';
+
+    try {
+      if (typeof window !== 'undefined') {
+        const localRaw = window.localStorage.getItem(STAGE5_LOCK_OVERRIDE_KEY);
+        if (localRaw) {
+          const parsed = JSON.parse(localRaw);
+          storageEnabled = parseBooleanFlag(parsed?.enabled);
+          storageFileId = String(parsed?.fileId || '').trim();
+          storageFileName = String(parsed?.fileName || '').trim();
+        }
+
+        // Backward-compatible flat keys (local/session)
+        storageFileId =
+          storageFileId ||
+          String(
+            window.sessionStorage.getItem(STAGE5_LOCK_FILE_ID_KEY) ||
+              window.localStorage.getItem(STAGE5_LOCK_FILE_ID_KEY) ||
+              ''
+          ).trim();
+        storageFileName =
+          storageFileName ||
+          String(
+            window.sessionStorage.getItem(STAGE5_LOCK_FILE_NAME_KEY) ||
+              window.localStorage.getItem(STAGE5_LOCK_FILE_NAME_KEY) ||
+              ''
+          ).trim();
+
+        if (!storageEnabled && (storageFileId || storageFileName)) {
+          // If explicit file key exists, treat as enabled to preserve operator intent.
+          storageEnabled = true;
+        }
+      }
+    } catch {
+      // Storage parsing error should never block pipeline.
+    }
+
+    const enabled = storageEnabled || envEnabled;
+    const fileId = storageFileId || envFileId;
+    const fileName = storageFileName || envFileName;
+
+    if (!enabled) return { enabled: false };
+    return { enabled: true, fileId: fileId || undefined, fileName: fileName || undefined };
+  };
+
+  const persistStage5LockOverride = (config: Stage5LockOverrideConfig) => {
+    if (typeof window === 'undefined') return;
+
+    const normalizedFileId = String(config.fileId || '').trim();
+    const normalizedFileName = String(config.fileName || '').trim();
+
+    if (!config.enabled) {
+      window.localStorage.removeItem(STAGE5_LOCK_OVERRIDE_KEY);
+      window.localStorage.removeItem(STAGE5_LOCK_FILE_ID_KEY);
+      window.localStorage.removeItem(STAGE5_LOCK_FILE_NAME_KEY);
+      window.sessionStorage.removeItem(STAGE5_LOCK_FILE_ID_KEY);
+      window.sessionStorage.removeItem(STAGE5_LOCK_FILE_NAME_KEY);
+      setStage5LockEnabled(false);
+      return;
+    }
+
+    if (!normalizedFileId && !normalizedFileName) {
+      addLog("Stage5 Lock 설정 오류: fileId 또는 fileName 중 하나가 필요합니다.", "warn");
+      return;
+    }
+
+    const payload: Stage5LockOverrideConfig = {
+      enabled: true,
+      fileId: normalizedFileId || undefined,
+      fileName: normalizedFileName || undefined
+    };
+
+    window.localStorage.setItem(STAGE5_LOCK_OVERRIDE_KEY, JSON.stringify(payload));
+
+    if (payload.fileId) {
+      window.localStorage.setItem(STAGE5_LOCK_FILE_ID_KEY, payload.fileId);
+      window.sessionStorage.setItem(STAGE5_LOCK_FILE_ID_KEY, payload.fileId);
+    } else {
+      window.localStorage.removeItem(STAGE5_LOCK_FILE_ID_KEY);
+      window.sessionStorage.removeItem(STAGE5_LOCK_FILE_ID_KEY);
+    }
+
+    if (payload.fileName) {
+      window.localStorage.setItem(STAGE5_LOCK_FILE_NAME_KEY, payload.fileName);
+      window.sessionStorage.setItem(STAGE5_LOCK_FILE_NAME_KEY, payload.fileName);
+    } else {
+      window.localStorage.removeItem(STAGE5_LOCK_FILE_NAME_KEY);
+      window.sessionStorage.removeItem(STAGE5_LOCK_FILE_NAME_KEY);
+    }
+
+    setStage5LockEnabled(true);
+  };
+
+  const loadStage5LockOptions = async () => {
+    if (!accessToken) return;
+    setStage5LockListLoading(true);
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
-        headers: { 'Authorization': `Bearer ${accessToken}` }
-      }).then(r => r.json());
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime)`,
+        { headers: { Authorization: `Bearer ${accessToken}` } }
+      ).then(r => r.json());
+      const files: Stage5LockDriveFile[] = Array.isArray(res?.files) ? res.files : [];
+      setStage5LockOptions(files);
+    } catch (e: any) {
+      addLog(`Stage5 Lock 목록 로딩 실패: ${e.message}`, "warn");
+      setStage5LockOptions([]);
+    } finally {
+      setStage5LockListLoading(false);
+    }
+  };
+
+  const applyStage5LockFromUi = () => {
+    const picked = stage5LockOptions.find(file => file.id === stage5LockSelectedId);
+    const fileId = (picked?.id || stage5LockFileId).trim();
+    const fileName = (picked?.name || stage5LockFileName).trim();
+    persistStage5LockOverride({ enabled: true, fileId, fileName });
+    if (fileId || fileName) {
+      if (fileId) setStage5LockFileId(fileId);
+      if (fileName) setStage5LockFileName(fileName);
+      addLog(
+        `Stage5 Lock Applied: ${fileId ? `fileId=${fileId}` : `fileName=${fileName}`}`,
+        "ok"
+      );
+    }
+  };
+
+  const releaseStage5LockFromUi = () => {
+    persistStage5LockOverride({ enabled: false });
+    setStage5LockSelectedId('');
+    setStage5LockFileId('');
+    setStage5LockFileName('');
+    addLog("Stage5 Lock Released: Latest Stage5 auto-lock restored.", "ok");
+  };
+
+  useEffect(() => {
+    const initial = resolveStage5LockOverride();
+    setStage5LockEnabled(Boolean(initial.enabled && (initial.fileId || initial.fileName)));
+    setStage5LockFileId(initial.fileId || '');
+    setStage5LockFileName(initial.fileName || '');
+    setStage5LockSelectedId(initial.fileId || '');
+  }, []);
+
+  useEffect(() => {
+    if (activeTab === 'INDIVIDUAL' && accessToken) {
+      loadStage5LockOptions();
+    }
+  }, [activeTab, accessToken]);
+
+  useEffect(() => {
+    if (!stage5LockSelectedId) return;
+    const picked = stage5LockOptions.find(file => file.id === stage5LockSelectedId);
+    if (!picked) return;
+    setStage5LockFileId(picked.id);
+    setStage5LockFileName(picked.name);
+  }, [stage5LockSelectedId, stage5LockOptions]);
+
+  useEffect(() => {
+    if (stage5LockSelectedId || !stage5LockFileName || stage5LockOptions.length === 0) return;
+    const matched = stage5LockOptions.find(file => file.name === stage5LockFileName);
+    if (matched) {
+      setStage5LockSelectedId(matched.id);
+      setStage5LockFileId(matched.id);
+    }
+  }, [stage5LockSelectedId, stage5LockFileName, stage5LockOptions]);
+
+  const buildStage5LockMeta = (fileMeta: any, content: any, lockMode: Stage5SourceMeta['lockMode']) => {
+    const symbols = Array.isArray(content?.ict_universe)
+      ? content.ict_universe
+          .map((item: any) => String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase())
+          .filter(Boolean)
+      : [];
+
+    const lockMaterial = JSON.stringify({
+      id: String(fileMeta?.id || ''),
+      name: String(fileMeta?.name || ''),
+      count: Number(content?.manifest?.count || symbols.length || 0),
+      timestamp: content?.manifest?.timestamp || null,
+      symbols
+    });
+    const hash = fnv1aHash(lockMaterial);
+
+    return {
+      fileId: String(fileMeta?.id || ''),
+      fileName: String(fileMeta?.name || ''),
+      count: Number(content?.manifest?.count || symbols.length || 0),
+      timestamp: content?.manifest?.timestamp,
+      hash,
+      symbols,
+      lockMode
+    } as Stage5SourceMeta;
+  };
+
+  const loadStage5Data = async () => {
+    if (!accessToken) return [];
+    stage5SourceRef.current = null;
+    try {
+      const lockOverride = resolveStage5LockOverride();
+      if (lockOverride.enabled && !lockOverride.fileId && !lockOverride.fileName) {
+        addLog("Vault Error: Stage5 lock override is enabled but fileId/fileName is missing.", "err");
+        return [];
+      }
+      let latestFile: any = null;
+      let lockMode: Stage5SourceMeta['lockMode'] = 'LATEST';
+
+      if (lockOverride.enabled && lockOverride.fileId) {
+        lockMode = 'OVERRIDE_ID';
+        addLog(`Stage5 Lock Override: ENABLED (fileId=${lockOverride.fileId})`, "info");
+        latestFile = await fetch(
+          `https://www.googleapis.com/drive/v3/files/${lockOverride.fileId}?fields=id,name,createdTime`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        ).then(r => r.ok ? r.json() : null);
+      } else if (lockOverride.enabled && lockOverride.fileName) {
+        lockMode = 'OVERRIDE_NAME';
+        addLog(`Stage5 Lock Override: ENABLED (fileName=${lockOverride.fileName})`, "info");
+        const qByName = encodeURIComponent(`name = '${lockOverride.fileName}' and trashed = false`);
+        const listByName = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${qByName}&orderBy=createdTime desc&pageSize=1`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        ).then(r => r.json());
+        latestFile = listByName.files?.[0] || null;
+      } else {
+        const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
+        const listRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`,
+          { headers: { 'Authorization': `Bearer ${accessToken}` } }
+        ).then(r => r.json());
+        latestFile = listRes.files?.[0] || null;
+      }
       
-      if (listRes.files?.length) {
-        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+      if (latestFile?.id) {
+        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         
-        if (content && content.ict_universe) {
+        if (content && Array.isArray(content.ict_universe) && content.ict_universe.length > 0) {
+            // [VALIDATION] Check for critical fields to prevent "Data Missing" UI
+            const sample = content.ict_universe[0];
+            if (!sample.symbol || typeof sample.price !== 'number') {
+                addLog("Vault Error: Stage 5 data is corrupted or missing critical fields.", "err");
+                return [];
+            }
+
+            stage5SourceRef.current = buildStage5LockMeta(latestFile, content, lockMode);
             setElite50(content.ict_universe);
-            addLog("Vault Synchronized: Stage 5 leaders loaded.", "ok");
+            addLog(`Stage 5 Elite Vault Locked: ${latestFile.name}`, "ok");
+            addLog(`Vault Synchronized: ${content.ict_universe.length} Stage 5 leaders loaded.`, "ok");
+            addLog(
+              `[STAGE5_LOCK] ${stage5SourceRef.current.fileName} | hash=${stage5SourceRef.current.hash} | symbols=${(stage5SourceRef.current.symbols || []).join(',')}`,
+              "info"
+            );
             return content.ict_universe;
+        } else {
+            addLog("Vault Warning: Stage 5 file found but empty or invalid format.", "warn");
         }
+      } else if (lockOverride.enabled) {
+        addLog("Vault Error: Stage5 lock override was enabled but target file was not found.", "err");
       }
+      stage5SourceRef.current = null;
       return [];
     } catch (e: any) {
+      stage5SourceRef.current = null;
       addLog(`Sync Error: ${e.message}`, "err");
       return [];
     }
+  };
+
+  // [NEW] Helper for Drive Enrichment
+  const findFileId = async (token: string, name: string, parentId: string) => {
+      const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const data = await res.json();
+      return data.files?.[0]?.id;
+  };
+
+  const downloadFile = async (token: string, fileId: string) => {
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const text = await res.text();
+      // Handle NaN/Infinity in JSON
+      const safeText = text.replace(/:\s*NaN/g, ': null').replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
+      return JSON.parse(safeText);
+  };
+
+  const enrichCandidatesWithDriveData = async (candidates: any[], token: string) => {
+      addLog("Deep Data Injection: Accessing Google Drive Vault...", "info");
+      
+      // 1. Locate Folders
+      // Try to find System_Identity_Maps in root first
+      let systemMapId = await findFileId(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      if (!systemMapId) {
+           // Fallback: search in root if not in specific folder
+           systemMapId = await findFileId(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+      }
+
+      if (!systemMapId) {
+          addLog("System Map Folder not found. Skipping enrichment.", "warn");
+          return candidates;
+      }
+      const dailyFolderId = await findFileId(token, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId);
+      const historyFolderId = await findFileId(token, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId);
+
+      if (!dailyFolderId || !historyFolderId) {
+          addLog("Data Folders missing. Skipping enrichment.", "warn");
+          return candidates;
+      }
+
+      addLog(`[OK] Financial Data Folders Verified.`, "ok");
+
+      // 2. Group by Letter
+      const grouped: Record<string, any[]> = {};
+      candidates.forEach(c => {
+          const letter = c.symbol.charAt(0).toUpperCase();
+          if (!grouped[letter]) grouped[letter] = [];
+          grouped[letter].push(c);
+      });
+
+      // 3. Fetch & Enrich Batch
+      let enrichedCount = 0;
+      let skippedCount = 0;
+      const enrichedCandidates = [...candidates];
+      const letters = Object.keys(grouped).sort();
+
+      for (const letter of letters) {
+          try {
+              const batchSize = grouped[letter].length;
+              addLog(`[INFO] Scanning Group '${letter}' (${batchSize} tickers)...`, "info");
+
+              // Parallel Fetch
+              const [dailyId, historyId] = await Promise.all([
+                  findFileId(token, `${letter}_stocks_daily.json`, dailyFolderId),
+                  findFileId(token, `${letter}_stocks_history.json`, historyFolderId)
+              ]);
+
+              const [dailyData, historyData] = await Promise.all([
+                  dailyId ? downloadFile(token, dailyId) : {},
+                  historyId ? downloadFile(token, historyId) : {}
+              ]);
+
+              // Apply Data
+              grouped[letter].forEach(c => {
+                  const target = enrichedCandidates.find(ec => ec.symbol === c.symbol);
+                  if (!target) return;
+
+                  const dData = dailyData[c.symbol];
+                  const hData = historyData[c.symbol]; 
+                  let isUpdated = false;
+
+                  // Helper: Normalize Ratio to Percent (0.15 -> 15.0)
+                  const toPct = (val: any) => (val && Math.abs(val) < 10) ? val * 100 : val;
+
+                  // A. Daily Data Injection (Priority 1)
+                  if (dData) {
+                      if (!target.roe) { target.roe = toPct(dData.roe); isUpdated = true; }
+                      if (!target.operatingMargins) { target.operatingMargins = toPct(dData.operatingMargins); isUpdated = true; }
+                      if (!target.revenueGrowth) { target.revenueGrowth = toPct(dData.revenueGrowth); isUpdated = true; }
+                      if (!target.debtToEquity) { target.debtToEquity = dData.debtToEquity; isUpdated = true; }
+                      if (!target.operatingCashflow) { target.operatingCashflow = dData.operatingCashflow; isUpdated = true; }
+                      if (!target.pe) { target.pe = dData.per; isUpdated = true; }
+                      if (!target.pbr) { target.pbr = dData.pbr; isUpdated = true; }
+                  }
+
+                  // B. History Data Injection (Priority 2 - Calculation)
+                  if (hData) {
+                      // Get latest date key
+                      const dates = Object.keys(hData).sort().reverse();
+                      const latest = hData[dates[0]];
+                      
+                      if (latest) {
+                          if (!target.grossMargin && latest['Gross Profit'] && latest['Total Revenue']) {
+                              target.grossMargin = (latest['Gross Profit'] / latest['Total Revenue']) * 100;
+                              isUpdated = true;
+                          }
+                          if (!target.operatingCashflow && latest['Operating Cash Flow']) {
+                              target.operatingCashflow = latest['Operating Cash Flow'];
+                              isUpdated = true;
+                          }
+                      }
+                  }
+                  
+                  // C. Safe Score Recalculation (If missing)
+                  if (!target.safeScore) {
+                      let score = 50;
+                      if (target.debtToEquity < 100) score += 20;
+                      if (target.operatingCashflow > 0) score += 20;
+                      if (target.roe > 10) score += 10;
+                      target.safeScore = score;
+                  }
+                  
+                  if (isUpdated) enrichedCount++;
+                  else skippedCount++;
+              });
+
+          } catch (e) {
+              console.warn(`Failed to enrich group ${letter}`, e);
+              addLog(`[WARN] Failed to process Group '${letter}'`, "warn");
+          }
+      }
+
+      addLog(`[COMPLETED] Data Enrichment: ${enrichedCount} updated, ${skippedCount} preserved.`, "ok");
+      return enrichedCandidates;
+  };
+
+  // [NEW] Batch Enrichment for 50 Candidates
+  const enrichAllCandidates = async (candidates: AlphaCandidate[]) => {
+      const enrichedData: AlphaCandidate[] = [];
+      const CHUNK_SIZE = 5;
+      const total = candidates.length;
+      
+      addLog(`Starting Deep Data Enrichment for ${total} tickers...`, "signal");
+
+      for (let i = 0; i < total; i += CHUNK_SIZE) {
+          const chunk = candidates.slice(i, i + CHUNK_SIZE);
+          const currentBatchNum = Math.min(i + CHUNK_SIZE, total);
+          
+          addLog(`Enriching Batch ${Math.ceil((i + 1) / CHUNK_SIZE)}/${Math.ceil(total / CHUNK_SIZE)} (${currentBatchNum}/${total})...`, "info");
+
+          const chunkResults = await Promise.all(chunk.map(async (item) => {
+              try {
+                  if (!finnhubKey) return item;
+
+                  // Parallel Fetch: Profile, News, & Quote (Real-time Price)
+                  const [profileRes, newsRes, quoteRes] = await Promise.all([
+                      fetch(`https://finnhub.io/api/v1/stock/profile2?symbol=${item.symbol}&token=${finnhubKey}`),
+                      fetch(`https://finnhub.io/api/v1/company-news?symbol=${item.symbol}&from=${new Date(Date.now() - 3 * 86400000).toISOString().split('T')[0]}&to=${new Date().toISOString().split('T')[0]}&token=${finnhubKey}`),
+                      fetch(`https://finnhub.io/api/v1/quote?symbol=${item.symbol}&token=${finnhubKey}`)
+                  ]);
+
+                  const profile = await profileRes.json();
+                  const news = await newsRes.json();
+                  const quote = await quoteRes.json();
+
+                  // Construct Description
+                  let desc = item.description || "";
+                  if (profile && profile.name) {
+                      desc = `${profile.name} operates in the ${profile.finnhubIndustry} industry. ${desc}`;
+                  }
+
+                  // Construct News Sentiment Summary
+                  let newsText = "No recent news.";
+                  if (Array.isArray(news) && news.length > 0) {
+                      // Take top 3 headlines
+                      newsText = news.slice(0, 3).map((n: any) => `[${n.datetime ? new Date(n.datetime * 1000).toLocaleDateString() : 'Recent'}] ${n.headline}`).join(" | ");
+                  }
+
+                  // [NEW] Real-time Price Injection
+                  let currentPrice = item.price;
+                  let change = item.change || 0;
+                  let changeP = item.changeAmount || 0; // Using changeAmount as percent placeholder if needed, or separate field
+
+                  if (quote && quote.c) {
+                      currentPrice = quote.c;
+                      change = quote.d; // Change
+                      changeP = quote.dp; // Percent Change
+                  }
+
+                  return {
+                      ...item,
+                      description: desc,
+                      newsSentiment: newsText, 
+                      price: currentPrice,
+                      change: change,
+                      changePercent: changeP, // Ensure this field is updated
+                      // Ensure critical fields exist (Sanitization)
+                      ictMetrics: item.ictMetrics || { displacement: 0, smartMoneyFlow: 50, fvgStrength: 0 },
+                      techMetrics: item.techMetrics || { rawRvol: 0, squeezeState: 'OFF' },
+                      fairValueGap: Number(item.fairValueGap) || 0,
+                      ictScore: Number(item.ictScore) || 0
+                  };
+
+              } catch (e) {
+                  // Fail silently for individual ticker to keep pipeline moving
+                  return item;
+              }
+          }));
+
+          enrichedData.push(...chunkResults);
+
+          // Rate Limit Delay (1s)
+          if (i + CHUNK_SIZE < total) {
+              await new Promise(r => setTimeout(r, 1000));
+          }
+      }
+      
+      addLog("Deep Data Enrichment Complete. All 50 tickers updated.", "ok");
+      return enrichedData;
   };
 
   // [NEW] Stage 1: Data Preparation & Scoring
@@ -799,21 +2052,122 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           window.latestMarketPulse = benchmarks;
       }
 
-      addLog(`Benchmark Reference: SPY ${spyChange.toFixed(2)}% | QQQ ${qqqChange.toFixed(2)}%`, "info");
+      addLog(`Benchmark Reference: SPX ${spyChange.toFixed(2)}% | NDX ${qqqChange.toFixed(2)}%`, "info");
 
       // 2. Score Candidates
       const scoredCandidates = inputData.map((c: any) => {
           const gap = Number(c.fairValueGap || 0);
           const ict = Number(c.ictScore || 0);
+          const fundScore = Number(c.fundamentalScore || 0);
+          const techScore = Number(c.technicalScore || 0);
           const rvol = Number(c.techMetrics?.rawRvol || 0);
           const dp = Number(c.changePercent || 0);
+          const signalComboBonus = Number(c.techMetrics?.signalComboBonus || 0);
+          const signalHeatPenalty = Number(c.techMetrics?.signalHeatPenalty || 0);
+          const signalQualityState = c.techMetrics?.signalQualityState || 'NEUTRAL';
+          const dataQualityState = c.techMetrics?.dataQualityState || 'NORMAL';
+          const minerviniPassCount = Number(c.techMetrics?.minerviniPassCount || 0);
           
+          // [NEW] Data Integrity Scoring
+          const CRITICAL_FIELDS = ['roe', 'operatingMargins', 'debtToEquity', 'revenueGrowth', 'operatingCashflow', 'grossMargin', 'safeScore'];
+          let filledCount = 0;
+          CRITICAL_FIELDS.forEach(field => {
+              if (c[field] !== undefined && c[field] !== null && c[field] !== 0) filledCount++;
+          });
+          const integrityScore = (filledCount / CRITICAL_FIELDS.length) * 100;
+
           const isUndervaluedGrowth = gap > 100 && ict > 60;
           const isVolumeRunner = (c.isImputed === true) && rvol > 3.0; 
           const isHiddenGem = isUndervaluedGrowth || isVolumeRunner;
           
           let sortScore = c.compositeAlpha || 0;
           let convictionScore = c.convictionScore || c.compositeAlpha || 0;
+
+          // [NEW] Apply Integrity Weight (20%)
+          // Penalize low integrity, Boost high integrity
+          if (integrityScore < 50) {
+              sortScore *= 0.5; // Heavy Penalty for Ghost Data
+              convictionScore *= 0.5;
+          } else if (integrityScore >= 80) {
+              sortScore *= 1.2; // Boost for High Quality Data
+              convictionScore *= 1.1;
+          }
+
+          // A) Fundamental explicit weighting: make the Stage 3 edge visible again at final selection time.
+          if (fundScore >= 85) {
+              sortScore += 12;
+              convictionScore += 8;
+          } else if (fundScore >= 70) {
+              sortScore += 6;
+              convictionScore += 4;
+          } else if (fundScore < 45) {
+              sortScore -= 8;
+              convictionScore -= 5;
+          }
+
+          // B) Final selection floors: a severe weakness in one pillar should not slip through late-stage AI polish.
+          if (techScore < 40) {
+              sortScore -= 14;
+              convictionScore -= 10;
+          }
+          if (ict < 60) {
+              sortScore -= 16;
+              convictionScore -= 10;
+          }
+          if (fundScore < 40) {
+              sortScore -= 18;
+              convictionScore -= 12;
+          }
+
+          // C) Balance bonus: reward candidates that are strong across all three engines, not just one dimension.
+          const strongFund = fundScore >= 70;
+          const strongTech = techScore >= 65;
+          const strongIct = ict >= 75;
+          const balanceHits = [strongFund, strongTech, strongIct].filter(Boolean).length;
+          if (balanceHits === 3) {
+              sortScore += 14;
+              convictionScore += 8;
+          } else if (balanceHits === 2) {
+              sortScore += 5;
+              convictionScore += 3;
+          }
+
+          // Stage 4/5 signal bridge: preserve the existing ranking engine and add only small context weights.
+          if (signalQualityState === 'ALIGNED') {
+              sortScore += 12;
+              convictionScore += 8;
+          } else if (signalQualityState === 'SETUP') {
+              sortScore += 6;
+              convictionScore += 4;
+          }
+
+          if (signalComboBonus > 0) {
+              sortScore += Math.min(8, signalComboBonus * 2);
+              convictionScore += Math.min(5, signalComboBonus);
+          }
+
+          if (signalHeatPenalty > 0) {
+              sortScore -= Math.min(10, signalHeatPenalty * 1.5);
+              convictionScore -= Math.min(8, signalHeatPenalty);
+          }
+
+          if (minerviniPassCount >= 7) {
+              sortScore += 5;
+              convictionScore += 3;
+          } else if (minerviniPassCount <= 3) {
+              sortScore -= 5;
+          }
+
+          if (dataQualityState === 'THIN') {
+              sortScore *= 0.96;
+              convictionScore *= 0.97;
+          } else if (dataQualityState === 'ILLIQUID') {
+              sortScore *= 0.80;
+              convictionScore *= 0.82;
+          } else if (dataQualityState === 'STALE') {
+              sortScore *= 0.70;
+              convictionScore *= 0.75;
+          }
 
           // Dual-Alpha Engine
           let spyAlpha = false;
@@ -851,6 +2205,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               isHiddenGem, 
               sortScore, 
               convictionScore: Math.min(99, Math.round(convictionScore)),
+              integrityScore: Math.round(integrityScore),
               spyAlpha,
               qqqAlpha,
               isInstitutionalEntry,
@@ -859,11 +2214,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       });
 
       // 3. Filter Top 12
+      // [NEW] Sort by Weighted Score (Composite + Integrity)
       const topCandidates = scoredCandidates
           .sort((a: any, b: any) => b.sortScore - a.sortScore)
           .slice(0, 12);
 
       if (topCandidates.length === 0) throw new Error("No candidates available after scoring.");
+
+      addLog(`Top 12 Candidates Selected. Avg Integrity: ${Math.round(topCandidates.reduce((acc: number, c: any) => acc + c.integrityScore, 0) / 12)}%`, "info");
+      addLog("Fund / Tech / ICT Balance Filters Applied to Top 12 sieve.", "ok");
+      addLog("Stage 4/5 Signal Context Applied to Top 12 sieve.", "ok");
 
       // 4. Archive Stage 1 Result (Fail-safe Dump)
       if (accessToken) {
@@ -874,19 +2234,86 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return topCandidates;
   };
 
+  const handleExecuteEngine = async () => {
+    if (loading) return;
+    setLoading(true);
+    setLogs([]);
+    addLog("STAGE 6: Neural Alpha Sieve Initiated...", "signal");
+
+    try {
+      // 1. Lock the latest Stage 5 dump from Drive first. Memory is only a fallback.
+      let inputData: AlphaCandidate[] = [];
+      if (accessToken) {
+          addLog("Locking latest Stage 5 Elite vault from Drive...", "info");
+          inputData = await loadStage5Data();
+      }
+      if ((!inputData || inputData.length === 0) && elite50.length > 0) {
+          addLog("Drive lock unavailable. Falling back to in-memory Stage 5 leaders.", "warn");
+          inputData = elite50;
+      }
+
+      if (!inputData || inputData.length === 0) {
+          throw new Error("Stage 5 Data Not Found. Please run Stage 5 first.");
+      }
+
+      if (stage5SourceRef.current) {
+          const symbols = stage5SourceRef.current.symbols || inputData.map((item: any) => String(item?.symbol || '').toUpperCase());
+          addLog(
+            `[STAGE5_LOCK_AUDIT] file=${stage5SourceRef.current.fileName} | mode=${stage5SourceRef.current.lockMode || 'LATEST'} | hash=${stage5SourceRef.current.hash || 'N/A'} | symbols(${symbols.length})=${symbols.join(',')}`,
+            "info"
+          );
+      }
+
+      // [NEW] Deep Data Enrichment (Drive Injection) - MOVED TO STAGE 3
+      // if (accessToken) {
+      //     inputData = await enrichCandidatesWithDriveData(inputData, accessToken);
+      // }
+
+      // [NEW] Batch Enrichment to prevent Rate Limits
+      addLog(`Starting Deep Data Enrichment for ${inputData.length} tickers...`, "info");
+      const enrichedData = await enrichAllCandidates(inputData);
+      
+      // 2. Run Stage 1 (Scoring & Filtering)
+      const topCandidates = await runStage1(enrichedData);
+      
+      // 3. Run Stage 2 (AI Analysis)
+      await runStage2(topCandidates);
+
+    } catch (error: any) {
+      addLog(`CRITICAL FAILURE: ${error.message}`, "err");
+    } finally {
+      setLoading(false);
+      addLog("Analysis Cycle Completed.", "info");
+    }
+  };
+
   // [NEW] Stage 2: AI Analysis
   const runStage2 = async (candidates: AlphaCandidate[]) => {
       addLog("STAGE 2: AI Alpha Synthesis...", "signal");
       
       let response: any = { data: [] };
       let usedProvider = selectedBrain;
+      const requestedProvider = selectedBrain;
+      let responseUsedProviderRaw = '';
       let aiFailed = false;
+      const normalizeUsedProvider = (raw: any, fallback: ApiProvider): ApiProvider => {
+          const t = String(raw || '').toUpperCase();
+          if (t.includes('PERPLEXITY')) return ApiProvider.PERPLEXITY;
+          if (t.includes('GEMINI')) return ApiProvider.GEMINI;
+          return fallback;
+      };
 
       try {
           // [FIX] Corrected Engine Name Display
           addLog(`사용 중인 엔진: [${selectedBrain === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
           
           response = await generateAlphaSynthesis(candidates, selectedBrain, autoStart);
+          responseUsedProviderRaw = String(response?.usedProvider || '').toUpperCase();
+          usedProvider = normalizeUsedProvider(response?.usedProvider, usedProvider);
+          stage2ProviderRef.current = usedProvider;
+          if (usedProvider !== selectedBrain) {
+              setSelectedBrain(usedProvider);
+          }
           
           // [CRITICAL] Error Propagation for Branching Logic
           if (response.error) {
@@ -916,6 +2343,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   try {
                       // [RETRY] Execute with Perplexity
                       response = await generateAlphaSynthesis(candidates, ApiProvider.PERPLEXITY, autoStart);
+                      responseUsedProviderRaw = String(response?.usedProvider || '').toUpperCase();
+                      usedProvider = normalizeUsedProvider(response?.usedProvider, ApiProvider.PERPLEXITY);
+                      stage2ProviderRef.current = usedProvider;
+                      if (usedProvider !== selectedBrain) {
+                          setSelectedBrain(usedProvider);
+                      }
                       if (response.error) throw new Error(response.error);
                       
                       addLog("Sonar Failover Successful. Continuing Analysis...", "ok");
@@ -932,46 +2365,459 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       let finalData = candidates;
+      let matchedAiCount = 0;
+      let verifiedAiCount = 0;
+      let fallbackAiCount = 0;
       if (!aiFailed && response?.data) {
-          const aiMap = new Map(response.data.map((i: any) => [i.symbol, i]));
+          const aiMap = new Map(response.data.map((i: any) => [String(i.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase(), i]));
           finalData = candidates.map(item => {
-              const aiData = aiMap.get(item.symbol);
-              if (!aiData) return item;
+              const cleanSymbol = String(item.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+              const aiData = aiMap.get(cleanSymbol);
+              if (!aiData) {
+                  fallbackAiCount++;
+                  return {
+                      ...item,
+                      aiSynthesisStatus: 'FALLBACK',
+                      aiFallbackDetected: true,
+                      aiFallbackReason: 'MISSING_AI_ITEM',
+                      aiProvider: usedProvider
+                  };
+              }
+              matchedAiCount++;
+              const hasAiFallback = aiData?.aiSynthesisStatus === 'FALLBACK' || aiData?.aiFallbackDetected === true;
+              if (hasAiFallback) {
+                  fallbackAiCount++;
+                  return {
+                      ...item,
+                      aiSynthesisStatus: 'FALLBACK',
+                      aiFallbackDetected: true,
+                      aiFallbackReason: aiData?.aiFallbackReason || 'UNKNOWN',
+                      aiProvider: aiData?.aiProvider || usedProvider
+                  };
+              }
               
+              verifiedAiCount++;
+
               // Merge Logic
               const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
               const safeVerdict = aiData?.aiVerdict || "ACCUMULATE";
               const safeOutlook = aiData?.investmentOutlook || "";
-              const safeExpectedReturn = (usedProvider === ApiProvider.PERPLEXITY && aiData?.expectedReturn) ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn);
+              const canonicalTrade = buildCanonicalTradePlan(item);
+              // Preserve quant-side expected return label first to keep Stage UI semantics stable.
+              const quantExpectedReturn =
+                  canonicalTrade.expectedReturnLabel ||
+                  normalizeExpectedReturnLabel(item.expectedReturn) ||
+                  deriveQuantExpectedReturn(item);
+              const baseExpectedReturn = quantExpectedReturn || "0% (No Edge)";
+              const executionFactor = getExecutionFactorForItem(item);
+              const executionAdjustedExpectedReturn = applyExecutionFactorToExpectedReturn(baseExpectedReturn, executionFactor) || baseExpectedReturn;
+              const safeExpectedReturn = normalizeExpectedReturnByVerdict(executionAdjustedExpectedReturn, safeVerdict) || "TBD";
+
+              // [NEW] Radar Data Generation (On-the-fly Scoring)
+              const radar = [
+                  { subject: 'Value', A: Math.min(100, Math.max(20, 100 - (item.pe || 20) * 2)), fullMark: 100 },
+                  { subject: 'Growth', A: Math.min(100, Math.max(20, (item.revenueGrowth || 0) + 50)), fullMark: 100 },
+                  { subject: 'Profit', A: Math.min(100, Math.max(20, (item.roe || 0) * 2)), fullMark: 100 },
+                  { subject: 'Momentum', A: Math.min(100, Math.max(20, (item.ictScore || 50))), fullMark: 100 },
+                  { subject: 'Safety', A: Math.min(100, Math.max(20, (item.safeScore || 50))), fullMark: 100 },
+                  { subject: 'Quality', A: Math.min(100, Math.max(20, (item.grossMargin || 30) * 1.5)), fullMark: 100 }
+              ];
 
               return {
                   ...item,
                   ...aiData,
                   convictionScore: safeConviction,
+                  rawConvictionScore: Number(item.rawConvictionScore || safeConviction || 0),
                   aiVerdict: safeVerdict,
                   investmentOutlook: safeOutlook,
-                  expectedReturn: safeExpectedReturn
+                  rawExpectedReturn: baseExpectedReturn,
+                  gatedExpectedReturn: safeExpectedReturn,
+                  expectedReturn: safeExpectedReturn,
+                  aiSynthesisStatus: aiData?.aiSynthesisStatus || 'OK',
+                  aiFallbackDetected: false,
+                  aiFallbackReason: aiData?.aiFallbackReason || 'NONE',
+                  aiProvider: aiData?.aiProvider || usedProvider,
+                  executionFactor: Number(executionFactor.toFixed(2)),
+                  tradePlanSource: canonicalTrade.source,
+                  tradePlanStatus: canonicalTrade.status,
+                  // [QUANT LOCK] Trade-box values are quant-authoritative. AI must never overwrite.
+                  supportLevel: canonicalTrade.entry || item.supportLevel || item.otePrice || 0,
+                  resistanceLevel: canonicalTrade.target || item.resistanceLevel || item.targetPrice || (item as any).targetMeanPrice || 0,
+                  stopLoss: canonicalTrade.stop || item.stopLoss || item.ictStopLoss || 0,
+                  // [NEW] Inject Visualization Data
+                  radarData: radar,
+                  fullHistory: item.priceHistory || item.fullHistory || [], // Map priceHistory to fullHistory
+                  sectorScore: item.sectorScore || 50, // Default if missing
+                  economicMoat: aiData.economicMoat || item.economicMoat || "Narrow",
+                  // [CRITICAL] Quant authority: preserve expanded Stage 4/5 fields even after AI merge.
+                  techMetrics: item.techMetrics || { rawRvol: 0, squeezeState: 'OFF' },
+                  ictMetrics: item.ictMetrics || { displacement: 0, smartMoneyFlow: 50, fvgStrength: 0 },
+                  priceHistory: item.priceHistory || [],
+                  pdZone: item.pdZone || 'EQUILIBRIUM',
+                  otePrice: canonicalTrade.entry || item.otePrice || item.supportLevel || 0,
+                  ictStopLoss: canonicalTrade.stop || item.ictStopLoss || item.stopLoss || 0,
+                  marketState: item.marketState || 'Consolidation',
+                  verdict: item.verdict || aiData.aiVerdict || 'WAIT',
+                  compositeAlpha: item.compositeAlpha || 0,
+                  ictScore: Number(item.ictScore) || 0,
+                  technicalScore: Number(item.technicalScore) || 0,
+                  fundamentalScore: Number(item.fundamentalScore) || 0,
+                  dataSource: item.dataSource,
+                  isTechnicalBreakout: item.isTechnicalBreakout
               };
           });
           addLog(`AI Synthesis Complete. Provider: ${usedProvider}`, "ok");
+          addLog(
+              `[AUDIT_ENGINE] requested=${requestedProvider} | response=${responseUsedProviderRaw || 'UNKNOWN'} | actual=${usedProvider}`,
+              "info"
+          );
+          addLog(`AI Coverage: ${verifiedAiCount}/${candidates.length} verified (${matchedAiCount} matched, ${fallbackAiCount} fallback).`, "info");
+          if (fallbackAiCount > 0) {
+              addLog(`AI Fallback Audit: ${fallbackAiCount} symbols downgraded to quant-only review.`, "warn");
+          }
       } else {
           addLog("AI Analysis Failed. Using Quantitative Fallback.", "warn");
       }
 
-      // Update Cache & UI
-      setResultsCache(prev => ({ ...prev, [usedProvider]: finalData }));
-      
-      // Archive Stage 2 Result
-      if (accessToken) {
-          const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportSubFolder);
-          await uploadFile(accessToken, folderId, `STAGE6_PART2_AI_RESULT_${getKstTimestamp()}.json`, finalData);
+      if (aiFailed) {
+          addLog("AI Synthesis Unavailable. Final dump aborted to avoid quant-only contamination.", "err");
+          throw new Error("AI_SYNTHESIS_UNAVAILABLE");
       }
 
-      return finalData;
+      const minimumVerifiedAiCount = Math.max(8, Math.ceil(candidates.length * 0.75));
+      if (!aiFailed && verifiedAiCount < minimumVerifiedAiCount) {
+          addLog(`AI Coverage Failure: ${verifiedAiCount}/${candidates.length} verified. Minimum required: ${minimumVerifiedAiCount}. Final dump aborted.`, "err");
+          throw new Error("AI_COVERAGE_INSUFFICIENT");
+      }
+
+      // [FINAL GATE] Last-mile discipline before the Top 6 cut.
+      let gatedCount = 0;
+      let exceptionCount = 0;
+      finalData = finalData.map(item => {
+          const fundScore = Number(item.fundamentalScore || 0);
+          const techScore = Number(item.technicalScore || 0);
+          const ictScore = Number(item.ictScore || 0);
+          const minerviniPassCount = Number(item.techMetrics?.minerviniPassCount || 0);
+          const signalQualityState = item.techMetrics?.signalQualityState || 'NEUTRAL';
+          const dataQualityState = item.techMetrics?.dataQualityState || 'NORMAL';
+          const pdZone = item.pdZone || 'EQUILIBRIUM';
+          const rawConvictionScore = Number(item.convictionScore || 0);
+          const aiSynthesisStatus = item.aiSynthesisStatus || 'UNKNOWN';
+          const aiFallbackDetected = item.aiFallbackDetected === true;
+          const tradePlanStatus = item.tradePlanStatus || 'VALID';
+          const tradePlanSource = item.tradePlanSource || 'RAW';
+          let gatedAiVerdict =
+              tradePlanStatus === 'INVALID' && !isRiskOffVerdict(item.aiVerdict)
+                  ? 'HOLD'
+                  : item.aiVerdict;
+          if (isStrongBuyVerdict(gatedAiVerdict) && rawConvictionScore < 80) {
+              gatedAiVerdict = 'BUY';
+          }
+          const aiVerdictKey = toVerdictKey(gatedAiVerdict);
+
+          const qualifiesDiscountException =
+              fundScore >= 90 &&
+              ictScore >= 85 &&
+              pdZone === 'DISCOUNT' &&
+              dataQualityState === 'NORMAL';
+
+          let finalGateBonus = 0;
+          let finalGatePenalty = 0;
+          let finalGateState = 'OPEN';
+
+          if (aiFallbackDetected || aiSynthesisStatus === 'FALLBACK') {
+              finalGatePenalty += 45;
+              finalGateState = 'AI_UNVERIFIED';
+          }
+
+          if (isRiskOffVerdict(aiVerdictKey)) {
+              finalGatePenalty += 24;
+              if (finalGateState === 'OPEN') finalGateState = 'AI_RISK_OFF';
+          } else if (aiVerdictKey.includes('HOLD') || aiVerdictKey.includes('NEUTRAL')) {
+              finalGatePenalty += 8;
+              if (finalGateState === 'OPEN') finalGateState = 'AI_NEUTRAL';
+          } else if (isStrongBuyVerdict(gatedAiVerdict)) {
+              finalGateBonus += 2;
+          }
+
+          if (qualifiesDiscountException) {
+              finalGateBonus += 6;
+              finalGateState = 'EXCEPTION_DISCOUNT';
+              exceptionCount++;
+          }
+
+          if (techScore < 50) finalGatePenalty += 16;
+          else if (techScore < 60) finalGatePenalty += 6;
+
+          if (minerviniPassCount < 2) finalGatePenalty += 8;
+          if (minerviniPassCount < 2 && techScore < 55 && !qualifiesDiscountException) {
+              finalGatePenalty += 18;
+              finalGateState = 'WEAK_STRUCTURE';
+          }
+
+          if (ictScore < 60) finalGatePenalty += 8;
+          if (fundScore < 45) finalGatePenalty += 8;
+
+          if (signalQualityState === 'NEUTRAL') finalGatePenalty += 5;
+          if (dataQualityState === 'THIN') finalGatePenalty += 4;
+          else if (dataQualityState === 'ILLIQUID') finalGatePenalty += 15;
+          else if (dataQualityState === 'STALE') finalGatePenalty += 20;
+          if (tradePlanStatus === 'INVALID') {
+              finalGatePenalty += 80;
+              finalGateState = 'INVALID_GEOMETRY';
+          } else if (tradePlanSource === 'DERIVED_2R') {
+              finalGatePenalty += 6;
+              if (finalGateState === 'OPEN') finalGateState = 'DERIVED_TARGET';
+          }
+
+          if (fundScore >= 70 && techScore >= 70 && ictScore >= 80) {
+              finalGateBonus += 8;
+              if (finalGateState === 'OPEN') finalGateState = 'BALANCED';
+          } else if (fundScore >= 60 && techScore >= 60 && ictScore >= 70) {
+              finalGateBonus += 4;
+          }
+
+          if (minerviniPassCount >= 7) finalGateBonus += 4;
+          if (signalQualityState === 'ALIGNED') finalGateBonus += 3;
+          else if (signalQualityState === 'SETUP') finalGateBonus += 1;
+
+          let finalSelectionScore = Math.max(0, Math.min(100, rawConvictionScore + finalGateBonus - finalGatePenalty));
+          if (aiFallbackDetected || aiSynthesisStatus === 'FALLBACK') {
+              finalSelectionScore = 0;
+          }
+          if (isStrongBuyVerdict(gatedAiVerdict) && finalSelectionScore < 80) {
+              gatedAiVerdict = 'BUY';
+          }
+          if (finalGatePenalty > 0 || finalGateBonus > 0) gatedCount++;
+
+          return {
+              ...item,
+              rawConvictionScore,
+              finalSelectionScore: Number(finalSelectionScore.toFixed(2)),
+              finalGateBonus,
+              finalGatePenalty,
+              finalGateState,
+              aiVerdict: gatedAiVerdict,
+              convictionScore: Math.round(finalSelectionScore),
+              gatedExpectedReturn:
+                  tradePlanStatus === 'INVALID'
+                      ? '0% (No Edge)'
+                      : (normalizeExpectedReturnByVerdict(item.expectedReturn, gatedAiVerdict) || item.expectedReturn),
+              expectedReturn:
+                  tradePlanStatus === 'INVALID'
+                      ? '0% (No Edge)'
+                      : (normalizeExpectedReturnByVerdict(item.expectedReturn, gatedAiVerdict) || item.expectedReturn)
+          };
+      });
+
+      addLog(`Final Gate: ${gatedCount} candidates normalized before Top 6 cut.`, "ok");
+      if (exceptionCount > 0) {
+          addLog(`Final Gate Exception: ${exceptionCount} deep-discount leaders preserved.`, "warn");
+      }
+
+      // Update Cache & UI
+      // [HARD GATE] Risk-off verdicts are excluded from Top6 by default.
+      finalData.sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
+      const hardCutBlocked = finalData.filter(item => isRiskOffVerdict(item.aiVerdict));
+      const invalidGeometryBlocked = finalData.filter(item => item.tradePlanStatus === 'INVALID');
+      const hardCutAllowed = finalData.filter(item => !isRiskOffVerdict(item.aiVerdict) && item.tradePlanStatus !== 'INVALID');
+
+      let top6Elite = hardCutAllowed.slice(0, 6);
+      if (top6Elite.length < 6) {
+          const fallbackNeeded = 6 - top6Elite.length;
+          const fallbackRiskOff = hardCutBlocked.slice(0, fallbackNeeded);
+          const remainAfterRiskOff = fallbackNeeded - fallbackRiskOff.length;
+          const fallbackInvalid = remainAfterRiskOff > 0 ? invalidGeometryBlocked.slice(0, remainAfterRiskOff) : [];
+          top6Elite = [...top6Elite, ...fallbackRiskOff, ...fallbackInvalid];
+          if (fallbackRiskOff.length > 0 || fallbackInvalid.length > 0) {
+              addLog(
+                  `Hard Gate Softened: ${fallbackRiskOff.length} risk-off + ${fallbackInvalid.length} invalid-geometry names kept to maintain Top6 cardinality.`,
+                  "warn"
+              );
+          }
+      }
+      if (hardCutBlocked.length > 0) {
+          addLog(`Hard Gate: Excluded ${hardCutBlocked.length} risk-off verdict names from primary Top6 queue.`, "ok");
+      }
+      if (invalidGeometryBlocked.length > 0) {
+          addLog(`Hard Gate: Excluded ${invalidGeometryBlocked.length} invalid-geometry names from primary Top6 queue.`, "ok");
+      }
+
+      // Pre-detail pass: keep original AI narrative untouched.
+      // Structure normalization happens only after the Top6 detail synthesis step.
+      top6Elite = top6Elite.map(item => ({
+          ...item,
+          selectionReasons: normalizeTop6SelectionReasons(item)
+      }));
+
+      top6Elite.forEach((item) => {
+          const rawConv = Number(item.rawConvictionScore ?? item.convictionScore ?? 0);
+          const gatedConv = Number(item.convictionScore ?? 0);
+          const rawEr = item.rawExpectedReturn || item.expectedReturn || 'TBD';
+          const gatedEr = item.gatedExpectedReturn || item.expectedReturn || 'TBD';
+          addLog(
+              `[AUDIT] ${item.symbol} | TP ${item.tradePlanStatus || 'VALID'}/${item.tradePlanSource || 'RAW'} | Conv ${rawConv.toFixed(1)}→${gatedConv.toFixed(1)} | ER ${rawEr}→${gatedEr} | ${item.aiVerdict || 'N/A'}`,
+              "info"
+          );
+      });
+
+      // [TOP6 DETAIL PASS] Keep Top12 AI lightweight; generate rich Neural Outlook only for final Top6.
+      try {
+          const detailProvider = usedProvider === ApiProvider.GEMINI ? ApiProvider.GEMINI : ApiProvider.PERPLEXITY;
+          const detailResult = await generateTop6NeuralOutlook(top6Elite, detailProvider);
+          if (detailResult?.data && Array.isArray(detailResult.data) && detailResult.data.length > 0) {
+              const detailMap = new Map(detailResult.data.map((d: any) => [
+                  String(d?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase(),
+                  d
+              ]));
+              top6Elite = top6Elite.map(item => {
+                  const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+                  const detail = detailMap.get(clean);
+                  if (!detail) return item;
+                  return {
+                      ...item,
+                      investmentOutlook: enforceOutlookTradeBoxConsistency(
+                          detail.investmentOutlook || item.investmentOutlook || '',
+                          item
+                      ),
+                      selectionReasons: Array.isArray(detail.selectionReasons) && detail.selectionReasons.length >= 3
+                          ? detail.selectionReasons
+                          : item.selectionReasons,
+                      analysisLogic: detail.analysisLogic || item.analysisLogic
+                  };
+              });
+              addLog("Top6 Neural Investment Outlook Detail Applied.", "ok");
+          } else if (detailResult?.error) {
+              addLog(`Top6 Detail Pass skipped: ${detailResult.error}`, "warn");
+          }
+      } catch (detailError: any) {
+          addLog(`Top6 Detail Pass failed: ${detailError.message}`, "warn");
+      }
+
+      // Ensure deterministic 3-reason format and 1/2/3 Neural Outlook structure after detail pass.
+      let postDetailStructuredInjected = 0;
+      top6Elite = top6Elite.map(item => {
+          const normalizedOutlook = ensureStructuredOutlook(item.investmentOutlook || '', item);
+          if (normalizedOutlook !== String(item.investmentOutlook || '')) {
+              postDetailStructuredInjected++;
+          }
+          return {
+              ...item,
+              investmentOutlook: normalizedOutlook,
+              selectionReasons: normalizeTop6SelectionReasons(item)
+          };
+      });
+      if (postDetailStructuredInjected > 0) {
+          addLog(`Top6 Outlook Guard(Post-Detail): structured 1/2/3 template normalized for ${postDetailStructuredInjected} names.`, "warn");
+      }
+
+      // [CONTRACT STABILITY] Mirror fields for downstream consumers (no score/rank impact).
+      const pickFinite = (...vals: any[]): number | null => {
+          for (const v of vals) {
+              const n = Number(v);
+              if (Number.isFinite(n)) return n;
+          }
+          return null;
+      };
+      top6Elite = top6Elite.map(item => {
+          const mirroredVerdict = String(item?.aiVerdict || item?.finalVerdict || 'HOLD');
+          const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
+          const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
+          return {
+              ...item,
+              finalVerdict: mirroredVerdict,
+              entryPrice: mirroredEntry ?? 0,
+              targetPrice: mirroredTarget ?? 0,
+              targetMeanPrice: mirroredTarget ?? 0
+          };
+      });
+      stage6FinalRef.current = top6Elite;
+      stage6FinalRunIdRef.current = getKstTimestamp();
+
+      const top6ProviderSet = Array.from(new Set(top6Elite.map(item => String(item?.aiProvider || 'UNKNOWN').toUpperCase())));
+      if (usedProvider === ApiProvider.GEMINI && top6ProviderSet.some(p => p.includes('PERPLEXITY'))) {
+          addLog(`[WARN] Engine Audit Mismatch: manifest actual=${usedProvider}, but Top6 providers include ${top6ProviderSet.join(', ')}`, "warn");
+      }
+      if (usedProvider === ApiProvider.PERPLEXITY && top6ProviderSet.some(p => p.includes('GEMINI'))) {
+          addLog(`[WARN] Engine Audit Mismatch: manifest actual=${usedProvider}, but Top6 providers include ${top6ProviderSet.join(', ')}`, "warn");
+      }
+
+      setResultsCache(prev => ({ ...prev, [usedProvider]: top6Elite }));
+      // [FIX] Keep selectedStock payload in sync with freshly updated Top6 objects.
+      // Without this, detail panel can show stale pre-detail outlook text even when cards/logs are updated.
+      setSelectedStock(prev => {
+          if (!top6Elite.length) return prev;
+          if (!prev) return top6Elite[0];
+          const refreshed = top6Elite.find(item => item.symbol === prev.symbol);
+          return refreshed || top6Elite[0];
+      });
+      
+      // Archive Stage 2 Result (Full AI Result)
+      if (accessToken) {
+          // Save Full AI Result to Report Folder
+          const reportFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportSubFolder);
+          await uploadFile(accessToken, reportFolderId, `STAGE6_PART2_AI_RESULT_FULL_${getKstTimestamp()}.json`, finalData);
+
+          // [CRITICAL] Save Final Top 6 to Stage 6 Folder (The "Dump")
+          const stage6FolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+          const top6AuditTrail = top6Elite.map(item => ({
+              symbol: item.symbol,
+              tradePlanStatus: item.tradePlanStatus || 'VALID',
+              tradePlanSource: item.tradePlanSource || 'RAW',
+              rawConvictionScore: Number(item.rawConvictionScore ?? item.convictionScore ?? 0),
+              gatedConvictionScore: Number(item.convictionScore ?? 0),
+              rawExpectedReturn: item.rawExpectedReturn || item.expectedReturn || 'TBD',
+              gatedExpectedReturn: item.gatedExpectedReturn || item.expectedReturn || 'TBD',
+              aiVerdict: item.aiVerdict || 'N/A',
+              finalGateState: item.finalGateState || 'OPEN',
+              finalGateBonus: Number(item.finalGateBonus || 0),
+              finalGatePenalty: Number(item.finalGatePenalty || 0)
+          }));
+
+          const finalPayload = {
+              manifest: { 
+                  version: "9.9.9", 
+                  count: top6Elite.length, 
+                  timestamp: new Date().toISOString(), 
+                  strategy: "Neural_Alpha_Sieve", 
+                  engine: usedProvider,
+                  engineRequested: requestedProvider,
+                  engineActual: usedProvider,
+                  engineResponse: responseUsedProviderRaw || null,
+                  engineFallbackUsed:
+                      requestedProvider !== usedProvider ||
+                      /FALLBACK|SHARDED|REPAIR/i.test(responseUsedProviderRaw || ''),
+                  engineFallbackPath:
+                      requestedProvider === usedProvider ? 'DIRECT' : `${requestedProvider} -> ${usedProvider}`,
+                  engineProvidersInTop6: Array.from(
+                      new Set(top6Elite.map(item => String(item?.aiProvider || 'UNKNOWN')))
+                  ),
+                  aiCoverageRequested: candidates.length,
+                  aiCoverageMatched: matchedAiCount,
+                  aiCoverageVerified: verifiedAiCount,
+                  aiCoverageFallback: fallbackAiCount,
+                  sourceStage5File: stage5SourceRef.current?.fileName || null,
+                  sourceStage5LockMode: stage5SourceRef.current?.lockMode || 'LATEST',
+                  sourceStage5Hash: stage5SourceRef.current?.hash || null,
+                  sourceStage5Symbols: stage5SourceRef.current?.symbols || [],
+                  sourceStage5Count: stage5SourceRef.current?.count || candidates.length,
+                  sourceStage5Timestamp: stage5SourceRef.current?.timestamp || null,
+                  hardGateRiskOffExcluded: hardCutBlocked.length,
+                  hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,
+                  scoreViewDefault: scoreViewMode
+              },
+              alpha_candidates: top6Elite,
+              audit_trail: top6AuditTrail
+          };
+          await uploadFile(accessToken, stage6FolderId, `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`, finalPayload);
+          addLog(`Final Top 6 Elite Candidates archived to Drive.`, "ok");
+      }
+
+      return top6Elite;
   };
 
   // [NEW] Stage 3: Reporting
-  const runStage3 = async (aiResults: AlphaCandidate[]) => {
+  const runStage3 = async (aiResults: AlphaCandidate[], marketPulse?: any) => {
       addLog("STAGE 3: Generating Final Report...", "signal");
       
       const resultsToCheck = aiResults;
@@ -983,16 +2829,27 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const timeout = new Promise((_, reject) => setTimeout(() => reject(new Error("Telegram Brief Timeout")), 15000));
           
           try {
-              const brainToUse = selectedBrain; 
-              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse);
+              const brainToUse = stage2ProviderRef.current || selectedBrain; 
+              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse);
               const brief = await Promise.race([briefPromise, timeout]) as string;
+
+              const contractCheck = checkTelegramContractIntegrity(resultsToCheck, brief);
+              if (!contractCheck.ok) {
+                  addLog(
+                      `TELEGRAM_CONTRACT_MISMATCH: ${contractCheck.mismatches[0] || 'unknown mismatch'}`,
+                      "err"
+                  );
+                  contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
+                  throw new Error(`TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`);
+              }
               
               telegramPayload = brief;
               addLog("Brief Generated. Relaying...", "ok");
 
               if (accessToken) {
                 const fileName = `TELEGRAM_BRIEF_REPORT_${getKstTimestamp()}.md`;
-                await archiveReport(accessToken, fileName, brief);
+                const archivedBrief = buildTelegramMessage(brief);
+                await archiveReport(accessToken, fileName, archivedBrief);
                 addLog("Telegram Brief Archived to Drive.", "ok");
               }
 
@@ -1022,21 +2879,57 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               if (!currentData || currentData.length === 0) throw new Error("Stage 5 Data Not Found");
           }
 
+          // [NEW] Deep Data Enrichment (Drive Injection) - MOVED TO STAGE 3
+          // if (accessToken) {
+          //     currentData = await enrichCandidatesWithDriveData(currentData, accessToken);
+          // }
+
+          // [NEW] Batch Enrichment to prevent Rate Limits
+          addLog(`Starting Deep Data Enrichment for ${currentData.length} tickers...`, "info");
+          const enrichedData = await enrichAllCandidates(currentData);
+
           // Pipeline Execution
-          const result1 = await runStage1(currentData);
+          const result1 = await runStage1(enrichedData);
           await new Promise(r => setTimeout(r, 3000)); 
 
           const result2 = await runStage2(result1);
           await new Promise(r => setTimeout(r, 3000)); 
 
+          // [CRITICAL SAFETY] Autopilot Kill Switch
+          // If AI analysis failed (TBD verdicts), DO NOT send Telegram report.
+          const isAiValid = result2.slice(0, 3).every((item: any) => 
+              item.aiVerdict && item.aiVerdict !== "TBD" && item.investmentOutlook && item.investmentOutlook.length > 10
+          );
+
+          if (!isAiValid) {
+              addLog("CRITICAL: AI Analysis Failed or Incomplete. Aborting Telegram Report to prevent misinformation.", "err");
+              setAutoPhase('DONE'); // Stop here
+              if (onComplete) onComplete("AI_FAILED_NO_REPORT");
+              return; 
+          }
+
           addLog("AUTO-PILOT: Skipping Deep Matrix Audit (Token Saver)...", "signal");
           setAutoPhase('MATRIX');
           
-          // [NEW] Hydrate with Market Pulse for Report
+
+          // [NEW] Hydrate with Market Pulse for Report (Robust Recovery)
+          let pulse = (window as any).latestMarketPulse;
+          if (!pulse) {
+              const cached = sessionStorage.getItem('LATEST_MARKET_PULSE');
+              if (cached) pulse = JSON.parse(cached);
+          }
+          
+          // Ensure VIX is present
+          if (!pulse || !pulse.vix) {
+              // Final Last-Ditch Fetch
+              try { pulse = await fetchMarketBenchmarks(); } catch(e) {}
+          }
+
           let finalDataForReport = [...result2];
-          if (typeof window !== 'undefined' && window.latestMarketPulse) {
-              const pulse = window.latestMarketPulse;
-              // Inject SPY/QQQ as dummy candidates so generateTelegramBrief can find them
+
+
+          if (pulse) {
+              // Inject SPY/QQQ/VIX as dummy candidates so generateTelegramBrief can find them
               finalDataForReport.push({
                   symbol: 'SPY',
                   price: pulse.spy.price,
@@ -1051,10 +2944,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   name: 'Invesco QQQ Trust',
                   compositeAlpha: 0
               } as any);
+               if (pulse.vix) {
+                  finalDataForReport.push({
+                      symbol: 'VIX',
+                      price: pulse.vix.price,
+                      changePercent: 0,
+                      name: 'Volatility Index',
+                      compositeAlpha: 0
+                  } as any);
+              }
               addLog("Market Pulse Data Hydrated into Report Pipeline.", "info");
           }
 
-          const result3 = await runStage3(finalDataForReport);
+          const result3 = await runStage3(finalDataForReport, pulse);
           
           setAutoPhase('DONE');
           if (onComplete) onComplete(result3);
@@ -1071,256 +2973,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
   };
 
-  const handleExecuteEngine = async () => {
-    if (loading) return;
-    setLoading(true);
-    let currentProvider = selectedBrain;
-    
-    addLog(`Initiating Neural Alpha Sieve via ${currentProvider}...`, "signal");
-    addLog("[OK] Dual-Benchmark Engine: Scanning SPY & QQQ Overperformance", "ok");
-    
-    try {
-      // [NEW] Fetch Benchmark Data
-      const benchmarks = await fetchMarketBenchmarks();
-      const spyChange = benchmarks.spy.change;
-      const qqqChange = benchmarks.qqq.change;
-      addLog(`Benchmark Reference: SPY ${spyChange.toFixed(2)}% | QQQ ${qqqChange.toFixed(2)}%`, "info");
 
-      // [MODIFIED] Hidden Gem & Priority Logic + Dual Alpha + ICT Hybrid
-      const scoredCandidates = elite50.map((c: any) => {
-          const gap = Number(c.fairValueGap || 0);
-          const ict = Number(c.ictScore || 0);
-          const rvol = Number(c.techMetrics?.rawRvol || 0);
-          const dp = Number(c.changePercent || 0); // Daily percent change
-          
-          const isUndervaluedGrowth = gap > 100 && ict > 60;
-          const isVolumeRunner = (c.isImputed === true) && rvol > 3.0; 
-          const isHiddenGem = isUndervaluedGrowth || isVolumeRunner;
-          
-          let sortScore = c.compositeAlpha || 0;
-          let convictionScore = c.convictionScore || c.compositeAlpha || 0;
 
-          // 1. Dual-Alpha Engine
-          let spyAlpha = false;
-          let qqqAlpha = false;
 
-          if (dp > spyChange) {
-              sortScore *= 1.1;
-              convictionScore *= 1.1;
-              spyAlpha = true;
-          }
-          if (dp > qqqChange) {
-              sortScore *= 1.15; // Additional boost for beating Nasdaq
-              convictionScore *= 1.15;
-              qqqAlpha = true;
-          }
 
-          // 2. ICT PD-Array Filter
-          let isOverheated = false;
-          if (c.pdZone === 'DISCOUNT') {
-              convictionScore += 15;
-              sortScore += 15;
-          } else if (c.pdZone === 'PREMIUM') {
-              // Overheat Protection: Push out of top 20
-              isOverheated = true;
-              sortScore -= 50; 
-          }
 
-          // 3. Institutional Entry Badge
-          const displacement = c.ictMetrics?.displacement ?? 0;
-          const isInstitutionalEntry = displacement > 65;
-
-          if (isHiddenGem) sortScore += 25; 
-          
-          return { 
-              ...c, 
-              isHiddenGem, 
-              sortScore, 
-              convictionScore: Math.min(99, Math.round(convictionScore)), // Cap at 99
-              spyAlpha,
-              qqqAlpha,
-              isInstitutionalEntry,
-              isOverheated
-          };
-      });
-
-      const topCandidates = scoredCandidates
-          .sort((a: any, b: any) => b.sortScore - a.sortScore)
-          .slice(0, 12);
-          
-      if (topCandidates.length === 0) {
-          addLog("분석 결과가 없습니다. Stage 5 데이터를 확인해주세요.", "err");
-          setLoading(false);
-          return;
-      }
-
-      // [CRITICAL FIX] Robust Failover Logic for GitHub Actions
-      let response: any = { data: [] };
-      let usedProvider = currentProvider;
-      let aiFailed = false;
-
-      try {
-          addLog(`사용 중인 엔진: [${currentProvider === ApiProvider.GEMINI ? 'GEMINI' : 'SONAR'}]`, "info");
-          // Attempt 1: Try with current provider
-          response = await generateAlphaSynthesis(topCandidates, currentProvider, autoStart);
-      } catch (err: any) {
-          // If first attempt fails
-          if (currentProvider === ApiProvider.GEMINI || err.message === 'GEMINI_QUOTA_EXCEEDED') {
-              if (!autoStart) {
-                  // [MANUAL MODE] Strict Failover: Stop and Switch
-                  addLog("Gemini 할당량 초과 또는 오류. Sonar(Perplexity)로 전환하여 분석하시겠습니까?", "warn");
-                  // Do NOT automatically switch provider here in manual mode.
-                  // Just stop loading and let user click the Sonar button.
-                  setLoading(false);
-                  return; // EXIT IMMEDIATELY
-              } else {
-                  // [AUTO MODE] Automatic Failover
-                  addLog(`Primary Engine (${currentProvider}) Failed: ${err.message}. Engaging Failover...`, "warn");
-                  usedProvider = ApiProvider.PERPLEXITY;
-                  setSelectedBrain(ApiProvider.PERPLEXITY);
-                  try {
-                      response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
-                  } catch (retryErr: any) {
-                      addLog(`Failover Engine (Perplexity) also failed: ${retryErr.message}`, "err");
-                      aiFailed = true;
-                  }
-              }
-          } else {
-              // Perplexity failed
-              addLog(`Engine Failed: ${err.message}`, "err");
-              aiFailed = true;
-          }
-      }
-
-      // Check for 'soft' errors returned in response object (like Quota Limit)
-      if (response?.error) {
-           addLog(`${usedProvider} Returned Error: ${response.error}`, "warn");
-           
-           if (usedProvider === ApiProvider.GEMINI && !aiFailed) {
-               if (!autoStart) {
-                   // [MANUAL MODE] Strict Failover
-                   addLog("[QUOTA_ERR] Gemini 할당량 초과. 소나(Perplexity)로 전환되었습니다. 다시 버튼을 눌러주세요.", "warn");
-                   setSelectedBrain(ApiProvider.PERPLEXITY);
-                   setLoading(false);
-                   return; // EXIT IMMEDIATELY
-               }
-
-               // Auto Mode: Proceed with auto-retry
-               addLog("Gemini Quota Exceeded/Error. Force-Switching to Perplexity (Sonar)...", "signal");
-               setSelectedBrain(ApiProvider.PERPLEXITY); 
-               usedProvider = ApiProvider.PERPLEXITY;
-               // Retry with Perplexity
-               try {
-                   response = await generateAlphaSynthesis(topCandidates, ApiProvider.PERPLEXITY, autoStart);
-               } catch (e) {
-                   aiFailed = true;
-               }
-           } else {
-               aiFailed = true;
-           }
-      }
-
-      if (response.error) {
-          // In Auto Mode, suppress total failure to ensure onComplete runs
-          if (autoStart) {
-               addLog("Synthesis Failed partially. Forcing completion to unblock pipeline.", "warn");
-               // Use existing candidates as fallback result
-               response = { data: topCandidates.map((c: any) => ({ ...c, aiVerdict: 'HOLD', investmentOutlook: 'Analysis Failed. Hold for review.' })), usedProvider: 'FALLBACK' };
-          } else {
-               throw new Error(`Synthesis Failed after retries: ${response.error}`);
-          }
-      }
-
-      const safeAiResults = Array.isArray(response.data) ? response.data : (response.data ? [response.data] : []);
-      
-      // [ENHANCED MERGE] Left Join: Iterate over topCandidates to ensure we don't lose items if AI returns partial list
-      const mergedFinal = topCandidates.map((item: any) => {
-        // Find matching AI result if available
-        const aiData = safeAiResults.find((r: any) => r.symbol?.trim().toUpperCase() === item.symbol.trim().toUpperCase());
-        
-        const safePrice = Number(item.price);
-        // Use AI data if valid, otherwise fallback to Quant heuristics
-        const safeEntry = aiData ? (Number(aiData.supportLevel) || (safePrice * 0.98)) : (safePrice * 0.98);
-        const safeTarget = aiData ? (Number(aiData.resistanceLevel) || (safePrice * 1.10)) : (safePrice * 1.10);
-        const safeStop = aiData ? (Number(aiData.stopLoss) || (safePrice * 0.95)) : (safePrice * 0.95);
-        // [MODIFIED] Use the enhanced conviction score calculated above
-        const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
-        const safeVerdict = aiData?.aiVerdict || "ACCUMULATE"; // Default to Accumulate for high quant score items
-        const safeOutlook = aiData?.investmentOutlook || "";
-
-        // [NEW] Prioritize Perplexity Metrics but Fallback to Original Item Data to prevent TBD
-        const safeExpectedReturn = (aiData?.expectedReturn && aiData.expectedReturn !== "0%") ? aiData.expectedReturn : (item.expectedReturn || aiData?.expectedReturn || "TBD");
-        const safeRiskReward = (aiData?.riskRewardRatio && aiData.riskRewardRatio !== "1:2") ? aiData.riskRewardRatio : (item.riskRewardRatio || aiData?.riskRewardRatio || "1:2");
-
-        return {
-            ...item, 
-            ...aiData, // Overwrite with AI data where available
-            price: safePrice,
-            convictionScore: safeConviction,
-            supportLevel: safeEntry,
-            resistanceLevel: safeTarget,
-            stopLoss: safeStop,
-            aiVerdict: safeVerdict,
-            investmentOutlook: safeOutlook,
-            expectedReturn: safeExpectedReturn,
-            riskRewardRatio: safeRiskReward,
-            isHiddenGem: item.isHiddenGem, // Ensure this carries over
-            spyAlpha: item.spyAlpha,
-            qqqAlpha: item.qqqAlpha,
-            isInstitutionalEntry: item.isInstitutionalEntry,
-            isOverheated: item.isOverheated,
-            pdZone: item.pdZone,
-            // [CRITICAL] Preserve Stage 5 Badges - Do not overwrite if AI data is missing them
-            isConfirmedSmartMoney: item.isConfirmedSmartMoney,
-            isConfirmedDiscount: item.isConfirmedDiscount,
-            isConfirmedGem: item.isConfirmedGem
-        };
-      }) as AlphaCandidate[];
-      
-      // [FIX] Slice to Top 6
-      const finalElite = mergedFinal.sort((a, b) => (b.convictionScore || 0) - (a.convictionScore || 0)).slice(0, 6);
-
-      // [CRITICAL] Update Cache with the provider that ACTUALLY worked
-      setResultsCache(prev => ({ ...prev, [usedProvider]: finalElite }));
-      
-      if (finalElite.length > 0) {
-          const first = finalElite[0];
-          setSelectedStock(first);
-          onStockSelected?.(first);
-          onFinalSymbolsDetected?.(finalElite.map(t => t.symbol), finalElite);
-          
-          if(accessToken) {
-              const timestamp = getKstTimestamp();
-              const fileName = `STAGE6_ALPHA_FINAL_${timestamp}.json`;
-              const payload = {
-                  manifest: { version: "9.9.9", count: finalElite.length, timestamp: new Date().toISOString(), strategy: "Neural_Alpha_Sieve", engine: usedProvider },
-                  alpha_candidates: finalElite 
-              };
-              const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-              await uploadFile(accessToken, folderId, fileName, payload);
-              addLog(`Saved Top 6 Alpha Candidates: ${fileName}`, "ok");
-          }
-      } else {
-          // If 0 results, treat as warning but let pipeline finish
-          addLog("분석 결과가 없습니다. AI가 유효한 데이터를 반환하지 않았습니다.", "err");
-      }
-
-      addLog(`${finalElite.length} Elite Alpha targets identified and mapped via ${usedProvider}.`, "ok");
-      addLog("[SIGNAL] Hybrid Alpha 50 Strategy Finalized", "signal");
-
-    } catch (e: any) { 
-        addLog(`Engine Error: ${e.message}`, "err"); 
-        // [GITHUB ACTION FIX] Prevent hang on error
-        if (autoStart) {
-             addLog("AUTO-PILOT: Critical Failure. Force-skipping Stage 6.", "warn");
-             setAutoPhase('DONE');
-             // Must call onComplete to let Puppeteer know we are done
-             if (onComplete) onComplete("STAGE6_FAILED");
-        }
-    } finally { 
-        setLoading(false); 
-    }
-  };
 
   const handleRunMatrixAudit = async (brain: ApiProvider) => {
     if (matrixLoading) return;
@@ -1328,7 +2985,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     
     // Safety check: if we switched brains, we need to look up the correct cache
     // [FIX] Check ALL caches to ensure we find data regardless of which brain succeeded
-    const resultsToCheck = resultsCache[brain] || resultsCache[selectedBrain] || resultsCache[ApiProvider.GEMINI] || resultsCache[ApiProvider.PERPLEXITY] || [];
+    const { items: resultsToCheck, source: sourceTag } = resolveStage6OutputSource();
 
     if (resultsToCheck.length === 0) {
         addLog("Error: Execute Alpha Engine first to generate data.", "err");
@@ -1337,6 +2994,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     setMatrixLoading(true);
     let targetBrain = brain;
     addLog(`Synthesizing Portfolio Matrix via ${targetBrain}...`, "signal");
+    addLog(
+        `[AUDIT_SYNC] Matrix source locked: ${sourceTag} (${resultsToCheck.length})${stage6FinalRunIdRef.current ? ` run=${stage6FinalRunIdRef.current}` : ''}`,
+        "info"
+    );
     
     try {
         let report = await analyzePipelineStatus({
@@ -1398,7 +3059,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const handleManualTelegramSend = async () => {
     if (sendingTelegram) return;
-    const resultsToSend = resultsCache[selectedBrain] || [];
+    const { items: resultsToSend, source: sourceTag } = resolveStage6OutputSource();
     if (resultsToSend.length === 0) {
         addLog("No data to transmit. Run Alpha Engine first.", "err");
         return;
@@ -1406,14 +3067,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     setSendingTelegram(true);
     addLog("Manual Command: Generating Telegram Brief...", "signal");
+    addLog(
+        `[AUDIT_SYNC] Telegram source locked: ${sourceTag} (${resultsToSend.length})${stage6FinalRunIdRef.current ? ` run=${stage6FinalRunIdRef.current}` : ''}`,
+        "info"
+    );
 
     try {
-        const brief = await generateTelegramBrief(resultsToSend, selectedBrain);
+        const marketPulse = (window as any).latestMarketPulse;
+        const brief = await generateTelegramBrief(resultsToSend, stage2ProviderRef.current || selectedBrain, marketPulse);
+
+        const contractCheck = checkTelegramContractIntegrity(resultsToSend, brief);
+        if (!contractCheck.ok) {
+            addLog(
+                `TELEGRAM_CONTRACT_MISMATCH: ${contractCheck.mismatches[0] || 'unknown mismatch'}`,
+                "err"
+            );
+            contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
+            addLog("Telegram Integrity Gate blocked transmission.", "err");
+            return;
+        }
         
         if(accessToken) {
             const timestamp = getKstTimestamp();
             const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
-            await archiveReport(accessToken, fileName, brief);
+            const archivedBrief = buildTelegramMessage(brief);
+            await archiveReport(accessToken, fileName, archivedBrief);
             addLog("Telegram Brief Archived to Drive.", "info");
         }
 
@@ -1460,6 +3138,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         } 
       }));
       addLog(`Simulation complete for ${stock.symbol} ${isRealData ? '(Real Data)' : '(AI Sim)'}.`, "ok");
+
+      // [SIMULATION TELEGRAM ROUTE] Send simulation result to dedicated chat channel.
+      const simulationSummary = [
+        "🧪 Simulation Execution Update",
+        `Symbol: ${stock.symbol} (${stock.name || '-'})`,
+        `Period: ${data.simulationPeriod || '-'}`,
+        `WinRate: ${safeMetrics.winRate} | PF: ${safeMetrics.profitFactor}`,
+        `MDD: ${safeMetrics.maxDrawdown} | Sharpe: ${safeMetrics.sharpeRatio}`,
+        `DataSource: ${isRealData ? 'REAL' : 'AI_SIM'}`
+      ].join("\n");
+
+      try {
+        const simSent = await sendSimulationTelegramReport(simulationSummary);
+        if (simSent) addLog(`[SIM_TG] Simulation report sent for ${stock.symbol}.`, "ok");
+        else addLog(`[SIM_TG] Simulation report send failed for ${stock.symbol}.`, "warn");
+      } catch (simErr: any) {
+        addLog(`[SIM_TG] Simulation telegram error: ${simErr?.message || 'unknown error'}`, "warn");
+      }
     } catch (e: any) { addLog(`Backtest Error: ${e.message}`, "err"); }
     finally { setBacktestLoading(false); }
   };
@@ -1480,11 +3176,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const translateVerdict = (v?: string) => {
     const text = cleanVerdict(v);
     if (!text) return "분석 중";
+    if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
     if (text.includes('STRONG') || text.includes('강력') || text.includes('적극')) return '강력 매수';
     if (text === 'BUY' || text === '매수' || text.includes('LONG')) return '매수';
     if (text.includes('ACCUMULATE') || text.includes('비중') || text.includes('확대')) return '비중 확대';
     if (text.includes('HOLD') || text.includes('NEUTRAL') || text.includes('관망') || text.includes('보유')) return '관망';
-    if (text.includes('STRONGSELL') || text.includes('적극매도')) return '적극 매도';
     if (text === 'SELL' || text === '매도' || text.includes('청산') || text.includes('EXIT')) return '매도';
     if (text.includes('RISK') || text.includes('SPECULATIVE') || text.includes('투기') || text.includes('위험')) return '고위험';
     return /[가-힣]/.test(text) ? v! : "대기";
@@ -1492,6 +3188,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const getVerdictStyle = (v?: string) => {
     const text = cleanVerdict(v);
+    if (text.includes('STRONGSELL') || text.includes('적극매도'))
+        return 'bg-blue-800 text-white border-blue-500 shadow-[0_0_20px_rgba(59,130,246,0.35)] font-black tracking-wider';
     if (text.includes('STRONG') || text.includes('강력') || text.includes('적극')) 
         return 'bg-gradient-to-r from-red-600 to-rose-600 text-white border-red-500 shadow-[0_0_20px_rgba(220,38,38,0.6)] font-black tracking-wider animate-pulse';
     if (text.includes('BUY') || text.includes('매수') || text.includes('LONG')) 
@@ -1616,12 +3314,90 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 </div>
               )}
               {activeTab === 'INDIVIDUAL' && (
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                    <button
+                      onClick={() => setScoreViewMode('GATED')}
+                      className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${scoreViewMode === 'GATED' ? 'bg-emerald-600 text-white shadow-lg' : 'text-slate-500'}`}
+                    >
+                      Gated
+                    </button>
+                    <button
+                      onClick={() => setScoreViewMode('RAW')}
+                      className={`px-3 py-2 rounded-lg text-[9px] font-black uppercase transition-all ${scoreViewMode === 'RAW' ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500'}`}
+                    >
+                      Raw
+                    </button>
+                </div>
+              )}
+              {activeTab === 'INDIVIDUAL' && (
                   <button onClick={handleExecuteEngine} disabled={loading} className={`px-8 py-4 rounded-xl text-[10px] font-black uppercase tracking-widest shadow-xl transition-all ${loading ? 'bg-slate-800 animate-pulse text-slate-500' : 'bg-rose-600 text-white hover:brightness-110 active:scale-95 shadow-rose-900/20'}`}>
                     {loading ? 'Synthesizing...' : 'Execute Alpha Engine'}
                   </button>
               )}
             </div>
           </div>
+
+          {activeTab === 'INDIVIDUAL' && (
+            <div className="mb-6 p-3 rounded-2xl border border-cyan-500/20 bg-cyan-950/10 space-y-3">
+              <div className="flex flex-wrap items-center gap-3">
+                <span className="text-[9px] font-black uppercase tracking-widest text-cyan-300">Stage5 Lock Mode</span>
+                <div className="flex bg-black/40 p-1 rounded-xl border border-white/5">
+                  <button
+                    onClick={releaseStage5LockFromUi}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${
+                      !stage5LockEnabled ? 'bg-cyan-600 text-white shadow-lg' : 'text-slate-500'
+                    }`}
+                  >
+                    Latest
+                  </button>
+                  <button
+                    onClick={applyStage5LockFromUi}
+                    className={`px-3 py-1.5 rounded-lg text-[9px] font-black uppercase transition-all ${
+                      stage5LockEnabled ? 'bg-amber-600 text-white shadow-lg' : 'text-slate-500'
+                    }`}
+                  >
+                    Locked
+                  </button>
+                </div>
+                {stage5LockEnabled && (
+                  <span className="text-[9px] font-bold text-amber-300 bg-amber-500/10 border border-amber-500/30 rounded-lg px-2 py-1">
+                    LOCK ACTIVE
+                  </span>
+                )}
+              </div>
+              <div className="grid grid-cols-1 md:grid-cols-[1fr_auto] gap-2 items-center">
+                <select
+                  value={stage5LockSelectedId}
+                  onChange={(e) => setStage5LockSelectedId(e.target.value)}
+                  className="bg-black/40 border border-white/10 rounded-lg px-3 py-2 text-[10px] text-slate-200 focus:outline-none focus:border-cyan-400"
+                >
+                  <option value="" className="bg-slate-900 text-slate-300">
+                    {stage5LockListLoading ? 'Stage5 목록 로딩 중...' : '잠글 Stage5 파일 선택 (최신순)'}
+                  </option>
+                  {stage5LockOptions.map(file => (
+                    <option key={file.id} value={file.id} className="bg-slate-900 text-slate-200">
+                      {file.name}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={loadStage5LockOptions}
+                  className="px-3 py-2 rounded-lg text-[9px] font-black uppercase tracking-wide bg-cyan-700/70 hover:bg-cyan-600 text-white border border-cyan-500/30 transition-all"
+                >
+                  Refresh
+                </button>
+              </div>
+              <p className="text-[10px] text-slate-500">
+                Latest: 최신 Stage5 자동 잠금 / Locked: 선택한 Stage5 파일 강제 사용 (수동·오토 동일 입력 검증)
+              </p>
+              {stage5LockSelectedId && (
+                <p className="text-[9px] text-cyan-300/90 break-all">
+                  Selected: {stage5LockOptions.find(file => file.id === stage5LockSelectedId)?.name || stage5LockFileName}
+                </p>
+              )}
+            </div>
+          )}
           
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
@@ -1646,9 +3422,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                 // [NEW] Alpha Conviction & Visual Effects
                 // Formula: (ICT Score * 0.4) + (Fundamental Score * 0.3) + (Technical Score * 0.2) + (AI Conviction * 0.1)
-                const rawAiScore = Number(item.convictionScore) || 50;
+                const rawAiScore = getDisplayConvictionScore(item, scoreViewMode);
                 // If AI score is exactly 50 (fallback), use ICT score as proxy for AI sentiment to avoid "neutral" dragging down good stocks
-                const effectiveAiScore = rawAiScore === 50 ? (item.ictScore || 50) : rawAiScore;
+                const baseAiScore = rawAiScore === 50 ? (item.ictScore || 50) : rawAiScore;
+                const effectiveAiScore = isRiskOffVerdict(item.aiVerdict) ? Math.min(baseAiScore, 55) : baseAiScore;
+                const displayExpectedReturn = getDisplayExpectedReturn(item, scoreViewMode);
                 
                 // [MODIFIED] Calculate Quant System Score (Weighted Average)
                 const quantSystemScore = (
@@ -1660,7 +3438,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 
                 // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
                 // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
-                const isNeonGlow = item.isConfirmedSmartMoney === true;
+                const isNeonGlow = item.isConfirmedSmartMoney === true && !isRiskOffVerdict(item.aiVerdict);
                 const isTopPick = index < 2;
 
                 return (
@@ -1796,7 +3574,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="flex justify-between items-center mt-auto">
                       <div className="flex flex-col min-w-0 flex-1 mr-2">
                         <span className="text-[7px] font-black text-slate-600 uppercase tracking-widest mb-0.5 truncate">EXP. RETURN</span>
-                        <span className="text-[9px] font-black text-emerald-400 italic truncate">{cleanMarkdown(item.expectedReturn || "TBD")}</span>
+                        <span className="text-[9px] font-black text-emerald-400 italic truncate">{cleanMarkdown(displayExpectedReturn || "TBD")}</span>
                       </div>
                       <span className={`px-2 py-1 rounded text-[7px] font-black uppercase border shadow-md whitespace-nowrap ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
                     </div>
@@ -1846,7 +3624,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <span className="text-[9px] font-mono text-slate-600">{new Date().toLocaleTimeString()}</span>
                    </div>
                    <ReactMarkdown remarkPlugins={[remarkGfm]} components={MarkdownComponents}>
-                        {cleanInsightText(matrixReports[matrixBrain])}
+                        {cleanMatrixInsightText(matrixReports[matrixBrain])}
                    </ReactMarkdown>
                  </div>
                ) : (
@@ -1880,7 +3658,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         <p className="text-2xl font-black text-emerald-400 italic">
                             {/* Display the calculated weighted average score */}
                             {(() => {
-                                const rawAi = Number(selectedStock.convictionScore) || 50;
+                                const rawAi = getDisplayConvictionScore(selectedStock, scoreViewMode);
                                 const effAi = rawAi === 50 ? (selectedStock.ictScore || 50) : rawAi;
                                 return (
                                     ((selectedStock.ictScore || 0) * 0.4) + 
@@ -1961,20 +3739,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                                 
                                 <div className="h-[250px] w-full">
-                                    {/* Use shouldRenderChart equivalent logic (here assumed isVisible=true) */}
-                                    <ResponsiveContainer width="100%" height="100%">
-                                        <RadarChart cx="50%" cy="50%" outerRadius="70%" data={quantMetrics.radarData}>
-                                            <PolarGrid stroke="#334155" opacity={0.2} />
-                                            <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 9, fontWeight: 'bold' }} />
-                                            <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
-                                            <Radar name={selectedStock.symbol} dataKey="A" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.2} />
-                                            <RechartsTooltip 
-                                                contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }} 
-                                                itemStyle={{ color: '#10b981', fontSize: '10px' }} 
-                                                formatter={(value: any) => Number(value).toFixed(2)}
-                                            />
-                                        </RadarChart>
-                                    </ResponsiveContainer>
+                                    {/* [FIX] Ensure data exists before rendering to prevent crash */}
+                                    {quantMetrics.radarData && quantMetrics.radarData.length > 0 ? (
+                                        <ResponsiveContainer width="100%" height="100%">
+                                            <RadarChart cx="50%" cy="50%" outerRadius="70%" data={quantMetrics.radarData}>
+                                                <PolarGrid stroke="#334155" opacity={0.2} />
+                                                <PolarAngleAxis dataKey="subject" tick={{ fill: '#64748b', fontSize: 9, fontWeight: 'bold' }} />
+                                                <PolarRadiusAxis angle={30} domain={[0, 100]} tick={false} axisLine={false} />
+                                                <Radar name={selectedStock.symbol} dataKey="A" stroke="#10b981" strokeWidth={2} fill="#10b981" fillOpacity={0.2} />
+                                                <RechartsTooltip 
+                                                    contentStyle={{ backgroundColor: '#0f172a', border: '1px solid #1e293b' }} 
+                                                    itemStyle={{ color: '#10b981', fontSize: '10px' }} 
+                                                    formatter={(value: any) => Number(value).toFixed(2)}
+                                                />
+                                            </RadarChart>
+                                        </ResponsiveContainer>
+                                    ) : (
+                                        <div className="h-full flex items-center justify-center text-slate-500 text-xs">
+                                            No Radar Data Available
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         )}
@@ -2100,6 +3884,110 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             <div className="flex flex-col items-end" onClick={(e) => { e.stopPropagation(); setActiveAlphaInsight('AIC'); }}>
                                                 <span className="text-[8px] text-slate-500 block mb-0.5">AI Consensus</span>
                                                 <span className="text-sm font-black text-white">{quantMetrics.system.aic}%</span>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                {/* [NEW] Advanced Deterministic Metrics (inside parent framework block) */}
+                                <div className="p-3 bg-slate-900/30 rounded-[24px] border border-slate-700/50 space-y-3">
+                                    <div className="flex items-center justify-between">
+                                        <p className="text-[7px] text-slate-400 font-bold uppercase tracking-[0.2em]">Edge / Risk / Regime / Integrity</p>
+                                        <p className="text-[6px] text-slate-500 font-bold uppercase tracking-[0.18em]">Top Drivers Highlight</p>
+                                    </div>
+
+                                    <div className="p-2.5 bg-slate-950/60 rounded-[18px] border border-white/5">
+                                        <p className="text-[6px] text-slate-500 font-bold uppercase tracking-[0.18em] mb-2">핵심 드라이버 Top3</p>
+                                        <div className="grid grid-cols-3 gap-2">
+                                            {(quantMetrics.advanced.drivers || []).map((d: any, i: number) => (
+                                                <div
+                                                    key={`${d.id}-${i}`}
+                                                    onClick={() => setActiveAlphaInsight(d.id)}
+                                                    className={`p-2 rounded-[14px] border text-center cursor-help transition-all alpha-insight-trigger ${
+                                                        i === 0
+                                                            ? 'bg-rose-900/20 border-rose-400/50 shadow-[0_0_16px_rgba(244,63,94,0.25)] animate-pulse'
+                                                            : i === 1
+                                                                ? 'bg-amber-900/20 border-amber-400/40 shadow-[0_0_12px_rgba(245,158,11,0.2)]'
+                                                                : 'bg-indigo-900/20 border-indigo-400/35 shadow-[0_0_10px_rgba(99,102,241,0.15)]'
+                                                    }`}
+                                                >
+                                                    <p className="text-[6px] text-slate-300 font-bold uppercase truncate">{d.label}</p>
+                                                    <p className="text-[10px] font-black text-white">{d.value}</p>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+
+                                    <div className="space-y-2">
+                                        <div className="p-2.5 bg-indigo-900/10 rounded-[18px] border border-indigo-500/20">
+                                            <p className="text-[6px] text-indigo-300 font-bold uppercase tracking-[0.16em] mb-2">Edge</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div onClick={() => setActiveAlphaInsight('EDGE_EXEC')} className={`p-2 bg-indigo-900/10 rounded-[14px] border border-indigo-500/25 text-center cursor-help hover:bg-indigo-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('EDGE_EXEC') ? 'ring-1 ring-indigo-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-indigo-300 font-bold uppercase">Exec Adj</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.edge.executionFactor.toFixed(2)}x</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('ROBUST_CONSENSUS')} className={`p-2 bg-indigo-900/10 rounded-[14px] border border-indigo-500/25 text-center cursor-help hover:bg-indigo-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('ROBUST_CONSENSUS') ? 'ring-1 ring-indigo-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-indigo-300 font-bold uppercase">Consensus</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.edge.stageConsensus}</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('RISK_REWARD')} className="p-2 bg-indigo-900/10 rounded-[14px] border border-indigo-500/25 text-center cursor-help hover:bg-indigo-900/20 transition-all alpha-insight-trigger">
+                                                    <p className="text-[6px] text-indigo-300 font-bold uppercase">R:R</p>
+                                                    <p className="text-[10px] font-black text-white">1:{quantMetrics.advanced.edge.rrRatio.toFixed(2)}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-2.5 bg-rose-900/10 rounded-[18px] border border-rose-500/20">
+                                            <p className="text-[6px] text-rose-300 font-bold uppercase tracking-[0.16em] mb-2">Risk</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div onClick={() => setActiveAlphaInsight('RISK_ATR')} className={`p-2 bg-rose-900/10 rounded-[14px] border border-rose-500/25 text-center cursor-help hover:bg-rose-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('RISK_ATR') ? 'ring-1 ring-rose-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-rose-300 font-bold uppercase">ATR%</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.risk.atrPct.toFixed(2)}%</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('RISK_GAP')} className={`p-2 bg-rose-900/10 rounded-[14px] border border-rose-500/25 text-center cursor-help hover:bg-rose-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('RISK_GAP') ? 'ring-1 ring-rose-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-rose-300 font-bold uppercase">Gap%</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.risk.gapRiskPct.toFixed(2)}%</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('RISK_LIQ')} className={`p-2 bg-rose-900/10 rounded-[14px] border border-rose-500/25 text-center cursor-help hover:bg-rose-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('RISK_LIQ') ? 'ring-1 ring-rose-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-rose-300 font-bold uppercase">Liquidity</p>
+                                                    <p className="text-[10px] font-black text-white truncate">{quantMetrics.advanced.risk.liquidityState}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-2.5 bg-amber-900/10 rounded-[18px] border border-amber-500/20">
+                                            <p className="text-[6px] text-amber-300 font-bold uppercase tracking-[0.16em] mb-2">Regime</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div onClick={() => setActiveAlphaInsight('REGIME_VIX')} className={`p-2 bg-amber-900/10 rounded-[14px] border border-amber-500/25 text-center cursor-help hover:bg-amber-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('REGIME_VIX') ? 'ring-1 ring-amber-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-amber-300 font-bold uppercase">VIX Δ</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.regime.vixDistance.toFixed(2)}</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('REGIME_RS')} className={`p-2 bg-amber-900/10 rounded-[14px] border border-amber-500/25 text-center cursor-help hover:bg-amber-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('REGIME_RS') ? 'ring-1 ring-amber-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-amber-300 font-bold uppercase">RS Alpha</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.regime.rsAlpha.toFixed(2)}</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('EVENT_DDAY')} className="p-2 bg-amber-900/10 rounded-[14px] border border-amber-500/25 text-center cursor-help hover:bg-amber-900/20 transition-all alpha-insight-trigger">
+                                                    <p className="text-[6px] text-amber-300 font-bold uppercase">Earnings D</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.regime.earningsD === null ? 'N/A' : `D-${quantMetrics.advanced.regime.earningsD}`}</p>
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        <div className="p-2.5 bg-emerald-900/10 rounded-[18px] border border-emerald-500/20">
+                                            <p className="text-[6px] text-emerald-300 font-bold uppercase tracking-[0.16em] mb-2">Integrity</p>
+                                            <div className="grid grid-cols-3 gap-2">
+                                                <div onClick={() => setActiveAlphaInsight('ROBUST_STABILITY')} className="p-2 bg-emerald-900/10 rounded-[14px] border border-emerald-500/25 text-center cursor-help hover:bg-emerald-900/20 transition-all alpha-insight-trigger">
+                                                    <p className="text-[6px] text-emerald-300 font-bold uppercase">Signal Stab.</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.integrity.signalStability.toFixed(1)}</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('INTEGRITY_SCORE')} className={`p-2 bg-emerald-900/10 rounded-[14px] border border-emerald-500/25 text-center cursor-help hover:bg-emerald-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('INTEGRITY_SCORE') ? 'ring-1 ring-emerald-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-emerald-300 font-bold uppercase">Integrity</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.integrity.integrityScore.toFixed(1)}</p>
+                                                </div>
+                                                <div onClick={() => setActiveAlphaInsight('CONCENTRATION_SCORE')} className={`p-2 bg-emerald-900/10 rounded-[14px] border border-emerald-500/25 text-center cursor-help hover:bg-emerald-900/20 transition-all alpha-insight-trigger ${topDriverIdSet.has('CONCENTRATION_SCORE') ? 'ring-1 ring-emerald-300/60' : ''}`}>
+                                                    <p className="text-[6px] text-emerald-300 font-bold uppercase">Sector Conc.</p>
+                                                    <p className="text-[10px] font-black text-white">{quantMetrics.advanced.integrity.sectorConcentration.toFixed(1)}%</p>
+                                                </div>
                                             </div>
                                         </div>
                                     </div>

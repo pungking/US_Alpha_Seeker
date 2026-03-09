@@ -1,7 +1,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GITHUB_DISPATCH_CONFIG } from '../constants';
 import { ApiProvider } from '../types';
 
 interface Props {
@@ -29,9 +29,9 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
         strategy: "70점 이상: 강력한 현금 창출 능력. 하락장에서도 주가 방어력이 높습니다."
     },
     'Z_SCORE': {
-        title: "Altman Z-Score (파산위험)",
-        desc: "기업의 파산 가능성을 통계적으로 예측하는 모델입니다. (2.99 이상: 안전 / 1.8 미만: 위험)",
-        strategy: "1.8 미만인 기업은 기술적 반등이 있어도 '가치 함정(Value Trap)'일 확률이 높으므로 피하십시오."
+        title: "Z-Score Proxy (재무위험 프록시)",
+        desc: "현재 엔진은 정식 Altman Z-Score가 아닌 재무위험 프록시를 사용합니다. 부채와 수익성의 왜곡을 빠르게 잡아내는 보조 안전지표입니다.",
+        strategy: "정식 부도예측 모델이 아니므로 단독 해석은 피하고, 현금흐름과 부채비율이 함께 강한 종목만 신뢰하십시오."
     },
     'SAFETY_SCORE': {
         title: "Safety Score (재무안정성)",
@@ -52,6 +52,10 @@ const safeNum = (val: any) => {
     const n = Number(val);
     return isNaN(n) || !isFinite(n) ? 0 : n;
 };
+
+const hasValue = (val: any) => !(val === undefined || val === null || val === '');
+
+const firstPresent = (...vals: any[]) => vals.find(hasValue);
 
 const normalizeScore = (val: number, min: number, max: number) => {
     if (val <= min) return 0;
@@ -117,8 +121,8 @@ const performFinancialEngineering = (data: any) => {
     const marketCap = safeNum(data.marketCap || data.marketValue);
     const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
     
-    let totalDebtRatio = safeNum(data.debtToEquity);
-    if (data.debtToEquity === 0 || data.debtToEquity === "0") totalDebtRatio = 0;
+    const rawDebtToEquity = firstPresent(data.debtToEquity);
+    let totalDebtRatio = hasValue(rawDebtToEquity) ? safeNum(rawDebtToEquity) : 0;
     
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
     const pe = safeNum(data.pe || data.per);
@@ -131,10 +135,13 @@ const performFinancialEngineering = (data: any) => {
     
     const isFinancial = (data.sector || '').toLowerCase().includes('financial') || (data.industry || '').toLowerCase().includes('bank');
     
-    let opCashflow = safeNum(data.operatingCashflow || data.operatingCashFlow);
+    const rawOpCashflow = firstPresent(data.operatingCashflow, data.operatingCashFlow);
+    let opCashflow = hasValue(rawOpCashflow) ? safeNum(rawOpCashflow) : 0;
     let isCashflowProxy = false;
+    const hasReportedCashflow = hasValue(rawOpCashflow);
+    const hasNonPositiveReportedCashflow = hasReportedCashflow && opCashflow <= 0;
     
-    if (opCashflow === 0) {
+    if (!hasValue(rawOpCashflow)) {
         if (netIncome > 0) {
             opCashflow = netIncome * (isFinancial ? 1.0 : 1.2); 
             isCashflowProxy = true;
@@ -145,7 +152,8 @@ const performFinancialEngineering = (data: any) => {
         }
     }
 
-    const revenueGrowth = safeNum(data.revenueGrowth || 5); 
+    const rawRevenueGrowth = firstPresent(data.revenueGrowth);
+    const revenueGrowth = hasValue(rawRevenueGrowth) ? safeNum(rawRevenueGrowth) : 0;
     const profitMargin = sales > 0 ? (netIncome / sales) * 100 : 5;
     const rawGrossMargin = safeNum(data.grossMargin || data.grossProfitMargin || (sales > 0 ? (data.grossProfit / sales) : 0));
     const grossMargin = rawGrossMargin > 1 ? rawGrossMargin : rawGrossMargin * 100;
@@ -182,19 +190,21 @@ const performFinancialEngineering = (data: any) => {
     }
     
     const cfMargin = sales > 0 ? (opCashflow / sales) * 100 : profitMargin;
-    const ruleOf40 = revenueGrowth + cfMargin;
+    const effectiveCfMargin = isCashflowProxy ? Math.min(cfMargin, profitMargin) : cfMargin;
+    const ruleOf40 = revenueGrowth + effectiveCfMargin;
     
     // [SCORES]
     let fScore = 4; // Baseline
     if (netIncome > 0) fScore++;
-    if (opCashflow > 0) fScore++;
-    if (opCashflow > netIncome) fScore++;
+    if (!isCashflowProxy && opCashflow > 0) fScore++;
+    if (!isCashflowProxy && opCashflow > netIncome) fScore++;
     if (roic > 5) fScore++;
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
     // Default Z-Score (Mathematical Proxy)
-    const zScore = safeNum(data.zScoreProxy) || ((totalDebtRatio < 0.5 && roe > 0) ? 3.0 : 1.5);
+    const hasZScoreProxy = hasValue(data.zScoreProxy);
+    const zScore = hasZScoreProxy ? safeNum(data.zScoreProxy) : ((totalDebtRatio < 0.5 && roe > 0) ? 3.0 : 1.5);
 
     let valScore = 0;
     if (isFinancial) {
@@ -218,10 +228,16 @@ const performFinancialEngineering = (data: any) => {
              safetyScore = normalizeScore(2.5 - totalDebtRatio, 0, 2);
         }
     }
-    if (zScore > 2.99) safetyScore = Math.max(safetyScore, 90);
+    if (hasZScoreProxy && zScore > 2.99) safetyScore = Math.max(safetyScore, 90);
 
-    let earningsQualityScore = normalizeScore(opCashflow / (netIncome || 1), 0.5, 2.0);
-    if (isCashflowProxy) earningsQualityScore = Math.min(earningsQualityScore, 70);
+    let earningsQualityScore = 0;
+    if (isCashflowProxy) {
+        earningsQualityScore = isFinancial ? 55 : 45;
+    } else if (hasNonPositiveReportedCashflow) {
+        earningsQualityScore = isFinancial ? 50 : 0;
+    } else {
+        earningsQualityScore = normalizeScore(opCashflow / (netIncome || 1), 0.5, 2.0);
+    }
 
     // [STAGE 3 WEIGHTS] Focus on Value (40%) and Safety (30%)
     const fundamentalScore = (valScore * 0.40) + (safetyScore * 0.30) + (qualScore * 0.20) + (growthScore * 0.10);
@@ -234,7 +250,8 @@ const performFinancialEngineering = (data: any) => {
     if (!eps && !netIncome) missingDataPoints++;
     if (!sales) missingDataPoints++;
     let dataConfidence = Math.max(10, 100 - (missingDataPoints * 20));
-    if (isCashflowProxy) dataConfidence -= 20;
+    if (isCashflowProxy) dataConfidence -= isFinancial ? 12 : 20;
+    if (hasNonPositiveReportedCashflow) dataConfidence -= isFinancial ? 8 : 15;
 
     return {
         fundamentalScore: safeNum(fundamentalScore),
@@ -250,6 +267,10 @@ const performFinancialEngineering = (data: any) => {
         earningsQuality: safeNum(earningsQualityScore),
         economicMoat,
         dataConfidence,
+        cashflowProxyUsed: isCashflowProxy,
+        hasReportedCashflow,
+        hasNonPositiveReportedCashflow,
+        zScoreIsProxy: !hasZScoreProxy,
         radarData: [
             { subject: 'Valuation', A: Number(Math.max(5, safeNum(valScore) || 50).toFixed(2)), fullMark: 100 },
             { subject: 'Moat', A: Number(Math.max(5, safeNum(qualScore) || 50).toFixed(2)), fullMark: 100 },
@@ -263,6 +284,54 @@ const performFinancialEngineering = (data: any) => {
     };
 };
 
+// ─────────────────────────────────────────────────────────
+// [GITHUB DISPATCH] Stage 3 → Harvester 워크플로우 트리거
+// GitHub repository_dispatch API: 성공 시 HTTP 204 반환
+// ─────────────────────────────────────────────────────────
+const triggerGitHubHarvester = async (meta?: {
+  stockCount?: number;
+  timestamp?: string;
+  triggerFile?: string;
+}): Promise<boolean> => {
+  try {
+    const res = await fetch(GITHUB_DISPATCH_CONFIG.API_URL, {
+      method: 'POST',
+      headers: {
+        Authorization: `token ${GITHUB_DISPATCH_CONFIG.TOKEN}`,
+        Accept: 'application/vnd.github.v3+json',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        event_type: GITHUB_DISPATCH_CONFIG.EVENT_TYPE,
+        client_payload: {
+          stage: 3,
+          driveFolder: GOOGLE_DRIVE_TARGET.stage3SubFolder,
+          stockCount: meta?.stockCount ?? 0,
+          timestamp: meta?.timestamp ?? new Date().toISOString(),
+          trigger_file: meta?.triggerFile ?? '',
+          triggeredBy: 'FundamentalAnalysis-v5',
+        },
+      }),
+    });
+
+    if (res.status === 204) {
+      console.log(
+        `[GITHUB DISPATCH] ✅ "${GITHUB_DISPATCH_CONFIG.EVENT_TYPE}" 트리거 성공` +
+        ` → ${GITHUB_DISPATCH_CONFIG.OWNER}/${GITHUB_DISPATCH_CONFIG.REPO}`
+      );
+      return true;
+    }
+
+    const errText = await res.text();
+    console.error(`[GITHUB DISPATCH] ❌ HTTP ${res.status}`, errText);
+    return false;
+
+  } catch (e) {
+    console.error('[GITHUB DISPATCH] ❌ 네트워크 오류:', e);
+    return false;
+  }
+};
+
 const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
     const [loading, setLoading] = useState(false);
     const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
@@ -270,7 +339,74 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const [selectedTicker, setSelectedTicker] = useState<any | null>(null);
     const [activeInsight, setActiveInsight] = useState<string | null>(null);
     const [logs, setLogs] = useState<string[]>(['> Fundamental_Node v5.8.0: Pure Quant Mode Active.']);
-    
+
+    const [syncProgress, setSyncProgress] = useState<{current: number, total: number, percentage: number, ticker: string} | null>(null);
+    const [isSyncActive, setIsSyncActive] = useState(false);
+    const pollingInterval = useRef<NodeJS.Timeout | null>(null);
+    const pendingStage4TriggerRef = useRef<string | null>(null);
+    const progressCompleteLoggedRef = useRef(false);
+    const readySignalHandledRef = useRef(false);
+
+    const stopSyncPolling = () => {
+        if (pollingInterval.current) {
+            clearInterval(pollingInterval.current);
+            pollingInterval.current = null;
+        }
+    };
+
+    // 컴포넌트 언마운트 시 인터벌 정리
+    useEffect(() => {
+        return () => {
+            stopSyncPolling();
+        };
+    }, []);
+
+    // 구글 드라이브에서 진행률을 읽어오는 함수
+    const checkProgress = async (token: string, sysFolderId: string) => {
+        try {
+            const expectedTriggerFile = pendingStage4TriggerRef.current;
+            const progressFileId = await findFileId(token, "COLLECTION_PROGRESS.json", sysFolderId);
+            if (progressFileId) {
+                const data = await downloadFile(token, progressFileId);
+                if (data) {
+                    const isCurrentTriggerProgress =
+                        !expectedTriggerFile || data.trigger_file === expectedTriggerFile;
+
+                    if (isCurrentTriggerProgress) {
+                        setSyncProgress({
+                            current: data.current,
+                            total: data.total,
+                            percentage: data.percentage,
+                            ticker: data.last_ticker
+                        });
+
+                        if (data.status === "COMPLETED" && !progressCompleteLoggedRef.current) {
+                            progressCompleteLoggedRef.current = true;
+                            addLog("[OK] OHLCV 수집 완료. Ready Signal 검증 중...", "ok");
+                        }
+                    }
+                }
+            }
+
+            if (!expectedTriggerFile || readySignalHandledRef.current) return;
+
+            const readyFileId = await findFileId(token, "LATEST_STAGE4_READY.json", sysFolderId);
+            if (!readyFileId) return;
+
+            const readyData = await downloadFile(token, readyFileId);
+            if (readyData?.status === "COMPLETED" && readyData?.trigger_file === expectedTriggerFile) {
+                readySignalHandledRef.current = true;
+                pendingStage4TriggerRef.current = null;
+                setIsSyncActive(false);
+                stopSyncPolling();
+                addLog(`[OK] Stage 4 Ready Signal Verified: ${readyData.trigger_file}`, "ok");
+                if (onComplete) onComplete();
+            }
+        } catch (e) {
+            console.error("Progress check error", e);
+        }
+    };
+  
     const logRef = useRef<HTMLDivElement>(null);
     const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -353,18 +489,39 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         try {
             addLog("Phase 2: Loading Stage 2 Elite Universe...", "info");
             const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
-            const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+            const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=5`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
             const listData = await listRes.json();
 
             if (!listData.files?.length) throw new Error("Stage 2 Data Missing. Please run Stage 2.");
 
-            const stage2Content = await fetch(`https://www.googleapis.com/drive/v3/files/${listData.files[0].id}?alt=media`, {
-                headers: { 'Authorization': `Bearer ${accessToken}` }
-            }).then(r => r.json());
+            let stage2Content: any = null;
+            let selectedStage2FileName = '';
+
+            for (const file of listData.files) {
+                const candidateContent = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+                    headers: { 'Authorization': `Bearer ${accessToken}` }
+                }).then(r => r.json());
+
+                const candidateUniverse = Array.isArray(candidateContent?.elite_universe) ? candidateContent.elite_universe : [];
+                if (candidateUniverse.length > 0) {
+                    stage2Content = candidateContent;
+                    selectedStage2FileName = file.name;
+                    break;
+                }
+            }
+
+            if (!stage2Content) {
+                throw new Error("Latest Stage 2 files are empty. Re-run Stage 2 to completion.");
+            }
+
+            if (selectedStage2FileName !== listData.files[0]?.name) {
+                addLog(`[WARN] Latest Stage 2 file was empty. Fallback engaged: ${selectedStage2FileName}`, "warn");
+            }
 
             const candidates = stage2Content.elite_universe || [];
+            addLog(`[OK] Stage 2 Source Locked: ${selectedStage2FileName}`, "ok");
             addLog(`Targets Acquired: ${candidates.length} elite assets.`, "ok");
             setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
@@ -373,8 +530,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
             if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
             const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
+            const dailyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId) : null;
             
             if (!historyFolderId) addLog("History folder not found. Proceeding with Snapshot data only.", "warn");
+            if (!dailyFolderId) addLog("Daily folder not found. Proceeding with limited data.", "warn");
 
             const groupedByLetter: Record<string, any[]> = {};
             candidates.forEach((c: any) => {
@@ -398,17 +557,64 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         if (Array.isArray(content)) {
                             content.forEach((d: any) => d.symbol && historyDataMap.set(d.symbol, Array.isArray(d.financials) ? d.financials : []));
                         } else {
-                            Object.keys(content).forEach(sym => historyDataMap.set(sym, Array.isArray(content[sym].financials) ? content[sym].financials : []));
+                            Object.keys(content).forEach(sym => {
+                                const val = content[sym];
+                                if (!val) return; 
+                                historyDataMap.set(sym, val.financials || val);
+                            });
                         }
+                    }
+                }
+
+                let dailyDataMap = new Map();
+                if (dailyFolderId) {
+                    const dailyFileName = `${letter}_stocks_daily.json`;
+                    const dailyFileId = await findFileId(accessToken, dailyFileName, dailyFolderId);
+                    if (dailyFileId) {
+                         try {
+                            const content = await downloadFile(accessToken, dailyFileId);
+                            Object.keys(content).forEach(sym => dailyDataMap.set(sym, content[sym]));
+                         } catch (e) { console.warn(`Failed to parse ${dailyFileName}`, e); }
                     }
                 }
 
                 const batch = groupedByLetter[letter];
                 for (const rawItem of batch) {
-                    let fullHistory = historyDataMap.get(rawItem.symbol) || [];
-                    if (!Array.isArray(fullHistory)) fullHistory = [];
+                    const rawHistory = historyDataMap.get(rawItem.symbol);
+                    let fullHistory: any[] = [];
+                    let latestHistory: any = null;
+
+                    if (Array.isArray(rawHistory)) {
+                        fullHistory = rawHistory;
+                        if (fullHistory.length > 0) latestHistory = fullHistory[0];
+                    } else if (rawHistory && typeof rawHistory === 'object') {
+                        const dates = Object.keys(rawHistory).sort().reverse();
+                        fullHistory = dates.map(d => ({ date: d, ...rawHistory[d] }));
+                        if (dates.length > 0) latestHistory = rawHistory[dates[0]];
+                    }
 
                     let itemToAnalyze = { ...rawItem };
+                    
+                    // [NEW] Enrichment from Drive Data (Daily & History)
+                    const dData = dailyDataMap.get(rawItem.symbol);
+                    const toPct = (val: any) => (hasValue(val) && Math.abs(Number(val)) < 10) ? Number(val) * 100 : val;
+
+                    if (dData) {
+                        if (!hasValue(itemToAnalyze.roe)) itemToAnalyze.roe = toPct(dData.roe);
+                        if (!hasValue(itemToAnalyze.operatingMargins)) itemToAnalyze.operatingMargins = toPct(dData.operatingMargins);
+                        if (!hasValue(itemToAnalyze.revenueGrowth)) itemToAnalyze.revenueGrowth = toPct(dData.revenueGrowth);
+                        if (itemToAnalyze.debtToEquity === undefined) itemToAnalyze.debtToEquity = dData.debtToEquity;
+                        if (!hasValue(itemToAnalyze.operatingCashflow)) itemToAnalyze.operatingCashflow = dData.operatingCashflow;
+                        if (!hasValue(itemToAnalyze.pe)) itemToAnalyze.pe = dData.per;
+                        if (!hasValue(itemToAnalyze.pbr)) itemToAnalyze.pbr = dData.pbr;
+                    }
+
+                    if (latestHistory) {
+                         if (!hasValue(itemToAnalyze.grossMargin) && latestHistory['Gross Profit'] && latestHistory['Total Revenue']) {
+                              itemToAnalyze.grossMargin = (latestHistory['Gross Profit'] / latestHistory['Total Revenue']) * 100;
+                         }
+                    }
+
                     let isImputed = false;
                     
                     const sector = itemToAnalyze.sector || 'Unknown';
@@ -423,15 +629,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                          itemToAnalyze.debtToEquity = baseline.debtToEquity;
                          isImputed = true;
                     }
-                    if (!itemToAnalyze.pe && !itemToAnalyze.per) {
+                    if (!hasValue(itemToAnalyze.pe) && !hasValue(itemToAnalyze.per)) {
                          itemToAnalyze.pe = baseline.pe;
                          isImputed = true;
                     }
-                    if (!itemToAnalyze.pbr) {
+                    if (!hasValue(itemToAnalyze.pbr)) {
                          itemToAnalyze.pbr = baseline.pbr;
                          isImputed = true;
                     }
-                    if (!itemToAnalyze.revenueGrowth) {
+                    if (!hasValue(itemToAnalyze.revenueGrowth)) {
                          itemToAnalyze.revenueGrowth = baseline.revenueGrowth;
                          isImputed = true;
                     }
@@ -446,9 +652,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     const opCashflow = safeNum(item.operatingCashflow || item.operatingCashFlow);
                     
                     if (opCashflow <= 0) {
-                        integrityPenalty = 10;
+                        integrityPenalty = sector.toLowerCase().includes('financial') ? 6 : 18;
                         isCashFlowWarning = true;
                     }
+                    if (analysis.cashflowProxyUsed) integrityPenalty += sector.toLowerCase().includes('financial') ? 3 : 6;
                     
                     // [NEW] High-Quality-Growth Flag
                     if (safeNum(item.roe) > 15 && safeNum(item.revenueGrowth) > 10) {
@@ -523,9 +730,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 group.forEach((r, idx) => {
                     let sectorScore = 0;
                     let sectorRankBonus = 0;
+                    const hasCashflowRisk = Boolean(r.isCashFlowWarning || r.hasNonPositiveReportedCashflow || r.cashflowProxyUsed);
 
-                    if (topSectors.includes(r.sector)) sectorScore = 5;
-                    if (idx <= top20Index) sectorRankBonus = 10;
+                    if (topSectors.includes(r.sector)) sectorScore = hasCashflowRisk ? 1 : 2;
+                    if (idx <= top20Index) sectorRankBonus = hasCashflowRisk ? 0 : 4;
 
                     r.sectorScore = sectorScore;
                     r.sectorRankBonus = sectorRankBonus;
@@ -540,6 +748,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             results.sort((a, b) => b.compositeAlpha - a.compositeAlpha);
             const eliteCandidates = results; 
+
+            if (eliteCandidates.length === 0) {
+                addLog("[ERR] Stage 3 produced 0 candidates. Vault save and harvester dispatch aborted.", "err");
+                return;
+            }
             
             setProcessedData(eliteCandidates);
             if (eliteCandidates.length > 0) handleTickerSelect(eliteCandidates[0]);
@@ -559,8 +772,43 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             await uploadFile(accessToken, saveFolderId, fileName, payload);
             addLog(`Vault Saved: ${fileName}`, "ok");
+            
+            // ── [GITHUB DISPATCH] Stage 3 완료 → Harvester 트리거 ──
+            pendingStage4TriggerRef.current = fileName;
+            progressCompleteLoggedRef.current = false;
+            readySignalHandledRef.current = false;
+            addLog(`GitHub Harvester Trigger 전송 중...`, 'info');
+            const triggered = await triggerGitHubHarvester({
+              stockCount: eliteCandidates.length,
+              timestamp: new Date().toISOString(),
+              triggerFile: fileName,
+            });
+            if (triggered) {
+              addLog(`GitHub Dispatch OK → event: "${GITHUB_DISPATCH_CONFIG.EVENT_TYPE}"`, 'ok');
 
-            if (onComplete) onComplete();
+              setIsSyncActive(true);
+              setSyncProgress({ current: 0, total: eliteCandidates.length, percentage: 0, ticker: 'STARTING...' });
+              addLog("[INFO] 데이터 수집 실시간 모니터링을 시작합니다.", "info");
+              stopSyncPolling();
+              
+              // 10초마다 구글 드라이브에서 진행률 체크 (systemMapId는 위에서 찾은 변수 사용)
+              if (systemMapId) {
+                  await checkProgress(accessToken, systemMapId);
+                  if (!readySignalHandledRef.current && pendingStage4TriggerRef.current) {
+                      pollingInterval.current = setInterval(() => {
+                          checkProgress(accessToken, systemMapId);
+                      }, 10000);
+                  }
+              } else {
+                  addLog("[WARN] System Map Folder를 찾지 못해 Ready Signal을 확인할 수 없습니다.", "warn");
+              }
+              
+            } else {
+              pendingStage4TriggerRef.current = null;
+              setIsSyncActive(false);
+              stopSyncPolling();
+              addLog(`GitHub Dispatch FAILED - check console`, 'err');
+            }
 
         } catch (e: any) {
             addLog(`Audit Error: ${e.message}`, "err");
@@ -583,14 +831,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 <div className="glass-panel p-5 md:p-8 lg:p-10 rounded-[32px] md:rounded-[40px] border-t-2 border-t-cyan-500 shadow-2xl bg-slate-900/40 relative overflow-hidden">
                      <div className="flex flex-col lg:flex-row justify-between items-start lg:items-center mb-6 md:mb-10 gap-6">
                          <div className="flex items-center space-x-6">
-                             <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${loading ? 'animate-pulse' : ''}`}>
-                                <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${loading ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
+                             <div className={`w-12 h-12 md:w-14 md:h-14 rounded-3xl bg-cyan-600/10 flex items-center justify-center border border-cyan-500/20 ${(loading || isSyncActive) ? 'animate-pulse' : ''}`}>
+                                <svg className={`w-5 h-5 md:w-6 md:h-6 text-cyan-400 ${(loading || isSyncActive) ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M19.428 15.428a2 2 0 00-1.022-.547l-2.387-.477a6 6 0 00-3.86.517l-.318.158a6 6 0 01-3.86.517L6.05 15.21a2 2 0 00-1.806.547M8 4h8l-1 1v5.172a2 2 0 00.586 1.414l5 5c1.26 1.26.367 3.414-1.415 3.414H4.828c-1.782 0-2.674-2.154-1.414-3.414l5-5A2 2 0 009 10.172V5L8 4z" /></svg>
                              </div>
                              <div>
                                 <h2 className="text-xl md:text-3xl font-black text-white italic tracking-tighter uppercase leading-none">Audit_Nexus v4.1.0</h2>
                                 <div className="flex flex-col mt-2 gap-1">
-                                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
-                                        {loading ? `Auditing: ${progress.msg}` : 'Resilient Deep-Audit Active'}
+                                    <span className={`text-[8px] font-black px-2 py-0.5 rounded border uppercase tracking-widest transition-all ${loading ? 'border-cyan-400 text-cyan-400 animate-pulse' : isSyncActive ? 'border-amber-400 text-amber-400 animate-pulse' : 'border-cyan-500/20 bg-cyan-500/10 text-cyan-400'}`}>
+                                        {loading ? `Auditing: ${progress.msg}` : isSyncActive ? 'Waiting for OHLCV Sync' : 'Resilient Deep-Audit Active'}
                                     </span>
                                     {autoStart && <span className="text-[8px] px-2 py-0.5 bg-rose-600 text-white rounded font-black uppercase animate-pulse w-fit">AUTO PILOT</span>}
                                 </div>
@@ -598,10 +846,10 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                          </div>
                          <button 
                             onClick={executeDeepAudit} 
-                            disabled={loading}
-                            className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${loading ? 'bg-slate-800 text-slate-500 cursor-wait' : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95'}`}
+                            disabled={loading || isSyncActive}
+                            className={`w-full lg:w-auto px-8 md:px-12 py-4 md:py-5 rounded-2xl text-[10px] font-black uppercase tracking-widest transition-all ${(loading || isSyncActive) ? 'bg-slate-800 text-slate-500 cursor-wait' : 'bg-cyan-600 text-white shadow-xl shadow-cyan-900/20 hover:scale-105 active:scale-95'}`}
                         >
-                            {loading ? 'Performing Multi-Model Audit...' : 'Start Global Fundamental Audit'}
+                            {loading ? 'Performing Multi-Model Audit...' : isSyncActive ? 'Waiting for OHLCV Sync...' : 'Start Global Fundamental Audit'}
                         </button>
                      </div>
 
@@ -748,6 +996,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             <div className="xl:col-span-1">
                 <div className="glass-panel h-[400px] lg:h-[600px] rounded-[32px] md:rounded-[40px] bg-slate-950 border-l-4 border-l-cyan-600 flex flex-col p-6 shadow-2xl overflow-hidden">
+                  {isSyncActive && syncProgress && (
+                        <div className="mb-4 p-3 bg-black/40 rounded-2xl border border-cyan-500/20 shadow-lg animate-pulse">
+                            <div className="flex justify-between text-[10px] text-cyan-400 font-black mb-1.5 px-1 italic uppercase tracking-widest">
+                                <span>Syncing OHLCV Data...</span>
+                                <span>{syncProgress.percentage}%</span>
+                            </div>
+                            <div className="w-full h-1 bg-slate-900 rounded-full overflow-hidden">
+                                <div 
+                                    className="h-full bg-cyan-500 transition-all duration-700 shadow-[0_0_10px_#06b6d4]" 
+                                    style={{ width: `${syncProgress.percentage}%` }}
+                                />
+                            </div>
+                            <div className="mt-1.5 text-[8.5px] text-slate-500 flex justify-between px-1">
+                                <span className="truncate w-24">{syncProgress.ticker}</span>
+                                <span>{syncProgress.current} / {syncProgress.total}</span>
+                            </div>
+                        </div>
+                    )}
                     <div className="flex items-center justify-between mb-8 px-2">
                         <h3 className="font-black text-white text-[10px] uppercase tracking-[0.4em] italic">Audit_Log</h3>
                     </div>

@@ -2,6 +2,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { API_CONFIGS, GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
+import { fetchPortalIndices } from "./portalIndicesService";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar']; 
 
@@ -84,6 +85,141 @@ export function removeCitations(text: any): string {
   return str.replace(/\[\d+(?:,\s*\d+)*\]/g, '').trim();
 }
 
+const DEFAULT_SELECTION_REASONS = [
+  "System: Data Preserved",
+  "System: Manual Review",
+  "System: Volatility Check"
+];
+
+const SYSTEM_ERROR_SELECTION_REASONS = [
+  "System Error",
+  "Manual Review Required",
+  "Data Preserved"
+];
+
+const QUANT_ONLY_SELECTION_REASONS = [
+  "System Error",
+  "Quant Data Only",
+  "Manual Review"
+];
+
+const hasSameReasons = (candidateReasons: any, baseline: string[]): boolean => {
+  if (!Array.isArray(candidateReasons) || candidateReasons.length !== baseline.length) return false;
+  return candidateReasons.every((reason, index) => String(reason || '').trim() === baseline[index]);
+};
+
+const detectFallbackAiPayload = (aiItem: any) => {
+  const reasons: string[] = [];
+
+  if (!aiItem || typeof aiItem !== 'object' || Object.keys(aiItem).length === 0) {
+    reasons.push('MISSING_AI_ITEM');
+    return { isFallback: true, reasons };
+  }
+
+  const verdict = String(aiItem.aiVerdict || '').trim().toUpperCase();
+  const expectedReturn = String(aiItem.expectedReturn || '').trim();
+  const theme = String(aiItem.theme || '').trim();
+  const sentiment = String(aiItem.newsSentiment || '').trim().toUpperCase();
+  const outlook = String(aiItem.investmentOutlook || '').trim();
+  const conviction = Number(aiItem.convictionScore);
+
+  if (!outlook || /AI analysis unavailable|System encountered a critical error|System Error/i.test(outlook)) {
+    reasons.push('FALLBACK_OUTLOOK');
+  }
+  if (verdict === 'HOLD') reasons.push('DEFAULT_VERDICT');
+  if (expectedReturn === '0%') reasons.push('ZERO_RETURN');
+  if (theme === 'Unclassified' || theme === 'Fallback') reasons.push('DEFAULT_THEME');
+  if (sentiment === 'NEUTRAL') reasons.push('DEFAULT_SENTIMENT');
+  if (!Number.isFinite(conviction) || conviction === 50) reasons.push('DEFAULT_CONVICTION');
+  if (
+    hasSameReasons(aiItem.selectionReasons, DEFAULT_SELECTION_REASONS) ||
+    hasSameReasons(aiItem.selectionReasons, SYSTEM_ERROR_SELECTION_REASONS) ||
+    hasSameReasons(aiItem.selectionReasons, QUANT_ONLY_SELECTION_REASONS)
+  ) {
+    reasons.push('SYSTEM_SELECTION_REASONS');
+  }
+
+  const defaultSignalCount = reasons.filter(reason =>
+    reason !== 'MISSING_AI_ITEM' &&
+    reason !== 'FALLBACK_OUTLOOK' &&
+    reason !== 'SYSTEM_SELECTION_REASONS'
+  ).length;
+
+  const isFallback =
+    reasons.includes('MISSING_AI_ITEM') ||
+    reasons.includes('FALLBACK_OUTLOOK') ||
+    reasons.includes('SYSTEM_SELECTION_REASONS') ||
+    defaultSignalCount >= 4;
+
+  return { isFallback, reasons };
+};
+
+const normalizeAiResultArray = (aiInput: any): { items: any[]; wrapperType: string } => {
+  if (Array.isArray(aiInput)) return { items: aiInput, wrapperType: 'array' };
+  if (aiInput?.alpha_candidates && Array.isArray(aiInput.alpha_candidates)) {
+    return { items: aiInput.alpha_candidates, wrapperType: 'alpha_candidates' };
+  }
+  if (aiInput?.candidates && Array.isArray(aiInput.candidates)) {
+    return { items: aiInput.candidates, wrapperType: 'candidates' };
+  }
+  return { items: [], wrapperType: typeof aiInput };
+};
+
+const buildPerplexityAudit = (
+  aiInput: any,
+  rawContent: string,
+  model: string,
+  expectedSymbols: string[]
+) => {
+  const { items, wrapperType } = normalizeAiResultArray(aiInput);
+  const fallbackReasonHistogram: Record<string, number> = {};
+  const duplicateSymbols: string[] = [];
+  const seenSymbols = new Set<string>();
+  let fallbackCount = 0;
+  let holdCount = 0;
+  let zeroReturnCount = 0;
+  let blankOutlookCount = 0;
+
+  items.forEach((item: any) => {
+    const cleanSymbol = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+    if (cleanSymbol) {
+      if (seenSymbols.has(cleanSymbol)) duplicateSymbols.push(cleanSymbol);
+      seenSymbols.add(cleanSymbol);
+    }
+
+    const fallbackCheck = detectFallbackAiPayload(item);
+    if (fallbackCheck.isFallback) {
+      fallbackCount++;
+      fallbackCheck.reasons.forEach(reason => {
+        fallbackReasonHistogram[reason] = (fallbackReasonHistogram[reason] || 0) + 1;
+      });
+    }
+
+    if (String(item?.aiVerdict || '').trim().toUpperCase() === 'HOLD') holdCount++;
+    if (String(item?.expectedReturn || '').trim() === '0%') zeroReturnCount++;
+    if (!String(item?.investmentOutlook || '').trim()) blankOutlookCount++;
+  });
+
+  const missingSymbols = expectedSymbols.filter(symbol => !seenSymbols.has(symbol));
+
+  return {
+    model,
+    wrapperType,
+    rawChars: rawContent?.length || 0,
+    preview: String(rawContent || '').slice(0, 240),
+    itemCount: items.length,
+    uniqueSymbolCount: seenSymbols.size,
+    duplicateSymbols,
+    missingSymbolsSample: missingSymbols.slice(0, 6),
+    missingSymbolCount: missingSymbols.length,
+    fallbackCount,
+    holdCount,
+    zeroReturnCount,
+    blankOutlookCount,
+    fallbackReasonHistogram
+  };
+};
+
 const ALPHA_SCHEMA = {
   type: Type.ARRAY,
   items: {
@@ -93,12 +229,12 @@ const ALPHA_SCHEMA = {
       aiVerdict: { type: Type.STRING, description: "Verdict: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT', 'SPECULATIVE_BUY'" },
       marketCapClass: { type: Type.STRING, description: "Size: 'LARGE', 'MID', 'SMALL', 'MICRO'" },
       sectorTheme: { type: Type.STRING, description: "Theme in Korean" },
-      investmentOutlook: { type: Type.STRING, description: "Deep analysis in Korean Markdown. Must follow the 'Legendary Council' format." },
+      investmentOutlook: { type: Type.STRING, description: "Concise Korean thesis (max 2 short sentences, plain text)." },
       selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING }, description: "Array of exactly 3 reasons in Korean: [1.Sector, 2.Fundamentals, 3.Technical]" },
       convictionScore: { type: Type.NUMBER, description: "Final weighted score (0.0 to 100.0)" },
       newsSentiment: { type: Type.STRING, description: "e.g., 'Ext. Positive', 'Positive', 'Neutral', 'Negative'" },
       newsScore: { type: Type.NUMBER, description: "Sentiment score 0.0 to 1.0" },
-      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Stable Growth)'" },
+      expectedReturn: { type: Type.STRING, description: "e.g. '+50% (High Upside)' or '+20% (Short-Term)'" },
       theme: { type: Type.STRING },
       aiSentiment: { type: Type.STRING, description: "Overall Sentiment description in Korean" },
       analysisLogic: { type: Type.STRING, description: "Brief logic description in Korean" },
@@ -401,7 +537,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 }
 
-export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string}> {
+export async function generateAlphaSynthesis(candidates: any[], provider: ApiProvider, isAutoMode: boolean = false): Promise<{data: any[] | null, error?: string, usedProvider?: string, audit?: any}> {
   if (provider !== ApiProvider.GEMINI && provider !== ApiProvider.PERPLEXITY) {
       return { data: null, error: "INVALID_PROVIDER" };
   }
@@ -416,160 +552,119 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   let regimeContext = "Neutral";
   let vixValue = 20;
   try {
-      const indexRes = await fetch('/api/portal_indices');
-      if (indexRes.ok) {
-          const indices = await indexRes.json();
-          const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
-          if (vix) {
-              vixValue = vix.price;
-              regimeContext = vixValue > 25 ? "Risk-Off (High Fear)" : vixValue < 15 ? "Risk-On (Bullish)" : "Neutral";
-          }
+      const indices = await fetchPortalIndices();
+      const vix = indices.find((i: any) => i.symbol === 'VIX' || i.symbol === '.VIX');
+      if (vix) {
+          vixValue = Number(vix.price) || 20;
+          regimeContext = vixValue > 25 ? "Risk-Off (High Fear)" : vixValue < 15 ? "Risk-On (Bullish)" : "Neutral";
       }
   } catch (e) {
       console.warn("Regime fetch failed, defaulting to Neutral");
   }
 
-  const vectorInputs = candidates.map(c => ({
+    const marketPulse = (typeof window !== 'undefined' ? (window as any).latestMarketPulse : null) || { vix: vixValue, trend: regimeContext, sectorRotation: 'Unknown' };
+
+    // [CORE UPDATE] Data Slimming - Optimization
+    // Only send what the AI *needs* to know, reducing tokens and hallucination risk.
+    const slimCandidates = candidates.map(c => ({
       symbol: c.symbol,
+      name: c.name,
       price: c.price,
-      // Vector A: Fundamental & Value
-      metricsA: {
-          pe: c.pe || c.per || 0,
-          peg: c.pegRatio || 0,
-          pbr: c.pbr || 0,
-          roe: c.roe || 0,
-          growth: c.revenueGrowth || 0,
-          gap: c.fairValueGap || 0
+
+      pe: c.pe || c.per || 0,
+      roe: c.roe || 0,
+      revenueGrowth: c.revenueGrowth || 0,
+      sector: c.sectorTheme || c.sector,
+      pdZone: c.pdZone || 'EQUILIBRIUM', // Premium / Discount / Equilibrium
+      otePrice: c.otePrice || 0,
+      ictStopLoss: c.ictStopLoss || 0,
+      marketState: c.marketState || 'Consolidation',
+      ictMetrics: {
+          displacement: c.ictMetrics?.displacementScore || 0,
+          liquiditySweep: c.ictMetrics?.liquiditySweep || false,
+          marketStructure: c.ictMetrics?.marketStructure || 'Neutral',
+          orderBlock: c.ictMetrics?.orderBlock || false,
+          smartMoneyFlow: c.ictMetrics?.smartMoneyFlow || 0
       },
-      // Vector B: Supply & Technical
-      metricsB: {
-          rvol: c.techMetrics?.rvol || 1.0,
-          rsi: c.techMetrics?.rsRating || 50,
-          squeeze: c.techMetrics?.squeezeState,
-          volume: c.volume || 0,
-          marketCap: c.marketCap || 0,
-          instOwn: c.heldPercentInstitutions || 0
-      },
-      // Vector C: ICT & Smart Money
-      metricsC: {
-          ob: c.ictMetrics?.orderBlock || 0,
-          mss: c.ictMetrics?.marketStructure || 0,
-          sweep: c.ictMetrics?.liquiditySweep || 0,
-          flow: c.ictMetrics?.smartMoneyFlow || 0,
-          pdZone: c.pdZone || 'EQUILIBRIUM' // [NEW] ICT Context for AI
-      }
-  }));
 
-  // [SYSTEM INSTRUCTION - HYPER-ALPHA + LEGENDARY COUNCIL FUSION]
-  // [MODIFIED] Removing "Description" from template to prevent AI chatter.
-  // [MODIFIED] Single line enforcement for "Key Thesis" section to prevent bad formatting.
-  const SYSTEM_INSTRUCTION = `
-  [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
-  You are the Chief Investment Officer (CIO) of an elite Hedge Fund.
-  Your task is to select the TOP 6 stocks from the provided list by simulating a debate among 8 Legendary Investors.
-  Current Market Regime: ${regimeContext} (VIX: ${vixValue}).
+      ictScore: c.ictScore || 0 // Explicitly sending score for prioritization
+    }));
 
-  [STRATEGIC RISK PARAMETERS]
-  Current System Risk Thresholds:
-  - RSI Overheat: > ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD} (Extreme Overbought)
-  - VIX Fear Level: > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL} (Defensive Mode)
-  - Sentiment Reversal: News Score > ${STRATEGY_CONFIG.SENTIMENT_REVERSAL_THRESHOLD} (Potential Top)
+    // [SYSTEM INSTRUCTION - HYPER-ALPHA + LEGENDARY COUNCIL FUSION]
+    // [MODIFIED] Removing "Description" from template to prevent AI chatter.
+    // [MODIFIED] Single line enforcement for "Key Thesis" section to prevent bad formatting.
+    const SYSTEM_INSTRUCTION = `
+    [SYSTEM ROLE: THE HYPER-ALPHA INTEGRATED EXECUTION PIPELINE - STAGE 6]
+    You are the Chief Investment Officer (CIO) of an elite Hedge Fund.
+    Your task is to analyze EVERY stock in the provided 'slimCandidates' list and assign a conviction-ranked AI evaluation.
+    The application will perform the final Top 6 cut after your full-candidate analysis is returned.
+    
+    [CRITICAL CONSTRAINTS - READ CAREFULLY]
+    1. **READ-ONLY CONSTRAINT**: The provided numeric data (price, pe, roe, ictScore, ictMetrics) is verified by a Quant Engine. **DO NOT MODIFY THESE NUMBERS**.
+    2. **CONFLICT RESOLUTION**:
+       - IF 'pdZone' is 'PREMIUM' (Expensive) -> Automatic Downgrade, regardless of fundamentals.
+       - IF 'price' is near 'otePrice' AND 'smartMoneyFlow' > 70 -> Mark as 'INSTITUTIONAL_ACCUMULATION' (Priority Selection).
+    3. **SECTOR DIVERSIFICATION**: Your conviction ranking should prefer a final top 6 mix where **NO SINGLE SECTOR exceeds 50%** (Max 3 stocks per sector).
+    4. **PRIORITY**: Give higher weight to stocks with high 'ictScore'.
+    5. **OPERATIONAL SAFETY**: If you encounter data interruption, prioritize outputting stocks with the highest 'ictScore'.
+    6. **FULL COVERAGE MANDATE**: You MUST return an analysis object for EVERY input symbol. Never omit a ticker.
 
-  [INSTRUCTION: RISK-ADJUSTED ANALYSIS]
-  If a candidate's RSI exceeds ${STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD} or VIX exceeds ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}, you MUST adjust the investment rating conservatively and include a warning in the report.
+    [OUTPUT SCHEMA]
+    Return a JSON Array of exactly ${slimCandidates.length} Stocks.
+    The output must contain EVERY input symbol exactly once.
+    Each object must strictly match this schema:
+    - **symbol**: Ticker.
+    - **aiVerdict**: "STRONG_BUY", "BUY", "PARTIAL_EXIT".
+    - **convictionScore**: 0-100.
+    - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
+    - **newsScore**: 0.0 to 1.0.
+    - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
+    - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** (1. Sector, 2. Fundamentals, 3. Technical).
+    - **expectedReturn**: "+XX% (Tag)" where Tag is one of:
+      "Short-Term", "Mid-Term", "Long-Term", "Momentum", "Value", "Turnaround", "Defensive", "Growth".
+    - **supportLevel**, **resistanceLevel**, **stopLoss**: Prices.
+    - **riskRewardRatio**: e.g., "1:4.5".
+    - **kellyWeight**: e.g., "15%".
+    - **chartPattern**: e.g. "Wyckoff SOS".
+    - **analysisLogic**: e.g. "Peter Lynch".
+    - **investmentOutlook**: Korean plain text only, max 2 short sentences (no markdown, no emoji, no intro chatter).
+      Keep it concise and execution-focused.
+    `;
   
-  [INSTRUCTION: CONTRARIAN LOGIC]
-  If 'newsScore' > ${STRATEGY_CONFIG.SENTIMENT_REVERSAL_THRESHOLD} AND RSI is high, interpret this as "Euphoria/Short-term Top" driven by news. Be skeptical of further upside.
-
-  [PIPELINE EXECUTION LOGIC]
-  1. **Correlation & Theme Filter**: Select 6 stocks from at least 3 DIFFERENT SECTORS. Avoid correlating assets.
-  2. **Legendary Investor Council**: Simulate debate among Benjamin Graham, Peter Lynch, Warren Buffett, William O'Neil, Charlie Munger, Glenn Welling, Cathie Wood, Glenn Greenberg.
-  3. **News Sentiment**: Reject stocks with bad news in last 48h.
-  4. **Wyckoff Verification**: Check Volume & Thrust.
-  5. **Execution**: Calculate Entry/Stop/Kelly.
-
-  [OUTPUT REQUIREMENTS - JSON ONLY]
-  Return a JSON Array of exactly 6 Stocks.
-  Each object must strictly match this schema:
-  - **symbol**: Ticker.
-  - **aiVerdict**: "STRONG_BUY", "BUY", "PARTIAL_EXIT".
-  - **convictionScore**: 0-100.
-  - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
-  - **newsScore**: 0.0 to 1.0.
-  - **marketCapClass**, **sectorTheme**, **theme**: Meta data.
-  - **selectionReasons**: Array of EXACTLY 3 strings in **KOREAN** (1. Sector, 2. Fundamentals, 3. Technical).
-  - **expectedReturn**: "+XX% (Tag)".
-  - **supportLevel**, **resistanceLevel**, **stopLoss**: Prices.
-  - **riskRewardRatio**: e.g., "1:4.5".
-  - **kellyWeight**: e.g., "15%".
-  - **chartPattern**: e.g. "Wyckoff SOS".
-  - **analysisLogic**: e.g. "Peter Lynch".
-  - **investmentOutlook**: **CRITICAL**. Use the following **Strict Markdown Template**. 
-    **DO NOT** include introductory text like "이 종목에 대해..." or "8인의 전설적 투자자가...".
-    **DO NOT** use emojis.
-
-  Markdown Template for investmentOutlook:
+    const buildPrompt = (targetCandidates: any[]) => `
+    [INPUT DATA: 3-VECTOR FUSION]
+    Current Date: ${today}
+    Market Context: ${regimeContext}
+    Candidates: ${JSON.stringify(targetCandidates)}
   
-  ## 1. 전설적 투자자 위원회 분석
-  - **벤저민 그레이엄 (Value)** : [의견]
-  - **피터 린치 (Growth)** : [의견]
-  - **워렌 버핏 (Moat)** : [의견]
-  - **윌리엄 오닐 (Momentum)** : [의견]
-  - **찰리 멍거 (Quality)** : [의견]
-  - **글렌 웰링 (Event)** : [의견]
-  - **캐시 우드 (Innovation)** : [의견]
-  - **글렌 그린버그 (Focus)** : [의견]
-  - **최종 평결 (Verdict)** : [합의 내용 요약]
-
-  ## 2. 전문가 3인 성향 분석
-  - **보수적 퀀트** : [분석]
-  - **공격적 트레이더** : [분석]
-  - **마켓 메이커** : [분석]
-  - **종합 분석** : [결론]
-
-  ## 3. The Alpha Thesis: 전략적 투자 시나리오
-  - **핵심 논거 (Key Thesis)** : [내용을 반드시 한 줄로 작성하십시오]
-  - **상승 촉매 (Catalysts)** : [내용을 반드시 한 줄로 작성하십시오]
-  - **리스크 요인 (Risk Factors)** : [내용을 반드시 한 줄로 작성하십시오]
-  - **가격 목표 (Trajectory)** : [단기/중기/장기 목표가]
-
-  Language: Korean.
-  `;
-
-  const prompt = `
-  [INPUT DATA: 3-VECTOR FUSION]
-  Current Date: ${today}
-  Market Context: ${regimeContext}
-  Candidates: ${JSON.stringify(vectorInputs)}
-
-  Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
-  1. Filter 50 -> 15 based on Sector/Theme.
-  2. Perform NEWS SEARCH on top 15.
-  3. Apply Legendary Council logic to select Top 6.
-  4. Calculate Entry/Stop/Kelly.
-  
-  Output the JSON array.
-  `;
+    Execute the [HYPER-ALPHA INTEGRATED PIPELINE]. 
+    1. Evaluate every candidate in the provided list.
+    2. Perform NEWS SEARCH and ranking logic across the strongest candidates.
+    3. Assign conviction and trade plan to EVERY input symbol.
+    4. The application will cut the final Top 6 after your full-candidate evaluation.
+    
+    Output the JSON array.
+    `;
 
   // [INTERNAL LOGIC] Execute Perplexity
-  const executePerplexityAnalysis = async () => {
+  const requestPerplexityForCandidates = async (targetCandidates: any[], scopeLabel: string) => {
     let lastError: any = new Error("No models attempted");
     const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
     const pKey = pConfig?.key;
     if (!pKey) throw new Error("Perplexity API Key Missing for Fallback");
+    const expectedSymbols = targetCandidates.map((candidate: any) => String(candidate.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
+    const prompt = buildPrompt(targetCandidates);
 
     for (const model of PERPLEXITY_MODELS) {
       try {
-          // [FIX] Perplexity Sonar "Chatty" Prevention (Hardened)
-          // 1. Strict System Role: "Data Engine" not "Chatbot"
-          // 2. User Prompt Injection: "Do not clarify", "JSON ONLY"
           const body = JSON.stringify({
               model: model, 
               messages: [
                   { role: "system", content: "You are a specialized JSON generation engine. You are NOT a chatbot. You must NOT output conversational text, pleasantries, apologies, or markdown code blocks (like ```json). You MUST output raw JSON data starting with '[' and ending with ']'. If you are unsure, make the best estimate based on provided data. Do NOT ask for clarification." },
                   { role: "user", content: SYSTEM_INSTRUCTION + "\n\n" + prompt + "\n\n[CRITICAL INSTRUCTION]\nOutput ONLY the valid JSON array. Do not include 'I appreciate...', 'Here is the data...', or any other text. Start response IMMEDIATELY with '['." }
               ],
-              temperature: 0.1 // Low temp for determinism
+              temperature: 0.1,
+              max_tokens: 3200
           });
           
           let res;
@@ -591,7 +686,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                  }
                  return r;
              });
-          } catch(e) {
+          } catch (e) {
              res = await fetchWithRetry(async () => {
                  const r = await fetch('https://api.perplexity.ai/chat/completions', {
                      method: 'POST',
@@ -615,34 +710,203 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           
           const content = data.choices?.[0]?.message?.content;
           const parsed = sanitizeAndParseJson(content);
+          const audit = buildPerplexityAudit(parsed, content, `${model}:${scopeLabel}`, expectedSymbols);
+          console.info('[Perplexity Audit]', audit);
           
           if (parsed) {
-              if (Array.isArray(parsed)) {
+              const { items } = normalizeAiResultArray(parsed);
+              if (Array.isArray(items)) {
                   const uniqueMap = new Map();
-                  parsed.forEach(item => {
-                      if (item.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
-                      if (item.symbol && !uniqueMap.has(item.symbol)) {
+                  items.forEach(item => {
+                      if (item?.investmentOutlook) item.investmentOutlook = removeCitations(item.investmentOutlook);
+                      if (item?.symbol && !uniqueMap.has(item.symbol)) {
                           uniqueMap.set(item.symbol, item);
                       }
                   });
-                  return { data: Array.from(uniqueMap.values()), usedProvider: 'PERPLEXITY' };
+                  return { data: Array.from(uniqueMap.values()), usedProvider: 'PERPLEXITY', audit };
               }
-              return { data: parsed, usedProvider: 'PERPLEXITY' };
-          } else {
-              throw new Error(`Output parsing failed for ${model}. Raw: ${content ? content.substring(0, 50) + "..." : "Empty"}`);
           }
+          throw new Error(`Output parsing failed for ${model}. Raw: ${content ? content.substring(0, 50) + "..." : "Empty"}`);
           
       } catch (e: any) {
-          console.warn(`Perplexity Model ${model} failed: ${e.message}`);
+          console.warn(`Perplexity Model ${model} failed (${scopeLabel}): ${e.message}`);
           lastError = e;
-          // Don't retry if auth error
           if (e.message.includes('401') || e.message.includes('402')) break;
       }
     }
     
-    // NO HEURISTIC FALLBACK. Fail loudly so the user knows analysis failed.
     const errorMessage = lastError && lastError.message ? lastError.message : String(lastError);
     return { data: null, error: `ALL_MODELS_FAILED: ${errorMessage}` };
+  };
+
+  const mergeShardAudits = (shardAudits: any[], mergedData: any[], expectedSymbols: string[], chunkSize: number) => {
+    const baseAudit = buildPerplexityAudit(mergedData, '', `sharded:${chunkSize}`, expectedSymbols);
+    const fallbackReasonHistogram: Record<string, number> = {};
+    shardAudits.forEach(audit => {
+      const hist = audit?.fallbackReasonHistogram || {};
+      Object.keys(hist).forEach(key => {
+        fallbackReasonHistogram[key] = (fallbackReasonHistogram[key] || 0) + Number(hist[key] || 0);
+      });
+    });
+    return {
+      ...baseAudit,
+      scope: 'sharded',
+      shardCount: shardAudits.length,
+      shardDetails: shardAudits.map(audit => ({
+        model: audit?.model,
+        itemCount: audit?.itemCount,
+        fallbackCount: audit?.fallbackCount,
+        missingSymbolCount: audit?.missingSymbolCount
+      })),
+      fallbackReasonHistogram
+    };
+  };
+
+  const runPerplexityShardedAnalysis = async (chunkSize: number) => {
+    const safeChunkSize = Math.max(1, Math.floor(chunkSize));
+    const shards: any[][] = [];
+    for (let i = 0; i < slimCandidates.length; i += safeChunkSize) {
+      shards.push(slimCandidates.slice(i, i + safeChunkSize));
+    }
+
+    const mergedBySymbol = new Map<string, any>();
+    const shardAudits: any[] = [];
+
+    for (let i = 0; i < shards.length; i++) {
+      const shard = shards[i];
+      const shardResult = await requestPerplexityForCandidates(shard, `shard_${i + 1}/${shards.length}`);
+      if (!shardResult?.data || !Array.isArray(shardResult.data)) {
+        return { data: null, error: `SHARD_${i + 1}_FAILED: ${shardResult?.error || 'UNKNOWN'}` };
+      }
+      if (shardResult.audit) shardAudits.push(shardResult.audit);
+      shardResult.data.forEach((item: any) => {
+        const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+        if (clean) mergedBySymbol.set(clean, item);
+      });
+    }
+
+    const mergedData = Array.from(mergedBySymbol.values());
+    const expectedSymbols = slimCandidates.map((candidate: any) => String(candidate.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
+    const audit = mergeShardAudits(shardAudits, mergedData, expectedSymbols, safeChunkSize);
+    console.info('[Perplexity Audit][Sharded]', audit);
+    return { data: mergedData, usedProvider: 'PERPLEXITY_SHARDED', audit };
+  };
+
+  const computeCoverage = (payload: any[] | null | undefined) => {
+    const expectedSymbols = slimCandidates.map((candidate: any) => String(candidate.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
+    const data = Array.isArray(payload) ? payload : [];
+    const map = new Map<string, any>();
+    data.forEach(item => {
+      const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+      if (clean && !map.has(clean)) map.set(clean, item);
+    });
+
+    const unresolvedSymbols: string[] = [];
+    expectedSymbols.forEach(symbol => {
+      const aiItem = map.get(symbol);
+      const fallbackCheck = detectFallbackAiPayload(aiItem);
+      if (!aiItem || fallbackCheck.isFallback) unresolvedSymbols.push(symbol);
+    });
+
+    return {
+      expectedSymbols,
+      unresolvedSymbols,
+      verified: Math.max(0, expectedSymbols.length - unresolvedSymbols.length)
+    };
+  };
+
+  const repairPerplexitySymbols = async (symbols: string[], chunkSize: number = 2) => {
+    if (!symbols.length) return { data: [], failedChunks: 0 };
+
+    const safeChunkSize = Math.max(1, Math.floor(chunkSize));
+    let failedChunks = 0;
+    const repaired: any[] = [];
+
+    for (let i = 0; i < symbols.length; i += safeChunkSize) {
+      const symbolChunk = symbols.slice(i, i + safeChunkSize);
+      const candidateChunk = slimCandidates.filter((candidate: any) => {
+        const clean = String(candidate.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+        return symbolChunk.includes(clean);
+      });
+      if (!candidateChunk.length) continue;
+
+      const repairResult = await requestPerplexityForCandidates(candidateChunk, `repair_${i / safeChunkSize + 1}`);
+      if (!repairResult?.data || !Array.isArray(repairResult.data)) {
+        failedChunks++;
+        continue;
+      }
+
+      repairResult.data.forEach((item: any) => {
+        const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+        if (clean) repaired.push(item);
+      });
+    }
+
+    return { data: repaired, failedChunks };
+  };
+
+  const executePerplexityAnalysis = async (chunkSize?: number) => {
+    const requiredVerified = Math.max(1, Math.ceil(slimCandidates.length * 0.75));
+    const shardSize = Math.max(1, Math.floor(chunkSize ?? 6));
+
+    let baseResult = await runPerplexityShardedAnalysis(shardSize);
+    if (!baseResult?.data || !Array.isArray(baseResult.data)) {
+      console.warn(`[Perplexity Coverage] Sharded pass failed. Falling back to full-pass. Reason: ${baseResult?.error || 'UNKNOWN'}`);
+      const fullFallback = await requestPerplexityForCandidates(slimCandidates, 'full_fallback');
+      return fullFallback;
+    }
+
+    const baseCoverage = computeCoverage(baseResult.data);
+    if (baseCoverage.verified >= requiredVerified) {
+      return baseResult;
+    }
+
+    console.warn(`[Perplexity Coverage] Sharded verified ${baseCoverage.verified}/${slimCandidates.length} (<${requiredVerified}). Repairing unresolved symbols: ${baseCoverage.unresolvedSymbols.join(', ')}`);
+    const repair = await repairPerplexitySymbols(baseCoverage.unresolvedSymbols, 2);
+
+    if (repair.data.length > 0) {
+      const mergedMap = new Map<string, any>();
+      baseResult.data.forEach((item: any) => {
+        const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+        if (clean && !mergedMap.has(clean)) mergedMap.set(clean, item);
+      });
+      repair.data.forEach((item: any) => {
+        const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+        if (clean) mergedMap.set(clean, item);
+      });
+
+      const repairedData = Array.from(mergedMap.values());
+      const repairedCoverage = computeCoverage(repairedData);
+      const repairedAudit = buildPerplexityAudit(
+        repairedData,
+        '',
+        `sharded_repair:${shardSize}`,
+        repairedCoverage.expectedSymbols
+      );
+
+      const repairedResult = {
+        data: repairedData,
+        usedProvider: 'PERPLEXITY_SHARDED_REPAIR',
+        audit: repairedAudit
+      };
+
+      if (repairedCoverage.verified >= requiredVerified) {
+        return repairedResult;
+      }
+
+      baseResult = repairedResult;
+      console.warn(`[Perplexity Coverage] Repair pass still below threshold: ${repairedCoverage.verified}/${slimCandidates.length}.`);
+    }
+
+    // Last fallback: full-pass once, then choose better coverage.
+    const fullResult = await requestPerplexityForCandidates(slimCandidates, 'full_fallback');
+    if (!fullResult?.data || !Array.isArray(fullResult.data)) {
+      return baseResult;
+    }
+
+    const fullCoverage = computeCoverage(fullResult.data);
+    const baseFinalCoverage = computeCoverage(baseResult.data);
+    return fullCoverage.verified > baseFinalCoverage.verified ? fullResult : baseResult;
   };
 
   try {
@@ -652,6 +916,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         let aiResults = aiInput;
         if (!Array.isArray(aiResults) && aiResults?.alpha_candidates && Array.isArray(aiResults.alpha_candidates)) {
             aiResults = aiResults.alpha_candidates;
+        } else if (!Array.isArray(aiResults) && aiResults?.candidates && Array.isArray(aiResults.candidates)) {
+            aiResults = aiResults.candidates;
         }
         
         if (!Array.isArray(aiResults)) {
@@ -659,62 +925,57 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             return aiResults; 
         }
 
-        const aiMap = new Map(aiResults.map(a => [a.symbol, a]));
+        const aiMap = new Map();
+        aiResults.forEach(a => {
+            if (a && a.symbol) {
+                 const cleanSymbol = String(a.symbol).replace(/[^a-zA-Z]/g, '').toUpperCase();
+                 aiMap.set(cleanSymbol, a);
+            }
+        });
 
         return candidates.map(original => {
-            const aiItem = aiMap.get(original.symbol) || {
-                symbol: original.symbol,
-                aiVerdict: "HOLD",
-                convictionScore: 50,
-                investmentOutlook: "AI Analysis Unavailable for this symbol.",
-                selectionReasons: ["Data Missing", "Manual Review Required"],
-                newsSentiment: "Neutral",
-                newsScore: 0.5,
-                expectedReturn: "0%",
-                supportLevel: original.price * 0.95,
-                resistanceLevel: original.price * 1.05,
-                stopLoss: original.price * 0.90,
-                riskRewardRatio: "1:2",
-                kellyWeight: "0%",
-                theme: "Fallback",
-                aiSentiment: "Neutral",
-                analysisLogic: "Fallback Recovery",
-                chartPattern: "N/A"
-            }; // [FIX] Fallback to basic object if not found
 
-            // 1. Data Re-hydration (Force Merge Stage 5 Metrics)
+            const cleanOrgSymbol = String(original.symbol).replace(/[^a-zA-Z]/g, '').toUpperCase();
+            const aiItem = aiMap.get(cleanOrgSymbol) || {};
+            const fallbackCheck = detectFallbackAiPayload(aiItem);
+            
             const merged = {
-                ...original,
-                ...aiItem,
-                ictMetrics: { ...original.ictMetrics }, // Deep copy to prevent reference issues
-                pdZone: original.pdZone,
-                roe: original.roe,
-                revenueGrowth: original.revenueGrowth,
-                instOwn: original.instOwn || original.heldPercentInstitutions,
-                marketCapClass: original.marketCapClass,
-                sector: original.sector,
-                sectorTheme: original.sectorTheme || aiItem.sectorTheme,
-                price: original.price,
-                beta: original.beta,
-                pbr: original.pbr,
-                rsi: original.rsi,
-                sma50: original.sma50,
-                techMetrics: original.techMetrics,
-                otePrice: original.otePrice,
-                ictStopLoss: original.ictStopLoss
+
+                ...original, // Base: All Quant Data (Price, Metrics, Scores)
+                
+                // --- AI Evaluation Fields (Overwritable) ---
+                aiVerdict: aiItem.aiVerdict || 'HOLD',
+                convictionScore: typeof aiItem.convictionScore === 'number' ? aiItem.convictionScore : 50,
+                investmentOutlook: aiItem.investmentOutlook || 'AI analysis unavailable for this ticker.',
+                selectionReasons: Array.isArray(aiItem.selectionReasons) && aiItem.selectionReasons.length >= 3 
+                    ? aiItem.selectionReasons 
+                    : ["System: Data Preserved", "System: Manual Review", "System: Volatility Check"],
+                newsSentiment: aiItem.newsSentiment || 'Neutral',
+                newsScore: typeof aiItem.newsScore === 'number' ? aiItem.newsScore : 0.5,
+                expectedReturn: aiItem.expectedReturn || '0%',
+                theme: aiItem.theme || original.sectorTheme || 'Unclassified',
+                aiSentiment: aiItem.aiSentiment || 'Neutral',
+                analysisLogic: aiItem.analysisLogic || 'Standard Quant Logic',
+                chartPattern: aiItem.chartPattern || 'Consolidation',
+                aiSynthesisStatus: fallbackCheck.isFallback ? 'FALLBACK' : 'OK',
+                aiFallbackDetected: fallbackCheck.isFallback,
+                aiFallbackReason: fallbackCheck.reasons.join('|') || 'NONE',
+                aiProvider: providerName,
+                
+                // --- Critical Safety Overrides (Quant Authority) ---
+                supportLevel: original.supportLevel || original.otePrice || (original.price * 0.95),
+                resistanceLevel: original.resistanceLevel || (original.price * 1.10),
+                stopLoss: original.stopLoss || original.ictStopLoss || (original.price * 0.90),
+                
+                // Recalculate or preserve specific flags
+                isConfirmedSmartMoney: (original.ictMetrics?.smartMoneyFlow || 0) > 85,
+                isConfirmedDiscount: (original.pdZone === 'DISCOUNT' || original.pdZone === 'OTE'),
+                isConfirmedGem: (original.roe >= 15),
+                
+                // Metadata fallback
+                marketCapClass: original.marketCapClass || aiItem.marketCapClass || 'Unknown',
+                sectorTheme: original.sectorTheme || original.sector || aiItem.sectorTheme || 'Unknown'
             };
-
-            // 2. Cross-Validation Flags (Prioritize Quant Data)
-            const smartMoneyFlow = merged.ictMetrics?.smartMoneyFlow ?? 0;
-            const conviction = Number(merged.convictionScore) || 0;
-            const roe = Number(merged.roe) || 0;
-            const pdZone = merged.pdZone || "";
-            const aiVerdict = (merged.aiVerdict || "").toUpperCase();
-
-            // [FIX] Badge Preservation Logic: Quant Data is Authority. AI confirms but does not veto.
-            merged.isConfirmedSmartMoney = (smartMoneyFlow > 85); // Pure Quant
-            merged.isConfirmedDiscount = (pdZone === 'DISCOUNT' || pdZone === 'OTE'); // Pure Quant
-            merged.isConfirmedGem = (roe >= 15); // Pure Quant
 
             return merged;
         });
@@ -726,14 +987,16 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       // [NEW] Batch Processing Implementation (25 items per batch)
       const BATCH_SIZE = 25;
       const batches = [];
-      for (let i = 0; i < candidates.length; i += BATCH_SIZE) {
-          batches.push(candidates.slice(i, i + BATCH_SIZE));
+
+
+      for (let i = 0; i < slimCandidates.length; i += BATCH_SIZE) {
+          batches.push(slimCandidates.slice(i, i + BATCH_SIZE));
       }
 
       let allProcessedCandidates: any[] = [];
       let hasAnySuccess = false;
 
-      console.log(`[Gemini] Starting batch processing. Total items: ${candidates.length}, Batches: ${batches.length}`);
+      console.log(`[Gemini] Starting batch processing. Total items: ${slimCandidates.length}, Batches: ${batches.length}`);
 
       for (let i = 0; i < batches.length; i++) {
           const batchCandidates = batches[i];
@@ -750,21 +1013,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           - Sector Rotation: ${marketPulse.sectorRotation}
           
           Candidates Data (JSON):
-          ${JSON.stringify(batchCandidates.map(c => ({
-              symbol: c.symbol,
-              name: c.name,
-              price: c.price,
-              sector: c.sector,
-              industry: c.industry,
-              pe: c.pe,
-              revenueGrowth: c.revenueGrowth,
-              debtToEquity: c.debtToEquity,
-              operatingMargins: c.operatingMargins,
-              ictScore: c.ictScore,
-              smartMoney: c.isConfirmedSmartMoney,
-              discount: c.isConfirmedDiscount,
-              gem: c.isConfirmedGem
-          })))}
+
+          ${JSON.stringify(batchCandidates)}
 
           [TASK]
           For EACH stock in the list, provide a structured analysis.
@@ -876,7 +1126,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 const pResult = await executePerplexityAnalysis();
                 if (pResult.data) {
                     const hydratedData = hydrateAndValidate(pResult.data, 'PERPLEXITY_FALLBACK');
-                    return { data: hydratedData, usedProvider: 'PERPLEXITY_FALLBACK', error: null };
+                    return { data: hydratedData, usedProvider: 'PERPLEXITY_FALLBACK', error: null, audit: pResult.audit };
                 }
                 throw new Error(pResult.error || "Perplexity Fallback Failed");
              } catch (pError: any) {
@@ -901,7 +1151,11 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                      theme: "Fallback",
                      aiSentiment: "Neutral",
                      analysisLogic: "Fallback Recovery",
-                     chartPattern: "N/A"
+                     chartPattern: "N/A",
+                     aiSynthesisStatus: 'FALLBACK',
+                     aiFallbackDetected: true,
+                     aiFallbackReason: 'ALL_AI_FAILED',
+                     aiProvider: 'FALLBACK_RECOVERY'
                  }));
                  // Even fallback data should be hydrated
                  const hydratedFallback = hydrateAndValidate(fallbackData, 'FALLBACK_RECOVERY');
@@ -913,7 +1167,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         const result = await executePerplexityAnalysis();
         if (result.data) {
             const hydratedData = hydrateAndValidate(result.data, 'PERPLEXITY');
-            return { data: hydratedData, usedProvider: 'PERPLEXITY', error: null };
+            return { data: hydratedData, usedProvider: 'PERPLEXITY', error: null, audit: result.audit };
         }
         if (result.error) {
             trackUsage(ApiProvider.PERPLEXITY, 0, true, result.error);
@@ -922,9 +1176,244 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     }
     return { data: null, error: "INVALID_PROVIDER" };
   } catch (error: any) {
-    trackUsage(provider, 0, true, error.message);
-    return { data: null, error: error.message }; 
+
+
+        // Final Safe Fallback (Hydrate Originals with Error Status)
+    const fallbackData = candidates.map(c => ({
+        ...c,
+        aiVerdict: 'HOLD',
+        convictionScore: 50,
+        investmentOutlook: "## System Error\nAnalysis failed due to API limits or network issues. Quant data preserved.",
+        selectionReasons: ["System Error", "Quant Data Only", "Manual Review"],
+        aiSynthesisStatus: 'FALLBACK',
+        aiFallbackDetected: true,
+        aiFallbackReason: 'RUNTIME_EXCEPTION',
+        aiProvider: 'ERROR_FALLBACK'
+    }));
+    return { data: fallbackData, error: error.message };   
   }
+}
+
+export async function generateTop6NeuralOutlook(candidates: any[], provider: ApiProvider): Promise<{ data: any[] | null; error?: string; usedProvider?: string }> {
+  if (!Array.isArray(candidates) || candidates.length === 0) {
+    return { data: [] };
+  }
+
+  const top6 = candidates.slice(0, 6).map(c => ({
+    symbol: c.symbol,
+    name: c.name,
+    sector: c.sectorTheme || c.sector,
+    price: c.price,
+    fundamentalScore: c.fundamentalScore,
+    technicalScore: c.technicalScore,
+    ictScore: c.ictScore,
+    aiVerdict: c.aiVerdict,
+    convictionScore: c.convictionScore,
+    pdZone: c.pdZone,
+    otePrice: c.otePrice || c.supportLevel,
+    resistanceLevel: c.resistanceLevel,
+    ictStopLoss: c.ictStopLoss || c.stopLoss
+  }));
+
+  const DETAIL_SCHEMA = {
+    type: Type.ARRAY,
+    items: {
+      type: Type.OBJECT,
+      properties: {
+        symbol: { type: Type.STRING },
+        investmentOutlook: { type: Type.STRING },
+        selectionReasons: { type: Type.ARRAY, items: { type: Type.STRING } },
+        analysisLogic: { type: Type.STRING }
+      },
+      required: ["symbol", "investmentOutlook"]
+    }
+  };
+
+  const DETAIL_SYSTEM_INSTRUCTION = `
+  [SYSTEM ROLE: STAGE 6 TOP6 NEURAL OUTLOOK ENHANCER]
+  Generate a detailed markdown "Neural Investment Outlook" ONLY for each provided symbol.
+  Constraints:
+  1) Do not change quantitative fields. Narrative only.
+  2) Return all symbols exactly once.
+  3) Korean language only.
+  4) No emoji, no chatter.
+  5) Use provided trade-box numbers (otePrice, resistanceLevel, ictStopLoss) consistently.
+     - Never invent a different target price in section 3.
+     - If resistanceLevel <= otePrice, explicitly state "상승 여력 제한(관망)" and keep the same numbers.
+  6) Avoid template cloning across symbols:
+     - Do NOT reuse identical sentences across symbols.
+     - Each symbol must explicitly reference its own numeric context (fundamentalScore, technicalScore, ictScore, convictionScore, pdZone among them).
+  7) Keep section semantics strict:
+     - Section 1: must mention at least two symbol-specific scores.
+     - Section 2: must mention entry/target/stop with interpretation.
+     - Section 3: must include trajectory line with exact provided numbers.
+
+  Output schema:
+  - symbol
+  - investmentOutlook (strict markdown template below)
+  - selectionReasons (exactly 3 Korean strings, optional but preferred)
+  - analysisLogic (short Korean phrase, optional)
+
+  Markdown Template for investmentOutlook:
+  ## 1. 전설적 투자자 위원회 분석
+  - **벤저민 그레이엄 (Value)** : [의견]
+  - **피터 린치 (Growth)** : [의견]
+  - **워렌 버핏 (Moat)** : [의견]
+  - **윌리엄 오닐 (Momentum)** : [의견]
+  - **찰리 멍거 (Quality)** : [의견]
+  - **글렌 웰링 (Event)** : [의견]
+  - **캐시 우드 (Innovation)** : [의견]
+  - **글렌 그린버그 (Focus)** : [의견]
+  - **최종 평결 (Verdict)** : [합의 내용 요약]
+
+  ## 2. 전문가 3인 성향 분석
+  - **보수적 퀀트** : [분석]
+  - **공격적 트레이더** : [분석]
+  - **마켓 메이커** : [분석]
+  - **종합 분석** : [결론]
+
+  ## 3. The Alpha Thesis: 전략적 투자 시나리오
+  - **핵심 논거 (Key Thesis)** : [한 줄]
+  - **상승 촉매 (Catalysts)** : [한 줄]
+  - **리스크 요인 (Risk Factors)** : [한 줄]
+  - **가격 목표 (Trajectory)** : 진입 [otePrice] / 목표 [resistanceLevel] / 손절 [ictStopLoss] 형식으로 숫자 그대로 기재
+  `;
+
+  const DETAIL_PROMPT = `
+  Candidates (Top6):
+  ${JSON.stringify(top6)}
+  
+  Return JSON array only.
+  `;
+
+  const runPerplexity = async () => {
+    const pConfig = API_CONFIGS.find(c => c.provider === ApiProvider.PERPLEXITY);
+    const pKey = pConfig?.key;
+    if (!pKey) return { data: null, error: "PERPLEXITY_KEY_MISSING" };
+
+    const expectedSymbols = top6.map((c: any) => String(c?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase());
+    const hasStructuredSections = (text: string) => /##\s*1\./i.test(text) && /##\s*2\./i.test(text) && /##\s*3\./i.test(text);
+    const normalizeForSimilarity = (text: string) =>
+      String(text || '')
+        .toLowerCase()
+        .replace(/\$?\d+(\.\d+)?/g, 'N')
+        .replace(/[^a-z0-9가-힣\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    const jaccard = (a: string, b: string) => {
+      const sa = new Set(normalizeForSimilarity(a).split(' ').filter(Boolean));
+      const sb = new Set(normalizeForSimilarity(b).split(' ').filter(Boolean));
+      if (!sa.size && !sb.size) return 1;
+      const inter = Array.from(sa).filter(x => sb.has(x)).length;
+      const union = new Set([...Array.from(sa), ...Array.from(sb)]).size || 1;
+      return inter / union;
+    };
+    const avgPairSimilarity = (texts: string[]) => {
+      if (texts.length < 2) return 0;
+      let sum = 0;
+      let cnt = 0;
+      for (let i = 0; i < texts.length; i++) {
+        for (let j = i + 1; j < texts.length; j++) {
+          sum += jaccard(texts[i], texts[j]);
+          cnt++;
+        }
+      }
+      return cnt ? sum / cnt : 0;
+    };
+
+    let lastError: any = new Error("No models attempted");
+    for (const model of PERPLEXITY_MODELS) {
+      try {
+        const body = JSON.stringify({
+          model,
+          messages: [
+            { role: "system", content: "You are a JSON generation engine. Output raw JSON only." },
+            { role: "user", content: `${DETAIL_SYSTEM_INSTRUCTION}\n\n${DETAIL_PROMPT}` }
+          ],
+          temperature: 0.1,
+          max_tokens: 4500
+        });
+
+        let res;
+        try {
+          res = await fetchWithRetry(async () => {
+            const r = await fetch('/api/perplexity', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${pKey}`,
+                'Accept': 'application/json'
+              },
+              body
+            });
+            if (r.status === 404) throw new Error("Proxy 404");
+            if (!r.ok) throw new Error(`HTTP_${r.status}: ${await r.text()}`);
+            return r;
+          });
+        } catch {
+          res = await fetchWithRetry(async () => {
+            const r = await fetch('https://api.perplexity.ai/chat/completions', {
+              method: 'POST',
+              headers: {
+                'Content-Type': 'application/json',
+                'Authorization': `Bearer ${pKey}`,
+                'Accept': 'application/json'
+              },
+              body
+            });
+            if (!r.ok) throw new Error(`HTTP_${r.status}: ${await r.text()}`);
+            return r;
+          });
+        }
+
+        const data = await res.json();
+        if (data.usage) trackUsage(ApiProvider.PERPLEXITY, data.usage.total_tokens || 0);
+        const parsed = sanitizeAndParseJson(data.choices?.[0]?.message?.content);
+        const { items } = normalizeAiResultArray(parsed);
+        if (!Array.isArray(items) || items.length === 0) {
+          throw new Error(`TOP6_PARSE_EMPTY_${model}`);
+        }
+
+        const dedup = new Map<string, any>();
+        items.forEach((item: any) => {
+          const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+          if (!clean || dedup.has(clean)) return;
+          dedup.set(clean, {
+            symbol: clean,
+            investmentOutlook: removeCitations(item?.investmentOutlook || ''),
+            selectionReasons: Array.isArray(item?.selectionReasons) ? item.selectionReasons : undefined,
+            analysisLogic: item?.analysisLogic
+          });
+        });
+        const merged = Array.from(dedup.values());
+        const coverage = merged.filter((x: any) => expectedSymbols.includes(String(x?.symbol || '').toUpperCase())).length;
+        const structuredCount = merged.filter((x: any) => hasStructuredSections(String(x?.investmentOutlook || ''))).length;
+        const similarity = avgPairSimilarity(merged.map((x: any) => String(x?.investmentOutlook || '')));
+
+        // Reject low-fidelity output early to trigger next model fallback.
+        if (coverage < Math.ceil(expectedSymbols.length * 0.8)) {
+          throw new Error(`TOP6_DETAIL_LOW_COVERAGE_${model}_${coverage}/${expectedSymbols.length}`);
+        }
+        if (structuredCount < Math.ceil(merged.length * 0.8)) {
+          throw new Error(`TOP6_DETAIL_LOW_STRUCTURE_${model}_${structuredCount}/${merged.length}`);
+        }
+        if (similarity >= 0.95) {
+          throw new Error(`TOP6_DETAIL_CLONED_TEXT_${model}_${similarity.toFixed(3)}`);
+        }
+
+        return { data: merged, usedProvider: 'PERPLEXITY_TOP6_DETAIL' };
+      } catch (e: any) {
+        lastError = e;
+      }
+    }
+    return { data: null, error: `TOP6_DETAIL_FAILED: ${lastError?.message || 'UNKNOWN'}` };
+  };
+
+  if (provider === ApiProvider.PERPLEXITY) {
+    return runPerplexity();
+  }
+  // For Gemini mode, keep deterministic behavior by using Perplexity for top6 narrative only.
+  return runPerplexity();
 }
 
 export async function analyzePipelineStatus(data: {
@@ -1092,70 +1581,62 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       let vix = "N/A", spx = "N/A", ndx = "N/A";
       let spxChg = 0, ndxChg = 0;
       let vixVal = 0;
+      const asFinite = (val: any): number | null => {
+          const n = Number(val);
+          return Number.isFinite(n) ? n : null;
+      };
+      const isValidIndexPoint = (symbol: 'SPX' | 'NDX' | 'VIX', val: any): boolean => {
+          const n = asFinite(val);
+          if (n === null) return false;
+          if (symbol === 'SPX') return n >= 1000 && n <= 20000;
+          if (symbol === 'NDX') return n >= 5000 && n <= 50000;
+          return n > 0 && n <= 150;
+      };
+      const readChange = (obj: any): number => {
+          const c1 = asFinite(obj?.change);
+          if (c1 !== null) return c1;
+          const c2 = asFinite(obj?.changePercent);
+          if (c2 !== null) return c2;
+          return 0;
+      };
+      const normalizeNasdaqLabel = (text: string): string =>
+          String(text || '')
+              .replace(/\bNASDAQ(?!\s*100)\b/gi, 'NASDAQ100')
+              .replace(/나스닥(?!\s*100)/g, '나스닥100');
+      const hasMissingIndex = () => spx === "N/A" || ndx === "N/A" || vix === "N/A";
 
       // [HYDRATION] Check Explicit Argument OR Global Cache
       const pulse = marketPulse || (typeof window !== 'undefined' ? (window as any).latestMarketPulse : null);
       
       if (pulse) {
-          if (pulse.spy) {
-              spx = (Number(pulse.spy.price) || 0).toFixed(2);
-              spxChg = Number(pulse.spy.change) || 0;
+          if (pulse.spy && isValidIndexPoint('SPX', pulse.spy.price)) {
+              spx = Number(pulse.spy.price).toFixed(2);
+              spxChg = readChange(pulse.spy);
           }
-          if (pulse.qqq) {
-              ndx = (Number(pulse.qqq.price) || 0).toFixed(2);
-              ndxChg = Number(pulse.qqq.change) || 0;
+          if (pulse.qqq && isValidIndexPoint('NDX', pulse.qqq.price)) {
+              ndx = Number(pulse.qqq.price).toFixed(2);
+              ndxChg = readChange(pulse.qqq);
+          }
+          if (pulse.vix && isValidIndexPoint('VIX', pulse.vix.price)) {
+              vixVal = Number(pulse.vix.price) || 0;
+              vix = vixVal.toFixed(2);
           }
       }
 
       // 2. Fetch Live Market Data (If Global Cache Missed)
-      if (spx === "N/A" || ndx === "N/A") {
+      if (hasMissingIndex()) {
           try {
-              // Primary: Portal Indices
-          const indexRes = await fetchWithRetry(async () => {
-              const res = await fetch('/api/portal_indices');
-              if (!res.ok) throw new Error("Index API Failed");
-              return res;
-          }, 3, 2000);
-
-          if (indexRes.ok) {
-              const indices = await indexRes.json();
+              const indices = await fetchWithRetry(async () => fetchPortalIndices(), 3, 2000);
               const v = indices?.find((i: any) => i?.symbol === 'VIX' || i?.symbol === '.VIX');
               const s = indices?.find((i: any) => i?.symbol === 'SP500' || i?.symbol === 'SPX');
-              const n = indices?.find((i: any) => i?.symbol === 'NASDAQ' || i?.symbol === 'NDX');
-              
-              if(v?.price) { vixVal = Number(v.price) || 0; vix = vixVal.toFixed(2); }
-              if(s?.price) { spx = (Number(s.price) || 0).toFixed(2); spxChg = Number(s.changePercent) || 0; }
-              if(n?.price) { ndx = (Number(n.price) || 0).toFixed(2); ndxChg = Number(n.changePercent) || 0; }
+              const n = indices?.find((i: any) => i?.symbol === 'NASDAQ' || i?.symbol === 'NDX' || i?.symbol === 'NASDAQ100');
+
+              if (v && isValidIndexPoint('VIX', v.price)) { vixVal = Number(v.price) || 0; vix = vixVal.toFixed(2); }
+              if (s && isValidIndexPoint('SPX', s.price)) { spx = Number(s.price).toFixed(2); spxChg = readChange(s); }
+              if (n && isValidIndexPoint('NDX', n.price)) { ndx = Number(n.price).toFixed(2); ndxChg = readChange(n); }
+          } catch(e) {
+              console.warn("Primary Index Fetch Failed (portal_indices).");
           }
-      } catch(e) {
-          console.warn("Primary Index Fetch Failed, attempting fallbacks...");
-      }
-      }
-
-      // 3. Fallback: Scan Candidates
-      const safeCandidates = Array.isArray(candidates) ? candidates : [];
-      
-      if (spx === "N/A" || ndx === "N/A") {
-          const spyCand = safeCandidates.find(c => c?.symbol === 'SPY' || c?.symbol === 'SP500');
-          const qqqCand = safeCandidates.find(c => c?.symbol === 'QQQ' || c?.symbol === 'NASDAQ');
-          
-          if (spx === "N/A" && spyCand?.price) { spx = (Number(spyCand.price) || 0).toFixed(2); spxChg = Number(spyCand.changePercent) || 0; }
-          if (ndx === "N/A" && qqqCand?.price) { ndx = (Number(qqqCand.price) || 0).toFixed(2); ndxChg = Number(qqqCand.changePercent) || 0; }
-      }
-
-      // Fallback 2: Finnhub Direct
-      if (spx === "N/A" || ndx === "N/A") {
-          try {
-              const fhKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
-              if (fhKey) {
-                  const [spyRes, qqqRes] = await Promise.all([
-                      fetch(`https://finnhub.io/api/v1/quote?symbol=SPY&token=${fhKey}`).then(r => r.json()).catch(() => ({})),
-                      fetch(`https://finnhub.io/api/v1/quote?symbol=QQQ&token=${fhKey}`).then(r => r.json()).catch(() => ({}))
-                  ]);
-                  if (spyRes?.c) { spx = (Number(spyRes.c) || 0).toFixed(2); spxChg = Number(spyRes.dp) || 0; }
-                  if (qqqRes?.c) { ndx = (Number(qqqRes.c) || 0).toFixed(2); ndxChg = Number(qqqRes.dp) || 0; }
-              }
-          } catch (e) { console.error("Finnhub Fallback Failed", e); }
       }
 
       // 4. Formatter with Zero-Change Defense
@@ -1169,11 +1650,15 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
       const spxStr = fmt(spx, spxChg);
       const ndxStr = fmt(ndx, ndxChg);
+      const ndxLabel = "NASDAQ100";
+      const vixStr = vix === "N/A" ? "N/A" : vix;
+      const safeCandidates = Array.isArray(candidates) ? candidates : [];
 
       // 2. Generate "Market Pulse" Text via AI
       const macroPrompt = `
       [Task] Write a concise "Market Pulse" summary in Korean (max 3 lines).
-      Data: VIX: ${vix}, S&P500: ${spxStr}, NASDAQ: ${ndxStr}.
+      Data: VIX: ${vixStr}, S&P500: ${spxStr}, ${ndxLabel}: ${ndxStr}.
+      If VIX is numeric, never output VIX as N/A.
       Focus on market sentiment (Risk-On/Off) based on VIX and Index moves.
       `;
 
@@ -1205,16 +1690,25 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               }
 
               const json = await res.json();
-              macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | NASDAQ: ${ndx})\nVIX: ${vix}`;
+              macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | ${ndxLabel}: ${ndx})\nVIX: ${vixStr}`;
           }
       } catch (e) {
-         macroSection = `Macro: 시장 데이터 분석 중... (VIX: ${vix})`;
+         macroSection = `Macro: 시장 데이터 분석 중... (VIX: ${vixStr})`;
       }
       
       macroSection = removeCitations(macroSection);
+      macroSection = normalizeNasdaqLabel(macroSection);
+      if (vixStr !== "N/A") {
+          macroSection = macroSection
+              .replace(/VIX\s*는\s*N\/A/gi, `VIX는 ${vixStr}`)
+              .replace(/VIX\s*:\s*N\/A/gi, `VIX: ${vixStr}`);
+      }
 
       // 3. Format Candidates Programmatically
-      const top6 = safeCandidates.slice(0, 6);
+      const INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100']);
+      const top6 = safeCandidates
+          .filter(c => !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()))
+          .slice(0, 6);
       
       const sectorCounts: Record<string, number> = {};
       top6.forEach(c => {
@@ -1232,8 +1726,25 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       // Name Cleaner
       const cleanName = (name: any) => {
           if (!name || typeof name !== 'string') return "Unknown";
-          return name.replace(/,?\s*(?:Inc\.?|Corp\.?|Corporation|Holdings?|Group|Ltd\.?|Limited|Co\.?|PLC|L\.?P\.?|S\.?A\.?|N\.?V\.?|Company)\b\.?.*$/i, '').trim();
+          const raw = String(name).replace(/\s+/g, ' ').trim();
+          if (!raw) return "Unknown";
+          // Strip only trailing legal suffixes; never truncate meaningful mid-name tokens.
+          const trailingSuffix = /(?:,\s*|\s+)(?:Inc\.?|Corp\.?|Corporation|Ltd\.?|Limited|Co\.?|PLC|LLC|L\.?P\.?|LP|N\.?V\.?|S\.?A\.?)$/i;
+          let out = raw;
+          let guard = 0;
+          while (guard < 4 && trailingSuffix.test(out)) {
+              out = out.replace(trailingSuffix, '').trim();
+              guard++;
+          }
+          return out || raw;
       };
+
+      const toVerdictKey = (value: any) =>
+          String(value || '')
+              .trim()
+              .toUpperCase()
+              .replace(/\s+/g, '_')
+              .replace(/-/g, '_');
 
       const selections = top6.map((c, i) => {
           if (!c) return "";
@@ -1290,37 +1801,50 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
           const badgeStr = badges.length > 0 ? `\n   ${badges.join(' ')}` : "";
 
-          const verdictMap: any = { "STRONG_BUY": "강력 매수", "BUY": "매수", "HOLD": "관망", "PARTIAL_EXIT": "비중 축소", "ACCUMULATE": "비중 확대", "SPECULATIVE_BUY": "투기적 매수" };
-          let koreanVerdict = verdictMap[c?.aiVerdict] || "매수";
-          if (!c?.aiVerdict && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
+          const verdictMap: any = {
+              "STRONG_BUY": "강력 매수",
+              "BUY": "매수",
+              "HOLD": "관망",
+              "WAIT": "관망",
+              "PARTIAL_EXIT": "비중 축소",
+              "ACCUMULATE": "비중 확대",
+              "SPECULATIVE_BUY": "투기적 매수"
+          };
+          const verdictKey = toVerdictKey(c?.finalVerdict || c?.aiVerdict || c?.verdict || "");
+          let koreanVerdict = verdictMap[verdictKey] || "관망";
+          if (!verdictKey && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
 
-          // [SMART MONEY TAG]
-          const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 90 ? " [🔥SMART MONEY]" : "";
-
-          // [FORMATTING] Newline Restoration
+          // [Robust Fallback for AI Missing Data]
           const reasons = Array.isArray(c?.selectionReasons) ? c.selectionReasons : [];
-          const r1 = reasons[0] ? String(reasons[0]).replace(/\\n/g, ' ').trim() : "섹터 모멘텀 양호";
-          const r2 = reasons[1] ? String(reasons[1]).replace(/\\n/g, ' ').trim() : "안정적 펀더멘털";
-          const r3 = reasons[2] ? String(reasons[2]).replace(/\\n/g, ' ').trim() : "기술적 반등 위치";
-          
-          const analysisLogic = (c.analysisLogic || "").replace(/\\n/g, '\n').trim();
 
-          const entryPrice = (Number(c?.otePrice) || Number(c?.supportLevel) || 0).toFixed(2);
-          const targetPrice = (Number(c?.resistanceLevel) || 0).toFixed(2);
-          const stopPrice = (Number(c?.ictStopLoss) || Number(c?.stopLoss) || 0).toFixed(2);
-          
-          const pdZoneInfo = c?.pdZone 
-              ? `ICT 분석: [${c.pdZone}] 구간 및 OTE 타점 반영` 
-              : "기관 수급 및 기술적 지지 구간 분석 반영";
+          // Regex to strip Markdown chars like *, -, [1]
+          const cleanText = (t: string) => removeCitations(t).replace(/[*_`]/g, '').trim();
 
+          const r1 = reasons[0] ? cleanText(String(reasons[0])) : `ICT 퀀트 점수(${c.ictScore || 0}) 기반 기술적 우위 확인됨`;
+          const r2 = reasons[1] ? cleanText(String(reasons[1])) : "안정적 펀더멘털 및 수급 유입";
+          const r3 = reasons[2]
+              ? cleanText(String(reasons[2]))
+              : (c?.pdZone ? `ICT 분석: ${c.pdZone} 구간 및 OTE 타점 반영` : "기관 수급 및 기술적 지지 구간 분석 반영");
+
+          // [Formatted Return]
+          let expReturn = c?.gatedExpectedReturn || c?.expectedReturn || "N/A";
+          // If return contains non-standard chars (like "High Upside"), try to keep essential +XX%
+          if (expReturn !== "N/A" && !expReturn.includes('%')) expReturn += "%";
+
+          const entryPrice = Number(c?.entryPrice ?? c?.otePrice ?? c?.supportLevel ?? 0);
+          const targetPrice = Number(c?.targetPrice ?? c?.targetMeanPrice ?? c?.resistanceLevel ?? 0);
+          const stopPrice = Number(c?.stopLoss ?? c?.ictStopLoss ?? 0);
+
+          const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 85 ? " [🔥SMART MONEY]" : "";
+          
           return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   • 🎯 Plan: 진입 $${entryPrice} 🎯 | 목표 $${targetPrice} | 손절 $${stopPrice}
-   • 📈 Exp.Return: ${c?.expectedReturn || "N/A"}
+   • 🎯 Plan: 진입 $${entryPrice.toFixed(2)} 🎯 | 목표 $${targetPrice.toFixed(2)} | 손절 $${stopPrice.toFixed(2)}
+   • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
-     - ${removeCitations(r1)}
-     - ${removeCitations(r2)}
-     - ${pdZoneInfo}`;
+     - ${r1}
+     - ${r2}
+     - ${r3}`;
       }).filter(s => s !== "").join('\n\n');
 
       // 4. Construct Final Message
@@ -1339,7 +1863,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
 📊 Market Pulse
 ${macroSection}
-(S&P500: ${spxStr} | NASDAQ: ${ndxStr})
+(S&P500: ${spxStr} | ${ndxLabel}: ${ndxStr} | VIX: ${vixStr})
 ${sectorWarning}
 
 💎 Alpha Top 6 Selections

@@ -7,131 +7,90 @@ import { TELEGRAM_CONFIG, STRATEGY_CONFIG } from "../constants";
  * Includes Fallback for CI/Preview environments where /api proxy is unavailable.
  */
 export async function sendTelegramReport(reportContent: string): Promise<boolean> {
-  const { TOKEN, CHAT_ID } = TELEGRAM_CONFIG;
-  
+  return sendTelegramReportToChat(reportContent, TELEGRAM_CONFIG.CHAT_ID, "PRIMARY");
+}
+
+/**
+ * Sends simulation/backtest messages to dedicated simulation channel.
+ */
+export async function sendSimulationTelegramReport(reportContent: string): Promise<boolean> {
+  const target = TELEGRAM_CONFIG.SIMULATION_CHAT_ID || TELEGRAM_CONFIG.CHAT_ID;
+  return sendTelegramReportToChat(reportContent, target, "SIMULATION");
+}
+
+async function sendTelegramReportToChat(reportContent: string, chatId: string, channelTag: string): Promise<boolean> {
+  const { TOKEN } = TELEGRAM_CONFIG;
   // Mask token for log safety
   const maskedToken = TOKEN ? `${TOKEN.substring(0, 5)}...` : 'MISSING';
-  console.log(`[Telegram] Initializing transmission to Chat ID: ${CHAT_ID}. Token Status: ${maskedToken}`);
+  console.log(`[Telegram:${channelTag}] Initializing transmission to Chat ID: ${chatId}. Token Status: ${maskedToken}`);
 
-  if (!TOKEN || !CHAT_ID) {
-    console.error("Telegram Credentials Missing. Check .env or constants.ts.");
-    // Fallback attempt: check if we can get them from window/global context (rare, but sometimes used in tests)
+  if (!TOKEN || !chatId) {
+    console.error(`Telegram Credentials Missing (${channelTag}). Check .env or constants.ts.`);
     return false;
   }
+  const fullMessage = buildTelegramMessage(reportContent);
 
-  // 1. Prepare Header
-  const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
-  
-  // Clean up standard Markdown to Telegram Legacy Markdown if possible
-  // Telegram MarkdownV2 requires escaping specific characters if not in code blocks, but it's complex.
-  // Standard 'Markdown' mode is safer but limited. We'll try to keep it simple.
-  let cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*'); // Bold
-  
-  // [FIX] Remove citations like [1], [2], [1][2] globally from the final message
-  cleanReport = cleanReport.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
-
-  // [VISUAL ENHANCEMENT] Apply Strategy-Based Emojis
-  // 1. RSI Alert: If RSI > Threshold, add 🚨
-  const rsiRegex = /RSI[:\s]*(\d+)/gi;
-  cleanReport = cleanReport.replace(rsiRegex, (match, rsiVal) => {
-      const val = parseInt(rsiVal);
-      if (val > STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD) return `${match} 🚨`;
-      return match;
-  });
-
-  // 2. Undervalued Gem: If PEG < 0.3, add 💎
-  const pegRegex = /PEG[:\s]*([0-9.]+)/gi;
-  cleanReport = cleanReport.replace(pegRegex, (match, pegVal) => {
-      const val = parseFloat(pegVal);
-      if (val < 0.3 && val > 0) return `${match} 💎`;
-      return match;
-  });
-
-  // 3. Market Mode Header
-  // We don't have VIX here directly, but we can infer or pass it. 
-  // For now, we'll check if the report mentions "Risk-Off" or "Defensive" which AI generates based on VIX.
-  if (cleanReport.includes("Risk-Off") || cleanReport.includes("Defensive Mode")) {
-      header += `🛡️ *[RISK-OFF MODE DETECTED]* 🛡️\n(VIX > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL})\n\n`;
-  }
-
-  // 4. Sector Warning Highlight
-  if (cleanReport.includes("Sector Concentration")) {
-      cleanReport = cleanReport.replace(/(⚠️ Sector Concentration:.*)/g, '*$1*');
-  }
-
-  // Safety: If the AI accidentally included the header, remove it to prevent duplication
-  cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
-  
-  const fullMessage = header + cleanReport;
-
-  // 2. Helper to send chunks via Proxy or Direct
-  const sendMessageChunk = async (text: string, useMarkdown = true): Promise<boolean> => {
-    
-    const payload: any = {
-        chat_id: CHAT_ID,
-        text: text,
-    };
+  // 2. Helper to send chunks with RETRY LOGIC
+  const sendMessageChunk = async (text: string, useMarkdown = true, attempt = 1): Promise<boolean> => {
+    const payload: any = { chat_id: chatId, text: text };
     if (useMarkdown) payload.parse_mode = 'Markdown';
 
-    // ATTEMPT 1: Use Internal Proxy (Works in Production Vercel)
+    // Helper for fetch with timeout
+    const fetchWithTimeout = (url: string, options: any, timeout = 10000) => {
+        return Promise.race([
+            fetch(url, options),
+            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), timeout))
+        ]);
+    };
+
     try {
-      // In CI/Preview, this might 404 immediately.
-      const proxyUrl = `/api/telegram`; 
-      const res = await fetch(proxyUrl, {
+      // ATTEMPT 1: Internal Proxy
+      const proxyUrl = `/api/telegram`;
+      const res = await fetchWithTimeout(proxyUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            token: TOKEN,
-            method: 'sendMessage',
-            body: payload
-        })
+        body: JSON.stringify({ token: TOKEN, method: 'sendMessage', body: payload })
       });
 
-      // If Proxy returns 404 (common in Vite Preview/CI), trigger error to jump to catch
-      if (res.status === 404) throw new Error("Proxy Not Found (404)");
-
-      const json = await res.json();
+      if (res.status === 404) throw new Error("Proxy 404");
       
+      const json = await res.json();
       if (!res.ok) {
-         console.warn(`[Telegram Proxy] Failed: ${json.description || 'Unknown Error'}`);
-         // Retry as Plain Text if Markdown Error
-         if (useMarkdown && (json.description?.includes('parse') || json.description?.includes('can\'t parse'))) {
-             console.warn("Telegram Markdown Parse Error. Retrying as Plain Text...");
-             return sendMessageChunk(text, false);
+         console.warn(`[Telegram Proxy:${channelTag}] Failed: ${json.description}`);
+         if (useMarkdown && json.description?.includes('parse')) {
+             return sendMessageChunk(text, false, attempt); // Retry without Markdown
          }
-         return false;
+         throw new Error(json.description);
       }
       return true;
 
     } catch (proxyError: any) {
-      // ATTEMPT 2: Direct API Call (Works in CI/Puppeteer with --disable-web-security)
-      console.warn(`Telegram Proxy Failed (${proxyError.message}), attempting Direct API call...`);
-      
+      // ATTEMPT 2: Direct API Call (Fallback)
+      console.warn(`Telegram Proxy Failed (${channelTag}, ${proxyError.message}), attempting Direct API...`);
       try {
           const directUrl = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
-          
-          // Note: In a strict browser env without proxy, this will be blocked by CORS unless --disable-web-security is on.
-          const res = await fetch(directUrl, {
+          const res = await fetchWithTimeout(directUrl, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify(payload)
           });
 
           const json = await res.json();
-
           if (!res.ok) {
-             console.error(`[Telegram Direct] Error ${res.status}:`, json);
-             if (useMarkdown && (json.description?.includes('parse') || json.description?.includes('can\'t parse'))) {
-                 console.warn("Telegram Markdown Parse Error (Direct). Retrying as Plain Text...");
-                 return sendMessageChunk(text, false);
+             if (useMarkdown && json.description?.includes('parse')) {
+                 return sendMessageChunk(text, false, attempt);
              }
              return false;
           }
           return true;
-
       } catch (directError: any) {
-          console.error("Telegram Network Error (Direct):", directError);
-          // Only return false after both attempts fail
+          console.error(`Telegram Direct Failed (${channelTag}):`, directError);
+          
+          // Final Retry (Max 2 attempts)
+          if (attempt < 2) {
+              await new Promise(r => setTimeout(r, 2000));
+              return sendMessageChunk(text, useMarkdown, attempt + 1);
+          }
           return false;
       }
     }
@@ -145,14 +104,64 @@ export async function sendTelegramReport(reportContent: string): Promise<boolean
     chunks.push(fullMessage.substring(i, i + MAX_LENGTH));
   }
 
-  // 4. Send all chunks
+  // 4. Send all chunks with delay
   let success = true;
   for (const chunk of chunks) {
     const result = await sendMessageChunk(chunk);
     if (!result) success = false;
-    // Small delay between chunks to ensure order
-    await new Promise(r => setTimeout(r, 500));
+    // Increased delay to 1.5s to prevent rate limiting & race conditions
+    await new Promise(r => setTimeout(r, 1500));
   }
 
   return success;
+}
+
+/**
+ * Build final Telegram payload text used by both transmission and Drive archive.
+ * Keeping one formatter ensures "sent message" and "archived report" stay identical.
+ */
+export function buildTelegramMessage(reportContent: string): string {
+  const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
+
+  // Clean up standard Markdown to Telegram Legacy Markdown if possible
+  // Telegram MarkdownV2 requires escaping specific characters if not in code blocks, but it's complex.
+  // Standard 'Markdown' mode is safer but limited. We'll try to keep it simple.
+  let cleanReport = reportContent.replace(/\*\*(.*?)\*\*/g, '*$1*');
+
+  // [FIX] Remove citations like [1], [2], [1][2] globally from the final message
+  cleanReport = cleanReport.replace(/\[\d+(?:,\s*\d+)*\]/g, '');
+
+  // [VISUAL ENHANCEMENT] Apply Strategy-Based Emojis
+  const rsiRegex = /RSI[:\s]*(\d+)/gi;
+  cleanReport = cleanReport.replace(rsiRegex, (match, rsiVal) => {
+    const val = parseInt(rsiVal);
+    if (val > STRATEGY_CONFIG.RSI_PENALTY_THRESHOLD) return `${match} 🚨`;
+    return match;
+  });
+
+  const pegRegex = /PEG[:\s]*([0-9.]+)/gi;
+  cleanReport = cleanReport.replace(pegRegex, (match, pegVal) => {
+    const val = parseFloat(pegVal);
+    if (val < 0.3 && val > 0) return `${match} 💎`;
+    return match;
+  });
+
+  // Market Mode Header (VIX numeric sync only)
+  let finalHeader = header;
+  const vixFromMarketLine =
+    cleanReport.match(/\|\s*VIX\s*:\s*(-?\d+(?:\.\d+)?)\s*\)/i) ||
+    cleanReport.match(/\bVIX\s*[:：]\s*(-?\d+(?:\.\d+)?)(?!\s*\/)/i);
+  const vixNumeric = vixFromMarketLine ? Number(vixFromMarketLine[1]) : NaN;
+  if (Number.isFinite(vixNumeric) && vixNumeric >= STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL) {
+    finalHeader += `🛡️ *[RISK-OFF MODE DETECTED]* 🛡️\n(VIX ${vixNumeric.toFixed(2)} >= ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL})\n\n`;
+  }
+
+  if (cleanReport.includes("Sector Concentration")) {
+    cleanReport = cleanReport.replace(/(⚠️ Sector Concentration:.*)/g, '*$1*');
+  }
+
+  // Safety: If the AI accidentally included the header, remove it to prevent duplication
+  cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
+
+  return finalHeader + cleanReport;
 }
