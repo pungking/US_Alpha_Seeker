@@ -13,12 +13,12 @@
 ## 1) 준비 단계 (변경 통제)
 - [x] 실행 전 기준점 태깅(현재 main 기준)
 - [x] 기준점 메타 고정(tag + commit SHA + `package-lock.json` 해시)
-- [ ] 정책서 버전 고정: `stage6-exec-v1.0-rc1`
-- [ ] 운영 환경 변수 목록 확정(Alpaca/Drive/Telegram)
-- [ ] 분석 레포/실행 레포 Secrets 분리 정책 문서화
-- [ ] 롤백 절차 문서화(1페이지)
-- [ ] Kill-Switch 문서화(`EXEC_ENABLED=false` 즉시 중단)
-- [ ] 드라이런 기본값 문서화(`READ_ONLY=true`에서만 1차 운영)
+- [x] 정책서 버전 고정: `stage6-exec-v1.0-rc1` (`docs/STAGE6_ALPACA_EXEC_POLICY_DRAFT.md`)
+- [x] 운영 환경 변수 목록 확정(Alpaca/Drive/Telegram) (`docs/SIDECAR_ENV_MATRIX.md`)
+- [x] 분석 레포/실행 레포 Secrets 분리 정책 문서화 (`docs/SIDECAR_ENV_MATRIX.md`)
+- [x] 롤백 절차 문서화(1페이지) (`docs/SIDECAR_ROLLBACK_RUNBOOK.md`)
+- [x] Kill-Switch 문서화(`EXEC_ENABLED=false` 즉시 중단) (`docs/SIDECAR_ENV_MATRIX.md`, `docs/SIDECAR_ROLLBACK_RUNBOOK.md`)
+- [x] 드라이런 기본값 문서화(`READ_ONLY=true`에서만 1차 운영) (`docs/SIDECAR_ENV_MATRIX.md`)
 - [x] Stage6 계약 검증용 골든 파일 1개 고정 (`docs/SIDECAR_GOLDEN_CONTRACT.md`, `docs/fixtures/stage6_golden_contract_v1.json`)
 - [x] 장 시간 기준 확정(뉴욕 타임존 + 미국 휴장 캘린더 기준) (`docs/SIDECAR_MARKET_CALENDAR.md`)
 - [x] Telegram 심각도 표준 확정(`INFO/WARN/CRITICAL`) (`docs/SIDECAR_TELEGRAM_SEVERITY.md`)
@@ -36,6 +36,7 @@
 - [x] `docs/SIDECAR_GOLDEN_CONTRACT.md`
 - [x] `docs/SIDECAR_MARKET_CALENDAR.md`
 - [x] `docs/SIDECAR_TELEGRAM_SEVERITY.md`
+- [x] `docs/fixtures/stage6_golden_contract_v1.json`
 
 ---
 
