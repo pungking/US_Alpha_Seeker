@@ -12,6 +12,8 @@ import puppeteer from 'puppeteer';
 // Synced with UniverseGathering.tsx
 const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
 const DEFAULT_APP_URL = 'http://localhost:3000';
+const SUCCESS_STATUS = "ALL PIPELINES EXECUTED.";
+const FAILURE_MARKERS = ["TELEGRAM SEND FAILED.", "AUTO ABORTED:"];
 
 async function waitForServer(baseUrl, timeoutMs = 120000, pollMs = 2000) {
     const startedAt = Date.now();
@@ -155,10 +157,12 @@ async function getAccessToken() {
         await page.waitForFunction(
             () => {
                 const bodyText = document.body.innerText;
+                const successStatus = "ALL PIPELINES EXECUTED.";
+                const failureMarkers = ["TELEGRAM SEND FAILED.", "AUTO ABORTED:"];
                 // Prefer explicit completion flag; fallback to legacy text matching.
                 if (typeof window.__AUTO_DONE === 'string' && window.__AUTO_DONE.length > 0) return true;
-                return bodyText.includes("ALL PIPELINES EXECUTED") ||
-                       bodyText.includes("TELEGRAM SEND FAILED");
+                return bodyText.includes(successStatus) ||
+                       failureMarkers.some((marker) => bodyText.includes(marker));
             },
             { timeout: TIMEOUT_MS, polling: 5000 }
         );
@@ -176,12 +180,19 @@ async function getAccessToken() {
         return document.body.innerText;
     });
     
-    if (finalState.includes("ALL PIPELINES EXECUTED")) {
+    if (finalState.includes(SUCCESS_STATUS)) {
         console.log("✅ SUCCESS: Alpha Report Generated & Telegram Triggered.");
         await page.screenshot({ path: 'alpha_report_success.png', fullPage: true });
     } else {
-        console.warn("⚠️ WARNING: Pipeline finished with unexpected state.");
+        const normalized = String(finalState || '');
+        const statusLine =
+            normalized
+                .split(/\r?\n/)
+                .find((line) => line.includes(SUCCESS_STATUS) || FAILURE_MARKERS.some((marker) => line.includes(marker))) ||
+            normalized.slice(0, 200);
+        console.error(`❌ PIPELINE TERMINATED: ${statusLine}`);
         await page.screenshot({ path: 'alpha_report_warning.png', fullPage: true });
+        process.exitCode = 1;
     }
 
   } catch (error) {

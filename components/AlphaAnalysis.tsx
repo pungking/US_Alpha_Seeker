@@ -123,6 +123,9 @@ interface Props {
   isVisible?: boolean;
 }
 
+const AUTO_CONTROL_PREFIX = "__AUTO_CONTROL__:";
+const toAutoControlPayload = (code: string) => `${AUTO_CONTROL_PREFIX}${code}`;
+
 const METRIC_DEFINITIONS: { [key: string]: { title: string; desc: string; overlayDesc: string } } = {
   WIN_RATE: {
     title: "승률 (Win Rate)",
@@ -942,7 +945,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           "err"
                       );
                       contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
-                      throw new Error(`TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`);
+                      await archiveTelegramIntegrityFailure(
+                          'AUTO',
+                          resultsToCheck,
+                          brief,
+                          contractCheck,
+                          `TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`
+                      );
+                      throw new Error(`INTEGRITY_GATE_BLOCKED:${contractCheck.mismatches.length}`);
                   }
                   
                   telegramPayload = brief;
@@ -966,8 +976,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   }
 
               } catch (e: any) {
-                  addLog(`Brief Gen Failed: ${e.message}. Sending plain status.`, "err");
-                  telegramPayload = "Telegram Brief Generation Failed. Check logs.";
+                  if (String(e?.message || '').startsWith('INTEGRITY_GATE_BLOCKED:')) {
+                      addLog("Telegram Integrity Gate blocked AUTO transmission.", "err");
+                      setAutoPhase('DONE');
+                      if (onComplete) onComplete(toAutoControlPayload("INTEGRITY_GATE_BLOCKED"));
+                      return;
+                  }
+                  addLog(`Brief Gen Failed: ${e.message}. AUTO telegram aborted.`, "err");
+                  setAutoPhase('DONE');
+                  if (onComplete) onComplete(toAutoControlPayload("BRIEF_GENERATION_FAILED"));
+                  return;
               }
 
               setAutoPhase('DONE');
@@ -976,7 +994,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                // Safety catch: if no results found but we are in MATRIX phase, abort
                addLog("AUTO-PILOT: No Alpha Candidates found. Aborting.", "err");
                setAutoPhase('DONE');
-               if (onComplete) onComplete("NO_CANDIDATES");
+               if (onComplete) onComplete(toAutoControlPayload("NO_CANDIDATES"));
           }
       };
       
@@ -1270,6 +1288,42 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           expected,
           actual
       };
+  };
+
+  const archiveTelegramIntegrityFailure = async (
+      stage: 'AUTO' | 'MANUAL',
+      sourceItems: AlphaCandidate[],
+      brief: string,
+      contractCheck: TelegramContractCheckResult,
+      errorMessage?: string
+  ) => {
+      if (!accessToken) return;
+      try {
+          const payload = {
+              stage,
+              runId: stage6FinalRunIdRef.current || null,
+              generatedAt: new Date().toISOString(),
+              error: errorMessage || null,
+              sourceTop6: sourceItems.slice(0, 6).map((item) => ({
+                  symbol: item?.symbol || 'N/A',
+                  entry: item?.entryPrice ?? item?.otePrice ?? item?.supportLevel ?? null,
+                  target: item?.targetPrice ?? item?.targetMeanPrice ?? item?.resistanceLevel ?? null,
+                  stop: item?.stopLoss ?? item?.ictStopLoss ?? null,
+                  expectedReturn:
+                      item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn ?? null
+              })),
+              mismatches: contractCheck.mismatches,
+              expected: contractCheck.expected,
+              actual: contractCheck.actual,
+              briefPreview: String(brief || '').slice(0, 6000)
+          };
+          const fileName = `TELEGRAM_INTEGRITY_FAIL_${getKstTimestamp()}.md`;
+          const content = `# TELEGRAM INTEGRITY FAILURE SNAPSHOT\n\n\`\`\`json\n${JSON.stringify(payload, null, 2)}\n\`\`\`\n`;
+          const saved = await archiveReport(accessToken, fileName, content);
+          if (saved) addLog(`Integrity Fail Snapshot archived: ${fileName}`, "warn");
+      } catch (e: any) {
+          addLog(`Integrity Fail Snapshot archive error: ${e?.message || 'unknown'}`, "warn");
+      }
   };
 
   const getDisplayConvictionScore = (item: any, mode: 'GATED' | 'RAW') => {
@@ -2904,7 +2958,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (!isAiValid) {
               addLog("CRITICAL: AI Analysis Failed or Incomplete. Aborting Telegram Report to prevent misinformation.", "err");
               setAutoPhase('DONE'); // Stop here
-              if (onComplete) onComplete("AI_FAILED_NO_REPORT");
+              if (onComplete) onComplete(toAutoControlPayload("AI_FAILED_NO_REPORT"));
               return; 
           }
 
@@ -2966,7 +3020,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               // Handled
           } else {
               addLog(`AutoPilot Failed: ${e.message}`, "err");
-              if (onComplete) onComplete("STAGE6_FAILED");
+              if (onComplete) onComplete(toAutoControlPayload("STAGE6_FAILED"));
           }
       } finally {
           setLoading(false);
@@ -3083,6 +3137,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 "err"
             );
             contractCheck.mismatches.slice(1, 4).forEach((m) => addLog(`[CONTRACT_DIFF] ${m}`, "warn"));
+            await archiveTelegramIntegrityFailure(
+                'MANUAL',
+                resultsToSend,
+                brief,
+                contractCheck,
+                `TELEGRAM_CONTRACT_MISMATCH (${contractCheck.mismatches.length})`
+            );
             addLog("Telegram Integrity Gate blocked transmission.", "err");
             return;
         }

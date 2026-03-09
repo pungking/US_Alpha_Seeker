@@ -18,6 +18,17 @@ import RenderGuard from './components/RenderGuard';
 import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
 import { sendTelegramReport } from './services/telegramService';
 
+const AUTO_CONTROL_PREFIX = "__AUTO_CONTROL__:";
+const AUTO_TERMINAL_MESSAGES = new Set([
+  "ALL PIPELINES EXECUTED.",
+  "TELEGRAM SEND FAILED.",
+  "AUTO ABORTED: INTEGRITY GATE BLOCKED.",
+  "AUTO ABORTED: BRIEF GENERATION FAILED.",
+  "AUTO ABORTED: NO CANDIDATES.",
+  "AUTO ABORTED: AI FAILED NO REPORT.",
+  "AUTO ABORTED: STAGE6 FAILED."
+]);
+
 // Markdown Components for ReactMarkdown
 const MarkdownComponents: any = {
   p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[11px]" {...props} />,
@@ -102,7 +113,7 @@ const App: React.FC = () => {
   useEffect(() => {
       const win = window as any;
       win.__AUTO_STATUS = autoStatusMessage;
-      if (autoStatusMessage === "ALL PIPELINES EXECUTED." || autoStatusMessage === "TELEGRAM SEND FAILED.") {
+      if (AUTO_TERMINAL_MESSAGES.has(autoStatusMessage)) {
           win.__AUTO_DONE = autoStatusMessage;
       }
   }, [autoStatusMessage]);
@@ -120,8 +131,32 @@ const App: React.FC = () => {
               setAutoStatusMessage(`ADVANCING TO STAGE ${nextStage}...`);
           } else {
               // ALL STAGES COMPLETED (Stage 6 finished)
-              
-              if (reportPayload) {
+              const controlPayload = String(reportPayload || '');
+              const isControlMessage =
+                  controlPayload.startsWith(AUTO_CONTROL_PREFIX) ||
+                  controlPayload === "NO_CANDIDATES" ||
+                  controlPayload === "AI_FAILED_NO_REPORT" ||
+                  controlPayload === "STAGE6_FAILED";
+
+              if (isControlMessage) {
+                  const controlCode = controlPayload.startsWith(AUTO_CONTROL_PREFIX)
+                      ? controlPayload.slice(AUTO_CONTROL_PREFIX.length)
+                      : controlPayload;
+
+                  if (controlCode === "INTEGRITY_GATE_BLOCKED") {
+                      setAutoStatusMessage("AUTO ABORTED: INTEGRITY GATE BLOCKED.");
+                  } else if (controlCode === "BRIEF_GENERATION_FAILED") {
+                      setAutoStatusMessage("AUTO ABORTED: BRIEF GENERATION FAILED.");
+                  } else if (controlCode === "NO_CANDIDATES") {
+                      setAutoStatusMessage("AUTO ABORTED: NO CANDIDATES.");
+                  } else if (controlCode === "AI_FAILED_NO_REPORT") {
+                      setAutoStatusMessage("AUTO ABORTED: AI FAILED NO REPORT.");
+                  } else if (controlCode === "STAGE6_FAILED") {
+                      setAutoStatusMessage("AUTO ABORTED: STAGE6 FAILED.");
+                  } else {
+                      setAutoStatusMessage("AUTO ABORTED: STAGE6 FAILED.");
+                  }
+              } else if (reportPayload) {
                   setAutoStatusMessage("TRANSMITTING TO TELEGRAM...");
                   const sent = await sendTelegramReport(reportPayload);
                   setAutoStatusMessage(sent ? "ALL PIPELINES EXECUTED." : "TELEGRAM SEND FAILED.");
