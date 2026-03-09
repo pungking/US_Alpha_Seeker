@@ -11,6 +11,22 @@ import puppeteer from 'puppeteer';
 
 // Synced with UniverseGathering.tsx
 const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
+const DEFAULT_APP_URL = 'http://localhost:3000';
+
+async function waitForServer(baseUrl, timeoutMs = 120000, pollMs = 2000) {
+    const startedAt = Date.now();
+    const pingUrl = `${baseUrl}/`;
+    while (Date.now() - startedAt < timeoutMs) {
+        try {
+            const res = await fetch(pingUrl, { method: 'GET' });
+            if (res.ok) return true;
+        } catch {
+            // Continue polling until timeout.
+        }
+        await new Promise((resolve) => setTimeout(resolve, pollMs));
+    }
+    return false;
+}
 
 async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
     if (!clientId || !refreshToken || !clientSecret) return null;
@@ -75,6 +91,16 @@ async function getAccessToken() {
 
 (async () => {
   console.log("🚀 Starting US_Alpha_Seeker Automation Protocol (DEBUG MODE)...");
+  const APP_URL = (process.env.APP_URL || DEFAULT_APP_URL).trim().replace(/\/+$/, '');
+  console.log(`🌐 [BOOT] Target App URL: ${APP_URL}`);
+
+  console.log("⏳ [BOOT] Waiting for app server...");
+  const serverReady = await waitForServer(APP_URL, 120000, 2000);
+  if (!serverReady) {
+      console.error(`❌ [BOOT] App server is not reachable within timeout: ${APP_URL}`);
+      process.exit(1);
+  }
+  console.log("✅ [BOOT] App server is ready.");
 
   const token = await getAccessToken();
   
@@ -104,8 +130,6 @@ async function getAccessToken() {
         console.error(`[BROWSER CRASH] Page Error: ${err.message}`);
     });
 
-    const APP_URL = 'http://localhost:3000';
-
     console.log("🔌 Connecting to Alpha Node...");
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'networkidle0' });
     
@@ -131,7 +155,9 @@ async function getAccessToken() {
         await page.waitForFunction(
             () => {
                 const bodyText = document.body.innerText;
-                return bodyText.includes("ALL PIPELINES EXECUTED") || 
+                // Prefer explicit completion flag; fallback to legacy text matching.
+                if (typeof window.__AUTO_DONE === 'string' && window.__AUTO_DONE.length > 0) return true;
+                return bodyText.includes("ALL PIPELINES EXECUTED") ||
                        bodyText.includes("TELEGRAM SEND FAILED");
             },
             { timeout: TIMEOUT_MS, polling: 5000 }
@@ -145,7 +171,10 @@ async function getAccessToken() {
         throw waitError;
     }
 
-    const finalState = await page.evaluate(() => document.body.innerText);
+    const finalState = await page.evaluate(() => {
+        if (typeof window.__AUTO_DONE === 'string' && window.__AUTO_DONE.length > 0) return window.__AUTO_DONE;
+        return document.body.innerText;
+    });
     
     if (finalState.includes("ALL PIPELINES EXECUTED")) {
         console.log("✅ SUCCESS: Alpha Report Generated & Telegram Triggered.");

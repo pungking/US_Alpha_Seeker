@@ -98,6 +98,15 @@ const App: React.FC = () => {
       return () => clearInterval(timer);
   }, []);
 
+  // Headless automation sync flag
+  useEffect(() => {
+      const win = window as any;
+      win.__AUTO_STATUS = autoStatusMessage;
+      if (autoStatusMessage === "ALL PIPELINES EXECUTED." || autoStatusMessage === "TELEGRAM SEND FAILED.") {
+          win.__AUTO_DONE = autoStatusMessage;
+      }
+  }, [autoStatusMessage]);
+
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {
       if (viewMode !== 'AUTO' || !isAutoPilotRunning) return;
@@ -143,11 +152,13 @@ const App: React.FC = () => {
           setIsAutoPilotRunning(true);
           setCurrentStage(0);
           setAutoStatusMessage("AUTO PILOT ENGAGED");
+          (window as any).__AUTO_DONE = "";
           
       } else {
           setViewMode('MANUAL');
           setIsAutoPilotRunning(false);
           setAutoStatusMessage("MANUAL OVERRIDE");
+          (window as any).__AUTO_DONE = "";
           setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
       }
   };

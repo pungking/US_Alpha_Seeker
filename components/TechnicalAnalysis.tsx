@@ -1285,7 +1285,20 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         return;
       }
 
-      const readyFileId = await findFileId(accessToken, GOOGLE_DRIVE_TARGET.stage4ReadyFile, systemMapId);
+      const readySignalMaxAttempts = 24;
+      const readySignalPollMs = 5000;
+      let readyFileId: string | null = null;
+      for (let attempt = 1; attempt <= readySignalMaxAttempts; attempt++) {
+        readyFileId = await findFileId(accessToken, GOOGLE_DRIVE_TARGET.stage4ReadyFile, systemMapId);
+        if (readyFileId) break;
+        if (attempt < readySignalMaxAttempts) {
+          addLog(
+            `Stage 4 Ready Signal Missing. Waiting ${(readySignalPollMs / 1000).toFixed(0)}s (${attempt}/${readySignalMaxAttempts})...`,
+            "warn"
+          );
+          await new Promise(resolve => setTimeout(resolve, readySignalPollMs));
+        }
+      }
       if (!readyFileId) {
         addLog("Stage 4 Ready Signal Missing. Wait for OHLCV sync completion.", "err");
         return;
