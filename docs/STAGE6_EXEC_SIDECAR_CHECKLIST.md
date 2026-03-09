@@ -19,9 +19,9 @@
 - [ ] 롤백 절차 문서화(1페이지)
 - [ ] Kill-Switch 문서화(`EXEC_ENABLED=false` 즉시 중단)
 - [ ] 드라이런 기본값 문서화(`READ_ONLY=true`에서만 1차 운영)
-- [ ] Stage6 계약 검증용 골든 파일 1개 고정
-- [ ] 장 시간 기준 확정(뉴욕 타임존 + 미국 휴장 캘린더 기준)
-- [ ] Telegram 심각도 표준 확정(`INFO/WARN/CRITICAL`)
+- [x] Stage6 계약 검증용 골든 파일 1개 고정 (`docs/SIDECAR_GOLDEN_CONTRACT.md`, `docs/fixtures/stage6_golden_contract_v1.json`)
+- [x] 장 시간 기준 확정(뉴욕 타임존 + 미국 휴장 캘린더 기준) (`docs/SIDECAR_MARKET_CALENDAR.md`)
+- [x] Telegram 심각도 표준 확정(`INFO/WARN/CRITICAL`) (`docs/SIDECAR_TELEGRAM_SEVERITY.md`)
 
 완료 기준:
 - 태그/버전/환경변수/롤백 문서가 모두 존재해야 함
@@ -33,6 +33,9 @@
 - [x] `docs/SIDECAR_BASELINE_FREEZE.md`
 - [x] `docs/SIDECAR_ENV_MATRIX.md`
 - [x] `docs/SIDECAR_ROLLBACK_RUNBOOK.md`
+- [x] `docs/SIDECAR_GOLDEN_CONTRACT.md`
+- [x] `docs/SIDECAR_MARKET_CALENDAR.md`
+- [x] `docs/SIDECAR_TELEGRAM_SEVERITY.md`
 
 ---
 

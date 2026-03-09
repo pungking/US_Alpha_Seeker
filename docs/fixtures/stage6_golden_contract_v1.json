@@ -1,0 +1,61 @@
+{
+  "contractVersion": "stage6-contract-v1",
+  "sourceStage6File": "STAGE6_ALPHA_FINAL_2026-03-09_21-44-55.json",
+  "stage5LockHash": "816fb96a",
+  "top6": [
+    {
+      "rank": 1,
+      "symbol": "SLDE",
+      "entryPrice": 16.47,
+      "targetPrice": 24.6,
+      "stopLoss": 12.34,
+      "finalVerdict": "STRONG_BUY",
+      "expectedReturn": "+45% (High Conviction)"
+    },
+    {
+      "rank": 2,
+      "symbol": "MUSA",
+      "entryPrice": 397.7,
+      "targetPrice": 429.38,
+      "stopLoss": 340.05,
+      "finalVerdict": "STRONG_BUY",
+      "expectedReturn": "+7% (Short-Term)"
+    },
+    {
+      "rank": 3,
+      "symbol": "OPRA",
+      "entryPrice": 14.47,
+      "targetPrice": 25.64,
+      "stopLoss": 11.53,
+      "finalVerdict": "STRONG_BUY",
+      "expectedReturn": "+65% (High Conviction)"
+    },
+    {
+      "rank": 4,
+      "symbol": "BFH",
+      "entryPrice": 51.14,
+      "targetPrice": 83.47,
+      "stopLoss": 37.64,
+      "finalVerdict": "STRONG_BUY",
+      "expectedReturn": "+52% (High Conviction)"
+    },
+    {
+      "rank": 5,
+      "symbol": "ZVRA",
+      "entryPrice": 8.25,
+      "targetPrice": 22.54,
+      "stopLoss": 6.1,
+      "finalVerdict": "BUY",
+      "expectedReturn": "+159% (High Conviction)"
+    },
+    {
+      "rank": 6,
+      "symbol": "UBER",
+      "entryPrice": 72.83,
+      "targetPrice": 104.37,
+      "stopLoss": 59.72,
+      "finalVerdict": "BUY",
+      "expectedReturn": "+39% (High Conviction)"
+    }
+  ]
+}
