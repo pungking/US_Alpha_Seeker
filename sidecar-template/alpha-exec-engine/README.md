@@ -15,6 +15,7 @@ Execution/simulation sidecar for `US_Alpha_Seeker`.
 - Payload gate includes conviction floor + stop-distance sanity range.
 - Payload gate enforces total notional cap (`DRY_MAX_TOTAL_NOTIONAL`).
 - Supports regime auto profile switch by VIX (default/risk-off presets).
+- Regime diagnostics are logged as `[REGIME_DIAG]` (snapshot/finnhub fallback reasons).
 - Persists local run state in `state/last-run.json` and skips duplicate sends for same hash/mode.
 - Optional one-line Telegram heartbeat on dedupe skip (`TELEGRAM_HEARTBEAT_ON_DEDUPE=true`).
 - Saves dry-exec payload snapshot to `state/last-dry-exec-preview.json`.
@@ -61,6 +62,7 @@ Use `.env.example` as baseline.
 - `VIX_RISK_ON_THRESHOLD`
 - `VIX_RISK_OFF_THRESHOLD`
 - `GDRIVE_ROOT_FOLDER_ID`
+- `GDRIVE_MARKET_SNAPSHOT_FOLDER_ID` (optional explicit folder for `MARKET_REGIME_SNAPSHOT.json`)
 - `GDRIVE_STAGE6_FOLDER`
 - `GDRIVE_REPORT_FOLDER`
 - `TELEGRAM_PRIMARY_CHAT_ID`
