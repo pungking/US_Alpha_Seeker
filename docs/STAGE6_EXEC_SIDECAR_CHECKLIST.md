@@ -1,6 +1,7 @@
 # STAGE6 실행/시뮬레이션 사이드카 구현 체크리스트
 
 참고: 최신 진행 현황/우선순위 브리핑은 `docs/SIDECAR_DELIVERY_STATUS_2026-03-11.md`를 기준으로 관리한다.
+참고: 확장 항목 반영 검토 리스트는 `docs/SIDECAR_EXPANSION_BACKLOG_2026-03-11.md`를 기준으로 관리한다.
 
 ## 0) 목적 / 원칙
 - 기존 `US_Alpha_Seeker` 분석 엔진(웹앱)은 최대한 유지한다.
