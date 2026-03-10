@@ -15,7 +15,8 @@ Execution/simulation sidecar for `US_Alpha_Seeker`.
 - Payload gate includes conviction floor + stop-distance sanity range.
 - Payload gate enforces total notional cap (`DRY_MAX_TOTAL_NOTIONAL`).
 - Supports regime auto profile switch by VIX (default/risk-off presets).
-- Regime diagnostics are logged as `[REGIME_DIAG]` (snapshot/finnhub fallback reasons).
+- Supports VIX source priority (`realtime_first` vs `snapshot_first`) with snapshot staleness guard.
+- Regime diagnostics are logged as `[REGIME_DIAG]` (priority, snapshot freshness, finnhub/cnbc fallback reasons).
 - Persists local run state in `state/last-run.json` and skips duplicate sends for same hash/mode.
 - Optional one-line Telegram heartbeat on dedupe skip (`TELEGRAM_HEARTBEAT_ON_DEDUPE=true`).
 - Saves dry-exec payload snapshot to `state/last-dry-exec-preview.json`.
@@ -44,6 +45,8 @@ Use `.env.example` as baseline.
 - `GDRIVE_CLIENT_SECRET`
 - `GDRIVE_REFRESH_TOKEN`
 - `FINNHUB_API_KEY` (optional fallback source for VIX)
+- `CNBC_RAPIDAPI_KEY` (optional VIX fallback via RapidAPI)
+- `RAPID_API_KEY` (optional alias for `CNBC_RAPIDAPI_KEY`)
 
 ### Variables (GitHub Actions)
 - `ALPACA_BASE_URL`
@@ -59,8 +62,11 @@ Use `.env.example` as baseline.
 - `TELEGRAM_HEARTBEAT_ON_DEDUPE`
 - `REGIME_AUTO_ENABLED`
 - `REGIME_FORCE_PROFILE` (`auto|default|risk_off`)
+- `REGIME_VIX_SOURCE_PRIORITY` (`realtime_first|snapshot_first`)
+- `REGIME_SNAPSHOT_MAX_AGE_MIN` (set `0` to disable stale guard)
 - `VIX_RISK_ON_THRESHOLD`
 - `VIX_RISK_OFF_THRESHOLD`
+- `CNBC_RAPIDAPI_HOST` (optional, default `cnbc.p.rapidapi.com`)
 - `GDRIVE_ROOT_FOLDER_ID`
 - `GDRIVE_MARKET_SNAPSHOT_FOLDER_ID` (optional explicit folder for `MARKET_REGIME_SNAPSHOT.json`)
 - `GDRIVE_STAGE6_FOLDER`
