@@ -29,6 +29,19 @@
 
 ---
 
+## P3-2 진행 메모 (장중 감시잡/L1~L3)
+- 상태: **진행중(1차 구현)**
+- 반영 범위:
+  - `src/market-guard.ts` 신규 추가
+  - `sidecar-market-guard` 워크플로우(평일 5분)
+  - `state/market-guard-state.json`, `state/guard-action-ledger.json`, `state/last-market-guard.json`
+- 자동화 원칙:
+  - 임계치는 env를 `base guardrail`로 사용
+  - 런타임에서 profile/quality에 따라 effective threshold 자동 보정
+  - de-escalate hold + action cooldown으로 플래핑 억제
+
+---
+
 ## 운영 원칙
 - 분석 엔진(`US_Alpha_Seeker`)은 변경하지 않고 sidecar에서만 확장.
 - 새 신호는 반드시 `observe -> active` 2단계 롤아웃.
