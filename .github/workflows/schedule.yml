@@ -77,3 +77,7 @@ jobs:
           name: automation-evidence
           path: "*.png"
           retention-days: 3
+
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+          
