@@ -7,6 +7,9 @@ on:
     - cron: '0 9 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
 jobs:
   alpha-mining:
     name: Alpha Seeking Pipeline
@@ -78,6 +81,5 @@ jobs:
           path: "*.png"
           retention-days: 3
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
           
