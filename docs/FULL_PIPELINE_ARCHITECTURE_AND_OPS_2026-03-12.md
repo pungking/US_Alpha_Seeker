@@ -292,4 +292,5 @@
 - `docs/SIDECAR_DELIVERY_STATUS_2026-03-11.md`
 - `docs/SIDECAR_EXPANSION_BACKLOG_2026-03-11.md`
 - `docs/SIDECAR_MARKET_CALENDAR.md`
+- `docs/SIDECAR_KPI_SCORECARD_TEMPLATE_2026-03-12.md`
 - `sidecar-template/alpha-exec-engine/README.md`
