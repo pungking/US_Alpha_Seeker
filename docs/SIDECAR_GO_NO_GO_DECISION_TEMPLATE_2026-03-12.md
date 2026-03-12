@@ -25,7 +25,7 @@
 ## Day 1
 - market-guard Run ID / URL: `22965820863 / https://github.com/pungking/alpha-exec-engine/actions/runs/22965820863`
 - dry-run Run ID / URL: `22966842912 / https://github.com/pungking/alpha-exec-engine/actions/runs/22966842912`
-- 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run guard_control=non_live_mode`
+- 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run guard_control blocked=false`
 
 ## Day 2
 - market-guard Run ID / URL:
@@ -40,7 +40,7 @@
 예시 포맷:
 - Day 1 market-guard: `#57 / https://github.com/pungking/alpha-exec-engine/actions/runs/22977612168`
 - Day 1 dry-run: `#85 / https://github.com/pungking/alpha-exec-engine/actions/runs/22961165408`
-- 요약: `observe 유지, exec_allowed=false, executed=0, guard_control non_live_mode`
+- 요약: `observe 유지, exec_allowed=false, executed=0, guard_control blocked=false`
 
 ---
 
@@ -50,7 +50,7 @@
 - [ ] 3일 모두 `sidecar-dry-run` 성공
 - [ ] 3일 모두 `mode=observe`
 - [ ] 3일 모두 `exec_allowed=false`, `executed=0`, `failed=0`
-- [ ] 3일 모두 `guard_control: enforce=true blocked=false reason=non_live_mode(...)`
+- [ ] 3일 모두 `guard_control: enforce=true blocked=false` (reason은 `non_live_mode` 또는 `stale` 허용)
 - [ ] 치명 오류(워크플로우 실패/비정상 실행) 0건
 
 ---

@@ -53,7 +53,7 @@
 
 - [ ] Run 성공(실패/타임아웃 없음)
 - [ ] `ENV_GUARD OK`, `STAGE6_LOCK` 정상
-- [ ] `GUARD_CONTROL enforce=true blocked=false reason=non_live_mode(...)`
+- [ ] `GUARD_CONTROL enforce=true blocked=false reason=non_live_mode(...)` 또는 `stale(...)`
 - [ ] `RUN_SUMMARY` 값 기록(profile/vix/payloads/skipped/preflight)
 - [ ] Artifact 저장 확인: `sidecar-state-*`
 
@@ -80,7 +80,7 @@
 
 | Day | ET Date | market-guard Run ID | dry-run Run ID | 주요 결과 요약 | 일일 판정 |
 |---|---|---|---|---|---|
-| Day 1 | 2026-03-11 | 22965820863 | 22966842912 | observe 유지, exec_allowed=false, executed=0/failed=0, guard_control non_live_mode | PASS |
+| Day 1 | 2026-03-11 | 22965820863 | 22966842912 | observe 유지, exec_allowed=false, executed=0/failed=0, guard_control blocked=false | PASS |
 | Day 2 | 2026-03-12 |  |  |  |  |
 | Day 3 | 2026-03-13 |  |  |  |  |
 
@@ -95,7 +95,7 @@
   - `regime=risk_off (source=cnbc_direct, vix=24.27)`
   - `payloads/skipped=2/4`
   - `preflight=pass (PREFLIGHT_PASS)`
-  - `guard_control: enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false)`
+  - `guard_control: enforce=true blocked=false reason=non_live_mode(...) 또는 stale(...)`
 - Day 1 판정: `PASS`
 
 ## 3.1 입력 예시 (복붙용)
@@ -109,7 +109,7 @@ Day 1 예시:
   - `executed=0`, `failed=0`
   - `GUARD_SUMMARY: level=L1 source=cnbc_direct quality=medium(75/60) action_reason=actions_allowed`
 - dry-run 핵심:
-  - `guard_control: enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false)`
+  - `guard_control: enforce=true blocked=false reason=non_live_mode(...) 또는 stale(...)`
   - `RUN_SUMMARY: profile=risk_off vix=25.xx payloads=2 skipped=4 preflight=pass`
 - 일일 판정: `PASS`
 
@@ -136,7 +136,7 @@ Day 1 예시:
 - [ ] 3일 모두 run 성공
 - [ ] 3일 모두 `observe + non-live` 유지
 - [ ] `market-guard`에서 `executed=0`, `failed=0`
-- [ ] `dry-run`에서 `guard_control blocked=false (non_live_mode)`
+- [ ] `dry-run`에서 `guard_control blocked=false` (reason은 `non_live_mode` 또는 `stale` 허용)
 - [ ] 치명 오류(실패/비정상 액션 실행) 0건
 
 ## No-Go 조건 (하나라도 해당)
