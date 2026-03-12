@@ -13,6 +13,7 @@
 - 평가 기준 문서:
   - `docs/SIDECAR_3DAY_OBSERVATION_CHECKLIST_2026-03-12.md`
   - `docs/FULL_PIPELINE_ARCHITECTURE_AND_OPS_2026-03-12.md`
+  - `docs/SIDECAR_ACTIVE_REENTRY_REHEARSAL_RUNBOOK_2026-03-12.md`
 - 작성자:
 - 검토자:
 - 판정 일시 (KST/ET):
@@ -108,4 +109,3 @@
 - 수정 항목:
 - 재검증 기준:
 - 재판정 예정일:
-
