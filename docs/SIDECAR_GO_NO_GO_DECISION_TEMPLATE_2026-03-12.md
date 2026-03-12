@@ -37,6 +37,11 @@
 - dry-run Run ID / URL:
 - 핵심 요약:
 
+예시 포맷:
+- Day 1 market-guard: `#57 / https://github.com/pungking/alpha-exec-engine/actions/runs/22977612168`
+- Day 1 dry-run: `#85 / https://github.com/pungking/alpha-exec-engine/actions/runs/22961165408`
+- 요약: `observe 유지, exec_allowed=false, executed=0, guard_control non_live_mode`
+
 ---
 
 ## 3) 하드 게이트 체크 (필수 통과)

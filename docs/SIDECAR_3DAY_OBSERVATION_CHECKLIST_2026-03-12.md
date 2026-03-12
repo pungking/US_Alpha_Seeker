@@ -84,6 +84,21 @@
 | Day 2 | 2026-03-12 |  |  |  |  |
 | Day 3 | 2026-03-13 |  |  |  |  |
 
+## 3.1 입력 예시 (복붙용)
+
+Day 1 예시:
+- market-guard Run ID / URL: `#57` / `https://github.com/pungking/alpha-exec-engine/actions/runs/22977612168`
+- dry-run Run ID / URL: `#85` / `https://github.com/pungking/alpha-exec-engine/actions/runs/22961165408`
+- market-guard 핵심:
+  - `mode=observe`
+  - `exec_allowed=false`
+  - `executed=0`, `failed=0`
+  - `GUARD_SUMMARY: level=L1 source=cnbc_direct quality=medium(75/60) action_reason=actions_allowed`
+- dry-run 핵심:
+  - `guard_control: enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false)`
+  - `RUN_SUMMARY: profile=risk_off vix=25.xx payloads=2 skipped=4 preflight=pass`
+- 일일 판정: `PASS`
+
 ---
 
 ## 4) 예외/경고 해석 가이드
@@ -123,4 +138,3 @@
 - 작성:
 - 검토:
 - 날짜:
-
