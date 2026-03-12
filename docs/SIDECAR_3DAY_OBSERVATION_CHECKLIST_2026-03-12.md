@@ -80,9 +80,23 @@
 
 | Day | ET Date | market-guard Run ID | dry-run Run ID | 주요 결과 요약 | 일일 판정 |
 |---|---|---|---|---|---|
-| Day 1 | 2026-03-11 |  |  |  |  |
+| Day 1 | 2026-03-11 | 22965820863 | 22966842912 | observe 유지, exec_allowed=false, executed=0/failed=0, guard_control non_live_mode | PASS |
 | Day 2 | 2026-03-12 |  |  |  |  |
 | Day 3 | 2026-03-13 |  |  |  |  |
+
+## Day 1 확정 기록 (ET 2026-03-11)
+
+- market-guard Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/22965820863`
+  - `mode=observe`
+  - `exec_allowed=false`
+  - `executed=0`, `failed=0`
+  - `GUARD_SUMMARY: level=L1 source=cnbc_direct vix=24.57 quality=medium(75/60) action_reason=actions_allowed`
+- dry-run Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/22966842912`
+  - `regime=risk_off (source=cnbc_direct, vix=24.27)`
+  - `payloads/skipped=2/4`
+  - `preflight=pass (PREFLIGHT_PASS)`
+  - `guard_control: enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false)`
+- Day 1 판정: `PASS`
 
 ## 3.1 입력 예시 (복붙용)
 

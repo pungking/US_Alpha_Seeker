@@ -23,9 +23,9 @@
 ## 2) 실행 증빙 (대표 Run)
 
 ## Day 1
-- market-guard Run ID / URL:
-- dry-run Run ID / URL:
-- 핵심 요약:
+- market-guard Run ID / URL: `22965820863 / https://github.com/pungking/alpha-exec-engine/actions/runs/22965820863`
+- dry-run Run ID / URL: `22966842912 / https://github.com/pungking/alpha-exec-engine/actions/runs/22966842912`
+- 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run guard_control=non_live_mode`
 
 ## Day 2
 - market-guard Run ID / URL:
