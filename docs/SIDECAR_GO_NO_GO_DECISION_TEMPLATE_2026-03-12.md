@@ -7,9 +7,9 @@
 ## 1) 기본 정보
 
 - 평가 기간:
-  - Day 1 (ET):
-  - Day 2 (ET):
-  - Day 3 (ET):
+  - Day 1 (ET): 2026-03-11
+  - Day 2 (ET): 2026-03-12
+  - Day 3 (ET): 2026-03-13
 - 평가 기준 문서:
   - `docs/SIDECAR_3DAY_OBSERVATION_CHECKLIST_2026-03-12.md`
   - `docs/SIDECAR_KPI_SCORECARD_TEMPLATE_2026-03-12.md` (2.1 하드게이트)
@@ -30,14 +30,14 @@
 - 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run guard_control blocked=false`
 
 ## Day 2
-- market-guard Run ID / URL:
-- dry-run Run ID / URL:
-- 핵심 요약:
+- market-guard Run ID / URL: `23007095270 / https://github.com/pungking/alpha-exec-engine/actions/runs/23007095270`
+- dry-run Run ID / URL: `22998424941 / https://github.com/pungking/alpha-exec-engine/actions/runs/22998424941`
+- 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run guard_control blocked=false, preflight=warn(PREFLIGHT_MARKET_CLOSED)`
 
 ## Day 3
-- market-guard Run ID / URL:
-- dry-run Run ID / URL:
-- 핵심 요약:
+- market-guard Run ID / URL: `23057004252 / https://github.com/pungking/alpha-exec-engine/actions/runs/23057004252`
+- dry-run Run ID / URL: `23056515799 / https://github.com/pungking/alpha-exec-engine/actions/runs/23056515799`
+- 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run event=dedupe, preflight=skip(PREFLIGHT_NOT_RUN_DEDUPE), guard_control blocked=false`
 
 예시 포맷:
 - Day 1 market-guard: `#57 / https://github.com/pungking/alpha-exec-engine/actions/runs/22977612168`
@@ -48,25 +48,25 @@
 
 ## 3) 하드 게이트 체크 (필수 통과)
 
-- [ ] 3일 모두 `sidecar-market-guard` 성공
-- [ ] 3일 모두 `sidecar-dry-run` 성공
-- [ ] 3일 모두 `mode=observe`
-- [ ] 3일 모두 `exec_allowed=false`, `executed=0`, `failed=0`
-- [ ] 3일 모두 `guard_control: enforce=true blocked=false` (reason은 `non_live_mode` 또는 `stale` 허용)
-- [ ] 치명 오류(워크플로우 실패/비정상 실행) 0건
+- [x] 3일 모두 `sidecar-market-guard` 성공
+- [x] 3일 모두 `sidecar-dry-run` 성공
+- [x] 3일 모두 `mode=observe`
+- [x] 3일 모두 `exec_allowed=false`, `executed=0`, `failed=0`
+- [x] 3일 모두 `guard_control: enforce=true blocked=false` (reason은 `non_live_mode` 또는 `stale` 허용)
+- [x] 치명 오류(워크플로우 실패/비정상 실행) 0건
 
 ---
 
 ## 4) 품질/안정성 체크 (정량)
 
 - VIX source 안정성(예: `cnbc_direct` fallback 허용 여부):
-- quality score 추세(최소/최대/평균):
-- preflight 상태 분포:
-- dedupe/idempotency 이상 여부:
-- state artifact 누락 여부:
+- quality score 추세(최소/최대/평균): 대표 run 기준 `medium(75/60)` 유지
+- preflight 상태 분포: `pass/warn/skip` (dedupe 시 `skip:PREFLIGHT_NOT_RUN_DEDUPE` 허용)
+- dedupe/idempotency 이상 여부: 중복 실행 이상 징후 없음
+- state artifact 누락 여부: 누락 없음(guard/dry-run artifact 업로드 정상)
 
 판정:
-- [ ] 안정
+- [x] 안정
 - [ ] 경계
 - [ ] 불안정
 
@@ -76,24 +76,27 @@
 
 | 리스크 | 발생 여부 | 영향 | 완화 조치 | 담당 | 완료일 |
 |---|---|---|---|---|---|
-| Finnhub VIX 구독 제한 |  |  |  |  |  |
-| Snapshot stale 증가 |  |  |  |  |  |
-| Guard control stale 상태 |  |  |  |  |  |
+| Finnhub VIX 구독 제한 | 발생 | 낮음 (cnbc_direct fallback 동작) | fallback 유지 + 관측 지속 | 운영 | 진행중 |
+| Snapshot stale 증가 | 발생 | 낮음~중간 (quality 하락 요인) | snapshot freshness 개선 과제 등록 | 운영 | 진행중 |
+| Guard control stale 상태 | 발생 | 현재 낮음(관찰모드), Active 전 중간 | Active 전 freshness 하드게이트(`age<=180m`) 적용 | 운영 | 예정 |
 | 기타 |  |  |  |  |  |
 
 ---
 
 ## 6) 최종 판정
 
-- [ ] **GO**: 다음 단계(active 재진입 리허설) 진행
+- [x] **GO**: 다음 단계(active 재진입 리허설) 진행
 - [ ] **NO-GO**: 관찰 연장 및 수정 후 재평가
 
 판정 사유(필수):
+- 3거래일 하드게이트 전부 통과(`observe`, `exec_allowed=false`, `executed=0`, `failed=0`, `guard_control blocked=false`)
+- dry-run은 `sent/dedupe` 모두 규칙 범위 내로 확인
+- 치명 오류 및 비의도 실행 미발생
 
 다음 액션:
-1.
-2.
-3.
+1. Active 전 guard_control freshness 확인(`updatedAt` 기준 `age<=180m`)을 전환 하드게이트로 적용
+2. Phase A 리허설: active 전환 + 실행 액션 전부 off 스모크 테스트
+3. Shadow Metrics Spec v1 문서화 착수
 
 ---
 

@@ -86,8 +86,8 @@
 | Day | ET Date | market-guard Run ID | dry-run Run ID | 주요 결과 요약 | 일일 판정 |
 |---|---|---|---|---|---|
 | Day 1 | 2026-03-11 | 22965820863 | 22966842912 | observe 유지, exec_allowed=false, executed=0/failed=0, guard_control blocked=false | PASS |
-| Day 2 | 2026-03-12 |  |  |  |  |
-| Day 3 | 2026-03-13 |  |  |  |  |
+| Day 2 | 2026-03-12 | 23007095270 | 22998424941 | observe 유지, exec_allowed=false, executed=0/failed=0, dry-run guard_control blocked=false, preflight=warn(market_closed) | PASS |
+| Day 3 | 2026-03-13 | 23057004252 | 23056515799 | observe 유지, exec_allowed=false, executed=0/failed=0, dry-run event=dedupe, preflight=skip(PREFLIGHT_NOT_RUN_DEDUPE), guard_control blocked=false | PASS |
 
 ## Day 1 확정 기록 (ET 2026-03-11)
 
@@ -102,6 +102,34 @@
   - `preflight=pass (PREFLIGHT_PASS)`
   - `guard_control: enforce=true blocked=false reason=non_live_mode(...) 또는 stale(...)`
 - Day 1 판정: `PASS`
+
+## Day 2 확정 기록 (ET 2026-03-12)
+
+- market-guard Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/23007095270`
+  - `mode=observe`
+  - `exec_allowed=false`
+  - `executed=0`, `failed=0`
+  - `GUARD_SUMMARY: level=L2 source=cnbc_direct vix=26.75 quality=medium(75/60) action_reason=actions_allowed`
+- dry-run Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/22998424941`
+  - `regime=risk_off (source=cnbc_direct, vix=25.23)`
+  - `payloads/skipped=1/5`
+  - `preflight=warn (PREFLIGHT_MARKET_CLOSED)`
+  - `guard_control: enforce=true blocked=false reason=stale(...)`
+- Day 2 판정: `PASS`
+
+## Day 3 확정 기록 (ET 2026-03-13)
+
+- market-guard Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/23057004252`
+  - `mode=observe`
+  - `exec_allowed=false`
+  - `executed=0`, `failed=0`
+  - `GUARD_SUMMARY: level=L2 source=cnbc_direct vix=27.01 quality=medium(75/60) action_reason=actions_allowed`
+- dry-run Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/23056515799`
+  - `regime=risk_off (source=cnbc_direct, vix=26.34)`
+  - `payloads/skipped=2/4`
+  - `preflight=skip (PREFLIGHT_NOT_RUN_DEDUPE, event=dedupe)`
+  - `guard_control: enforce=true blocked=false reason=stale(...)`
+- Day 3 판정: `PASS`
 
 ## 3.1 입력 예시 (복붙용)
 
@@ -138,11 +166,11 @@ Day 1 예시:
 ## 5) 3일 종료 Go/No-Go
 
 ## Go 조건 (모두 충족)
-- [ ] 3일 모두 run 성공
-- [ ] 3일 모두 `observe + non-live` 유지
-- [ ] `market-guard`에서 `executed=0`, `failed=0`
-- [ ] `dry-run`에서 `guard_control blocked=false` (reason은 `non_live_mode` 또는 `stale` 허용)
-- [ ] 치명 오류(실패/비정상 액션 실행) 0건
+- [x] 3일 모두 run 성공
+- [x] 3일 모두 `observe + non-live` 유지
+- [x] `market-guard`에서 `executed=0`, `failed=0`
+- [x] `dry-run`에서 `guard_control blocked=false` (reason은 `non_live_mode` 또는 `stale` 허용)
+- [x] 치명 오류(실패/비정상 액션 실행) 0건
 
 ## No-Go 조건 (하나라도 해당)
 - [ ] 실행 플래그 오염(의도치 않은 `active/live`)
@@ -150,7 +178,7 @@ Day 1 예시:
 - [ ] preflight/guard_control 판정 불일치 반복
 
 최종 판정:
-- [ ] GO
+- [x] GO
 - [ ] NO-GO
 
 승인자:
