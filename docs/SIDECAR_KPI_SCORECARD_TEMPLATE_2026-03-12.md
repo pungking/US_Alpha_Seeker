@@ -18,6 +18,8 @@
 
 ## 2) 데이터 소스 맵
 
+상세 필드 정의는 `docs/SIDECAR_DATA_DICTIONARY_2026-03-13.md`를 기준으로 해석한다.
+
 | 구분 | 파일/출처 | 핵심 필드 |
 |---|---|---|
 | Dry run 요약 | `state/last-dry-exec-preview.json` | `payloadCount`, `skippedCount`, `idempotency`, `preflight`, `regime` |
@@ -134,4 +136,3 @@
 - KPI는 run 단위 raw log가 아니라 `state + summary`를 기준으로 집계한다.
 - KPI 정의/임계값 변경 시 문서 버전과 변경 사유를 남긴다.
 - 성과 KPI는 최소 표본(예: 20트레이드) 미만일 때 참고 지표로만 사용한다.
-
