@@ -24,7 +24,11 @@
 ## 2) Dry-Run 계열 파일
 
 ## `state/last-run.json`
-최신 송신(또는 저장) 상태 스냅샷.
+최신 **송신 성공(sent) 기준** 상태 스냅샷.
+
+주의:
+- dedupe run에서는 갱신되지 않는다(`PREFLIGHT_NOT_RUN_DEDUPE` 경로).
+- 따라서 "해당 run 시점 상태"가 아니라 "최근 sent 시점 상태"로 해석해야 한다.
 
 | 필드 | 타입 | 의미 |
 |---|---|---|
@@ -37,6 +41,10 @@
 
 ## `state/last-dry-exec-preview.json`
 최신 dry-run 계산 결과(핵심 분석 대상).
+
+주의:
+- dedupe run에서는 파일이 갱신되지 않는다.
+- 최신 run 로그가 dedupe면, 본 파일은 직전 sent run 기준일 수 있다.
 
 | 필드 | 타입 | 의미 |
 |---|---|---|
@@ -159,6 +167,10 @@ order record 핵심:
 | `lastSignature` | string | 마지막 dedupe 서명 |
 | `lastForceSendKey` | string(optional) | force send 소비 키 |
 
+주의:
+- dedupe 조기 종료 경로에서는 본 파일이 갱신되지 않을 수 있다.
+- 특히 `lastEvaluatedAt`은 "모든 run 시각"이 아니라 "state 저장이 발생한 run 시각"으로 해석한다.
+
 ## `state/guard-action-ledger.json`
 
 | 필드 | 타입 | 의미 |
@@ -176,6 +188,10 @@ action record 핵심:
 ## `state/guard-control.json`
 market-guard가 dry-run/entry gate에 전달하는 제어 스냅샷.
 
+주의:
+- 항상 최신으로 갱신되는 파일이 아니다.
+- 관찰/비실행 모드에서는 stale 상태가 장시간 유지될 수 있으며, dry-run에서 `reason=stale(...)`로 해석될 수 있다.
+
 | 필드 | 타입 | 의미 |
 |---|---|---|
 | `haltNewEntries` | boolean | 신규 진입 중단 플래그 |
@@ -190,7 +206,7 @@ market-guard가 dry-run/entry gate에 전달하는 제어 스냅샷.
 ## 4) Day 판정 시 최소 확인 필드
 
 - Dry-run: `guardControl.blocked`, `preflight.status/code`, `payloadCount/skippedCount`, `[RUN_SUMMARY] event`
-- Market-guard: `mode`, `actionReason`, `quality.score/status`, `[GUARD_SUMMARY] event`, `exec_allowed/executed/failed`(로그)
+- Market-guard: `mode`, `actionReason`, `quality.score/status`, `[GUARD_SUMMARY] event`, `exec_allowed/executed/failed`(`GUARD_LEDGER` 로그 라인 기준)
 
 ---
 
