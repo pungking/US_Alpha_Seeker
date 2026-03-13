@@ -100,6 +100,8 @@
 | 실행 컨텍스트 | `feasible/status/distance` 라인 출력 | Telegram Brief, Outlook |
 | 1/2/3 구조 유지 | `전설적 투자자 위원회/전문가 3인/전략적 투자 시나리오` 섹션 유지 | Stage6 investmentOutlook |
 | 파서 호환 | 계약 검증 실패(`INTEGRITY_GATE_BLOCKED`) 0건 | Actions 로그 |
+| sidecar gate OFF 동등성 | `ENTRY_FEASIBILITY_ENFORCE=false`에서 payload/skipped 기존 대비 동일 | Dry-run summary |
+| sidecar gate ON 가시성 | `entry_feas_enforce/checked/blocked` 카운터 출력 + `entry_*` skip reason 확인 가능 | `[RUN_SUMMARY]`, Preview JSON |
 
 ---
 
