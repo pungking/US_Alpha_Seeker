@@ -67,6 +67,18 @@
 - `sidecar-dry-run` 대표 run URL 1건 + 핵심 summary
 - Day 판정 1줄(`PASS/WARN/FAIL`) + 원인 1줄
 
+## 2.4 Phase-1(호환/Shadow) 무변경 검증
+
+목적: 계약 보강 필드 추가 후에도 기존 동작이 변하지 않았는지 확인한다.
+
+| 체크 | PASS 조건 | 근거 소스 |
+|---|---|---|
+| verdict 계약 | `verdictFinal` 존재 + `finalVerdict`와 동일 | Stage6 JSON 샘플 |
+| entry shadow 필드 | `entryExecPriceShadow`, `entryDistancePctShadow`, `entryFeasibleShadow`, `tradePlanStatusShadow` 출력 | Stage6 JSON 샘플 |
+| dry-run 동작 불변 | 동일 Stage6 hash에서 `payloadCount/skippedCount` 기존 대비 변화 없음 | `last-dry-exec-preview.json`, `[RUN_SUMMARY]` |
+| integrity gate | `INTEGRITY_GATE_BLOCKED` 신규 발생 0건 | Actions 로그 |
+| sidecar 파서 호환 | 요약 verdict/plan 파싱 실패 0건 | dry-run summary / Telegram summary |
+
 ---
 
 ## 3) KPI 카테고리

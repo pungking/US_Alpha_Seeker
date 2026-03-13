@@ -39,6 +39,10 @@
 - dry-run Run ID / URL: `23056515799 / https://github.com/pungking/alpha-exec-engine/actions/runs/23056515799`
 - 핵심 요약: `observe 유지, exec_allowed=false, executed=0, failed=0, dry-run event=dedupe, preflight=skip(PREFLIGHT_NOT_RUN_DEDUPE), guard_control blocked=false`
 
+## Day 3 추가 근거 (Phase A 전 점검)
+- dry-run Run ID / URL: `23060040495 / https://github.com/pungking/alpha-exec-engine/actions/runs/23060040495`
+- 핵심 요약: `event=sent, preflight=pass(PREFLIGHT_PASS), guard_control enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false), updatedAt=2026-03-13T16:15:11.099Z`
+
 예시 포맷:
 - Day 1 market-guard: `#57 / https://github.com/pungking/alpha-exec-engine/actions/runs/22977612168`
 - Day 1 dry-run: `#85 / https://github.com/pungking/alpha-exec-engine/actions/runs/22961165408`

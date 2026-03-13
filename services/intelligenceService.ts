@@ -1810,7 +1810,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               "ACCUMULATE": "비중 확대",
               "SPECULATIVE_BUY": "투기적 매수"
           };
-          const verdictKey = toVerdictKey(c?.finalVerdict || c?.aiVerdict || c?.verdict || "");
+          const verdictKey = toVerdictKey(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || "");
           let koreanVerdict = verdictMap[verdictKey] || "관망";
           if (!verdictKey && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
 
@@ -1831,7 +1831,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           // If return contains non-standard chars (like "High Upside"), try to keep essential +XX%
           if (expReturn !== "N/A" && !expReturn.includes('%')) expReturn += "%";
 
-          const entryPrice = Number(c?.entryPrice ?? c?.otePrice ?? c?.supportLevel ?? 0);
+          const entryPrice = Number(c?.entryExecPrice ?? c?.entryExecPriceShadow ?? c?.entryPrice ?? c?.otePrice ?? c?.supportLevel ?? 0);
           const targetPrice = Number(c?.targetPrice ?? c?.targetMeanPrice ?? c?.resistanceLevel ?? 0);
           const stopPrice = Number(c?.stopLoss ?? c?.ictStopLoss ?? 0);
 

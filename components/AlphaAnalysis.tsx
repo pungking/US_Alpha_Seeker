@@ -24,6 +24,8 @@ interface AlphaCandidate {
   price: number;
   compositeAlpha: number;
   aiVerdict?: string;
+  verdictRaw?: string;
+  verdictFinal?: string;
   marketCapClass?: 'LARGE' | 'MID' | 'SMALL';
   sectorTheme?: string;
   convictionScore?: number;
@@ -37,6 +39,13 @@ interface AlphaCandidate {
   aiSentiment?: string;
   analysisLogic?: string;
   entryPrice?: number;
+  entryAnchorPrice?: number;
+  entryExecPrice?: number;
+  entryExecPriceShadow?: number;
+  entryDistancePct?: number;
+  entryDistancePctShadow?: number;
+  entryFeasible?: boolean;
+  entryFeasibleShadow?: boolean;
   targetPrice?: number;
   stopLoss?: number;
   chartPattern?: string;
@@ -51,6 +60,7 @@ interface AlphaCandidate {
   integrityScore?: number; // [NEW] Data Quality Score
   tradePlanSource?: 'RAW' | 'AI_FALLBACK' | 'DERIVED_2R' | 'INVALID';
   tradePlanStatus?: 'VALID' | 'DERIVED' | 'INVALID';
+  tradePlanStatusShadow?: 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA';
   // [NEW] ICT 5-Step Data
   pdZone?: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT';
   otePrice?: number;
@@ -1193,7 +1203,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const buildTelegramContractExpected = (items: AlphaCandidate[]): TelegramContractItem[] =>
       items.slice(0, 6).map((item) => ({
           symbol: normalizeContractSymbol(item?.symbol),
-          entry: parseContractNumber(item?.entryPrice ?? item?.otePrice ?? item?.supportLevel),
+          entry: parseContractNumber(
+              item?.entryExecPrice ?? item?.entryExecPriceShadow ?? item?.entryPrice ?? item?.otePrice ?? item?.supportLevel
+          ),
           target: parseContractNumber(item?.targetPrice ?? item?.targetMeanPrice ?? item?.resistanceLevel),
           stop: parseContractNumber(item?.stopLoss ?? item?.ictStopLoss),
           expectedReturnPct: parseExpectedReturnPct(
@@ -1221,12 +1233,32 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           if (!current) continue;
 
-          const plan = line.match(/진입\s*\$?\s*([0-9,]+(?:\.\d+)?)\s*.*목표\s*\$?\s*([0-9,]+(?:\.\d+)?)\s*.*손절\s*\$?\s*([0-9,]+(?:\.\d+)?)/);
-          if (plan) {
-              current.entry = parseContractNumber(plan[1]);
-              current.target = parseContractNumber(plan[2]);
-              current.stop = parseContractNumber(plan[3]);
-              continue;
+          // Backward + forward compatible plan parser:
+          // - Legacy: "진입 $X | 목표 $Y | 손절 $Z"
+          // - New:    "진입(실행) $X | 진입(앵커) $A | 목표 $Y | 손절 $Z"
+          const entryExec =
+              line.match(/진입\s*\(실행\)\s*\$?\s*([0-9,]+(?:\.\d+)?)/i) ||
+              line.match(/entry\s*\(exec(?:ution)?\)\s*[:=]?\s*\$?\s*([0-9,]+(?:\.\d+)?)/i);
+          const entryLegacy =
+              line.match(/진입\s*\$?\s*([0-9,]+(?:\.\d+)?)/i) ||
+              line.match(/entry\s*[:=]?\s*\$?\s*([0-9,]+(?:\.\d+)?)/i);
+          const targetMatch =
+              line.match(/목표\s*\$?\s*([0-9,]+(?:\.\d+)?)/i) ||
+              line.match(/target\s*[:=]?\s*\$?\s*([0-9,]+(?:\.\d+)?)/i);
+          const stopMatch =
+              line.match(/손절\s*\$?\s*([0-9,]+(?:\.\d+)?)/i) ||
+              line.match(/stop\s*[:=]?\s*\$?\s*([0-9,]+(?:\.\d+)?)/i);
+
+          if (entryExec?.[1]) {
+              current.entry = parseContractNumber(entryExec[1]);
+          } else if (current.entry == null && entryLegacy?.[1]) {
+              current.entry = parseContractNumber(entryLegacy[1]);
+          }
+          if (targetMatch?.[1]) {
+              current.target = parseContractNumber(targetMatch[1]);
+          }
+          if (stopMatch?.[1]) {
+              current.stop = parseContractNumber(stopMatch[1]);
           }
 
           const er = line.match(/Exp\.?\s*Return[^0-9+-]*([+-]?\d+(\.\d+)?)\s*%/i);
@@ -2773,14 +2805,51 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           return null;
       };
+      const ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT = 15;
       top6Elite = top6Elite.map(item => {
-          const mirroredVerdict = String(item?.aiVerdict || item?.finalVerdict || 'HOLD');
+          const verdictRaw = String(item?.aiVerdict || item?.verdict || item?.finalVerdict || 'HOLD');
+          const verdictFinal = String(item?.finalVerdict || item?.aiVerdict || item?.verdict || 'HOLD');
           const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
           const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
+          const mirroredStop = pickFinite(item?.stopLoss, item?.ictStopLoss);
+          const entryAnchorPrice = pickFinite(item?.otePrice, item?.supportLevel, mirroredEntry);
+          const entryExecPriceShadow = pickFinite(item?.entryPrice, entryAnchorPrice, item?.price);
+          const livePrice = pickFinite(item?.price);
+          const entryDistancePctShadow =
+              livePrice != null && entryExecPriceShadow != null && livePrice > 0
+                  ? Number((Math.abs(livePrice - entryExecPriceShadow) / livePrice * 100).toFixed(2))
+                  : null;
+          const hasPriceBox = mirroredEntry != null && mirroredTarget != null && mirroredStop != null;
+          const hasGeometry = Boolean(
+              hasPriceBox &&
+              mirroredTarget != null &&
+              mirroredEntry != null &&
+              mirroredStop != null &&
+              mirroredTarget > mirroredEntry &&
+              mirroredStop < mirroredEntry
+          );
+          const entryFeasibleShadow = Boolean(
+              hasGeometry &&
+              entryDistancePctShadow != null &&
+              entryDistancePctShadow <= ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT
+          );
+          const tradePlanStatusShadow: AlphaCandidate["tradePlanStatusShadow"] = !hasPriceBox
+              ? 'INVALID_DATA'
+              : hasGeometry
+                  ? (entryFeasibleShadow ? 'VALID_EXEC' : 'WAIT_PULLBACK_TOO_DEEP')
+                  : 'INVALID_GEOMETRY';
           return {
               ...item,
-              finalVerdict: mirroredVerdict,
+              verdictRaw,
+              verdictFinal,
+              verdict: verdictFinal,
+              finalVerdict: verdictFinal,
               entryPrice: mirroredEntry ?? 0,
+              entryAnchorPrice: entryAnchorPrice ?? undefined,
+              entryExecPriceShadow: entryExecPriceShadow ?? undefined,
+              entryDistancePctShadow: entryDistancePctShadow ?? undefined,
+              entryFeasibleShadow,
+              tradePlanStatusShadow,
               targetPrice: mirroredTarget ?? 0,
               targetMeanPrice: mirroredTarget ?? 0
           };

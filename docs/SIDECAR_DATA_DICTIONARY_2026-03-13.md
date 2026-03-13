@@ -19,6 +19,37 @@
 - 상태 파일은 `state/*.json` 단건 스냅샷(append 로그 아님)
 - Day 판정 기준 날짜는 ET 거래일 기준으로 집계
 
+## 1.1) Stage6 계약(Phase-1 호환 필드)
+
+목적: 실행 불가능 진입가/평결 충돌 이슈를 점진적으로 제거하기 위해
+Phase-1에서 신규 필드를 **추가만** 하고, 기존 필드는 하위호환으로 유지한다.
+
+### verdict 계열
+
+| 필드 | 의미 | 비고 |
+|---|---|---|
+| `verdictRaw` | AI 원문 평결 | 분석 원문 추적용 |
+| `verdictFinal` | 정책 반영 최종 평결 | 출력/실행 단일 기준(우선 사용) |
+| `finalVerdict` | 하위호환 미러 | `verdictFinal`과 동일 값 유지 |
+| `verdict` | 레거시 필드 | 점진 축소 대상 |
+
+권장 우선순위:
+`verdictFinal -> finalVerdict -> aiVerdict -> verdict`
+
+### entry 계열 (Phase-1 Shadow)
+
+| 필드 | 의미 | 비고 |
+|---|---|---|
+| `entryAnchorPrice` | 분석 앵커 진입가(OTE 등) | 구조 해석용 |
+| `entryExecPriceShadow` | 실행용 shadow 진입가 | Phase-1에서는 관측 전용 |
+| `entryDistancePctShadow` | 현재가 대비 진입 거리(%) | Phase-1에서는 관측 전용 |
+| `entryFeasibleShadow` | 실행 가능성 판정 | Phase-1에서는 관측 전용 |
+| `tradePlanStatusShadow` | `VALID_EXEC / WAIT_PULLBACK_TOO_DEEP / INVALID_GEOMETRY / INVALID_DATA` | Phase-1에서는 관측 전용 |
+
+주의:
+- Phase-1에서는 신규 shadow 필드로 인해 주문 생성/스킵 로직이 바뀌면 안 된다.
+- 실제 enforce는 별도 전환 단계에서만 적용한다.
+
 ---
 
 ## 2) Dry-Run 계열 파일

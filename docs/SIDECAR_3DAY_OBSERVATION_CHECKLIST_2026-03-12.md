@@ -131,6 +131,14 @@
   - `guard_control: enforce=true blocked=false reason=stale(...)`
 - Day 3 판정: `PASS`
 
+## Day 3 추가 근거 (Phase A 전 점검)
+
+- dry-run Run URL: `https://github.com/pungking/alpha-exec-engine/actions/runs/23060040495`
+  - `RUN_SUMMARY: event=sent`
+  - `preflight=pass (PREFLIGHT_PASS)`
+  - `guard_control: enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false)`
+  - `guard_control.updatedAt=2026-03-13T16:15:11.099Z`
+
 ## 3.1 입력 예시 (복붙용)
 
 Day 1 예시:
