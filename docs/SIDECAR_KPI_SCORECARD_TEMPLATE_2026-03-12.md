@@ -33,6 +33,42 @@
 
 ---
 
+## 2.1 Observe/Non-Live Day PASS 하드게이트
+
+목적: Day 1~3 판정을 숫자/문구 고정으로 수행한다.
+
+| 영역 | PASS 조건 | 근거 소스 |
+|---|---|---|
+| market-guard 실행 | run 성공(실패/타임아웃 없음) | GitHub run status |
+| market-guard 모드 | `mode=observe` | `[GUARD_SUMMARY]` 또는 `last-market-guard.json.mode` |
+| market-guard 안전성 | `exec_allowed=false`, `executed=0`, `failed=0` | `[GUARD_LEDGER]` |
+| market-guard 이벤트 | `event=sent` 또는 `event=dedupe` | `[GUARD_SUMMARY]` |
+| dry-run 실행 | run 성공(실패/타임아웃 없음) | GitHub run status |
+| dry-run 게이트 | `guardControl.blocked=false` | `last-dry-exec-preview.json.guardControl` / Summary |
+| dry-run 이벤트 | `event=sent` 또는 `event=dedupe` | `[RUN_SUMMARY]` |
+| preflight 해석 | `event=sent`면 `pass|warn`, `event=dedupe`면 `skip:PREFLIGHT_NOT_RUN_DEDUPE` 허용 | `[PREFLIGHT]`, `[RUN_SUMMARY]` |
+| guard_control reason | `non_live_mode(...)` 또는 `stale(...)` 허용(핵심은 `blocked=false`) | `guardControl.reason` |
+
+참고:
+- dedupe run에서는 `state/last-run.json`, `state/last-dry-exec-preview.json`이 갱신되지 않을 수 있다.
+- 해석 우선순위는 `RUN_SUMMARY/GUARD_SUMMARY` -> state 파일 순으로 적용한다.
+
+## 2.2 Observe/Non-Live Day FAIL 트리거
+
+하나라도 해당하면 해당 Day는 FAIL:
+- `mode!=observe`
+- `exec_allowed=true` 또는 `executed>0` 또는 `failed>0`
+- `guardControl.blocked=true`
+- workflow 실패/중단
+
+## 2.3 일일 최소 증빙 세트
+
+- `sidecar-market-guard` 대표 run URL 1건 + 핵심 summary
+- `sidecar-dry-run` 대표 run URL 1건 + 핵심 summary
+- Day 판정 1줄(`PASS/WARN/FAIL`) + 원인 1줄
+
+---
+
 ## 3) KPI 카테고리
 
 ## A. 시스템 신뢰성 KPI (필수)

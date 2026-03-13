@@ -2,6 +2,11 @@
 
 목적: `observe + non-live` 안전모드에서 3거래일 로그를 수집하고, `active` 재진입 전 Go/No-Go 판단 근거를 고정한다.
 
+판정 기준 우선순위:
+1) `docs/SIDECAR_KPI_SCORECARD_TEMPLATE_2026-03-12.md`의 "2.1 Observe/Non-Live Day PASS 하드게이트"
+2) 본 체크리스트
+3) 상세 필드 해석은 `docs/SIDECAR_DATA_DICTIONARY_2026-03-13.md`
+
 ---
 
 ## 0) 관찰 기간
