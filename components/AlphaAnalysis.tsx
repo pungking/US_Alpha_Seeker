@@ -1533,17 +1533,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const enforceOutlookTradeBoxConsistency = (outlook: string, item: any) => {
       const text = String(outlook || '').trim();
       if (!text) return text;
-      const entry = Number(item?.otePrice || item?.supportLevel || 0);
+      const entryExec = Number(item?.entryExecPrice || item?.entryExecPriceShadow || item?.entryPrice || item?.otePrice || item?.supportLevel || 0);
+      const entryAnchor = Number(item?.entryAnchorPrice || item?.otePrice || item?.supportLevel || entryExec || 0);
       const target = Number(item?.resistanceLevel || item?.targetPrice || 0);
       const stop = Number(item?.ictStopLoss || item?.stopLoss || 0);
-      if (!(entry > 0) || !(target > 0) || !(stop > 0)) return text;
+      if (!(entryExec > 0) || !(target > 0) || !(stop > 0)) return text;
 
-      const trajectoryLine = `- **가격 목표 (Trajectory)** : 진입 $${entry.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}`;
+      const entryDistancePctRaw = Number(item?.entryDistancePct ?? item?.entryDistancePctShadow);
+      const entryDistancePct = Number.isFinite(entryDistancePctRaw) ? entryDistancePctRaw : null;
+      const entryFeasibleRaw = item?.entryFeasible;
+      const entryFeasibleShadowRaw = item?.entryFeasibleShadow;
+      const entryFeasible =
+          typeof entryFeasibleRaw === 'boolean'
+              ? entryFeasibleRaw
+              : (typeof entryFeasibleShadowRaw === 'boolean' ? entryFeasibleShadowRaw : null);
+      const tradePlanStatus = String(item?.tradePlanStatus || item?.tradePlanStatusShadow || 'N/A');
+
+      const trajectoryLine = `- **가격 목표 (Trajectory)** : 진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}`;
+      const executionLine = `- **실행 가능성 (Execution)** : feasible=${entryFeasible === null ? 'N/A' : String(entryFeasible)} | status=${tradePlanStatus} | distance=${entryDistancePct === null ? 'N/A' : `${entryDistancePct.toFixed(2)}%`}`;
       const hasTrajectoryLine = /- \*\*가격 목표\s*\(Trajectory\)\*\*\s*:.*/m.test(text);
+      let nextText = text;
       if (hasTrajectoryLine) {
-          return text.replace(/- \*\*가격 목표\s*\(Trajectory\)\*\*\s*:.*/m, trajectoryLine);
+          nextText = nextText.replace(/- \*\*가격 목표\s*\(Trajectory\)\*\*\s*:.*/m, trajectoryLine);
+      } else {
+          nextText = `${nextText}\n${trajectoryLine}`;
       }
-      return `${text}\n${trajectoryLine}`;
+
+      const hasExecutionLine = /- \*\*실행 가능성\s*\(Execution\)\*\*\s*:.*/m.test(nextText);
+      if (hasExecutionLine) {
+          return nextText.replace(/- \*\*실행 가능성\s*\(Execution\)\*\*\s*:.*/m, executionLine);
+      }
+      return `${nextText}\n${executionLine}`;
   };
 
   const hasStructuredOutlookSections = (text: string) => {
@@ -1576,7 +1596,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const buildStructuredOutlookFallback = (item: any, rawOutlook: string) => {
-      const entry = Number(item?.otePrice || item?.supportLevel || 0);
+      const entryExec = Number(item?.entryExecPrice || item?.entryExecPriceShadow || item?.entryPrice || item?.otePrice || item?.supportLevel || 0);
+      const entryAnchor = Number(item?.entryAnchorPrice || item?.otePrice || item?.supportLevel || entryExec || 0);
       const target = Number(item?.resistanceLevel || item?.targetPrice || 0);
       const stop = Number(item?.ictStopLoss || item?.stopLoss || 0);
       const sector = item?.sectorTheme || item?.sector || 'Unknown';
@@ -1594,6 +1615,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const daysToEarnings = Number(item?.techMetrics?.daysToEarnings ?? -1);
       const dataQuality = String(item?.techMetrics?.dataQualityState || 'NORMAL').toUpperCase();
       const integrity = Math.round(Number(item?.integrityScore || item?.dataConfidence || 75));
+      const entryDistancePctRaw = Number(item?.entryDistancePct ?? item?.entryDistancePctShadow);
+      const entryDistancePct = Number.isFinite(entryDistancePctRaw) ? `${entryDistancePctRaw.toFixed(2)}%` : 'N/A';
+      const entryFeasibleRaw = item?.entryFeasible;
+      const entryFeasibleShadowRaw = item?.entryFeasibleShadow;
+      const entryFeasible =
+          typeof entryFeasibleRaw === 'boolean'
+              ? String(entryFeasibleRaw)
+              : (typeof entryFeasibleShadowRaw === 'boolean' ? String(entryFeasibleShadowRaw) : 'N/A');
+      const tradePlanStatus = String(item?.tradePlanStatus || item?.tradePlanStatusShadow || 'N/A');
 
       return `## 1. 전설적 투자자 위원회 분석
 - **벤저민 그레이엄 (Value)** : fundamentalScore ${fund} 기준 밸류 안정성 점검, 현재 섹터(${sector}) 내 상대 가치 우위 여부 확인.
@@ -1608,15 +1638,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
 ## 2. 전문가 3인 성향 분석
 - **보수적 퀀트** : 손절선($${stop.toFixed(1)}) 기준 리스크 통제, 무효화 구간 이탈 시 시나리오 폐기.
-- **공격적 트레이더** : 진입($${entry.toFixed(1)}) 대비 목표($${target.toFixed(1)})의 보상/위험 기하 구조 확인.
+- **공격적 트레이더** : 진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)} 대비 목표($${target.toFixed(1)})의 보상/위험 기하 구조 확인.
 - **마켓 메이커** : ${pdZone} 구간에서 체결/유동성 리스크와 수급 흡수 가능성 점검.
-- **종합 분석** : 정량 Trade Box(OTE/TARGET/STOP)는 고정하고, AI는 해석과 우선순위 검증만 수행.
+- **종합 분석** : 정량 Trade Box(OTE/TARGET/STOP)는 고정하고, 실행 가능성(feasible=${entryFeasible}, status=${tradePlanStatus}, distance=${entryDistancePct})을 별도 관리.
 
 ## 3. The Alpha Thesis: 전략적 투자 시나리오
 - **핵심 논거 (Key Thesis)** : ${reasonList[2] || '핵심 논거 보강 필요'}
 - **상승 촉매 (Catalysts)** : 섹터 모멘텀, 수급 흐름, 이벤트 캘린더(Earnings/Regime) 동시 정렬 여부.
 - **리스크 요인 (Risk Factors)** : 레짐 전환, 변동성 급등, 손절선 하향 이탈.
-- **가격 목표 (Trajectory)** : 진입 $${entry.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}
+- **가격 목표 (Trajectory)** : 진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}
+- **실행 가능성 (Execution)** : feasible=${entryFeasible} | status=${tradePlanStatus} | distance=${entryDistancePct}
 
 참고 메모: ${rawPreview}`;
   };

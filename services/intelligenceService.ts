@@ -1895,15 +1895,42 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           // If return contains non-standard chars (like "High Upside"), try to keep essential +XX%
           if (expReturn !== "N/A" && !expReturn.includes('%')) expReturn += "%";
 
-          const entryPrice = Number(c?.entryExecPrice ?? c?.entryExecPriceShadow ?? c?.entryPrice ?? c?.otePrice ?? c?.supportLevel ?? 0);
-          const targetPrice = Number(c?.targetPrice ?? c?.targetMeanPrice ?? c?.resistanceLevel ?? 0);
-          const stopPrice = Number(c?.stopLoss ?? c?.ictStopLoss ?? 0);
+          const readFinitePositive = (...vals: any[]): number | null => {
+              for (const val of vals) {
+                  const n = Number(val);
+                  if (Number.isFinite(n) && n > 0) return n;
+              }
+              return null;
+          };
+          const fmtPrice = (val: number | null) => (val != null ? `$${val.toFixed(2)}` : 'N/A');
+          const entryExecPrice = readFinitePositive(c?.entryExecPrice, c?.entryExecPriceShadow, c?.entryPrice, c?.otePrice, c?.supportLevel);
+          const entryAnchorPrice = readFinitePositive(c?.entryAnchorPrice, c?.otePrice, c?.supportLevel, entryExecPrice);
+          const targetPrice = readFinitePositive(c?.targetPrice, c?.targetMeanPrice, c?.resistanceLevel);
+          const stopPrice = readFinitePositive(c?.stopLoss, c?.ictStopLoss);
+          const entryDistanceRaw = Number(c?.entryDistancePct ?? c?.entryDistancePctShadow);
+          const derivedDistance =
+              Number.isFinite(entryDistanceRaw)
+                  ? entryDistanceRaw
+                  : (entryExecPrice != null && price > 0
+                      ? (Math.abs(price - entryExecPrice) / price) * 100
+                      : NaN);
+          const entryDistancePct = Number.isFinite(derivedDistance) ? Number(derivedDistance.toFixed(2)) : null;
+          const tradePlanStatus = String(c?.tradePlanStatus || c?.tradePlanStatusShadow || 'N/A');
+          const rawEntryFeasible = c?.entryFeasible;
+          const rawEntryFeasibleShadow = c?.entryFeasibleShadow;
+          const entryFeasible =
+              typeof rawEntryFeasible === 'boolean'
+                  ? rawEntryFeasible
+                  : (typeof rawEntryFeasibleShadow === 'boolean' ? rawEntryFeasibleShadow : null);
+          const entryFeasibleLabel = entryFeasible === null ? 'N/A' : String(entryFeasible);
+          const distanceLabel = entryDistancePct == null ? 'N/A' : `${entryDistancePct.toFixed(2)}%`;
 
           const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 85 ? " [🔥SMART MONEY]" : "";
           
           return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   • 🎯 Plan: 진입 $${entryPrice.toFixed(2)} 🎯 | 목표 $${targetPrice.toFixed(2)} | 손절 $${stopPrice.toFixed(2)}
+   • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
+   • 🧭 Exec: feasible=${entryFeasibleLabel} | status=${tradePlanStatus} | distance=${distanceLabel}
    • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
      - ${r1}

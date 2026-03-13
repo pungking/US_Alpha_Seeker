@@ -90,6 +90,17 @@
 | 소스/시각 | `Source`, `CapturedAt` 라인 출력 | Telegram Brief |
 | 혼선 제거 | `NASDAQ` 단독 라벨로 인한 NDX/IXIC 혼용 문구 0건 | Telegram Brief 샘플 |
 
+## 2.6 Phase-3(리포트 템플릿 동기화) 검증
+
+목적: Stage6 계약값과 리포트/브리프 문구를 동일 의미로 맞춘다.
+
+| 체크 | PASS 조건 | 근거 소스 |
+|---|---|---|
+| Plan 라인 분리 | `진입(실행)` + `진입(앵커)` 동시 표기 | Telegram Brief |
+| 실행 컨텍스트 | `feasible/status/distance` 라인 출력 | Telegram Brief, Outlook |
+| 1/2/3 구조 유지 | `전설적 투자자 위원회/전문가 3인/전략적 투자 시나리오` 섹션 유지 | Stage6 investmentOutlook |
+| 파서 호환 | 계약 검증 실패(`INTEGRITY_GATE_BLOCKED`) 0건 | Actions 로그 |
+
 ---
 
 ## 3) KPI 카테고리
