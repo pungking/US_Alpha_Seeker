@@ -2861,10 +2861,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           return null;
       };
-      const ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT = 15;
+      const entryFeasibilityMaxDistanceRaw = Number(
+          (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT ?? 15
+      );
+      const ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT =
+          Number.isFinite(entryFeasibilityMaxDistanceRaw) && entryFeasibilityMaxDistanceRaw >= 0
+              ? entryFeasibilityMaxDistanceRaw
+              : 15;
+      const ENTRY_FEASIBILITY_VERDICT_ENFORCE = parseBooleanFlag(
+          (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_VERDICT_ENFORCE ?? 'true'
+      );
+      let entryFeasibilityDowngradedCount = 0;
       top6Elite = top6Elite.map(item => {
           const verdictRaw = String(item?.aiVerdict || item?.verdict || item?.finalVerdict || 'HOLD');
-          const verdictFinal = String(item?.finalVerdict || item?.aiVerdict || item?.verdict || 'HOLD');
+          const candidateVerdict = String(item?.finalVerdict || item?.aiVerdict || item?.verdict || 'HOLD');
           const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
           const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
           const mirroredStop = pickFinite(item?.stopLoss, item?.ictStopLoss);
@@ -2894,22 +2904,40 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               : hasGeometry
                   ? (entryFeasibleShadow ? 'VALID_EXEC' : 'WAIT_PULLBACK_TOO_DEEP')
                   : 'INVALID_GEOMETRY';
+          const shouldDowngradeByFeasibility =
+              ENTRY_FEASIBILITY_VERDICT_ENFORCE &&
+              tradePlanStatusShadow !== 'VALID_EXEC' &&
+              !isRiskOffVerdict(candidateVerdict);
+          if (shouldDowngradeByFeasibility) {
+              entryFeasibilityDowngradedCount++;
+          }
+          const verdictFinal = shouldDowngradeByFeasibility ? 'WAIT' : candidateVerdict;
           return {
               ...item,
               verdictRaw,
               verdictFinal,
+              aiVerdict: verdictFinal,
               verdict: verdictFinal,
               finalVerdict: verdictFinal,
               entryPrice: mirroredEntry ?? 0,
               entryAnchorPrice: entryAnchorPrice ?? undefined,
+              entryExecPrice: entryExecPriceShadow ?? undefined,
               entryExecPriceShadow: entryExecPriceShadow ?? undefined,
+              entryDistancePct: entryDistancePctShadow ?? undefined,
               entryDistancePctShadow: entryDistancePctShadow ?? undefined,
+              entryFeasible: entryFeasibleShadow,
               entryFeasibleShadow,
               tradePlanStatusShadow,
               targetPrice: mirroredTarget ?? 0,
               targetMeanPrice: mirroredTarget ?? 0
           };
       });
+      if (ENTRY_FEASIBILITY_VERDICT_ENFORCE) {
+          addLog(
+              `Entry Feasibility Verdict Gate: downgraded ${entryFeasibilityDowngradedCount} names to WAIT (maxDistancePct=${ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT}).`,
+              entryFeasibilityDowngradedCount > 0 ? "warn" : "ok"
+          );
+      }
       stage6FinalRef.current = top6Elite;
       stage6FinalRunIdRef.current = getKstTimestamp();
 

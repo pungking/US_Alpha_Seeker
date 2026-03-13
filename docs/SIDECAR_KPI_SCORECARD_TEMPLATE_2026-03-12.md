@@ -103,6 +103,17 @@
 | sidecar gate OFF 동등성 | `ENTRY_FEASIBILITY_ENFORCE=false`에서 payload/skipped 기존 대비 동일 | Dry-run summary |
 | sidecar gate ON 가시성 | `entry_feas_enforce/checked/blocked` 카운터 출력 + `entry_*` skip reason 확인 가능 | `[RUN_SUMMARY]`, Preview JSON |
 
+## 2.7 Phase-4(Entry Feasibility Verdict Enforce) 검증
+
+목적: 실행 불가능 종목이 Stage6 최종 평결에서 WAIT로 강등되는지 확인한다.
+
+| 체크 | PASS 조건 | 근거 소스 |
+|---|---|---|
+| verdict 강등 | `entryFeasible=false` 또는 `tradePlanStatusShadow!=VALID_EXEC`인 종목은 `verdictFinal=WAIT` | Stage6 JSON |
+| 필드 동기화 | `aiVerdict/finalVerdict/verdict`가 `verdictFinal`과 동일 | Stage6 JSON |
+| 로그 가시성 | `Entry Feasibility Verdict Gate: downgraded ...` 로그 출력 | Stage6 실행 로그 |
+| sidecar 연동 | 강등된 종목이 dry-run actionable(BUY/STRONG_BUY)에서 제외 | dry-run summary |
+
 ---
 
 ## 3) KPI 카테고리
