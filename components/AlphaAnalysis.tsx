@@ -3641,6 +3641,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const baseAiScore = rawAiScore === 50 ? (item.ictScore || 50) : rawAiScore;
                 const effectiveAiScore = isRiskOffVerdict(item.aiVerdict) ? Math.min(baseAiScore, 55) : baseAiScore;
                 const displayExpectedReturn = getDisplayExpectedReturn(item, scoreViewMode);
+                const entryAnchorCard = Number(item.entryAnchorPrice || item.otePrice || item.supportLevel || 0);
+                const entryExecCard = Number(item.entryExecPrice || item.entryExecPriceShadow || item.entryPrice || entryAnchorCard || 0);
+                const entryDistanceRaw = Number(item.entryDistancePct ?? item.entryDistancePctShadow);
+                const entryDistanceCard = Number.isFinite(entryDistanceRaw)
+                    ? entryDistanceRaw
+                    : (Number(displayPrice) > 0 && entryExecCard > 0
+                        ? Number((Math.abs(Number(displayPrice) - entryExecCard) / Number(displayPrice) * 100).toFixed(2))
+                        : null);
+                const entryFeasibleCard =
+                    typeof item.entryFeasible === 'boolean'
+                        ? item.entryFeasible
+                        : (typeof item.entryFeasibleShadow === 'boolean' ? item.entryFeasibleShadow : null);
+                const tradePlanStatusCard = String(item.tradePlanStatusShadow || item.tradePlanStatus || 'N/A');
                 
                 // [MODIFIED] Calculate Quant System Score (Weighted Average)
                 const quantSystemScore = (
@@ -3783,6 +3796,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           <p className="text-[8px] text-rose-500 font-black uppercase">{item.ictStopLoss ? "🛡️ ICT Stop" : "Stop"}</p>
                           <p className="text-[12px] font-black text-white tracking-tighter">${(item.ictStopLoss || item.stopLoss)?.toFixed(1) || '---'}</p>
                       </div>
+                    </div>
+
+                    <div className={`mb-2 px-2 py-1 rounded-lg border text-[8px] font-bold tracking-tight ${
+                      entryFeasibleCard === true
+                        ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-300'
+                        : (entryFeasibleCard === false
+                            ? 'border-amber-500/30 bg-amber-500/10 text-amber-300'
+                            : 'border-white/10 bg-white/5 text-slate-300')
+                    }`}>
+                      <span className="uppercase">Execution</span>
+                      <span className="mx-1">|</span>
+                      <span>실행가 ${entryExecCard > 0 ? entryExecCard.toFixed(1) : 'N/A'}</span>
+                      <span className="mx-1">|</span>
+                      <span>괴리 {entryDistanceCard == null ? 'N/A' : `${entryDistanceCard.toFixed(2)}%`}</span>
+                      <span className="mx-1">|</span>
+                      <span>{tradePlanStatusCard}</span>
                     </div>
                     
                     <div className="flex justify-between items-center mt-auto">
