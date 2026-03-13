@@ -12,8 +12,12 @@ import { fetchPortalIndices } from '../services/portalIndicesService';
 declare global {
   interface Window {
     latestMarketPulse?: {
-      spy: { price: number; change: number };
-      qqq: { price: number; change: number };
+      spy: { price: number; change: number; source?: string; symbol?: string };
+      qqq: { price: number; change: number; source?: string; symbol?: string };
+      vix?: { price: number; change?: number; source?: string; symbol?: string };
+      ndx?: { price: number; change: number; source?: string; symbol?: string };
+      ixic?: { price: number; change: number; source?: string; symbol?: string };
+      meta?: { source: string; fetchedAt: string };
     };
   }
 }
@@ -472,23 +476,44 @@ const fetchMarketBenchmarks = async () => {
         const findIndex = (sym: string) => {
             const aliases: Record<string, string[]> = {
                 SPX: ['SPX', 'SP500'],
-                NDX: ['NDX', 'NASDAQ', 'NASDAQ100'],
+                NDX: ['NDX', 'NASDAQ100'],
+                IXIC: ['IXIC', 'NASDAQ'],
                 VIX: ['VIX'],
             };
             const keySet = new Set([sym, ...(aliases[sym] || [])]);
             const found = data.find((d: any) => keySet.has(String(d.symbol || '').toUpperCase()));
-            return found ? { price: Number(found.price), change: Number(found.change) } : null;
+            return found
+                ? {
+                      price: Number(found.price),
+                      change: Number(found.change),
+                      source: String(found.source || '').trim() || undefined,
+                      symbol: String(found.symbol || '').toUpperCase() || undefined,
+                  }
+                : null;
         };
 
-        // Map Real Indices to Internal Keys (SPY->SPX, QQQ->NDX for display consistency)
+        // Keep legacy spy/qqq keys for backward compatibility, but retain canonical index symbols.
         const spx = findIndex('SPX') || { price: 0, change: 0 };
         const ndx = findIndex('NDX') || { price: 0, change: 0 };
+        const ixic = findIndex('IXIC') || { price: 0, change: 0 };
         const vix = findIndex('VIX') || { price: 0, change: 0 };
 
+        const sourceSet = new Set(
+            [spx, ndx, vix]
+                .map((point: any) => String(point?.source || '').trim())
+                .filter(Boolean)
+        );
+
         const benchmarks = { 
-            spy: spx, // Mapping SPX to 'spy' key to maintain compatibility with existing UI/Logic
-            qqq: ndx, // Mapping NDX to 'qqq' key
-            vix: vix 
+            spy: spx,
+            qqq: ndx,
+            vix: vix,
+            ndx,
+            ixic,
+            meta: {
+                source: sourceSet.size === 1 ? Array.from(sourceSet)[0] : "mixed",
+                fetchedAt: new Date().toISOString(),
+            }
         };
 
         const isValidIndex = (index: { price: number; change?: number } | null | undefined) =>

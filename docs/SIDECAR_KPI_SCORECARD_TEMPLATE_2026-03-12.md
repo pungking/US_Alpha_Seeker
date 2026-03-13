@@ -79,6 +79,17 @@
 | integrity gate | `INTEGRITY_GATE_BLOCKED` 신규 발생 0건 | Actions 로그 |
 | sidecar 파서 호환 | 요약 verdict/plan 파싱 실패 0건 | dry-run summary / Telegram summary |
 
+## 2.5 Phase-2(Market Pulse 정규화) 검증
+
+목적: Market Pulse 지표 라벨/소스 불일치를 제거했는지 확인한다.
+
+| 체크 | PASS 조건 | 근거 소스 |
+|---|---|---|
+| 표준 라벨 | `S&P500(SPX)`, `NASDAQ100(NDX)`, `VIX` 표기 고정 | Telegram Brief |
+| Composite 분리 | `IXIC`는 `NASDAQ Composite(IXIC)`로만 표기(옵션) | Telegram Brief |
+| 소스/시각 | `Source`, `CapturedAt` 라인 출력 | Telegram Brief |
+| 혼선 제거 | `NASDAQ` 단독 라벨로 인한 NDX/IXIC 혼용 문구 0건 | Telegram Brief 샘플 |
+
 ---
 
 ## 3) KPI 카테고리

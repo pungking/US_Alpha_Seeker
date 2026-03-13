@@ -1578,19 +1578,25 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
   try {
       // 1. Hybrid Data Hydration (Global Override)
-      let vix = "N/A", spx = "N/A", ndx = "N/A";
-      let spxChg = 0, ndxChg = 0;
+      let vix = "N/A", spx = "N/A", ndx = "N/A", ixic = "N/A";
+      let spxChg = 0, ndxChg = 0, ixicChg = 0;
       let vixVal = 0;
+      let spxSource = "unknown";
+      let ndxSource = "unknown";
+      let vixSource = "unknown";
+      let ixicSource = "unknown";
+      let pulseCapturedAt = "";
       const asFinite = (val: any): number | null => {
           const n = Number(val);
           return Number.isFinite(n) ? n : null;
       };
-      const isValidIndexPoint = (symbol: 'SPX' | 'NDX' | 'VIX', val: any): boolean => {
+      const isValidIndexPoint = (symbol: 'SPX' | 'NDX' | 'IXIC' | 'VIX', val: any): boolean => {
           const n = asFinite(val);
           if (n === null) return false;
           if (symbol === 'SPX') return n >= 1000 && n <= 20000;
-          if (symbol === 'NDX') return n >= 5000 && n <= 50000;
-          return n > 0 && n <= 150;
+          if (symbol === 'NDX' || symbol === 'IXIC') return n >= 5000 && n <= 50000;
+          if (symbol === 'VIX') return n > 0 && n <= 150;
+          return false;
       };
       const readChange = (obj: any): number => {
           const c1 = asFinite(obj?.change);
@@ -1599,10 +1605,21 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           if (c2 !== null) return c2;
           return 0;
       };
+      const readSource = (obj: any, fallback = "unknown"): string => {
+          const src = String(obj?.source || obj?.dataSource || obj?.provider || "").trim();
+          if (!src) return fallback;
+          return src.toLowerCase().replace(/\s+/g, "_");
+      };
+      const formatCapturedAt = (raw: any): string => {
+          if (!raw) return "N/A";
+          const parsed = new Date(raw);
+          if (!Number.isFinite(parsed.getTime())) return "N/A";
+          return parsed.toISOString();
+      };
       const normalizeNasdaqLabel = (text: string): string =>
           String(text || '')
-              .replace(/\bNASDAQ(?!\s*100)\b/gi, 'NASDAQ100')
-              .replace(/나스닥(?!\s*100)/g, '나스닥100');
+              .replace(/\bNASDAQ(?!\s*(?:100|COMPOSITE))\b/gi, 'NASDAQ100')
+              .replace(/나스닥(?!\s*(?:100|종합))/g, '나스닥100');
       const hasMissingIndex = () => spx === "N/A" || ndx === "N/A" || vix === "N/A";
 
       // [HYDRATION] Check Explicit Argument OR Global Cache
@@ -1612,15 +1629,27 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           if (pulse.spy && isValidIndexPoint('SPX', pulse.spy.price)) {
               spx = Number(pulse.spy.price).toFixed(2);
               spxChg = readChange(pulse.spy);
+              spxSource = readSource(pulse.spy, spxSource);
           }
-          if (pulse.qqq && isValidIndexPoint('NDX', pulse.qqq.price)) {
-              ndx = Number(pulse.qqq.price).toFixed(2);
-              ndxChg = readChange(pulse.qqq);
+          const ndxFromCache = pulse.ndx || pulse.qqq;
+          if (ndxFromCache && isValidIndexPoint('NDX', ndxFromCache.price)) {
+              ndx = Number(ndxFromCache.price).toFixed(2);
+              ndxChg = readChange(ndxFromCache);
+              ndxSource = readSource(ndxFromCache, ndxSource);
+          }
+          if (pulse.ixic && isValidIndexPoint('IXIC', pulse.ixic.price)) {
+              ixic = Number(pulse.ixic.price).toFixed(2);
+              ixicChg = readChange(pulse.ixic);
+              ixicSource = readSource(pulse.ixic, ixicSource);
           }
           if (pulse.vix && isValidIndexPoint('VIX', pulse.vix.price)) {
               vixVal = Number(pulse.vix.price) || 0;
               vix = vixVal.toFixed(2);
+              vixSource = readSource(pulse.vix, vixSource);
           }
+          pulseCapturedAt = formatCapturedAt(
+              pulse?.meta?.fetchedAt || pulse?.capturedAt || pulse?.updatedAt
+          );
       }
 
       // 2. Fetch Live Market Data (If Global Cache Missed)
@@ -1629,11 +1658,30 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               const indices = await fetchWithRetry(async () => fetchPortalIndices(), 3, 2000);
               const v = indices?.find((i: any) => i?.symbol === 'VIX' || i?.symbol === '.VIX');
               const s = indices?.find((i: any) => i?.symbol === 'SP500' || i?.symbol === 'SPX');
-              const n = indices?.find((i: any) => i?.symbol === 'NASDAQ' || i?.symbol === 'NDX' || i?.symbol === 'NASDAQ100');
+              const n = indices?.find((i: any) => i?.symbol === 'NDX' || i?.symbol === 'NASDAQ100' || i?.rawSymbol === '.NDX');
+              const nComposite = indices?.find((i: any) => i?.symbol === 'IXIC' || i?.symbol === 'NASDAQ' || i?.rawSymbol === '.IXIC');
 
-              if (v && isValidIndexPoint('VIX', v.price)) { vixVal = Number(v.price) || 0; vix = vixVal.toFixed(2); }
-              if (s && isValidIndexPoint('SPX', s.price)) { spx = Number(s.price).toFixed(2); spxChg = readChange(s); }
-              if (n && isValidIndexPoint('NDX', n.price)) { ndx = Number(n.price).toFixed(2); ndxChg = readChange(n); }
+              if (v && isValidIndexPoint('VIX', v.price)) {
+                  vixVal = Number(v.price) || 0;
+                  vix = vixVal.toFixed(2);
+                  vixSource = readSource(v, vixSource);
+              }
+              if (s && isValidIndexPoint('SPX', s.price)) {
+                  spx = Number(s.price).toFixed(2);
+                  spxChg = readChange(s);
+                  spxSource = readSource(s, spxSource);
+              }
+              if (n && isValidIndexPoint('NDX', n.price)) {
+                  ndx = Number(n.price).toFixed(2);
+                  ndxChg = readChange(n);
+                  ndxSource = readSource(n, ndxSource);
+              }
+              if (nComposite && isValidIndexPoint('IXIC', nComposite.price)) {
+                  ixic = Number(nComposite.price).toFixed(2);
+                  ixicChg = readChange(nComposite);
+                  ixicSource = readSource(nComposite, ixicSource);
+              }
+              pulseCapturedAt = formatCapturedAt(new Date().toISOString());
           } catch(e) {
               console.warn("Primary Index Fetch Failed (portal_indices).");
           }
@@ -1650,14 +1698,30 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
       const spxStr = fmt(spx, spxChg);
       const ndxStr = fmt(ndx, ndxChg);
-      const ndxLabel = "NASDAQ100";
+      const ixicStr = fmt(ixic, ixicChg);
+      const ndxLabel = "NASDAQ100(NDX)";
       const vixStr = vix === "N/A" ? "N/A" : vix;
+      const pulseSources = [
+          ['SPX', spxSource],
+          ['NDX', ndxSource],
+          ['VIX', vixSource],
+          ...(ixic !== "N/A" ? [['IXIC', ixicSource]] as Array<[string, string]> : [])
+      ].filter(([, src]) => !!src && src !== 'unknown');
+      const sourceLabels = Array.from(new Set(pulseSources.map(([, src]) => src)));
+      const pulseSourceLabel =
+          sourceLabels.length === 0
+              ? 'unknown'
+              : sourceLabels.length === 1
+                  ? sourceLabels[0]
+                  : pulseSources.map(([k, src]) => `${k}:${src}`).join(', ');
+      const pulseCapturedAtLabel = pulseCapturedAt || "N/A";
       const safeCandidates = Array.isArray(candidates) ? candidates : [];
 
       // 2. Generate "Market Pulse" Text via AI
+      const ixicPrompt = ixic === "N/A" ? "" : `, NASDAQ Composite(IXIC): ${ixicStr}`;
       const macroPrompt = `
       [Task] Write a concise "Market Pulse" summary in Korean (max 3 lines).
-      Data: VIX: ${vixStr}, S&P500: ${spxStr}, ${ndxLabel}: ${ndxStr}.
+      Data: VIX: ${vixStr}, S&P500(SPX): ${spxStr}, ${ndxLabel}: ${ndxStr}${ixicPrompt}.
       If VIX is numeric, never output VIX as N/A.
       Focus on market sentiment (Risk-On/Off) based on VIX and Index moves.
       `;
@@ -1690,7 +1754,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               }
 
               const json = await res.json();
-              macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500: ${spx} | ${ndxLabel}: ${ndx})\nVIX: ${vixStr}`;
+              macroSection = json?.choices?.[0]?.message?.content || `Macro: 데이터 분석 중 (S&P500(SPX): ${spx} | ${ndxLabel}: ${ndx})\nVIX: ${vixStr}`;
           }
       } catch (e) {
          macroSection = `Macro: 시장 데이터 분석 중... (VIX: ${vixStr})`;
@@ -1705,7 +1769,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
       }
 
       // 3. Format Candidates Programmatically
-      const INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100']);
+      const INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100', 'IXIC']);
       const top6 = safeCandidates
           .filter(c => !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()))
           .slice(0, 6);
@@ -1863,7 +1927,8 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
 📊 Market Pulse
 ${macroSection}
-(S&P500: ${spxStr} | ${ndxLabel}: ${ndxStr} | VIX: ${vixStr})
+(S&P500(SPX): ${spxStr} | ${ndxLabel}: ${ndxStr} | VIX: ${vixStr}${ixic === "N/A" ? "" : ` | NASDAQ Composite(IXIC): ${ixicStr}`})
+Source: ${pulseSourceLabel} | CapturedAt: ${pulseCapturedAtLabel}
 ${sectorWarning}
 
 💎 Alpha Top 6 Selections
