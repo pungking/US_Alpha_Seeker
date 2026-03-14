@@ -116,6 +116,21 @@
 | 로그 가시성 | `Entry Feasibility Verdict Gate: downgraded ...` 로그 출력 | Stage6 실행 로그 |
 | sidecar 연동 | 강등된 종목이 dry-run actionable(BUY/STRONG_BUY)에서 제외 | dry-run summary |
 
+## 2.8 Phase-5(Stage6 Contract + Entry Validation Pack) 증빙 (2026-03-14)
+
+목적: Stage6 `executionBucket` 계약과 sidecar `ENTRY_FEASIBILITY` 게이트가 동시에 일관 동작하는지 확인한다.
+
+| 케이스 | Run ID / URL | 핵심 결과 |
+|---|---|---|
+| OFF baseline | `23088915967` / `https://github.com/pungking/alpha-exec-engine/actions/runs/23088915967` | `stage6_contract checked=5 blocked=0`, `entry_feas enforce=false checked=0 blocked=0`, `payload/skipped=2/3` |
+| Validation Pack (OFF/ON/STRICT) | `23088939432` / `https://github.com/pungking/alpha-exec-engine/actions/runs/23088939432` | `off=2/3`, `on=2/3 (checked=2 blocked=0)`, `strict=0/5 (checked=2 blocked=2)` |
+| STRICT baseline replay | `23088972490` / `https://github.com/pungking/alpha-exec-engine/actions/runs/23088972490` | `ENTRY_MAX_DISTANCE_PCT=1 + enforce=false`에서 parity 유지(`payload/skipped=2/3`) |
+
+요약 판정:
+- Stage6 계약 게이트(`stage6Contract`)는 3개 run 모두 `blocked=0`으로 안정.
+- Entry Feasibility 게이트는 ON/STRICT에서만 차단 수치가 증가하여 의도대로 동작.
+- STRICT(1%)에서 `entry_too_far_from_market`가 발생하며 `PREFLIGHT_NO_PAYLOAD`로 자연 전이됨.
+
 ---
 
 ## 3) KPI 카테고리

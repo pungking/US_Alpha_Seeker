@@ -43,6 +43,16 @@
 - dry-run Run ID / URL: `23060040495 / https://github.com/pungking/alpha-exec-engine/actions/runs/23060040495`
 - 핵심 요약: `event=sent, preflight=pass(PREFLIGHT_PASS), guard_control enforce=true blocked=false reason=non_live_mode(readOnly=true,execEnabled=false), updatedAt=2026-03-13T16:15:11.099Z`
 
+## Phase A 리허설 추가 근거 (2026-03-14)
+- dry-run (OFF baseline) Run ID / URL: `23088915967 / https://github.com/pungking/alpha-exec-engine/actions/runs/23088915967`
+- dry-run (validation_pack OFF/ON/STRICT) Run ID / URL: `23088939432 / https://github.com/pungking/alpha-exec-engine/actions/runs/23088939432`
+- dry-run (STRICT baseline replay) Run ID / URL: `23088972490 / https://github.com/pungking/alpha-exec-engine/actions/runs/23088972490`
+- 핵심 요약:
+  - Stage6 contract gate: `checked=5 blocked=0` (3건 모두 동일)
+  - OFF: `payload/skipped=2/3`
+  - ON(15%): `payload/skipped=2/3`, `entry_feas checked=2 blocked=0`
+  - STRICT(1%): `payload/skipped=0/5`, `entry_feas checked=2 blocked=2`, `preflight=skip(PREFLIGHT_NO_PAYLOAD)`
+
 예시 포맷:
 - Day 1 market-guard: `#57 / https://github.com/pungking/alpha-exec-engine/actions/runs/22977612168`
 - Day 1 dry-run: `#85 / https://github.com/pungking/alpha-exec-engine/actions/runs/22961165408`
