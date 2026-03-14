@@ -1798,9 +1798,27 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           }
           return null;
       };
+      const readDecision = (item: any): 'EXECUTABLE_NOW' | 'WAIT_PRICE' | 'BLOCKED_RISK' | 'BLOCKED_EVENT' | null => {
+          const raw = String(item?.finalDecision || '').trim().toUpperCase();
+          if (
+              raw === 'EXECUTABLE_NOW' ||
+              raw === 'WAIT_PRICE' ||
+              raw === 'BLOCKED_RISK' ||
+              raw === 'BLOCKED_EVENT'
+          ) {
+              return raw;
+          }
+          return null;
+      };
+      const readDecisionReason = (item: any): string | null => {
+          const raw = String(item?.decisionReason || '').trim().toLowerCase();
+          return raw || null;
+      };
       const isExecutableCandidate = (item: any): boolean => {
           const bucket = readExecutionBucket(item);
           if (bucket) return bucket === 'EXECUTABLE';
+          const decision = readDecision(item);
+          if (decision) return decision === 'EXECUTABLE_NOW';
           const reason = readExecutionReason(item);
           if (reason) return reason === 'VALID_EXEC';
           const verdict = toVerdictKey(item?.verdictFinal || item?.finalVerdict || item?.aiVerdict || item?.verdict || '');
@@ -1965,6 +1983,14 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
                       : NaN);
           const entryDistancePct = Number.isFinite(derivedDistance) ? Number(derivedDistance.toFixed(2)) : null;
           const tradePlanStatus = String(c?.tradePlanStatus || c?.tradePlanStatusShadow || 'N/A');
+          const decision = readDecision(c) || (isExecutableCandidate(c) ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
+          const decisionReason = readDecisionReason(c) || readExecutionReason(c) || 'n/a';
+          const rrValueRaw = Number(c?.riskRewardRatioValue);
+          const rrValue = Number.isFinite(rrValueRaw) ? rrValueRaw : null;
+          const expectedReturnPctRaw = Number(c?.expectedReturnPct);
+          const expectedReturnPct = Number.isFinite(expectedReturnPctRaw) ? expectedReturnPctRaw : null;
+          const earningsDaysRaw = Number(c?.earningsDaysToEvent ?? c?.techMetrics?.daysToEarnings);
+          const earningsDays = Number.isFinite(earningsDaysRaw) ? Math.round(earningsDaysRaw) : null;
           const rawEntryFeasible = c?.entryFeasible;
           const rawEntryFeasibleShadow = c?.entryFeasibleShadow;
           const entryFeasible =
@@ -1981,6 +2007,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: feasible=${entryFeasibleLabel} | status=${tradePlanStatus} | distance=${distanceLabel}
+   • 🧩 Decision: ${decision} | reason=${decisionReason} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | earnings=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
    • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
      - ${r1}
@@ -1995,9 +2022,11 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
                   const execRank = toNum(c?.executionRank);
                   const bucket = readExecutionBucket(c) || (isExecutableCandidate(c) ? 'EXECUTABLE' : 'WATCHLIST');
                   const reason = readExecutionReason(c) || (bucket === 'EXECUTABLE' ? 'VALID_EXEC' : 'N/A');
+                  const decision = readDecision(c) || (bucket === 'EXECUTABLE' ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
+                  const decisionReason = readDecisionReason(c) || reason;
                   const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
                   const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | ${bucket}/${reason} | Conv ${Math.round(conv)} | ER ${er}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | ${bucket}/${reason} | D=${decision}/${decisionReason} | Conv ${Math.round(conv)} | ER ${er}`;
               })
               .join('\n')
           : '• N/A';
@@ -2010,9 +2039,11 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           ? watchlistTop
               .map((c, i) => {
                   const reason = readExecutionReason(c) || 'N/A';
+                  const decision = readDecision(c) || 'N/A';
+                  const decisionReason = readDecisionReason(c) || reason;
                   const distance = formatPct(c?.entryDistancePct ?? c?.entryDistancePctShadow);
                   const verdict = toVerdictKey(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || '');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | verdict=${verdict || 'N/A'} | reason=${reason} | distance=${distance}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | verdict=${verdict || 'N/A'} | decision=${decision}/${decisionReason} | reason=${reason} | distance=${distance}`;
               })
               .join('\n')
           : '• 없음';

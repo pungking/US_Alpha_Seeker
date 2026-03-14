@@ -3380,7 +3380,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (accessToken) {
           // Save Full AI Result to Report Folder
           const reportFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.reportSubFolder);
-          await uploadFile(accessToken, reportFolderId, `STAGE6_PART2_AI_RESULT_FULL_${getKstTimestamp()}.json`, finalData);
+          // Save scored + execution-contract enriched snapshot (Top12 scope) for audit reproducibility.
+          await uploadFile(accessToken, reportFolderId, `STAGE6_PART2_AI_RESULT_FULL_${getKstTimestamp()}.json`, scoredCandidates);
 
           // [CRITICAL] Save Final Top 6 to Stage 6 Folder (The "Dump")
           const stage6FolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
@@ -3442,6 +3443,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,
                   decisionCountsPrimary,
                   decisionCountsTop6,
+                  decisionGate: {
+                      minRr: STAGE6_MIN_RR_HARD_GATE,
+                      minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
+                      earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS
+                  },
                   scoreViewDefault: scoreViewMode
               },
               alpha_candidates: top6Elite,
@@ -4106,6 +4112,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const decisionReasonCard = String(item.decisionReason || '').toLowerCase().trim();
                 const decisionReasonSignalKey = getDecisionReasonSignalKey(decisionReasonCard);
                 const decisionReasonLabel = getDecisionReasonLabel(decisionReasonCard);
+                const parseRrFromLabel = (raw: any): number | null => {
+                    const txt = String(raw || '');
+                    const ratio = txt.match(/1\s*[:/]\s*([0-9]+(?:\.[0-9]+)?)/i);
+                    if (ratio) {
+                        const n = Number(ratio[1]);
+                        return Number.isFinite(n) ? n : null;
+                    }
+                    const decimal = txt.match(/([0-9]+(?:\.[0-9]+)?)/);
+                    if (decimal) {
+                        const n = Number(decimal[1]);
+                        return Number.isFinite(n) ? n : null;
+                    }
+                    return null;
+                };
+                const parsePct = (raw: any): number | null => {
+                    const txt = String(raw || '');
+                    const m = txt.match(/([+-]?\d+(?:\.\d+)?)\s*%/);
+                    if (!m) return null;
+                    const n = Number(m[1]);
+                    return Number.isFinite(n) ? n : null;
+                };
+                const rrCardRaw = Number(item.riskRewardRatioValue);
+                const rrCard = Number.isFinite(rrCardRaw) ? rrCardRaw : parseRrFromLabel(item.riskRewardRatio);
+                const expectedReturnPctCardRaw = Number(item.expectedReturnPct);
+                const expectedReturnPctCard = Number.isFinite(expectedReturnPctCardRaw)
+                    ? expectedReturnPctCardRaw
+                    : parsePct(displayExpectedReturn);
+                const earningsDaysRaw = Number(item.earningsDaysToEvent ?? item.techMetrics?.daysToEarnings);
+                const earningsDaysCard = Number.isFinite(earningsDaysRaw) ? Math.round(earningsDaysRaw) : null;
                 
                 // [MODIFIED] Calculate Quant System Score (Weighted Average)
                 const quantSystemScore = (
@@ -4300,6 +4335,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       >
                         {decisionReasonLabel}
                       </span>
+                    </div>
+                    <div className="mb-2 grid grid-cols-3 gap-2 text-[8px]">
+                      <div className="px-2 py-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 text-cyan-200 font-semibold">
+                        RR {rrCard == null ? 'N/A' : rrCard.toFixed(2)}
+                      </div>
+                      <div className="px-2 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-200 font-semibold">
+                        ER% {expectedReturnPctCard == null ? 'N/A' : `${expectedReturnPctCard.toFixed(0)}%`}
+                      </div>
+                      <div className="px-2 py-1 rounded-md border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200 font-semibold">
+                        EARN {earningsDaysCard == null ? 'N/A' : `D-${earningsDaysCard}`}
+                      </div>
                     </div>
                     
                     <div className="flex justify-between items-center mt-auto">
