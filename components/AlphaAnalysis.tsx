@@ -27,6 +27,10 @@ interface AlphaCandidate {
   name: string;
   price: number;
   compositeAlpha: number;
+  modelRank?: number | null;
+  executionRank?: number | null;
+  executionBucket?: 'EXECUTABLE' | 'WATCHLIST';
+  executionReason?: 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA';
   aiVerdict?: string;
   verdictRaw?: string;
   verdictFinal?: string;
@@ -2760,6 +2764,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       // Update Cache & UI
       // [HARD GATE] Risk-off verdicts are excluded from Top6 by default.
       finalData.sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
+      const modelRankMap = new Map<string, number>();
+      finalData.forEach((item, idx) => {
+          const symbolKey = normalizeContractSymbol(item?.symbol);
+          if (symbolKey && !modelRankMap.has(symbolKey)) {
+              modelRankMap.set(symbolKey, idx + 1);
+          }
+      });
       const hardCutBlocked = finalData.filter(item => isRiskOffVerdict(item.aiVerdict));
       const invalidGeometryBlocked = finalData.filter(item => item.tradePlanStatus === 'INVALID');
       const hardCutAllowed = finalData.filter(item => !isRiskOffVerdict(item.aiVerdict) && item.tradePlanStatus !== 'INVALID');
@@ -2789,6 +2800,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       // Structure normalization happens only after the Top6 detail synthesis step.
       top6Elite = top6Elite.map(item => ({
           ...item,
+          modelRank: modelRankMap.get(normalizeContractSymbol(item?.symbol)) ?? null,
+          executionRank: null,
           selectionReasons: normalizeTop6SelectionReasons(item)
       }));
 
@@ -2904,6 +2917,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               : hasGeometry
                   ? (entryFeasibleShadow ? 'VALID_EXEC' : 'WAIT_PULLBACK_TOO_DEEP')
                   : 'INVALID_GEOMETRY';
+          const executionReason: AlphaCandidate["executionReason"] =
+              tradePlanStatusShadow === 'VALID_EXEC'
+                  ? 'VALID_EXEC'
+                  : tradePlanStatusShadow === 'WAIT_PULLBACK_TOO_DEEP'
+                      ? 'WAIT_PULLBACK_TOO_DEEP'
+                      : tradePlanStatusShadow === 'INVALID_GEOMETRY'
+                          ? 'INVALID_GEOMETRY'
+                          : 'INVALID_DATA';
+          const executionBucket: AlphaCandidate["executionBucket"] =
+              executionReason === 'VALID_EXEC' ? 'EXECUTABLE' : 'WATCHLIST';
           const shouldDowngradeByFeasibility =
               ENTRY_FEASIBILITY_VERDICT_ENFORCE &&
               tradePlanStatusShadow !== 'VALID_EXEC' &&
@@ -2928,8 +2951,31 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               entryFeasible: entryFeasibleShadow,
               entryFeasibleShadow,
               tradePlanStatusShadow,
+              executionBucket,
+              executionReason,
               targetPrice: mirroredTarget ?? 0,
               targetMeanPrice: mirroredTarget ?? 0
+          };
+      });
+      const executionRankMap = new Map<string, number>();
+      top6Elite
+          .filter((item) => item.executionBucket === 'EXECUTABLE')
+          .sort((a, b) => {
+              const aRank = Number(a.modelRank ?? Number.POSITIVE_INFINITY);
+              const bRank = Number(b.modelRank ?? Number.POSITIVE_INFINITY);
+              return aRank - bRank;
+          })
+          .forEach((item, idx) => {
+              const symbolKey = normalizeContractSymbol(item?.symbol);
+              if (symbolKey) executionRankMap.set(symbolKey, idx + 1);
+          });
+      top6Elite = top6Elite.map((item) => {
+          const symbolKey = normalizeContractSymbol(item?.symbol);
+          const executionRank =
+              item.executionBucket === 'EXECUTABLE' ? (executionRankMap.get(symbolKey) ?? null) : null;
+          return {
+              ...item,
+              executionRank
           };
       });
       if (ENTRY_FEASIBILITY_VERDICT_ENFORCE) {

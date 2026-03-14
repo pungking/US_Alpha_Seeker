@@ -73,8 +73,10 @@
 
 | 체크 | PASS 조건 | 근거 소스 |
 |---|---|---|
+| rank 계약 | `modelRank/executionRank/executionBucket/executionReason` 출력 | Stage6 JSON 샘플 |
 | verdict 계약 | `verdictFinal` 존재 + `finalVerdict`와 동일 | Stage6 JSON 샘플 |
 | entry shadow 필드 | `entryExecPriceShadow`, `entryDistancePctShadow`, `entryFeasibleShadow`, `tradePlanStatusShadow` 출력 | Stage6 JSON 샘플 |
+| Top6 불변성 | 동일 입력(Stage5 lock/hash)에서 Top6 종목/개수 변화 없음 | Stage6 JSON 비교 |
 | dry-run 동작 불변 | 동일 Stage6 hash에서 `payloadCount/skippedCount` 기존 대비 변화 없음 | `last-dry-exec-preview.json`, `[RUN_SUMMARY]` |
 | integrity gate | `INTEGRITY_GATE_BLOCKED` 신규 발생 0건 | Actions 로그 |
 | sidecar 파서 호환 | 요약 verdict/plan 파싱 실패 0건 | dry-run summary / Telegram summary |
