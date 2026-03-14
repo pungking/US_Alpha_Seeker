@@ -890,16 +890,58 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   // --- DATA SOURCES ---
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=10&includeItemsFromAllDrives=true&supportsAllDrives=true`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
       const data = await res.json();
       return data.files?.[0]?.id || null;
   };
 
   const findFileId = async (token: string, name: string, parentId: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=10&includeItemsFromAllDrives=true&supportsAllDrives=true`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
       const data = await res.json();
       return data.files?.[0]?.id || null;
+  };
+
+  const findLatestFileParentId = async (token: string, fileName: string) => {
+      const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1&fields=files(id,name,parents)&includeItemsFromAllDrives=true&supportsAllDrives=true`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      const data = await res.json();
+      const parentId = data.files?.[0]?.parents?.[0] || null;
+      return parentId;
+  };
+
+  const resolveSystemMapFolderId = async (token: string) => {
+      let systemMapId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+      if (systemMapId) return systemMapId;
+
+      systemMapId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+      if (systemMapId) {
+          addLog("System Map Folder resolved from Drive root fallback.", "warn");
+          return systemMapId;
+      }
+
+      const readyParentId = await findLatestFileParentId(token, GOOGLE_DRIVE_TARGET.stage4ReadyFile);
+      if (readyParentId) {
+          addLog(`System Map Folder inferred from ${GOOGLE_DRIVE_TARGET.stage4ReadyFile}.`, "warn");
+          return readyParentId;
+      }
+
+      const progressParentId = await findLatestFileParentId(token, "COLLECTION_PROGRESS.json");
+      if (progressParentId) {
+          addLog("System Map Folder inferred from COLLECTION_PROGRESS.json.", "warn");
+          return progressParentId;
+      }
+
+      return null;
   };
 
   const downloadFile = async (token: string, fileId: string) => {
@@ -1277,8 +1319,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     try {
       addLog("Phase 1: Resolving Stage 4 Ready Signal...", "info");
 
-      let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
-      if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+      const systemMapId = await resolveSystemMapFolderId(accessToken);
 
       if (!systemMapId) {
         addLog("System Map Folder Missing. Stage 4 cannot start.", "err");

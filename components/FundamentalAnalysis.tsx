@@ -362,8 +362,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     }, []);
 
     // 구글 드라이브에서 진행률을 읽어오는 함수
-    const checkProgress = async (token: string, sysFolderId: string) => {
+    const checkProgress = async (token: string, preferredSysFolderId: string | null = null) => {
         try {
+            const sysFolderId = preferredSysFolderId || await resolveSystemMapFolderId(token);
+            if (!sysFolderId) return;
+
             const expectedTriggerFile = pendingStage4TriggerRef.current;
             const progressFileId = await findFileId(token, "COLLECTION_PROGRESS.json", sysFolderId);
             if (progressFileId) {
@@ -440,16 +443,57 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     // ... (Drive functions remain same) ...
     const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=10&includeItemsFromAllDrives=true&supportsAllDrives=true`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
       const data = await res.json();
       return data.files?.[0]?.id || null;
     };
 
     const findFileId = async (token: string, name: string, parentId: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${parentId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      const res = await fetch(
+        `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=10&includeItemsFromAllDrives=true&supportsAllDrives=true`,
+        { headers: { 'Authorization': `Bearer ${token}` } }
+      );
       const data = await res.json();
       return data.files?.[0]?.id || null;
+    };
+
+    const findLatestFileParentId = async (token: string, fileName: string) => {
+        const q = encodeURIComponent(`name = '${fileName}' and trashed = false`);
+        const res = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1&fields=files(id,name,parents)&includeItemsFromAllDrives=true&supportsAllDrives=true`,
+            { headers: { 'Authorization': `Bearer ${token}` } }
+        );
+        const data = await res.json();
+        return data.files?.[0]?.parents?.[0] || null;
+    };
+
+    const resolveSystemMapFolderId = async (token: string) => {
+        let systemMapId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+        if (systemMapId) return systemMapId;
+
+        systemMapId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+        if (systemMapId) {
+            addLog("System Map Folder resolved from Drive root fallback.", "warn");
+            return systemMapId;
+        }
+
+        const readyParentId = await findLatestFileParentId(token, "LATEST_STAGE4_READY.json");
+        if (readyParentId) {
+            addLog("System Map Folder inferred from LATEST_STAGE4_READY.json.", "warn");
+            return readyParentId;
+        }
+
+        const progressParentId = await findLatestFileParentId(token, "COLLECTION_PROGRESS.json");
+        if (progressParentId) {
+            addLog("System Map Folder inferred from COLLECTION_PROGRESS.json.", "warn");
+            return progressParentId;
+        }
+
+        return null;
     };
 
     const downloadFile = async (token: string, fileId: string) => {
@@ -527,8 +571,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             const universeBaselines = computeUniverseBaselines(candidates);
 
-            let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
-            if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
+            const systemMapId = await resolveSystemMapFolderId(accessToken);
             const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
             const dailyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId) : null;
             
@@ -792,15 +835,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               stopSyncPolling();
               
               // 10초마다 구글 드라이브에서 진행률 체크 (systemMapId는 위에서 찾은 변수 사용)
-              if (systemMapId) {
-                  await checkProgress(accessToken, systemMapId);
-                  if (!readySignalHandledRef.current && pendingStage4TriggerRef.current) {
-                      pollingInterval.current = setInterval(() => {
-                          checkProgress(accessToken, systemMapId);
-                      }, 10000);
-                  }
-              } else {
-                  addLog("[WARN] System Map Folder를 찾지 못해 Ready Signal을 확인할 수 없습니다.", "warn");
+              if (!systemMapId) {
+                  addLog("[WARN] System Map Folder를 즉시 찾지 못했습니다. Ready Signal 자동 탐색을 계속 시도합니다.", "warn");
+              }
+              await checkProgress(accessToken, systemMapId);
+              if (!readySignalHandledRef.current && pendingStage4TriggerRef.current) {
+                  pollingInterval.current = setInterval(() => {
+                      checkProgress(accessToken, systemMapId);
+                  }, 10000);
               }
               
             } else {
