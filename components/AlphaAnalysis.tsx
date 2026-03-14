@@ -540,6 +540,27 @@ const fetchMarketBenchmarks = async () => {
 
 const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFinalSymbolsDetected, onStockSelected, analyzingSymbols = new Set(), autoStart, onComplete, isVisible = true }) => {
   const getAlphaRankScore = (stock: AlphaCandidate | null | undefined) => Number(stock?.finalSelectionScore || stock?.convictionScore || 0);
+  const getExecutionBucketPriority = (stock: AlphaCandidate | null | undefined) =>
+      stock?.executionBucket === 'EXECUTABLE' ? 0 : stock?.executionBucket === 'WATCHLIST' ? 1 : 2;
+  const getExecutionRankValue = (stock: AlphaCandidate | null | undefined) => {
+      const n = Number(stock?.executionRank);
+      return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+  };
+  const getModelRankValue = (stock: AlphaCandidate | null | undefined) => {
+      const n = Number(stock?.modelRank);
+      return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
+  };
+  const sortCandidatesForDisplay = (a: AlphaCandidate, b: AlphaCandidate) => {
+      const bucketDelta = getExecutionBucketPriority(a) - getExecutionBucketPriority(b);
+      if (bucketDelta !== 0) return bucketDelta;
+      const executionRankDelta = getExecutionRankValue(a) - getExecutionRankValue(b);
+      if (executionRankDelta !== 0) return executionRankDelta;
+      const modelRankDelta = getModelRankValue(a) - getModelRankValue(b);
+      if (modelRankDelta !== 0) return modelRankDelta;
+      const scoreDelta = getAlphaRankScore(b) - getAlphaRankScore(a);
+      if (scoreDelta !== 0) return scoreDelta;
+      return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+  };
   const [activeTab, setActiveTab] = useState<'INDIVIDUAL' | 'MATRIX'>('INDIVIDUAL');
   const [loading, setLoading] = useState(false);
   const [backtestLoading, setBacktestLoading] = useState(false);
@@ -560,8 +581,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const stage6FinalRunIdRef = useRef<string>('');
 
   // Define derived state explicitly to avoid scope issues
-  // [MODIFIED] currentResults sorted by conviction score descending
-  const currentResults = (resultsCache[selectedBrain] || []).sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
+  const currentResults = useMemo(
+      () => [...(resultsCache[selectedBrain] || [])].sort(sortCandidatesForDisplay),
+      [resultsCache, selectedBrain]
+  );
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
@@ -914,11 +937,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [logs]);
 
   useEffect(() => {
-    const cached = resultsCache[selectedBrain];
-    if (cached && cached.length > 0) {
-      const sorted = [...cached].sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
-      if (!selectedStock || !sorted.find(c => c.symbol === selectedStock.symbol)) {
-        const initialStock = sorted[0];
+    if (currentResults.length > 0) {
+      if (!selectedStock || !currentResults.find(c => c.symbol === selectedStock.symbol)) {
+        const initialStock = currentResults[0];
         setSelectedStock(initialStock);
         onStockSelected?.(initialStock);
       }
@@ -926,7 +947,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       setSelectedStock(null);
       onStockSelected?.(null);
     }
-  }, [selectedBrain, resultsCache]);
+  }, [selectedBrain, currentResults, selectedStock, onStockSelected]);
 
   useEffect(() => {
     if (accessToken && elite50.length === 0) loadStage5Data();
@@ -3741,6 +3762,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         ? item.entryFeasible
                         : (typeof item.entryFeasibleShadow === 'boolean' ? item.entryFeasibleShadow : null);
                 const tradePlanStatusCard = String(item.tradePlanStatusShadow || item.tradePlanStatus || 'N/A');
+                const modelRankCardRaw = Number(item.modelRank);
+                const modelRankCard = Number.isFinite(modelRankCardRaw) ? modelRankCardRaw : null;
+                const executionRankCardRaw = Number(item.executionRank);
+                const executionRankCard = Number.isFinite(executionRankCardRaw) ? executionRankCardRaw : null;
+                const executionBucketCard =
+                    item.executionBucket === 'EXECUTABLE' ? 'EXECUTABLE' : 'WATCHLIST';
                 
                 // [MODIFIED] Calculate Quant System Score (Weighted Average)
                 const quantSystemScore = (
@@ -3753,7 +3780,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 // [CRITICAL] Visual Signal Synchronization (Fact + AI Consensus)
                 // Only glow if Smart Money Flow > 90 (Stage 5 Data) AND AI Confirms (Stage 6)
                 const isNeonGlow = item.isConfirmedSmartMoney === true && !isRiskOffVerdict(item.aiVerdict);
-                const isTopPick = index < 2;
+                const isTopPick = modelRankCard != null ? modelRankCard <= 2 : index < 2;
 
                 return (
                   <div 
@@ -3783,7 +3810,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="flex flex-col gap-1 mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
                         <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
-                             {index < 2 && (
+                             {isTopPick && (
                                  <span 
                                     onClick={(e) => handleSignalClick(e, 'FINALIST')}
                                     className="text-[7px] px-1.5 py-0.5 rounded-sm bg-red-500/20 text-red-200 border border-red-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-red-500/40 transition-colors"
@@ -3840,6 +3867,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none shrink-0">{item.symbol}</h4>
                                 </div>
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
+                                <div className="flex flex-wrap items-center gap-1 mt-1">
+                                    <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-black tracking-tight whitespace-nowrap">
+                                        Model #{modelRankCard ?? '-'}
+                                    </span>
+                                    <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 font-black tracking-tight whitespace-nowrap">
+                                        Exec #{executionRankCard ?? '-'}
+                                    </span>
+                                    <span className={`text-[7px] px-1.5 py-0.5 rounded-sm border font-black tracking-tight whitespace-nowrap ${
+                                        executionBucketCard === 'EXECUTABLE'
+                                            ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'
+                                            : 'bg-amber-500/20 text-amber-200 border-amber-500/30'
+                                    }`}>
+                                        {executionBucketCard}
+                                    </span>
+                                </div>
                             </div>
                             
                             <div className="flex flex-col justify-end items-end gap-0.5 ml-auto h-[45px]">
