@@ -113,6 +113,28 @@ Evidence
 
 ---
 
+## 0.7) Payload Path Probe (one-shot, policy-gate isolation)
+
+Goal: isolate whether `payload=0` is caused by policy floor (conviction) vs contract/parser mismatch.
+
+### TC-0.7A (temporary conviction override probe)
+
+- [ ] Open `sidecar-dry-run` -> **Run workflow**
+- [ ] Set input `payload_probe=true`
+- [ ] Set input `payload_probe_min_conviction=30` (or 20/40/50)
+- [ ] Confirm Step Summary includes `Payload Path Probe` section
+- [ ] Confirm `payloads/skipped` changes as expected vs baseline
+- [ ] Revert to baseline policy (no permanent var change needed; probe is one-shot env override)
+
+Evidence
+- run id:
+- probe setting:
+- key log line:
+- payload/skipped:
+- notes:
+
+---
+
 ## 1) TC-1 blocked_safety_mode validation
 
 Goal: confirm active mode actions are blocked when safety gate is closed.
