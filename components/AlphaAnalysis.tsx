@@ -1266,8 +1266,47 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return Number.isFinite(n) ? n : null;
   };
 
+  const TELEGRAM_INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100', 'IXIC']);
+
+  const isExecutableForTelegramContract = (item: AlphaCandidate): boolean => {
+      const bucket = String(item?.executionBucket || '').trim().toUpperCase();
+      if (bucket === 'EXECUTABLE') return true;
+      if (bucket === 'WATCHLIST') return false;
+
+      const reason = String(item?.executionReason || item?.tradePlanStatusShadow || '').trim().toUpperCase();
+      if (reason) return reason === 'VALID_EXEC';
+
+      const verdictKey = String(item?.verdictFinal || item?.finalVerdict || item?.aiVerdict || item?.verdict || '')
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, '_')
+          .replace(/-/g, '_');
+      if (verdictKey === 'WAIT' || verdictKey === 'HOLD') return false;
+
+      const feasible = item?.entryFeasible ?? item?.entryFeasibleShadow;
+      if (typeof feasible === 'boolean') return feasible;
+      return true;
+  };
+
+  const pickTelegramContractCandidates = (items: AlphaCandidate[]): AlphaCandidate[] => {
+      const nonIndex = items.filter((item) => !TELEGRAM_INDEX_SYMBOLS.has(normalizeContractSymbol(item?.symbol)));
+      const sorted = [...nonIndex].sort((a, b) => {
+          const modelA = parseContractNumber(a?.modelRank);
+          const modelB = parseContractNumber(b?.modelRank);
+          if (modelA !== null || modelB !== null) {
+              if (modelA === null) return 1;
+              if (modelB === null) return -1;
+              if (modelA !== modelB) return modelA - modelB;
+          }
+          const convA = parseContractNumber(a?.convictionScore ?? a?.compositeAlpha) ?? 0;
+          const convB = parseContractNumber(b?.convictionScore ?? b?.compositeAlpha) ?? 0;
+          return convB - convA;
+      });
+      return sorted.filter(isExecutableForTelegramContract).slice(0, 6);
+  };
+
   const buildTelegramContractExpected = (items: AlphaCandidate[]): TelegramContractItem[] =>
-      items.slice(0, 6).map((item) => ({
+      pickTelegramContractCandidates(items).map((item) => ({
           symbol: normalizeContractSymbol(item?.symbol),
           entry: parseContractNumber(
               item?.entryExecPrice ?? item?.entryExecPriceShadow ?? item?.entryPrice ?? item?.otePrice ?? item?.supportLevel
@@ -2903,15 +2942,39 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const hardCutBlocked = scoredCandidates.filter(item => isRiskOffVerdict(item.aiVerdict));
       const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
+      const modelTop6Pool = primaryPool.slice(0, 6);
       const executablePool = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
       const watchlistPool = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
       const invalidGeometryBlocked = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
+      const modelTop6Watchlist = modelTop6Pool.filter(item => item.executionBucket === 'WATCHLIST');
 
       let top6Elite = executablePool.slice(0, 6);
+      const modelSummaryLine = modelTop6Pool.length > 0
+          ? modelTop6Pool
+              .map((item, idx) =>
+                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},${item.executionBucket || 'N/A'}/${item.executionReason || 'N/A'})`
+              )
+              .join(' | ')
+          : 'none';
+      addLog(`Top6(Model): ${modelSummaryLine}`, "info");
       addLog(
           `Execution-only: executable=${executablePool.length} selected=${top6Elite.length} dropped_watchlist=${watchlistPool.length}`,
           top6Elite.length === 0 ? "warn" : "ok"
       );
+      const executableSummaryLine = top6Elite.length > 0
+          ? top6Elite
+              .map((item, idx) => `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'})`)
+              .join(' | ')
+          : 'none';
+      addLog(`Executable Picks: ${executableSummaryLine}`, top6Elite.length > 0 ? "ok" : "warn");
+      if (modelTop6Watchlist.length > 0) {
+          addLog(
+              `Watchlist(Model Top6): ${modelTop6Watchlist
+                  .map((item) => `${item.symbol}:${item.executionReason || 'N/A'}`)
+                  .join(', ')}`,
+              "warn"
+          );
+      }
       const watchlistReasonCounts = watchlistPool.reduce<Record<string, number>>((acc, item) => {
           const reason = String(item.executionReason || 'UNKNOWN');
           acc[reason] = (acc[reason] || 0) + 1;

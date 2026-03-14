@@ -1770,12 +1770,68 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
       // 3. Format Candidates Programmatically
       const INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100', 'IXIC']);
-      const top6 = safeCandidates
-          .filter(c => !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()))
-          .slice(0, 6);
+      const toNum = (value: any): number | null => {
+          const n = Number(value);
+          return Number.isFinite(n) ? n : null;
+      };
+      const toVerdictKey = (value: any) =>
+          String(value || '')
+              .trim()
+              .toUpperCase()
+              .replace(/\s+/g, '_')
+              .replace(/-/g, '_');
+      const readExecutionBucket = (item: any): 'EXECUTABLE' | 'WATCHLIST' | null => {
+          const raw = String(item?.executionBucket || '').trim().toUpperCase();
+          if (raw === 'EXECUTABLE') return 'EXECUTABLE';
+          if (raw === 'WATCHLIST') return 'WATCHLIST';
+          return null;
+      };
+      const readExecutionReason = (item: any): 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA' | null => {
+          const raw = String(item?.executionReason || item?.tradePlanStatusShadow || '').trim().toUpperCase();
+          if (
+              raw === 'VALID_EXEC' ||
+              raw === 'WAIT_PULLBACK_TOO_DEEP' ||
+              raw === 'INVALID_GEOMETRY' ||
+              raw === 'INVALID_DATA'
+          ) {
+              return raw;
+          }
+          return null;
+      };
+      const isExecutableCandidate = (item: any): boolean => {
+          const bucket = readExecutionBucket(item);
+          if (bucket) return bucket === 'EXECUTABLE';
+          const reason = readExecutionReason(item);
+          if (reason) return reason === 'VALID_EXEC';
+          const verdict = toVerdictKey(item?.verdictFinal || item?.finalVerdict || item?.aiVerdict || item?.verdict || '');
+          if (verdict === 'WAIT' || verdict === 'HOLD') return false;
+          const feasible = item?.entryFeasible ?? item?.entryFeasibleShadow;
+          if (typeof feasible === 'boolean') return feasible;
+          return true;
+      };
+      const formatPct = (value: any): string => {
+          const n = toNum(value);
+          return n === null ? 'N/A' : `${n.toFixed(2)}%`;
+      };
+      const nonIndexCandidates = safeCandidates.filter(c => !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()));
+      const modelSorted = [...nonIndexCandidates].sort((a, b) => {
+          const modelA = toNum(a?.modelRank);
+          const modelB = toNum(b?.modelRank);
+          if (modelA !== null || modelB !== null) {
+              if (modelA === null) return 1;
+              if (modelB === null) return -1;
+              if (modelA !== modelB) return modelA - modelB;
+          }
+          const convA = toNum(a?.convictionScore) ?? toNum(a?.compositeAlpha) ?? 0;
+          const convB = toNum(b?.convictionScore) ?? toNum(b?.compositeAlpha) ?? 0;
+          return convB - convA;
+      });
+      const modelTop6 = modelSorted.slice(0, 6);
+      const executablePicks = modelTop6.filter(isExecutableCandidate);
+      const watchlistTop = modelTop6.filter(item => !isExecutableCandidate(item));
       
       const sectorCounts: Record<string, number> = {};
-      top6.forEach(c => {
+      (executablePicks.length > 0 ? executablePicks : modelTop6).forEach(c => {
           const s = c?.sectorTheme || c?.sector || "Unknown";
           sectorCounts[s] = (sectorCounts[s] || 0) + 1;
       });
@@ -1803,14 +1859,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           return out || raw;
       };
 
-      const toVerdictKey = (value: any) =>
-          String(value || '')
-              .trim()
-              .toUpperCase()
-              .replace(/\s+/g, '_')
-              .replace(/-/g, '_');
-
-      const selections = top6.map((c, i) => {
+      const formatCandidateDetail = (c: any, i: number, numbered = true) => {
           if (!c) return "";
           
           // [DATA INTEGRITY] Safe Number Conversion & ROE Capping
@@ -1927,7 +1976,8 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
 
           const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 85 ? " [🔥SMART MONEY]" : "";
           
-          return `${i + 1}. ${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
+          const headerPrefix = numbered ? `${i + 1}. ` : `• `;
+          return `${headerPrefix}${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: feasible=${entryFeasibleLabel} | status=${tradePlanStatus} | distance=${distanceLabel}
@@ -1936,7 +1986,36 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
      - ${r1}
      - ${r2}
      - ${r3}`;
-      }).filter(s => s !== "").join('\n\n');
+      };
+
+      const modelSummary = modelTop6.length > 0
+          ? modelTop6
+              .map((c, i) => {
+                  const modelRank = toNum(c?.modelRank);
+                  const execRank = toNum(c?.executionRank);
+                  const bucket = readExecutionBucket(c) || (isExecutableCandidate(c) ? 'EXECUTABLE' : 'WATCHLIST');
+                  const reason = readExecutionReason(c) || (bucket === 'EXECUTABLE' ? 'VALID_EXEC' : 'N/A');
+                  const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
+                  const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | ${bucket}/${reason} | Conv ${Math.round(conv)} | ER ${er}`;
+              })
+              .join('\n')
+          : '• N/A';
+
+      const executableSection = executablePicks.length > 0
+          ? executablePicks.map((c, i) => formatCandidateDetail(c, i, true)).filter(Boolean).join('\n\n')
+          : '현재 실행 가능한 후보가 없습니다.';
+
+      const watchlistSection = watchlistTop.length > 0
+          ? watchlistTop
+              .map((c, i) => {
+                  const reason = readExecutionReason(c) || 'N/A';
+                  const distance = formatPct(c?.entryDistancePct ?? c?.entryDistancePctShadow);
+                  const verdict = toVerdictKey(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || '');
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | verdict=${verdict || 'N/A'} | reason=${reason} | distance=${distance}`;
+              })
+              .join('\n')
+          : '• 없음';
 
       // 4. Construct Final Message
       let riskNote = "";
@@ -1958,9 +2037,15 @@ ${macroSection}
 Source: ${pulseSourceLabel} | CapturedAt: ${pulseCapturedAtLabel}
 ${sectorWarning}
 
-💎 Alpha Top 6 Selections
+🧠 Top6 (Model Rank)
+${modelSummary}
 
-${selections}
+✅ Executable Picks
+
+${executableSection}
+
+⏳ Watchlist (실행 대기)
+${watchlistSection}
 
 ${riskNote}
 
