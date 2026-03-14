@@ -3155,7 +3155,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const modelSummaryLine = modelTop6Pool.length > 0
           ? modelTop6Pool
               .map((item, idx) =>
-                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},${item.executionBucket || 'N/A'}/${item.executionReason || 'N/A'})`
+                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
               )
               .join(' | ')
           : 'none';
