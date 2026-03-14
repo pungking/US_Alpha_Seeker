@@ -2953,6 +2953,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       // [HARD GATE] Risk-off verdicts are excluded from primary Top6 queue.
       const pickFinite = (...vals: any[]): number | null => {
           for (const v of vals) {
+              if (v === null || v === undefined) continue;
+              if (typeof v === 'string' && v.trim() === '') continue;
+              if (typeof v === 'boolean') continue;
               const n = Number(v);
               if (Number.isFinite(n)) return n;
           }
@@ -3178,7 +3181,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (modelTop6Watchlist.length > 0) {
           addLog(
               `Watchlist(Model Top6): ${modelTop6Watchlist
-                  .map((item) => `${item.symbol}:${item.executionReason || 'N/A'}`)
+                  .map(
+                      (item) =>
+                          `${item.symbol}:${String(item.finalDecision || 'N/A')}/${String(item.decisionReason || item.executionReason || 'N/A')}`
+                  )
                   .join(', ')}`,
               "warn"
           );
@@ -4119,7 +4125,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
-                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col h-[240px] ${
+                    className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col min-h-[280px] ${
                         flashClass || (
                             isSelected ? 'border-emerald-400 bg-emerald-500/10 shadow-xl ring-2 ring-emerald-400/50 z-10' : 
                             (isTopPick ? 'border-red-500/60 bg-red-500/5 shadow-[0_0_30px_rgba(220,38,38,0.25)] animate-pulse' : 
