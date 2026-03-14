@@ -2762,111 +2762,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
 
       // Update Cache & UI
-      // [HARD GATE] Risk-off verdicts are excluded from Top6 by default.
-      finalData.sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
-      const modelRankMap = new Map<string, number>();
-      finalData.forEach((item, idx) => {
-          const symbolKey = normalizeContractSymbol(item?.symbol);
-          if (symbolKey && !modelRankMap.has(symbolKey)) {
-              modelRankMap.set(symbolKey, idx + 1);
-          }
-      });
-      const hardCutBlocked = finalData.filter(item => isRiskOffVerdict(item.aiVerdict));
-      const invalidGeometryBlocked = finalData.filter(item => item.tradePlanStatus === 'INVALID');
-      const hardCutAllowed = finalData.filter(item => !isRiskOffVerdict(item.aiVerdict) && item.tradePlanStatus !== 'INVALID');
-
-      let top6Elite = hardCutAllowed.slice(0, 6);
-      if (top6Elite.length < 6) {
-          const fallbackNeeded = 6 - top6Elite.length;
-          const fallbackRiskOff = hardCutBlocked.slice(0, fallbackNeeded);
-          const remainAfterRiskOff = fallbackNeeded - fallbackRiskOff.length;
-          const fallbackInvalid = remainAfterRiskOff > 0 ? invalidGeometryBlocked.slice(0, remainAfterRiskOff) : [];
-          top6Elite = [...top6Elite, ...fallbackRiskOff, ...fallbackInvalid];
-          if (fallbackRiskOff.length > 0 || fallbackInvalid.length > 0) {
-              addLog(
-                  `Hard Gate Softened: ${fallbackRiskOff.length} risk-off + ${fallbackInvalid.length} invalid-geometry names kept to maintain Top6 cardinality.`,
-                  "warn"
-              );
-          }
-      }
-      if (hardCutBlocked.length > 0) {
-          addLog(`Hard Gate: Excluded ${hardCutBlocked.length} risk-off verdict names from primary Top6 queue.`, "ok");
-      }
-      if (invalidGeometryBlocked.length > 0) {
-          addLog(`Hard Gate: Excluded ${invalidGeometryBlocked.length} invalid-geometry names from primary Top6 queue.`, "ok");
-      }
-
-      // Pre-detail pass: keep original AI narrative untouched.
-      // Structure normalization happens only after the Top6 detail synthesis step.
-      top6Elite = top6Elite.map(item => ({
-          ...item,
-          modelRank: modelRankMap.get(normalizeContractSymbol(item?.symbol)) ?? null,
-          executionRank: null,
-          selectionReasons: normalizeTop6SelectionReasons(item)
-      }));
-
-      top6Elite.forEach((item) => {
-          const rawConv = Number(item.rawConvictionScore ?? item.convictionScore ?? 0);
-          const gatedConv = Number(item.convictionScore ?? 0);
-          const rawEr = item.rawExpectedReturn || item.expectedReturn || 'TBD';
-          const gatedEr = item.gatedExpectedReturn || item.expectedReturn || 'TBD';
-          addLog(
-              `[AUDIT] ${item.symbol} | TP ${item.tradePlanStatus || 'VALID'}/${item.tradePlanSource || 'RAW'} | Conv ${rawConv.toFixed(1)}→${gatedConv.toFixed(1)} | ER ${rawEr}→${gatedEr} | ${item.aiVerdict || 'N/A'}`,
-              "info"
-          );
-      });
-
-      // [TOP6 DETAIL PASS] Keep Top12 AI lightweight; generate rich Neural Outlook only for final Top6.
-      try {
-          const detailProvider = usedProvider === ApiProvider.GEMINI ? ApiProvider.GEMINI : ApiProvider.PERPLEXITY;
-          const detailResult = await generateTop6NeuralOutlook(top6Elite, detailProvider);
-          if (detailResult?.data && Array.isArray(detailResult.data) && detailResult.data.length > 0) {
-              const detailMap = new Map(detailResult.data.map((d: any) => [
-                  String(d?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase(),
-                  d
-              ]));
-              top6Elite = top6Elite.map(item => {
-                  const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
-                  const detail = detailMap.get(clean);
-                  if (!detail) return item;
-                  return {
-                      ...item,
-                      investmentOutlook: enforceOutlookTradeBoxConsistency(
-                          detail.investmentOutlook || item.investmentOutlook || '',
-                          item
-                      ),
-                      selectionReasons: Array.isArray(detail.selectionReasons) && detail.selectionReasons.length >= 3
-                          ? detail.selectionReasons
-                          : item.selectionReasons,
-                      analysisLogic: detail.analysisLogic || item.analysisLogic
-                  };
-              });
-              addLog("Top6 Neural Investment Outlook Detail Applied.", "ok");
-          } else if (detailResult?.error) {
-              addLog(`Top6 Detail Pass skipped: ${detailResult.error}`, "warn");
-          }
-      } catch (detailError: any) {
-          addLog(`Top6 Detail Pass failed: ${detailError.message}`, "warn");
-      }
-
-      // Ensure deterministic 3-reason format and 1/2/3 Neural Outlook structure after detail pass.
-      let postDetailStructuredInjected = 0;
-      top6Elite = top6Elite.map(item => {
-          const normalizedOutlook = ensureStructuredOutlook(item.investmentOutlook || '', item);
-          if (normalizedOutlook !== String(item.investmentOutlook || '')) {
-              postDetailStructuredInjected++;
-          }
-          return {
-              ...item,
-              investmentOutlook: normalizedOutlook,
-              selectionReasons: normalizeTop6SelectionReasons(item)
-          };
-      });
-      if (postDetailStructuredInjected > 0) {
-          addLog(`Top6 Outlook Guard(Post-Detail): structured 1/2/3 template normalized for ${postDetailStructuredInjected} names.`, "warn");
-      }
-
-      // [CONTRACT STABILITY] Mirror fields for downstream consumers (no score/rank impact).
+      // [HARD GATE] Risk-off verdicts are excluded from primary Top6 queue.
       const pickFinite = (...vals: any[]): number | null => {
           for (const v of vals) {
               const n = Number(v);
@@ -2884,10 +2780,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const ENTRY_FEASIBILITY_VERDICT_ENFORCE = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_VERDICT_ENFORCE ?? 'true'
       );
-      let entryFeasibilityDowngradedCount = 0;
-      top6Elite = top6Elite.map(item => {
-          const verdictRaw = String(item?.aiVerdict || item?.verdict || item?.finalVerdict || 'HOLD');
-          const candidateVerdict = String(item?.finalVerdict || item?.aiVerdict || item?.verdict || 'HOLD');
+      const deriveExecutionContractFields = (item: AlphaCandidate) => {
           const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
           const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
           const mirroredStop = pickFinite(item?.stopLoss, item?.ictStopLoss);
@@ -2927,9 +2820,157 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           : 'INVALID_DATA';
           const executionBucket: AlphaCandidate["executionBucket"] =
               executionReason === 'VALID_EXEC' ? 'EXECUTABLE' : 'WATCHLIST';
+          return {
+              mirroredEntry,
+              mirroredTarget,
+              entryAnchorPrice,
+              entryExecPriceShadow,
+              entryDistancePctShadow,
+              entryFeasibleShadow,
+              tradePlanStatusShadow,
+              executionReason,
+              executionBucket
+          };
+      };
+
+      finalData.sort((a, b) => getAlphaRankScore(b) - getAlphaRankScore(a));
+      const modelRankMap = new Map<string, number>();
+      finalData.forEach((item, idx) => {
+          const symbolKey = normalizeContractSymbol(item?.symbol);
+          if (symbolKey && !modelRankMap.has(symbolKey)) {
+              modelRankMap.set(symbolKey, idx + 1);
+          }
+      });
+
+      const scoredCandidates = finalData.map((item) => {
+          const executionContract = deriveExecutionContractFields(item);
+          return {
+              ...item,
+              modelRank: modelRankMap.get(normalizeContractSymbol(item?.symbol)) ?? null,
+              executionRank: null,
+              entryPrice: executionContract.mirroredEntry ?? item.entryPrice ?? 0,
+              entryAnchorPrice: executionContract.entryAnchorPrice ?? undefined,
+              entryExecPrice: executionContract.entryExecPriceShadow ?? undefined,
+              entryExecPriceShadow: executionContract.entryExecPriceShadow ?? undefined,
+              entryDistancePct: executionContract.entryDistancePctShadow ?? undefined,
+              entryDistancePctShadow: executionContract.entryDistancePctShadow ?? undefined,
+              entryFeasible: executionContract.entryFeasibleShadow,
+              entryFeasibleShadow: executionContract.entryFeasibleShadow,
+              tradePlanStatusShadow: executionContract.tradePlanStatusShadow,
+              executionBucket: executionContract.executionBucket,
+              executionReason: executionContract.executionReason,
+              targetPrice: executionContract.mirroredTarget ?? item.targetPrice ?? 0,
+              targetMeanPrice: executionContract.mirroredTarget ?? item.targetMeanPrice ?? 0
+          };
+      });
+
+      const hardCutBlocked = scoredCandidates.filter(item => isRiskOffVerdict(item.aiVerdict));
+      const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
+      const executablePool = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
+      const watchlistPool = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
+
+      let top6Elite = executablePool.slice(0, 6);
+      addLog(
+          `Execution-only: executable=${executablePool.length} selected=${top6Elite.length} dropped_watchlist=${watchlistPool.length}`,
+          top6Elite.length === 0 ? "warn" : "ok"
+      );
+      const watchlistReasonCounts = watchlistPool.reduce<Record<string, number>>((acc, item) => {
+          const reason = String(item.executionReason || 'UNKNOWN');
+          acc[reason] = (acc[reason] || 0) + 1;
+          return acc;
+      }, {});
+      addLog(
+          `Execution-only reasons: VALID_EXEC=${executablePool.length} WAIT_PULLBACK_TOO_DEEP=${watchlistReasonCounts.WAIT_PULLBACK_TOO_DEEP || 0} INVALID_GEOMETRY=${watchlistReasonCounts.INVALID_GEOMETRY || 0} INVALID_DATA=${watchlistReasonCounts.INVALID_DATA || 0}`,
+          "info"
+      );
+      if (hardCutBlocked.length > 0) {
+          addLog(`Hard Gate: Excluded ${hardCutBlocked.length} risk-off verdict names from primary Top6 queue.`, "ok");
+      }
+      if (watchlistPool.length > 0) {
+          addLog(`Execution-only: ${watchlistPool.length} watchlist names excluded (no fallback).`, "warn");
+      }
+
+      // Pre-detail pass: keep original AI narrative untouched.
+      // Structure normalization happens only after the Top6 detail synthesis step.
+      top6Elite = top6Elite.map(item => ({
+          ...item,
+          selectionReasons: normalizeTop6SelectionReasons(item)
+      }));
+
+      top6Elite.forEach((item) => {
+          const rawConv = Number(item.rawConvictionScore ?? item.convictionScore ?? 0);
+          const gatedConv = Number(item.convictionScore ?? 0);
+          const rawEr = item.rawExpectedReturn || item.expectedReturn || 'TBD';
+          const gatedEr = item.gatedExpectedReturn || item.expectedReturn || 'TBD';
+          addLog(
+              `[AUDIT] ${item.symbol} | TP ${item.tradePlanStatus || 'VALID'}/${item.tradePlanSource || 'RAW'} | Conv ${rawConv.toFixed(1)}→${gatedConv.toFixed(1)} | ER ${rawEr}→${gatedEr} | ${item.aiVerdict || 'N/A'}`,
+              "info"
+          );
+      });
+
+      // [TOP6 DETAIL PASS] Keep Top12 AI lightweight; generate rich Neural Outlook only for final Top6.
+      if (top6Elite.length > 0) {
+          try {
+              const detailProvider = usedProvider === ApiProvider.GEMINI ? ApiProvider.GEMINI : ApiProvider.PERPLEXITY;
+              const detailResult = await generateTop6NeuralOutlook(top6Elite, detailProvider);
+              if (detailResult?.data && Array.isArray(detailResult.data) && detailResult.data.length > 0) {
+                  const detailMap = new Map(detailResult.data.map((d: any) => [
+                      String(d?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase(),
+                      d
+                  ]));
+                  top6Elite = top6Elite.map(item => {
+                      const clean = String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+                      const detail = detailMap.get(clean);
+                      if (!detail) return item;
+                      return {
+                          ...item,
+                          investmentOutlook: enforceOutlookTradeBoxConsistency(
+                              detail.investmentOutlook || item.investmentOutlook || '',
+                              item
+                          ),
+                          selectionReasons: Array.isArray(detail.selectionReasons) && detail.selectionReasons.length >= 3
+                              ? detail.selectionReasons
+                              : item.selectionReasons,
+                          analysisLogic: detail.analysisLogic || item.analysisLogic
+                      };
+                  });
+                  addLog("Top6 Neural Investment Outlook Detail Applied.", "ok");
+              } else if (detailResult?.error) {
+                  addLog(`Top6 Detail Pass skipped: ${detailResult.error}`, "warn");
+              }
+          } catch (detailError: any) {
+              addLog(`Top6 Detail Pass failed: ${detailError.message}`, "warn");
+          }
+      } else {
+          addLog("Top6 Detail Pass skipped: no executable candidates selected.", "warn");
+      }
+
+      // Ensure deterministic 3-reason format and 1/2/3 Neural Outlook structure after detail pass.
+      let postDetailStructuredInjected = 0;
+      top6Elite = top6Elite.map(item => {
+          const normalizedOutlook = ensureStructuredOutlook(item.investmentOutlook || '', item);
+          if (normalizedOutlook !== String(item.investmentOutlook || '')) {
+              postDetailStructuredInjected++;
+          }
+          return {
+              ...item,
+              investmentOutlook: normalizedOutlook,
+              selectionReasons: normalizeTop6SelectionReasons(item)
+          };
+      });
+      if (postDetailStructuredInjected > 0) {
+          addLog(`Top6 Outlook Guard(Post-Detail): structured 1/2/3 template normalized for ${postDetailStructuredInjected} names.`, "warn");
+      }
+
+      // [CONTRACT STABILITY] Mirror fields for downstream consumers (no score/rank impact).
+      let entryFeasibilityDowngradedCount = 0;
+      top6Elite = top6Elite.map(item => {
+          const verdictRaw = String(item?.aiVerdict || item?.verdict || item?.finalVerdict || 'HOLD');
+          const candidateVerdict = String(item?.finalVerdict || item?.aiVerdict || item?.verdict || 'HOLD');
+          const executionContract = deriveExecutionContractFields(item);
           const shouldDowngradeByFeasibility =
               ENTRY_FEASIBILITY_VERDICT_ENFORCE &&
-              tradePlanStatusShadow !== 'VALID_EXEC' &&
+              executionContract.tradePlanStatusShadow !== 'VALID_EXEC' &&
               !isRiskOffVerdict(candidateVerdict);
           if (shouldDowngradeByFeasibility) {
               entryFeasibilityDowngradedCount++;
@@ -2942,19 +2983,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               aiVerdict: verdictFinal,
               verdict: verdictFinal,
               finalVerdict: verdictFinal,
-              entryPrice: mirroredEntry ?? 0,
-              entryAnchorPrice: entryAnchorPrice ?? undefined,
-              entryExecPrice: entryExecPriceShadow ?? undefined,
-              entryExecPriceShadow: entryExecPriceShadow ?? undefined,
-              entryDistancePct: entryDistancePctShadow ?? undefined,
-              entryDistancePctShadow: entryDistancePctShadow ?? undefined,
-              entryFeasible: entryFeasibleShadow,
-              entryFeasibleShadow,
-              tradePlanStatusShadow,
-              executionBucket,
-              executionReason,
-              targetPrice: mirroredTarget ?? 0,
-              targetMeanPrice: mirroredTarget ?? 0
+              entryPrice: executionContract.mirroredEntry ?? 0,
+              entryAnchorPrice: executionContract.entryAnchorPrice ?? undefined,
+              entryExecPrice: executionContract.entryExecPriceShadow ?? undefined,
+              entryExecPriceShadow: executionContract.entryExecPriceShadow ?? undefined,
+              entryDistancePct: executionContract.entryDistancePctShadow ?? undefined,
+              entryDistancePctShadow: executionContract.entryDistancePctShadow ?? undefined,
+              entryFeasible: executionContract.entryFeasibleShadow,
+              entryFeasibleShadow: executionContract.entryFeasibleShadow,
+              tradePlanStatusShadow: executionContract.tradePlanStatusShadow,
+              executionBucket: executionContract.executionBucket,
+              executionReason: executionContract.executionReason,
+              targetPrice: executionContract.mirroredTarget ?? 0,
+              targetMeanPrice: executionContract.mirroredTarget ?? 0
           };
       });
       const executionRankMap = new Map<string, number>();
