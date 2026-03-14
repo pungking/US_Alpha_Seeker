@@ -376,6 +376,22 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
     'DEFENSIVE': {
         title: "🛡️ Defensive",
         desc: "시장 변동성이 커져도 주가 하락폭이 작은 '방어적' 성격의 우량주입니다. 포트폴리오의 리스크를 낮춰주는 방패 역할을 합니다."
+    },
+    'MODEL_RANK': {
+        title: "🧭 Model Rank",
+        desc: "Stage6 모델 점수(최종 게이트 반영) 기준 순위입니다. **아이디어의 상대 우선순위**를 보여줍니다."
+    },
+    'EXEC_RANK': {
+        title: "📌 Exec Rank",
+        desc: "실행 가능 후보(Entry/Target/Stop 기하학 + 거리 조건 통과) 안에서의 순위입니다. **실제 주문 우선순위**에 더 가깝습니다."
+    },
+    'EXECUTABLE': {
+        title: "✅ Executable",
+        desc: "현재 규칙에서 **즉시 실행 가능한 상태**입니다. (거리/기하학/게이트 조건 통과)"
+    },
+    'WATCHLIST': {
+        title: "⏳ Watchlist",
+        desc: "종목 자체가 나쁜 것이 아니라 **지금 타이밍이 실행 조건을 아직 충족하지 못한 상태**입니다. 조건 충족 시 실행 후보로 전환됩니다."
     }
 };
 
@@ -2889,6 +2905,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
       const executablePool = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
       const watchlistPool = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
+      const invalidGeometryBlocked = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
 
       let top6Elite = executablePool.slice(0, 6);
       addLog(
@@ -3868,16 +3885,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
                                 <div className="flex flex-wrap items-center gap-1 mt-1">
-                                    <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-black tracking-tight whitespace-nowrap">
+                                    <span
+                                        onClick={(e) => handleSignalClick(e, 'MODEL_RANK')}
+                                        className="text-[7px] px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-cyan-500/35 transition-colors"
+                                    >
                                         Model #{modelRankCard ?? '-'}
                                     </span>
-                                    <span className="text-[7px] px-1.5 py-0.5 rounded-sm bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 font-black tracking-tight whitespace-nowrap">
+                                    <span
+                                        onClick={(e) => handleSignalClick(e, 'EXEC_RANK')}
+                                        className="text-[7px] px-1.5 py-0.5 rounded-sm bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-indigo-500/35 transition-colors"
+                                    >
                                         Exec #{executionRankCard ?? '-'}
                                     </span>
-                                    <span className={`text-[7px] px-1.5 py-0.5 rounded-sm border font-black tracking-tight whitespace-nowrap ${
+                                    <span
+                                        onClick={(e) => handleSignalClick(e, executionBucketCard)}
+                                        className={`text-[7px] px-1.5 py-0.5 rounded-sm border font-black tracking-tight whitespace-nowrap cursor-help transition-colors ${
                                         executionBucketCard === 'EXECUTABLE'
-                                            ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30'
-                                            : 'bg-amber-500/20 text-amber-200 border-amber-500/30'
+                                            ? 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/35'
+                                            : 'bg-amber-500/20 text-amber-200 border-amber-500/30 hover:bg-amber-500/35'
                                     }`}>
                                         {executionBucketCard}
                                     </span>
