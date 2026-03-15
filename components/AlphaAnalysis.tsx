@@ -3152,6 +3152,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }, {});
 
       let top6Elite = executablePool.slice(0, 6);
+      const modelTop6SymbolSet = new Set(
+          modelTop6Pool.map((item) => normalizeContractSymbol(item?.symbol)).filter((symbol): symbol is string => Boolean(symbol))
+      );
+      const executableFallbackCount = top6Elite.reduce((acc, item) => {
+          const symbolKey = normalizeContractSymbol(item?.symbol);
+          if (!symbolKey) return acc;
+          return modelTop6SymbolSet.has(symbolKey) ? acc : acc + 1;
+      }, 0);
       const modelSummaryLine = modelTop6Pool.length > 0
           ? modelTop6Pool
               .map((item, idx) =>
@@ -3164,6 +3172,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           `Execution-only: executable=${executablePool.length} selected=${top6Elite.length} dropped_watchlist=${watchlistPool.length}`,
           top6Elite.length === 0 ? "warn" : "ok"
       );
+      if (executableFallbackCount > 0) {
+          addLog(
+              `Execution fill: ${executableFallbackCount} picks promoted from below model Top6 to satisfy executable-only contract.`,
+              "info"
+          );
+      }
       addLog(
           `Decision dist(primary): EXECUTABLE_NOW=${decisionCountsPrimary.EXECUTABLE_NOW || 0} WAIT_PRICE=${decisionCountsPrimary.WAIT_PRICE || 0} BLOCKED_RISK=${decisionCountsPrimary.BLOCKED_RISK || 0} BLOCKED_EVENT=${decisionCountsPrimary.BLOCKED_EVENT || 0}`,
           "info"
@@ -3190,12 +3204,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           );
       }
       const watchlistReasonCounts = watchlistPool.reduce<Record<string, number>>((acc, item) => {
-          const reason = String(item.executionReason || 'UNKNOWN');
+          const reason = String(item.decisionReason || item.executionReason || 'unknown').toLowerCase();
           acc[reason] = (acc[reason] || 0) + 1;
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: VALID_EXEC=${executablePool.length} WAIT_PULLBACK_TOO_DEEP=${watchlistReasonCounts.WAIT_PULLBACK_TOO_DEEP || 0} INVALID_GEOMETRY=${watchlistReasonCounts.INVALID_GEOMETRY || 0} INVALID_DATA=${watchlistReasonCounts.INVALID_DATA || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -3443,6 +3457,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,
                   decisionCountsPrimary,
                   decisionCountsTop6,
+                  modelTop6Symbols: modelTop6Pool.map((item) => item.symbol),
+                  executablePickSymbols: top6Elite.map((item) => item.symbol),
+                  modelTop6WatchlistSymbols: modelTop6Watchlist.map((item) => item.symbol),
+                  executableFallbackCount,
                   decisionGate: {
                       minRr: STAGE6_MIN_RR_HARD_GATE,
                       minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
@@ -3454,7 +3472,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               audit_trail: top6AuditTrail
           };
           await uploadFile(accessToken, stage6FolderId, `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`, finalPayload);
-          addLog(`Final Top 6 Elite Candidates archived to Drive.`, "ok");
+          addLog(`Final Elite Candidates archived to Drive (count=${top6Elite.length}).`, "ok");
       }
 
       return top6Elite;
