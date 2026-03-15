@@ -1814,6 +1814,10 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const raw = String(item?.decisionReason || '').trim().toLowerCase();
           return raw || null;
       };
+      const readExecutionScore = (item: any): number | null => {
+          const raw = toNum(item?.executionScore);
+          return raw === null ? null : Number(raw.toFixed(1));
+      };
       const isExecutableCandidate = (item: any): boolean => {
           const bucket = readExecutionBucket(item);
           if (bucket) return bucket === 'EXECUTABLE';
@@ -1845,7 +1849,35 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           return convB - convA;
       });
       const modelTop6 = modelSorted.slice(0, 6);
-      const executablePicks = modelTop6.filter(isExecutableCandidate);
+      const executablePicks = [...nonIndexCandidates]
+          .filter(isExecutableCandidate)
+          .sort((a, b) => {
+              const execRankA = toNum(a?.executionRank);
+              const execRankB = toNum(b?.executionRank);
+              if (execRankA !== null || execRankB !== null) {
+                  if (execRankA === null) return 1;
+                  if (execRankB === null) return -1;
+                  if (execRankA !== execRankB) return execRankA - execRankB;
+              }
+              const scoreA = readExecutionScore(a);
+              const scoreB = readExecutionScore(b);
+              if (scoreA !== null || scoreB !== null) {
+                  if (scoreA === null) return 1;
+                  if (scoreB === null) return -1;
+                  if (scoreA !== scoreB) return scoreB - scoreA;
+              }
+              const modelA = toNum(a?.modelRank);
+              const modelB = toNum(b?.modelRank);
+              if (modelA !== null || modelB !== null) {
+                  if (modelA === null) return 1;
+                  if (modelB === null) return -1;
+                  if (modelA !== modelB) return modelA - modelB;
+              }
+              const convA = toNum(a?.convictionScore) ?? toNum(a?.compositeAlpha) ?? 0;
+              const convB = toNum(b?.convictionScore) ?? toNum(b?.compositeAlpha) ?? 0;
+              return convB - convA;
+          })
+          .slice(0, 6);
       const watchlistTop = modelTop6.filter(item => !isExecutableCandidate(item));
       
       const sectorCounts: Record<string, number> = {};
@@ -1989,6 +2021,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const rrValue = Number.isFinite(rrValueRaw) ? rrValueRaw : null;
           const expectedReturnPctRaw = Number(c?.expectedReturnPct);
           const expectedReturnPct = Number.isFinite(expectedReturnPctRaw) ? expectedReturnPctRaw : null;
+          const executionScore = readExecutionScore(c);
           const earningsDaysRaw = Number(c?.earningsDaysToEvent ?? c?.techMetrics?.daysToEarnings);
           const earningsDays = Number.isFinite(earningsDaysRaw) ? Math.round(earningsDaysRaw) : null;
           const rawEntryFeasible = c?.entryFeasible;
@@ -2007,7 +2040,7 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: feasible=${entryFeasibleLabel} | status=${tradePlanStatus} | distance=${distanceLabel}
-   • 🧩 Decision: ${decision} | reason=${decisionReason} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | earnings=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
+   • 🧩 Decision: ${decision} | reason=${decisionReason} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | earnings=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
    • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
      - ${r1}
@@ -2025,8 +2058,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
                   const decision = readDecision(c) || (bucket === 'EXECUTABLE' ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
                   const decisionReason = readDecisionReason(c) || reason;
                   const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
+                  const executionScore = readExecutionScore(c);
                   const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | ${bucket}/${reason} | D=${decision}/${decisionReason} | Conv ${Math.round(conv)} | ER ${er}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | ${bucket}/${reason} | D=${decision}/${decisionReason} | Conv ${Math.round(conv)} | ER ${er}`;
               })
               .join('\n')
           : '• N/A';

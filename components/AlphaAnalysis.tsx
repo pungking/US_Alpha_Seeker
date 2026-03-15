@@ -29,6 +29,7 @@ interface AlphaCandidate {
   compositeAlpha: number;
   modelRank?: number | null;
   executionRank?: number | null;
+  executionScore?: number | null;
   executionBucket?: 'EXECUTABLE' | 'WATCHLIST';
   executionReason?: 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA';
   finalDecision?: 'EXECUTABLE_NOW' | 'WAIT_PRICE' | 'BLOCKED_RISK' | 'BLOCKED_EVENT';
@@ -632,6 +633,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const n = Number(stock?.executionRank);
       return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
   };
+  const getExecutionScoreValue = (stock: AlphaCandidate | null | undefined) => {
+      const n = Number(stock?.executionScore);
+      return Number.isFinite(n) ? n : Number.NEGATIVE_INFINITY;
+  };
   const getModelRankValue = (stock: AlphaCandidate | null | undefined) => {
       const n = Number(stock?.modelRank);
       return Number.isFinite(n) ? n : Number.POSITIVE_INFINITY;
@@ -683,6 +688,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (bucketDelta !== 0) return bucketDelta;
       const executionRankDelta = getExecutionRankValue(a) - getExecutionRankValue(b);
       if (executionRankDelta !== 0) return executionRankDelta;
+      const executionScoreDelta = getExecutionScoreValue(b) - getExecutionScoreValue(a);
+      if (executionScoreDelta !== 0) return executionScoreDelta;
       const modelRankDelta = getModelRankValue(a) - getModelRankValue(b);
       if (modelRankDelta !== 0) return modelRankDelta;
       const scoreDelta = getAlphaRankScore(b) - getAlphaRankScore(a);
@@ -1402,19 +1409,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const pickTelegramContractCandidates = (items: AlphaCandidate[]): AlphaCandidate[] => {
       const nonIndex = items.filter((item) => !TELEGRAM_INDEX_SYMBOLS.has(normalizeContractSymbol(item?.symbol)));
-      const sorted = [...nonIndex].sort((a, b) => {
-          const modelA = parseContractNumber(a?.modelRank);
-          const modelB = parseContractNumber(b?.modelRank);
-          if (modelA !== null || modelB !== null) {
-              if (modelA === null) return 1;
-              if (modelB === null) return -1;
-              if (modelA !== modelB) return modelA - modelB;
-          }
-          const convA = parseContractNumber(a?.convictionScore ?? a?.compositeAlpha) ?? 0;
-          const convB = parseContractNumber(b?.convictionScore ?? b?.compositeAlpha) ?? 0;
-          return convB - convA;
-      });
-      return sorted.filter(isExecutableForTelegramContract).slice(0, 6);
+      const sorted = [...nonIndex]
+          .filter(isExecutableForTelegramContract)
+          .sort((a, b) => {
+              const execRankA = parseContractNumber(a?.executionRank);
+              const execRankB = parseContractNumber(b?.executionRank);
+              if (execRankA !== null || execRankB !== null) {
+                  if (execRankA === null) return 1;
+                  if (execRankB === null) return -1;
+                  if (execRankA !== execRankB) return execRankA - execRankB;
+              }
+              const execScoreA = parseContractNumber(a?.executionScore);
+              const execScoreB = parseContractNumber(b?.executionScore);
+              if (execScoreA !== null || execScoreB !== null) {
+                  if (execScoreA === null) return 1;
+                  if (execScoreB === null) return -1;
+                  if (execScoreA !== execScoreB) return execScoreB - execScoreA;
+              }
+              const modelA = parseContractNumber(a?.modelRank);
+              const modelB = parseContractNumber(b?.modelRank);
+              if (modelA !== null || modelB !== null) {
+                  if (modelA === null) return 1;
+                  if (modelB === null) return -1;
+                  if (modelA !== modelB) return modelA - modelB;
+              }
+              const convA = parseContractNumber(a?.convictionScore ?? a?.compositeAlpha) ?? 0;
+              const convB = parseContractNumber(b?.convictionScore ?? b?.compositeAlpha) ?? 0;
+              return convB - convA;
+          });
+      return sorted.slice(0, 6);
   };
 
   const buildTelegramContractExpected = (items: AlphaCandidate[]): TelegramContractItem[] =>
@@ -2986,6 +3009,62 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const ENTRY_FEASIBILITY_VERDICT_ENFORCE = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_VERDICT_ENFORCE ?? 'true'
       );
+      const toScore = (value: number, min: number, max: number) => {
+          if (!Number.isFinite(value)) return min;
+          if (value <= min) return min;
+          if (value >= max) return max;
+          return value;
+      };
+      const distanceToScore = (distancePct: number | null) => {
+          if (distancePct == null) return 55;
+          const cap = Math.max(ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT, 1);
+          const clipped = Math.min(Math.max(distancePct, 0), cap * 2);
+          const normalized = 1 - clipped / (cap * 2);
+          return toScore(normalized * 100, 0, 100);
+      };
+      const earningsToScore = (daysToEvent: number | null) => {
+          if (daysToEvent == null) return 70;
+          if (daysToEvent < 0) return 70;
+          if (daysToEvent <= STAGE6_EARNINGS_BLACKOUT_DAYS) return 0;
+          if (daysToEvent <= STAGE6_EARNINGS_BLACKOUT_DAYS + 3) return 35;
+          if (daysToEvent <= 15) return 75;
+          return 100;
+      };
+      const computeExecutionScore = (params: {
+          conviction: number | null;
+          rr: number | null;
+          expectedReturnPct: number | null;
+          entryDistancePct: number | null;
+          earningsDaysToEvent: number | null;
+          finalDecision: AlphaCandidate["finalDecision"];
+      }): number => {
+          const convictionNorm = toScore(params.conviction ?? 0, 0, 100);
+          const rrNorm =
+              params.rr == null
+                  ? 0
+                  : toScore((params.rr / Math.max(STAGE6_MIN_RR_HARD_GATE, 1)) * 100, 0, 120);
+          const expectedNorm =
+              params.expectedReturnPct == null
+                  ? 55
+                  : toScore((params.expectedReturnPct / 35) * 100, 0, 120);
+          const distanceNorm = distanceToScore(params.entryDistancePct);
+          const earningsNorm = earningsToScore(params.earningsDaysToEvent);
+          const baseScore =
+              convictionNorm * 0.30 +
+              rrNorm * 0.25 +
+              expectedNorm * 0.25 +
+              distanceNorm * 0.15 +
+              earningsNorm * 0.05;
+          const decisionPenalty =
+              params.finalDecision === 'EXECUTABLE_NOW'
+                  ? 0
+                  : params.finalDecision === 'WAIT_PRICE'
+                      ? 20
+                      : params.finalDecision === 'BLOCKED_EVENT'
+                          ? 35
+                          : 45;
+          return Number(toScore(baseScore - decisionPenalty, 0, 100).toFixed(1));
+      };
       const deriveExecutionContractFields = (item: AlphaCandidate) => {
           const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
           const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
@@ -3077,6 +3156,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
+          const convictionScore = pickFinite(item?.convictionScore, item?.rawConvictionScore, item?.compositeAlpha);
+          const executionScore = computeExecutionScore({
+              conviction: convictionScore,
+              rr: riskRewardRatioValue,
+              expectedReturnPct,
+              entryDistancePct: entryDistancePctShadow,
+              earningsDaysToEvent,
+              finalDecision
+          });
           return {
               mirroredEntry,
               mirroredTarget,
@@ -3090,6 +3178,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision,
               decisionReason,
               chosenPlanType: 'PULLBACK' as const,
+              executionScore,
               riskRewardRatioValue,
               expectedReturnPct,
               earningsDaysToEvent
@@ -3125,6 +3214,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision: executionContract.finalDecision,
               decisionReason: executionContract.decisionReason,
               chosenPlanType: executionContract.chosenPlanType,
+              executionScore: executionContract.executionScore,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
@@ -3137,6 +3227,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
       const modelTop6Pool = primaryPool.slice(0, 6);
       const executablePool = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
+      const executableSortedPool = [...executablePool].sort((a, b) => {
+          const aScoreRaw = Number(a.executionScore);
+          const bScoreRaw = Number(b.executionScore);
+          const aScore = Number.isFinite(aScoreRaw) ? aScoreRaw : Number.NEGATIVE_INFINITY;
+          const bScore = Number.isFinite(bScoreRaw) ? bScoreRaw : Number.NEGATIVE_INFINITY;
+          if (aScore !== bScore) return bScore - aScore;
+          const modelA = Number(a.modelRank);
+          const modelB = Number(b.modelRank);
+          const modelSafeA = Number.isFinite(modelA) ? modelA : Number.POSITIVE_INFINITY;
+          const modelSafeB = Number.isFinite(modelB) ? modelB : Number.POSITIVE_INFINITY;
+          if (modelSafeA !== modelSafeB) return modelSafeA - modelSafeB;
+          return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+      });
       const watchlistPool = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
       const invalidGeometryBlocked = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
       const modelTop6Watchlist = modelTop6Pool.filter(item => item.executionBucket === 'WATCHLIST');
@@ -3151,7 +3254,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
 
-      let top6Elite = executablePool.slice(0, 6);
+      let top6Elite = executableSortedPool.slice(0, 6);
       const modelTop6SymbolSet = new Set(
           modelTop6Pool.map((item) => normalizeContractSymbol(item?.symbol)).filter((symbol): symbol is string => Boolean(symbol))
       );
@@ -3163,7 +3266,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const modelSummaryLine = modelTop6Pool.length > 0
           ? modelTop6Pool
               .map((item, idx) =>
-                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
+                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
               )
               .join(' | ')
           : 'none';
@@ -3188,7 +3291,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       );
       const executableSummaryLine = top6Elite.length > 0
           ? top6Elite
-              .map((item, idx) => `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'})`)
+              .map((item, idx) => `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'})`)
               .join(' | ')
           : 'none';
       addLog(`Executable Picks: ${executableSummaryLine}`, top6Elite.length > 0 ? "ok" : "warn");
@@ -3326,6 +3429,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision: executionContract.finalDecision,
               decisionReason: executionContract.decisionReason,
               chosenPlanType: executionContract.chosenPlanType,
+              executionScore: executionContract.executionScore,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
@@ -3337,9 +3441,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       top6Elite
           .filter((item) => item.executionBucket === 'EXECUTABLE')
           .sort((a, b) => {
+              const aScoreRaw = Number(a.executionScore);
+              const bScoreRaw = Number(b.executionScore);
+              const aScore = Number.isFinite(aScoreRaw) ? aScoreRaw : Number.NEGATIVE_INFINITY;
+              const bScore = Number.isFinite(bScoreRaw) ? bScoreRaw : Number.NEGATIVE_INFINITY;
+              if (aScore !== bScore) return bScore - aScore;
               const aRank = Number(a.modelRank ?? Number.POSITIVE_INFINITY);
               const bRank = Number(b.modelRank ?? Number.POSITIVE_INFINITY);
-              return aRank - bRank;
+              const safeRankA = Number.isFinite(aRank) ? aRank : Number.POSITIVE_INFINITY;
+              const safeRankB = Number.isFinite(bRank) ? bRank : Number.POSITIVE_INFINITY;
+              return safeRankA - safeRankB;
           })
           .forEach((item, idx) => {
               const symbolKey = normalizeContractSymbol(item?.symbol);
@@ -3411,6 +3522,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision: item.finalDecision || 'N/A',
               decisionReason: item.decisionReason || 'N/A',
               chosenPlanType: item.chosenPlanType || 'N/A',
+              executionRank: Number.isFinite(Number(item.executionRank))
+                  ? Number(item.executionRank)
+                  : null,
+              executionScore: Number.isFinite(Number(item.executionScore))
+                  ? Number(item.executionScore)
+                  : null,
               riskRewardRatioValue: Number.isFinite(Number(item.riskRewardRatioValue))
                   ? Number(item.riskRewardRatioValue)
                   : null,
@@ -3464,7 +3581,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   decisionGate: {
                       minRr: STAGE6_MIN_RR_HARD_GATE,
                       minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
-                      earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS
+                      earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
+                      executionRankBasis: "execution_score"
                   },
                   scoreViewDefault: scoreViewMode
               },
@@ -4157,6 +4275,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const expectedReturnPctCard = Number.isFinite(expectedReturnPctCardRaw)
                     ? expectedReturnPctCardRaw
                     : parsePct(displayExpectedReturn);
+                const executionScoreCardRaw = Number(item.executionScore);
+                const executionScoreCard = Number.isFinite(executionScoreCardRaw) ? executionScoreCardRaw : null;
                 const earningsDaysRaw = Number(item.earningsDaysToEvent ?? item.techMetrics?.daysToEarnings);
                 const earningsDaysCard = Number.isFinite(earningsDaysRaw) ? Math.round(earningsDaysRaw) : null;
                 
@@ -4354,7 +4474,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {decisionReasonLabel}
                       </span>
                     </div>
-                    <div className="mb-2 grid grid-cols-3 gap-2 text-[8px]">
+                    <div className="mb-2 grid grid-cols-4 gap-2 text-[8px]">
+                      <div className="px-2 py-1 rounded-md border border-indigo-500/20 bg-indigo-500/10 text-indigo-200 font-semibold">
+                        XS {executionScoreCard == null ? 'N/A' : executionScoreCard.toFixed(1)}
+                      </div>
                       <div className="px-2 py-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 text-cyan-200 font-semibold">
                         RR {rrCard == null ? 'N/A' : rrCard.toFixed(2)}
                       </div>
