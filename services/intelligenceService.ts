@@ -1896,6 +1896,22 @@ export async function generateTelegramBrief(
           const raw = String(item?.decisionReason || '').trim().toLowerCase();
           return raw || null;
       };
+      const readCanonicalEarningsDaysToEvent = (item: any): number | null => {
+          const candidates = [
+              item?.techMetrics?.daysToEarnings,
+              item?.earningsDaysToEvent,
+              item?.nextEarningsInDays,
+              item?.daysToEarnings,
+              item?.earningsDday
+          ];
+          for (const raw of candidates) {
+              if (raw === null || raw === undefined || raw === '') continue;
+              const n = Number(raw);
+              if (!Number.isFinite(n)) continue;
+              return Math.round(n);
+          }
+          return null;
+      };
       const readExecutionScore = (item: any): number | null => {
           const raw = toNum(item?.executionScore);
           return raw === null ? null : Number(raw.toFixed(1));
@@ -2107,8 +2123,7 @@ export async function generateTelegramBrief(
           const expectedReturnPctRaw = Number(c?.expectedReturnPct);
           const expectedReturnPct = Number.isFinite(expectedReturnPctRaw) ? expectedReturnPctRaw : null;
           const executionScore = readExecutionScore(c);
-          const earningsDaysRaw = Number(c?.earningsDaysToEvent ?? c?.techMetrics?.daysToEarnings);
-          const earningsDays = Number.isFinite(earningsDaysRaw) ? Math.round(earningsDaysRaw) : null;
+          const earningsDays = readCanonicalEarningsDaysToEvent(c);
           const rawEntryFeasible = c?.entryFeasible;
           const rawEntryFeasibleShadow = c?.entryFeasibleShadow;
           const entryFeasible =
@@ -2164,14 +2179,17 @@ export async function generateTelegramBrief(
       const watchlistSection = watchlistTop.length > 0
           ? watchlistTop
               .map((c, i) => {
-                  const reason = readExecutionReason(c) || 'N/A';
                   const decision = readDecision(c) || 'N/A';
-                  const decisionReason = readDecisionReason(c) || reason;
+                  const reason = readExecutionReason(c) || 'N/A';
+                  const decisionReason = readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? reason : 'n/a');
                   const distance = formatPct(c?.entryDistancePct ?? c?.entryDistancePctShadow);
                   const verdict = toVerdictLabelKo(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || '');
                   const decisionKo = toDecisionLabelKo(decision);
                   const decisionReasonKo = toDecisionReasonLabelKo(decisionReason);
-                  const reasonKo = toExecutionReasonLabelKo(reason);
+                  const reasonKo =
+                      reason === 'VALID_EXEC' && decision !== 'EXECUTABLE_NOW'
+                          ? '모델상 실행 조건 충족(최종 게이트 차단)'
+                          : toExecutionReasonLabelKo(reason);
                   return `• ${i + 1}) ${c?.symbol || 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance}`;
               })
               .join('\n')

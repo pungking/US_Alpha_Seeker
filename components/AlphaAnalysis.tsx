@@ -3159,6 +3159,22 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (daysToEvent <= 15) return 75;
           return 100;
       };
+      const readCanonicalEarningsDaysToEvent = (item: AlphaCandidate): number | null => {
+          const candidates = [
+              (item as any)?.techMetrics?.daysToEarnings,
+              (item as any)?.earningsDaysToEvent,
+              (item as any)?.nextEarningsInDays,
+              (item as any)?.daysToEarnings,
+              (item as any)?.earningsDday
+          ];
+          for (const raw of candidates) {
+              if (raw === null || raw === undefined || raw === '') continue;
+              const n = Number(raw);
+              if (!Number.isFinite(n)) continue;
+              return Math.round(n);
+          }
+          return null;
+      };
       const computeExecutionScore = (params: {
           conviction: number | null;
           rr: number | null;
@@ -3260,12 +3276,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const expectedReturnPct = parseExpectedReturnPct(
               item?.gatedExpectedReturn ?? item?.expectedReturn ?? item?.rawExpectedReturn
           );
-          const earningsDaysToEvent = pickFinite(
-              (item as any)?.earningsDaysToEvent,
-              (item as any)?.nextEarningsInDays,
-              (item as any)?.daysToEarnings,
-              (item as any)?.earningsDday
-          );
+          const earningsDaysToEvent = readCanonicalEarningsDaysToEvent(item);
+          const earningsDataMissing = earningsDaysToEvent == null;
           const aiVerdictKey = toVerdictKey(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict || item?.verdict);
           const convictionScore = pickFinite(item?.convictionScore, item?.rawConvictionScore, item?.compositeAlpha);
 
@@ -3275,9 +3287,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_verdict_risk_off';
           } else if (
-              earningsDaysToEvent != null &&
-              earningsDaysToEvent >= 0 &&
-              earningsDaysToEvent <= STAGE6_EARNINGS_BLACKOUT_DAYS
+              earningsDataMissing ||
+              (earningsDaysToEvent != null &&
+                  earningsDaysToEvent >= 0 &&
+                  earningsDaysToEvent <= STAGE6_EARNINGS_BLACKOUT_DAYS)
           ) {
               finalDecision = 'BLOCKED_EVENT';
               decisionReason = 'blocked_earnings_window';
