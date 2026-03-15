@@ -122,6 +122,14 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
  */
 export function buildTelegramMessage(reportContent: string): string {
   const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
+  const compactGuide = `[Alpha Signal Guide]
+• 우선순위: EXECUTABLE_NOW + XS/RR/ER 높은 순서
+• WAIT/BLOCKED: 종목 폐기가 아니라 조건 미충족(대기)
+• 배지 핵심: 💎 저평가 잠재, 🏢 기관 수급, 🔥 추세 강세
+• 리스크: VIX 고변동/실적 근접 구간은 보수 대응 + Stop 엄수`;
+  const ultraCompactGuide = `[Alpha Signal Guide]
+• EXECUTABLE_NOW 우선, WAIT/BLOCKED는 대기
+• XS/RR/ER 확인 후 진입, Stop 엄수`;
 
   // Clean up standard Markdown to Telegram Legacy Markdown if possible
   // Telegram MarkdownV2 requires escaping specific characters if not in code blocks, but it's complex.
@@ -162,6 +170,17 @@ export function buildTelegramMessage(reportContent: string): string {
 
   // Safety: If the AI accidentally included the header, remove it to prevent duplication
   cleanReport = cleanReport.replace(/🚀.*?Report.*?🚀/gi, '').trim();
+
+  // Keep message within Telegram single-message range whenever possible.
+  const guidePattern = /\[Alpha Signal Guide\][\s\S]*$/m;
+  let previewMessage = finalHeader + cleanReport;
+  if (previewMessage.length > 3900 && guidePattern.test(cleanReport)) {
+    cleanReport = cleanReport.replace(guidePattern, compactGuide);
+    previewMessage = finalHeader + cleanReport;
+  }
+  if (previewMessage.length > 4000 && guidePattern.test(cleanReport)) {
+    cleanReport = cleanReport.replace(guidePattern, ultraCompactGuide);
+  }
 
   return finalHeader + cleanReport;
 }
