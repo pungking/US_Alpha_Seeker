@@ -1917,10 +1917,12 @@ export async function generateTelegramBrief(
           return raw === null ? null : Number(raw.toFixed(1));
       };
       const isExecutableCandidate = (item: any): boolean => {
-          const bucket = readExecutionBucket(item);
-          if (bucket) return bucket === 'EXECUTABLE';
           const decision = readDecision(item);
           if (decision) return decision === 'EXECUTABLE_NOW';
+          const decisionReason = toReasonKey(readDecisionReason(item));
+          if (decisionReason.startsWith('blocked_') || decisionReason.startsWith('wait_')) return false;
+          const bucket = readExecutionBucket(item);
+          if (bucket) return bucket === 'EXECUTABLE';
           const reason = readExecutionReason(item);
           if (reason) return reason === 'VALID_EXEC';
           const verdict = toVerdictKey(item?.verdictFinal || item?.finalVerdict || item?.aiVerdict || item?.verdict || '');
@@ -2117,12 +2119,18 @@ export async function generateTelegramBrief(
           const entryDistancePct = Number.isFinite(derivedDistance) ? Number(derivedDistance.toFixed(2)) : null;
           const tradePlanStatus = String(c?.tradePlanStatus || c?.tradePlanStatusShadow || 'N/A');
           const decision = readDecision(c) || (isExecutableCandidate(c) ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
-          const decisionReason = readDecisionReason(c) || readExecutionReason(c) || 'n/a';
+          const decisionReason =
+              readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? readExecutionReason(c) || 'n/a' : 'n/a');
           const rrValueRaw = Number(c?.riskRewardRatioValue);
           const rrValue = Number.isFinite(rrValueRaw) ? rrValueRaw : null;
           const expectedReturnPctRaw = Number(c?.expectedReturnPct);
           const expectedReturnPct = Number.isFinite(expectedReturnPctRaw) ? expectedReturnPctRaw : null;
           const executionScore = readExecutionScore(c);
+          const qualityScoreRaw = toNum(c?.qualityScore);
+          const qualityScore =
+              qualityScoreRaw == null
+                  ? (toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha))
+                  : Number(qualityScoreRaw.toFixed(1));
           const earningsDays = readCanonicalEarningsDaysToEvent(c);
           const rawEntryFeasible = c?.entryFeasible;
           const rawEntryFeasibleShadow = c?.entryFeasibleShadow;
@@ -2143,7 +2151,7 @@ export async function generateTelegramBrief(
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: 실행가능=${entryFeasibleLabel} | 상태=${planStatusLabelKo} | 거리=${distanceLabel}
-   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
+   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | AQ=${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
    • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
      - ${r1}
@@ -2159,15 +2167,19 @@ export async function generateTelegramBrief(
                   const bucket = readExecutionBucket(c) || (isExecutableCandidate(c) ? 'EXECUTABLE' : 'WATCHLIST');
                   const reason = readExecutionReason(c) || (bucket === 'EXECUTABLE' ? 'VALID_EXEC' : 'N/A');
                   const decision = readDecision(c) || (bucket === 'EXECUTABLE' ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
-                  const decisionReason = readDecisionReason(c) || reason;
+                  const decisionReason = readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? reason : 'n/a');
                   const bucketKo = toExecutionBucketLabelKo(bucket);
-                  const reasonKo = toExecutionReasonLabelKo(reason);
+                  const reasonKo =
+                      reason === 'VALID_EXEC' && decision !== 'EXECUTABLE_NOW'
+                          ? '모델상 실행 조건 충족(최종 게이트 차단)'
+                          : toExecutionReasonLabelKo(reason);
                   const decisionKo = toDecisionLabelKo(decision);
                   const decisionReasonKo = toDecisionReasonLabelKo(decisionReason);
                   const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
                   const executionScore = readExecutionScore(c);
+                  const qualityScore = toNum(c?.qualityScore) ?? conv;
                   const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 신뢰도 ${Math.round(conv)} | ER ${er}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | AQ ${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 신뢰도 ${Math.round(conv)} | ER ${er}`;
               })
               .join('\n')
           : '• N/A';

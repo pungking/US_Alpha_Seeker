@@ -161,6 +161,7 @@ Evidence
 - [ ] Confirm `Top6 (Model Rank)` reflects model-top6 universe (not executable-only list)
 - [ ] Confirm `Watchlist (실행 대기)` contains model-top6 non-executable names when they exist
 - [ ] Confirm `Executable Picks` matches execution-only set
+- [ ] Confirm each candidate line includes both `AQ`(추천 품질) and `XS`(실행 가능성)
 - [ ] Confirm no `TELEGRAM_CONTRACT_MISMATCH` in logs
 
 Evidence

@@ -30,6 +30,8 @@ interface AlphaCandidate {
   modelRank?: number | null;
   executionRank?: number | null;
   executionScore?: number | null;
+  executionReadinessScore?: number | null;
+  qualityScore?: number | null;
   executionBucket?: 'EXECUTABLE' | 'WATCHLIST';
   executionReason?: 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA';
   finalDecision?: 'EXECUTABLE_NOW' | 'WAIT_PRICE' | 'BLOCKED_RISK' | 'BLOCKED_EVENT';
@@ -3210,6 +3212,51 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                           : 45;
           return Number(toScore(baseScore - decisionPenalty, 0, 100).toFixed(1));
       };
+      const verdictToScore = (verdict: string | null | undefined): number => {
+          const key = toVerdictKey(verdict);
+          if (!key || key === 'N/A' || key === 'NA' || key === 'NONE' || key === 'NULL' || key === 'UNDEFINED' || key === 'TBD') return 0;
+          if (key.includes('STRONG_BUY') || key.includes('STRONGBUY')) return 100;
+          if (key === 'BUY') return 82;
+          if (key.includes('ACCUMULATE')) return 76;
+          if (key === 'HOLD' || key === 'WAIT') return 45;
+          if (key.includes('SELL') || key.includes('EXIT')) return 20;
+          return 55;
+      };
+      const computeAlphaQualityScore = (params: {
+          conviction: number | null;
+          expectedReturnPct: number | null;
+          aiVerdict: string | null | undefined;
+          integrityScore: number | null;
+          fundamentalScore: number | null;
+          technicalScore: number | null;
+          ictScore: number | null;
+      }): number => {
+          const convictionNorm = toScore(params.conviction ?? 0, 0, 100);
+          const expectedNorm =
+              params.expectedReturnPct == null
+                  ? 50
+                  : toScore((params.expectedReturnPct / 35) * 100, 0, 120);
+          const verdictNorm = verdictToScore(params.aiVerdict);
+          const integrityNorm = toScore(params.integrityScore ?? 70, 0, 100);
+          const quantNorm = toScore(
+              [
+                  params.fundamentalScore,
+                  params.technicalScore,
+                  params.ictScore
+              ]
+                  .filter((v): v is number => Number.isFinite(Number(v)))
+                  .reduce((acc, v, _, arr) => acc + Number(v) / arr.length, 0) || 50,
+              0,
+              100
+          );
+          const score =
+              convictionNorm * 0.35 +
+              expectedNorm * 0.20 +
+              verdictNorm * 0.20 +
+              integrityNorm * 0.10 +
+              quantNorm * 0.15;
+          return Number(toScore(score, 0, 100).toFixed(1));
+      };
       const deriveExecutionContractFields = (item: AlphaCandidate) => {
           const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
           const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
@@ -3375,6 +3422,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               earningsDaysToEvent,
               finalDecision
           });
+          const qualityScore = computeAlphaQualityScore({
+              conviction: convictionScore,
+              expectedReturnPct,
+              aiVerdict: item?.aiVerdict,
+              integrityScore: pickFinite(item?.integrityScore),
+              fundamentalScore: pickFinite(item?.fundamentalScore),
+              technicalScore: pickFinite(item?.technicalScore),
+              ictScore: pickFinite(item?.ictScore)
+          });
           return {
               mirroredEntry,
               mirroredTarget,
@@ -3392,6 +3448,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               decisionReason,
               chosenPlanType: 'PULLBACK' as const,
               executionScore,
+              executionReadinessScore: executionScore,
+              qualityScore,
               riskRewardRatioValue,
               expectedReturnPct,
               earningsDaysToEvent
@@ -3431,6 +3489,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               decisionReason: executionContract.decisionReason,
               chosenPlanType: executionContract.chosenPlanType,
               executionScore: executionContract.executionScore,
+              executionReadinessScore: executionContract.executionReadinessScore,
+              qualityScore: executionContract.qualityScore,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
@@ -3482,7 +3542,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const modelSummaryLine = modelTop6Pool.length > 0
           ? modelTop6Pool
               .map((item, idx) =>
-                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
+                  `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
               )
               .join(' | ')
           : 'none';
@@ -3507,7 +3567,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       );
       const executableSummaryLine = top6Elite.length > 0
           ? top6Elite
-              .map((item, idx) => `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'})`)
+              .map((item, idx) => `${idx + 1})${item.symbol}(M#${item.modelRank ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'})`)
               .join(' | ')
           : 'none';
       addLog(`Executable Picks: ${executableSummaryLine}`, top6Elite.length > 0 ? "ok" : "warn");
@@ -3649,6 +3709,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               decisionReason: executionContract.decisionReason,
               chosenPlanType: executionContract.chosenPlanType,
               executionScore: executionContract.executionScore,
+              executionReadinessScore: executionContract.executionReadinessScore,
+              qualityScore: executionContract.qualityScore,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
@@ -3749,6 +3811,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   : null,
               executionScore: Number.isFinite(Number(item.executionScore))
                   ? Number(item.executionScore)
+                  : null,
+              qualityScore: Number.isFinite(Number(item.qualityScore))
+                  ? Number(item.qualityScore)
                   : null,
               stopDistancePct: Number.isFinite(Number(item.stopDistancePct))
                   ? Number(item.stopDistancePct)
@@ -4521,6 +4586,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     : parsePct(displayExpectedReturn);
                 const executionScoreCardRaw = Number(item.executionScore);
                 const executionScoreCard = Number.isFinite(executionScoreCardRaw) ? executionScoreCardRaw : null;
+                const qualityScoreCardRaw = Number(item.qualityScore);
+                const qualityScoreCard = Number.isFinite(qualityScoreCardRaw)
+                    ? qualityScoreCardRaw
+                    : (Number.isFinite(Number(item.convictionScore)) ? Number(item.convictionScore) : null);
                 const earningsDaysRaw = Number(item.earningsDaysToEvent ?? item.techMetrics?.daysToEarnings);
                 const earningsDaysCard = Number.isFinite(earningsDaysRaw) ? Math.round(earningsDaysRaw) : null;
                 
@@ -4718,7 +4787,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         {decisionReasonLabel}
                       </span>
                     </div>
-                    <div className="mb-2 grid grid-cols-4 gap-2 text-[8px]">
+                    <div className="mb-2 grid grid-cols-5 gap-2 text-[8px]">
+                      <div className="px-2 py-1 rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-200 font-semibold">
+                        AQ {qualityScoreCard == null ? 'N/A' : qualityScoreCard.toFixed(1)}
+                      </div>
                       <div className="px-2 py-1 rounded-md border border-indigo-500/20 bg-indigo-500/10 text-indigo-200 font-semibold">
                         XS {executionScoreCard == null ? 'N/A' : executionScoreCard.toFixed(1)}
                       </div>
