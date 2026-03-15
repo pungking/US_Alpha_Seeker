@@ -6,6 +6,12 @@ import { fetchPortalIndices } from "./portalIndicesService";
 
 const PERPLEXITY_MODELS = ['sonar-pro', 'sonar']; 
 
+export type TelegramBriefContractContext = {
+  modelTop6?: any[];
+  executablePicks?: any[];
+  watchlistTop?: any[];
+};
+
 // Usage Tracking System
 const USAGE_KEY = 'US_ALPHA_SEEKER_AI_USAGE';
 
@@ -1566,7 +1572,12 @@ export async function analyzePipelineStatus(data: {
   }
 }
 
-export async function generateTelegramBrief(candidates: any[], provider: ApiProvider, marketPulse?: any): Promise<string> {
+export async function generateTelegramBrief(
+  candidates: any[],
+  provider: ApiProvider,
+  marketPulse?: any,
+  contractContext?: TelegramBriefContractContext
+): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
@@ -1835,6 +1846,14 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const n = toNum(value);
           return n === null ? 'N/A' : `${n.toFixed(2)}%`;
       };
+      const sanitizeContractList = (rows: any[] | undefined): any[] =>
+          Array.isArray(rows)
+              ? rows.filter((c) => c && !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()))
+              : [];
+      const contextModelTop6 = sanitizeContractList(contractContext?.modelTop6);
+      const contextExecutablePicks = sanitizeContractList(contractContext?.executablePicks);
+      const contextWatchlistTop = sanitizeContractList(contractContext?.watchlistTop);
+
       const nonIndexCandidates = safeCandidates.filter(c => !INDEX_SYMBOLS.has(String(c?.symbol || '').toUpperCase()));
       const modelSorted = [...nonIndexCandidates].sort((a, b) => {
           const modelA = toNum(a?.modelRank);
@@ -1848,8 +1867,10 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
           const convB = toNum(b?.convictionScore) ?? toNum(b?.compositeAlpha) ?? 0;
           return convB - convA;
       });
-      const modelTop6 = modelSorted.slice(0, 6);
-      const executablePicks = [...nonIndexCandidates]
+      const modelTop6 = contextModelTop6.length > 0 ? contextModelTop6.slice(0, 6) : modelSorted.slice(0, 6);
+      const executablePicks = contextExecutablePicks.length > 0
+          ? contextExecutablePicks.slice(0, 6)
+          : [...nonIndexCandidates]
           .filter(isExecutableCandidate)
           .sort((a, b) => {
               const execRankA = toNum(a?.executionRank);
@@ -1878,7 +1899,9 @@ export async function generateTelegramBrief(candidates: any[], provider: ApiProv
               return convB - convA;
           })
           .slice(0, 6);
-      const watchlistTop = modelTop6.filter(item => !isExecutableCandidate(item));
+      const watchlistTop = contextWatchlistTop.length > 0
+          ? contextWatchlistTop.slice(0, 6)
+          : modelTop6.filter(item => !isExecutableCandidate(item));
       
       const sectorCounts: Record<string, number> = {};
       (executablePicks.length > 0 ? executablePicks : modelTop6).forEach(c => {

@@ -5,7 +5,7 @@ import remarkGfm from 'remark-gfm';
 import { ComposedChart, Area, Bar, XAxis, YAxis, CartesianGrid, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell, AreaChart, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis } from 'recharts';
 import { ApiProvider } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, STRATEGY_CONFIG } from '../constants';
-import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations } from '../services/intelligenceService';
+import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 
@@ -38,6 +38,9 @@ interface AlphaCandidate {
     | 'wait_pullback_not_reached'
     | 'blocked_invalid_geometry'
     | 'blocked_missing_trade_box'
+    | 'blocked_quality_missing_expected_return'
+    | 'blocked_quality_conviction_floor'
+    | 'blocked_quality_verdict_unusable'
     | 'blocked_stop_too_tight'
     | 'blocked_stop_too_wide'
     | 'blocked_target_too_close'
@@ -447,6 +450,18 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "⛔ Reason: blocked_missing_trade_box",
         desc: "Entry/Target/Stop 중 필수 값이 누락되어 실행 계약을 구성할 수 없습니다."
     },
+    'REASON_BLOCKED_QUALITY_MISSING_ER': {
+        title: "⛔ Reason: blocked_quality_missing_expected_return",
+        desc: "기대수익률(ER%) 데이터가 비어 있어 실행 신뢰도를 검증할 수 없으므로 차단했습니다."
+    },
+    'REASON_BLOCKED_QUALITY_CONVICTION': {
+        title: "⛔ Reason: blocked_quality_conviction_floor",
+        desc: "Conviction 점수가 최소 품질 기준보다 낮아 실행 후보에서 제외했습니다."
+    },
+    'REASON_BLOCKED_QUALITY_VERDICT': {
+        title: "⛔ Reason: blocked_quality_verdict_unusable",
+        desc: "AI 평결이 비어있거나 실행형 롱 시그널이 아니라 품질 게이트에서 차단했습니다."
+    },
     'REASON_BLOCKED_STOP_TOO_TIGHT': {
         title: "⛔ Reason: blocked_stop_too_tight",
         desc: "손절 폭이 최소 기준보다 너무 촘촘해 체결 노이즈에 쉽게 무효화될 가능성이 커 차단했습니다."
@@ -686,6 +701,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_pullback_not_reached') return 'REASON_WAIT_PULLBACK_NOT_REACHED';
       if (key === 'blocked_invalid_geometry') return 'REASON_BLOCKED_INVALID_GEOMETRY';
       if (key === 'blocked_missing_trade_box') return 'REASON_BLOCKED_MISSING_TRADE_BOX';
+      if (key === 'blocked_quality_missing_expected_return') return 'REASON_BLOCKED_QUALITY_MISSING_ER';
+      if (key === 'blocked_quality_conviction_floor') return 'REASON_BLOCKED_QUALITY_CONVICTION';
+      if (key === 'blocked_quality_verdict_unusable') return 'REASON_BLOCKED_QUALITY_VERDICT';
       if (key === 'blocked_stop_too_tight') return 'REASON_BLOCKED_STOP_TOO_TIGHT';
       if (key === 'blocked_stop_too_wide') return 'REASON_BLOCKED_STOP_TOO_WIDE';
       if (key === 'blocked_target_too_close') return 'REASON_BLOCKED_TARGET_TOO_CLOSE';
@@ -702,6 +720,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_pullback_not_reached') return 'wait_pullback';
       if (key === 'blocked_invalid_geometry') return 'invalid_geometry';
       if (key === 'blocked_missing_trade_box') return 'missing_trade_box';
+      if (key === 'blocked_quality_missing_expected_return') return 'quality_missing_er';
+      if (key === 'blocked_quality_conviction_floor') return 'quality_conviction_floor';
+      if (key === 'blocked_quality_verdict_unusable') return 'quality_verdict';
       if (key === 'blocked_stop_too_tight') return 'stop_too_tight';
       if (key === 'blocked_stop_too_wide') return 'stop_too_wide';
       if (key === 'blocked_target_too_close') return 'target_too_close';
@@ -744,6 +765,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [sendingTelegram, setSendingTelegram] = useState(false);
   const stage2ProviderRef = useRef<ApiProvider>(selectedBrain);
   const stage6FinalRef = useRef<AlphaCandidate[]>([]);
+  const stage6ModelTop6Ref = useRef<AlphaCandidate[]>([]);
+  const stage6WatchlistTopRef = useRef<AlphaCandidate[]>([]);
+  const stage6ExecutableRef = useRef<AlphaCandidate[]>([]);
   const stage6FinalRunIdRef = useRef<string>('');
 
   // Define derived state explicitly to avoid scope issues
@@ -785,6 +809,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return { items: bySonar, source: 'CACHE_SONAR' };
       }
       return { items: [], source: 'EMPTY' };
+  };
+
+  const resolveTelegramBriefContext = (): TelegramBriefContractContext | undefined => {
+      const modelTop6 = Array.isArray(stage6ModelTop6Ref.current) ? stage6ModelTop6Ref.current : [];
+      const executablePicks = Array.isArray(stage6ExecutableRef.current) ? stage6ExecutableRef.current : [];
+      const watchlistTop = Array.isArray(stage6WatchlistTopRef.current) ? stage6WatchlistTopRef.current : [];
+      if (modelTop6.length === 0 && executablePicks.length === 0 && watchlistTop.length === 0) {
+          return undefined;
+      }
+      return {
+          modelTop6,
+          executablePicks,
+          watchlistTop
+      };
   };
 
   useEffect(() => {
@@ -1161,7 +1199,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   
                   // [HYDRATION] Explicitly pass market pulse data
                   const marketPulse = (window as any).latestMarketPulse;
-                  const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse);
+                  const telegramContext = resolveTelegramBriefContext();
+                  const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse, telegramContext);
                   const brief = await Promise.race([briefPromise, timeout]) as string;
 
                   const contractCheck = checkTelegramContractIntegrity(resultsToCheck, brief);
@@ -2626,6 +2665,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     if (loading) return;
     setLoading(true);
     setLogs([]);
+    stage6FinalRef.current = [];
+    stage6ModelTop6Ref.current = [];
+    stage6WatchlistTopRef.current = [];
+    stage6ExecutableRef.current = [];
+    stage6FinalRunIdRef.current = '';
     addLog("STAGE 6: Neural Alpha Sieve Initiated...", "signal");
 
     try {
@@ -3030,6 +3074,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       );
       const STAGE6_MIN_EXPECTED_RETURN_PCT =
           Number.isFinite(stage6MinExpectedReturnPctRaw) ? stage6MinExpectedReturnPctRaw : 0;
+      const stage6MinConvictionRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MIN_CONVICTION ?? 30
+      );
+      const STAGE6_MIN_CONVICTION =
+          Number.isFinite(stage6MinConvictionRaw) && stage6MinConvictionRaw >= 0
+              ? stage6MinConvictionRaw
+              : 30;
+      const STAGE6_REQUIRE_BULLISH_VERDICT = parseBooleanFlag(
+          (import.meta as any)?.env?.VITE_STAGE6_REQUIRE_BULLISH_VERDICT ?? 'true'
+      );
       const stage6EarningsBlackoutDaysRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_EARNINGS_BLACKOUT_DAYS ?? 5
       );
@@ -3066,6 +3120,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(stage6MaxAnchorExecGapPctRaw) && stage6MaxAnchorExecGapPctRaw > 0
               ? stage6MaxAnchorExecGapPctRaw
               : 12;
+      const isBullishVerdictForExecution = (verdict: string | null | undefined) => {
+          const key = toVerdictKey(verdict);
+          if (!key || key === 'NA' || key === 'N/A' || key === 'NONE' || key === 'NULL' || key === 'UNDEFINED' || key === 'TBD') {
+              return false;
+          }
+          return (
+              key.includes('STRONGBUY') ||
+              key.includes('STRONG_BUY') ||
+              key.includes('BUY') ||
+              key.includes('ACCUMULATE') ||
+              key.includes('SPECULATIVE_BUY') ||
+              key.includes('SPECULATIVEBUY') ||
+              key.includes('매수')
+          );
+      };
       const ENTRY_FEASIBILITY_VERDICT_ENFORCE = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_VERDICT_ENFORCE ?? 'true'
       );
@@ -3198,6 +3267,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               (item as any)?.earningsDday
           );
           const aiVerdictKey = toVerdictKey(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict || item?.verdict);
+          const convictionScore = pickFinite(item?.convictionScore, item?.rawConvictionScore, item?.compositeAlpha);
 
           let finalDecision: AlphaCandidate["finalDecision"] = 'EXECUTABLE_NOW';
           let decisionReason: AlphaCandidate["decisionReason"] = 'executable_pullback';
@@ -3211,6 +3281,25 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           ) {
               finalDecision = 'BLOCKED_EVENT';
               decisionReason = 'blocked_earnings_window';
+          } else if (
+              STAGE6_REQUIRE_BULLISH_VERDICT &&
+              !isBullishVerdictForExecution(aiVerdictKey)
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_quality_verdict_unusable';
+          } else if (
+              convictionScore == null ||
+              !Number.isFinite(convictionScore) ||
+              convictionScore < STAGE6_MIN_CONVICTION
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_quality_conviction_floor';
+          } else if (
+              expectedReturnPct == null ||
+              !Number.isFinite(expectedReturnPct)
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_quality_missing_expected_return';
           } else if (!hasPriceBox) {
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_missing_trade_box';
@@ -3265,7 +3354,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           const executionBucket: AlphaCandidate["executionBucket"] =
               finalDecision === 'EXECUTABLE_NOW' ? 'EXECUTABLE' : 'WATCHLIST';
-          const convictionScore = pickFinite(item?.convictionScore, item?.rawConvictionScore, item?.compositeAlpha);
           const executionScore = computeExecutionScore({
               conviction: convictionScore,
               rr: riskRewardRatioValue,
@@ -3401,7 +3489,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           "info"
       );
       addLog(
-          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
+          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
           "info"
       );
       const executableSummaryLine = top6Elite.length > 0
@@ -3427,7 +3515,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -3598,6 +3686,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           `Decision dist(top6): EXECUTABLE_NOW=${decisionCountsTop6.EXECUTABLE_NOW || 0} WAIT_PRICE=${decisionCountsTop6.WAIT_PRICE || 0} BLOCKED_RISK=${decisionCountsTop6.BLOCKED_RISK || 0} BLOCKED_EVENT=${decisionCountsTop6.BLOCKED_EVENT || 0}`,
           "info"
       );
+      stage6ModelTop6Ref.current = modelTop6Pool.map((item) => ({ ...item }));
+      stage6WatchlistTopRef.current = modelTop6Watchlist.map((item) => ({ ...item }));
+      stage6ExecutableRef.current = top6Elite.map((item) => ({ ...item }));
       stage6FinalRef.current = top6Elite;
       stage6FinalRunIdRef.current = getKstTimestamp();
 
@@ -3708,6 +3799,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   decisionGate: {
                       minRr: STAGE6_MIN_RR_HARD_GATE,
                       minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
+                      minConviction: STAGE6_MIN_CONVICTION,
+                      requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
                       earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
                       minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
                       maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
@@ -3741,7 +3834,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
           try {
               const brainToUse = stage2ProviderRef.current || selectedBrain; 
-              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse);
+              const telegramContext = resolveTelegramBriefContext();
+              const briefPromise = generateTelegramBrief(resultsToCheck, brainToUse, marketPulse, telegramContext);
               const brief = await Promise.race([briefPromise, timeout]) as string;
 
               const contractCheck = checkTelegramContractIntegrity(resultsToCheck, brief);
@@ -3985,7 +4079,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     try {
         const marketPulse = (window as any).latestMarketPulse;
-        const brief = await generateTelegramBrief(resultsToSend, stage2ProviderRef.current || selectedBrain, marketPulse);
+        const telegramContext = resolveTelegramBriefContext();
+        const brief = await generateTelegramBrief(
+            resultsToSend,
+            stage2ProviderRef.current || selectedBrain,
+            marketPulse,
+            telegramContext
+        );
 
         const contractCheck = checkTelegramContractIntegrity(resultsToSend, brief);
         if (!contractCheck.ok) {
