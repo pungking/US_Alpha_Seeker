@@ -1823,6 +1823,8 @@ export async function generateTelegramBrief(
           const key = toReasonKey(reason);
           if (key === 'executable_pullback') return '눌림목 조건 충족';
           if (key === 'wait_pullback_not_reached') return '진입 가격 미도달';
+          if (key === 'wait_earnings_data_missing') return '실적 일정 데이터 누락(대기)';
+          if (key === 'wait_state_verdict_conflict') return '시장구조-판정 충돌(대기)';
           if (key === 'blocked_invalid_geometry') return '가격 구조 오류';
           if (key === 'blocked_missing_trade_box') return '진입/목표/손절 데이터 누락';
           if (key === 'blocked_quality_missing_expected_return') return '기대수익 계산 불가';
@@ -1834,7 +1836,9 @@ export async function generateTelegramBrief(
           if (key === 'blocked_anchor_exec_gap') return '앵커/실행 괴리 과다';
           if (key === 'blocked_rr_below_min') return '손익비 기준 미달';
           if (key === 'blocked_ev_non_positive') return '기대수익 기준 미달';
+          if (key === 'blocked_earnings_data_missing') return '실적 일정 데이터 누락(차단)';
           if (key === 'blocked_earnings_window') return '실적 임박 구간';
+          if (key === 'blocked_state_verdict_conflict') return '시장구조-판정 충돌(차단)';
           if (key === 'blocked_verdict_risk_off') return '리스크오프 판정';
           return '사유 없음';
       };
@@ -2132,6 +2136,17 @@ export async function generateTelegramBrief(
                   ? (toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha))
                   : Number(qualityScoreRaw.toFixed(1));
           const earningsDays = readCanonicalEarningsDaysToEvent(c);
+          const verdictConflict = Boolean(c?.verdictConflict);
+          const stateVerdictConflict = Boolean(c?.stateVerdictConflict);
+          const conflictLabel =
+              verdictConflict || stateVerdictConflict
+                  ? `충돌=${[
+                        verdictConflict ? '평결' : null,
+                        stateVerdictConflict ? '시장구조' : null
+                    ]
+                        .filter(Boolean)
+                        .join('+')}`
+                  : '충돌=없음';
           const rawEntryFeasible = c?.entryFeasible;
           const rawEntryFeasibleShadow = c?.entryFeasibleShadow;
           const entryFeasible =
@@ -2151,7 +2166,7 @@ export async function generateTelegramBrief(
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: 실행가능=${entryFeasibleLabel} | 상태=${planStatusLabelKo} | 거리=${distanceLabel}
-   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | AQ=${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
+   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | ${conflictLabel} | AQ=${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
    • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
      - ${r1}
@@ -2162,6 +2177,8 @@ export async function generateTelegramBrief(
       const modelSummary = modelTop6.length > 0
           ? modelTop6
               .map((c, i) => {
+                  const rankRaw = toNum(c?.rankRaw);
+                  const rankFinal = toNum(c?.rankFinal);
                   const modelRank = toNum(c?.modelRank);
                   const execRank = toNum(c?.executionRank);
                   const bucket = readExecutionBucket(c) || (isExecutableCandidate(c) ? 'EXECUTABLE' : 'WATCHLIST');
@@ -2179,7 +2196,7 @@ export async function generateTelegramBrief(
                   const executionScore = readExecutionScore(c);
                   const qualityScore = toNum(c?.qualityScore) ?? conv;
                   const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | AQ ${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 신뢰도 ${Math.round(conv)} | ER ${er}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | AQ ${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 신뢰도 ${Math.round(conv)} | ER ${er}`;
               })
               .join('\n')
           : '• N/A';
@@ -2191,6 +2208,10 @@ export async function generateTelegramBrief(
       const watchlistSection = watchlistTop.length > 0
           ? watchlistTop
               .map((c, i) => {
+                  const rankRaw = toNum(c?.rankRaw);
+                  const rankFinal = toNum(c?.rankFinal);
+                  const modelRank = toNum(c?.modelRank);
+                  const execRank = toNum(c?.executionRank);
                   const decision = readDecision(c) || 'N/A';
                   const reason = readExecutionReason(c) || 'N/A';
                   const decisionReason = readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? reason : 'n/a');
@@ -2202,7 +2223,7 @@ export async function generateTelegramBrief(
                       reason === 'VALID_EXEC' && decision !== 'EXECUTABLE_NOW'
                           ? '모델상 실행 조건 충족(최종 게이트 차단)'
                           : toExecutionReasonLabelKo(reason);
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | R#${rankRaw ?? 'N/A'} | F#${rankFinal ?? 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance}`;
               })
               .join('\n')
           : '• 없음';
