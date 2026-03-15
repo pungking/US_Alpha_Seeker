@@ -123,12 +123,12 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
 export function buildTelegramMessage(reportContent: string): string {
   const header = `🚀 *US Alpha Seeker Report* 🚀\n\n`;
   const compactGuide = `[Alpha Signal Guide]
-• 우선순위: EXECUTABLE_NOW + XS/RR/ER 높은 순서
-• WAIT/BLOCKED: 종목 폐기가 아니라 조건 미충족(대기)
+• 우선순위: 지금 진입 가능 종목 중 XS/RR/ER 높은 순서
+• 가격 대기/제외: 종목 폐기가 아니라 조건 미충족(대기)
 • 배지 핵심: 💎 저평가 잠재, 🏢 기관 수급, 🔥 추세 강세
 • 리스크: VIX 고변동/실적 근접 구간은 보수 대응 + Stop 엄수`;
   const ultraCompactGuide = `[Alpha Signal Guide]
-• EXECUTABLE_NOW 우선, WAIT/BLOCKED는 대기
+• 지금 진입 가능 우선, 가격 대기/제외는 대기
 • XS/RR/ER 확인 후 진입, Stop 엄수`;
 
   // Clean up standard Markdown to Telegram Legacy Markdown if possible

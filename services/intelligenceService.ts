@@ -1791,6 +1791,77 @@ export async function generateTelegramBrief(
               .toUpperCase()
               .replace(/\s+/g, '_')
               .replace(/-/g, '_');
+      const toReasonKey = (value: any) =>
+          String(value || '')
+              .trim()
+              .toLowerCase()
+              .replace(/\s+/g, '_')
+              .replace(/-/g, '_');
+      const toDecisionLabelKo = (decision: any): string => {
+          const key = String(decision || '').trim().toUpperCase();
+          if (key === 'EXECUTABLE_NOW') return '지금 진입 가능';
+          if (key === 'WAIT_PRICE') return '가격 대기';
+          if (key === 'BLOCKED_RISK') return '리스크로 제외';
+          if (key === 'BLOCKED_EVENT') return '이벤트로 제외';
+          return '판정 없음';
+      };
+      const toExecutionBucketLabelKo = (bucket: any): string => {
+          const key = String(bucket || '').trim().toUpperCase();
+          if (key === 'EXECUTABLE') return '실행 후보';
+          if (key === 'WATCHLIST') return '대기 후보';
+          return '미분류';
+      };
+      const toExecutionReasonLabelKo = (reason: any): string => {
+          const key = String(reason || '').trim().toUpperCase();
+          if (key === 'VALID_EXEC') return '실행 조건 충족';
+          if (key === 'WAIT_PULLBACK_TOO_DEEP') return '진입 가격 미도달';
+          if (key === 'INVALID_GEOMETRY') return '가격 구조 오류';
+          if (key === 'INVALID_DATA') return '가격 데이터 부족';
+          return '사유 없음';
+      };
+      const toDecisionReasonLabelKo = (reason: any): string => {
+          const key = toReasonKey(reason);
+          if (key === 'executable_pullback') return '눌림목 조건 충족';
+          if (key === 'wait_pullback_not_reached') return '진입 가격 미도달';
+          if (key === 'blocked_invalid_geometry') return '가격 구조 오류';
+          if (key === 'blocked_missing_trade_box') return '진입/목표/손절 데이터 누락';
+          if (key === 'blocked_quality_missing_expected_return') return '기대수익 계산 불가';
+          if (key === 'blocked_quality_conviction_floor') return '신뢰도 점수 미달';
+          if (key === 'blocked_quality_verdict_unusable') return 'AI 판정 신뢰 불가';
+          if (key === 'blocked_stop_too_tight') return '손절폭 과소';
+          if (key === 'blocked_stop_too_wide') return '손절폭 과다';
+          if (key === 'blocked_target_too_close') return '목표폭 과소';
+          if (key === 'blocked_anchor_exec_gap') return '앵커/실행 괴리 과다';
+          if (key === 'blocked_rr_below_min') return '손익비 기준 미달';
+          if (key === 'blocked_ev_non_positive') return '기대수익 기준 미달';
+          if (key === 'blocked_earnings_window') return '실적 임박 구간';
+          if (key === 'blocked_verdict_risk_off') return '리스크오프 판정';
+          return '사유 없음';
+      };
+      const toTradePlanStatusLabelKo = (status: any): string => {
+          const key = String(status || '').trim().toUpperCase();
+          if (key === 'VALID' || key === 'VALID_EXEC') return '유효';
+          if (key === 'WAIT_PULLBACK_TOO_DEEP') return '진입 대기';
+          if (key === 'INVALID_GEOMETRY') return '구조 오류';
+          if (key === 'INVALID_DATA') return '데이터 부족';
+          return key || 'N/A';
+      };
+      const toFeasibleLabelKo = (value: boolean | null): string => {
+          if (value === true) return '가능';
+          if (value === false) return '불가';
+          return 'N/A';
+      };
+      const toVerdictLabelKo = (value: any): string => {
+          const key = toVerdictKey(value);
+          if (key.includes('STRONG_BUY') || key.includes('STRONGBUY')) return '강력 매수';
+          if (key === 'BUY') return '매수';
+          if (key === 'HOLD' || key === 'WAIT') return '관망';
+          if (key === 'PARTIAL_EXIT' || key === 'PARTIALEXIT') return '비중 축소';
+          if (key === 'ACCUMULATE') return '비중 확대';
+          if (key === 'SPECULATIVE_BUY' || key === 'SPECULATIVEBUY') return '투기적 매수';
+          if (key === 'SELL' || key.includes('EXIT')) return '매도/청산';
+          return key || 'N/A';
+      };
       const readExecutionBucket = (item: any): 'EXECUTABLE' | 'WATCHLIST' | null => {
           const raw = String(item?.executionBucket || '').trim().toUpperCase();
           if (raw === 'EXECUTABLE') return 'EXECUTABLE';
@@ -1987,17 +2058,8 @@ export async function generateTelegramBrief(
 
           const badgeStr = badges.length > 0 ? `\n   ${badges.join(' ')}` : "";
 
-          const verdictMap: any = {
-              "STRONG_BUY": "강력 매수",
-              "BUY": "매수",
-              "HOLD": "관망",
-              "WAIT": "관망",
-              "PARTIAL_EXIT": "비중 축소",
-              "ACCUMULATE": "비중 확대",
-              "SPECULATIVE_BUY": "투기적 매수"
-          };
           const verdictKey = toVerdictKey(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || "");
-          let koreanVerdict = verdictMap[verdictKey] || "관망";
+          let koreanVerdict = toVerdictLabelKo(verdictKey) || "관망";
           if (!verdictKey && ((c?.compositeAlpha || 0) > 80 || (c?.convictionScore || 0) > 80)) koreanVerdict = "강력 매수";
 
           // [Robust Fallback for AI Missing Data]
@@ -2053,8 +2115,11 @@ export async function generateTelegramBrief(
               typeof rawEntryFeasible === 'boolean'
                   ? rawEntryFeasible
                   : (typeof rawEntryFeasibleShadow === 'boolean' ? rawEntryFeasibleShadow : null);
-          const entryFeasibleLabel = entryFeasible === null ? 'N/A' : String(entryFeasible);
+          const entryFeasibleLabel = toFeasibleLabelKo(entryFeasible);
           const distanceLabel = entryDistancePct == null ? 'N/A' : `${entryDistancePct.toFixed(2)}%`;
+          const decisionLabelKo = toDecisionLabelKo(decision);
+          const decisionReasonLabelKo = toDecisionReasonLabelKo(decisionReason);
+          const planStatusLabelKo = toTradePlanStatusLabelKo(tradePlanStatus);
 
           const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 85 ? " [🔥SMART MONEY]" : "";
           
@@ -2062,8 +2127,8 @@ export async function generateTelegramBrief(
           return `${headerPrefix}${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
    • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
-   • 🧭 Exec: feasible=${entryFeasibleLabel} | status=${tradePlanStatus} | distance=${distanceLabel}
-   • 🧩 Decision: ${decision} | reason=${decisionReason} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | earnings=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
+   • 🧭 Exec: 실행가능=${entryFeasibleLabel} | 상태=${planStatusLabelKo} | 거리=${distanceLabel}
+   • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
    • 📈 Exp.Return: ${expReturn}
    • 💎 Logic:
      - ${r1}
@@ -2080,10 +2145,14 @@ export async function generateTelegramBrief(
                   const reason = readExecutionReason(c) || (bucket === 'EXECUTABLE' ? 'VALID_EXEC' : 'N/A');
                   const decision = readDecision(c) || (bucket === 'EXECUTABLE' ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
                   const decisionReason = readDecisionReason(c) || reason;
+                  const bucketKo = toExecutionBucketLabelKo(bucket);
+                  const reasonKo = toExecutionReasonLabelKo(reason);
+                  const decisionKo = toDecisionLabelKo(decision);
+                  const decisionReasonKo = toDecisionReasonLabelKo(decisionReason);
                   const conv = toNum(c?.convictionScore) ?? toNum(c?.compositeAlpha) ?? 0;
                   const executionScore = readExecutionScore(c);
                   const er = String(c?.gatedExpectedReturn || c?.expectedReturn || 'N/A');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | ${bucket}/${reason} | D=${decision}/${decisionReason} | Conv ${Math.round(conv)} | ER ${er}`;
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | M#${modelRank ?? 'N/A'} | E#${execRank ?? 'N/A'} | XS ${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | 상태 ${bucketKo}/${reasonKo} | 판정 ${decisionKo}/${decisionReasonKo} | 신뢰도 ${Math.round(conv)} | ER ${er}`;
               })
               .join('\n')
           : '• N/A';
@@ -2099,8 +2168,11 @@ export async function generateTelegramBrief(
                   const decision = readDecision(c) || 'N/A';
                   const decisionReason = readDecisionReason(c) || reason;
                   const distance = formatPct(c?.entryDistancePct ?? c?.entryDistancePctShadow);
-                  const verdict = toVerdictKey(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || '');
-                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | verdict=${verdict || 'N/A'} | decision=${decision}/${decisionReason} | reason=${reason} | distance=${distance}`;
+                  const verdict = toVerdictLabelKo(c?.verdictFinal || c?.finalVerdict || c?.aiVerdict || c?.verdict || '');
+                  const decisionKo = toDecisionLabelKo(decision);
+                  const decisionReasonKo = toDecisionReasonLabelKo(decisionReason);
+                  const reasonKo = toExecutionReasonLabelKo(reason);
+                  return `• ${i + 1}) ${c?.symbol || 'N/A'} | 판정=${verdict || 'N/A'} | 상태=${decisionKo}/${decisionReasonKo} | 실행사유=${reasonKo} | 거리=${distance}`;
               })
               .join('\n')
           : '• 없음';
@@ -2138,8 +2210,8 @@ ${watchlistSection}
 ${riskNote}
 
 [Alpha Signal Guide]
-• **핵심 우선순위**: EXECUTABLE_NOW + XS/RR/ER가 높은 종목부터 검토  
-• **실행/대기 구분**: WAIT/BLOCKED는 종목 불량이 아니라 **진입 타이밍/리스크 조건 미충족**  
+• **핵심 우선순위**: **지금 진입 가능** 종목 중 XS/RR/ER가 높은 순서로 검토  
+• **실행/대기 구분**: **가격 대기/제외**는 종목 불량이 아니라 **진입 타이밍/리스크 조건 미충족**  
 • **배지 해석(요약)**: 💎 Hidden Gem 저평가 잠재, 🏢 Institutional 기관 수급, 🏷️ Discount 유리한 가격대, 🔥 Momentum 추세 강세, 🛡️ Defensive 방어 성격  
 • **리스크 원칙**: VIX 고변동/실적 근접 구간은 보수적으로, 손절가(Stop) 엄수`.trim();
 
