@@ -38,6 +38,10 @@ interface AlphaCandidate {
     | 'wait_pullback_not_reached'
     | 'blocked_invalid_geometry'
     | 'blocked_missing_trade_box'
+    | 'blocked_stop_too_tight'
+    | 'blocked_stop_too_wide'
+    | 'blocked_target_too_close'
+    | 'blocked_anchor_exec_gap'
     | 'blocked_rr_below_min'
     | 'blocked_ev_non_positive'
     | 'blocked_earnings_window'
@@ -67,6 +71,9 @@ interface AlphaCandidate {
   entryExecPriceShadow?: number;
   entryDistancePct?: number;
   entryDistancePctShadow?: number;
+  stopDistancePct?: number | null;
+  targetDistancePct?: number | null;
+  anchorExecGapPct?: number | null;
   entryFeasible?: boolean;
   entryFeasibleShadow?: boolean;
   targetPrice?: number;
@@ -440,6 +447,22 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "⛔ Reason: blocked_missing_trade_box",
         desc: "Entry/Target/Stop 중 필수 값이 누락되어 실행 계약을 구성할 수 없습니다."
     },
+    'REASON_BLOCKED_STOP_TOO_TIGHT': {
+        title: "⛔ Reason: blocked_stop_too_tight",
+        desc: "손절 폭이 최소 기준보다 너무 촘촘해 체결 노이즈에 쉽게 무효화될 가능성이 커 차단했습니다."
+    },
+    'REASON_BLOCKED_STOP_TOO_WIDE': {
+        title: "⛔ Reason: blocked_stop_too_wide",
+        desc: "손절 폭이 최대 기준을 초과해 포지션당 손실 위험이 과도하므로 실행을 차단했습니다."
+    },
+    'REASON_BLOCKED_TARGET_TOO_CLOSE': {
+        title: "⛔ Reason: blocked_target_too_close",
+        desc: "목표 거리 자체가 너무 짧아 실질 기대 보상이 부족하다고 판단해 차단했습니다."
+    },
+    'REASON_BLOCKED_ANCHOR_EXEC_GAP': {
+        title: "⛔ Reason: blocked_anchor_exec_gap",
+        desc: "진입(앵커)와 진입(실행) 괴리가 허용치를 초과해 현재 계획의 실행 신뢰도가 낮아 차단했습니다."
+    },
     'REASON_BLOCKED_RR_BELOW_MIN': {
         title: "⛔ Reason: blocked_rr_below_min",
         desc: "손익비(RR)가 최소 기준 미만으로, 기대값 대비 리스크가 불리합니다."
@@ -663,6 +686,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_pullback_not_reached') return 'REASON_WAIT_PULLBACK_NOT_REACHED';
       if (key === 'blocked_invalid_geometry') return 'REASON_BLOCKED_INVALID_GEOMETRY';
       if (key === 'blocked_missing_trade_box') return 'REASON_BLOCKED_MISSING_TRADE_BOX';
+      if (key === 'blocked_stop_too_tight') return 'REASON_BLOCKED_STOP_TOO_TIGHT';
+      if (key === 'blocked_stop_too_wide') return 'REASON_BLOCKED_STOP_TOO_WIDE';
+      if (key === 'blocked_target_too_close') return 'REASON_BLOCKED_TARGET_TOO_CLOSE';
+      if (key === 'blocked_anchor_exec_gap') return 'REASON_BLOCKED_ANCHOR_EXEC_GAP';
       if (key === 'blocked_rr_below_min') return 'REASON_BLOCKED_RR_BELOW_MIN';
       if (key === 'blocked_ev_non_positive') return 'REASON_BLOCKED_EV_NON_POSITIVE';
       if (key === 'blocked_earnings_window') return 'REASON_BLOCKED_EARNINGS_WINDOW';
@@ -675,6 +702,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'wait_pullback_not_reached') return 'wait_pullback';
       if (key === 'blocked_invalid_geometry') return 'invalid_geometry';
       if (key === 'blocked_missing_trade_box') return 'missing_trade_box';
+      if (key === 'blocked_stop_too_tight') return 'stop_too_tight';
+      if (key === 'blocked_stop_too_wide') return 'stop_too_wide';
+      if (key === 'blocked_target_too_close') return 'target_too_close';
+      if (key === 'blocked_anchor_exec_gap') return 'anchor_exec_gap';
       if (key === 'blocked_rr_below_min') return 'rr_below_min';
       if (key === 'blocked_ev_non_positive') return 'ev_below_min';
       if (key === 'blocked_earnings_window') return 'earnings_blackout';
@@ -3006,6 +3037,35 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(stage6EarningsBlackoutDaysRaw) && stage6EarningsBlackoutDaysRaw >= 0
               ? stage6EarningsBlackoutDaysRaw
               : 5;
+      const stage6MinStopDistancePctRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MIN_STOP_DISTANCE_PCT ?? 1.5
+      );
+      const STAGE6_MIN_STOP_DISTANCE_PCT =
+          Number.isFinite(stage6MinStopDistancePctRaw) && stage6MinStopDistancePctRaw > 0
+              ? stage6MinStopDistancePctRaw
+              : 1.5;
+      const stage6MaxStopDistancePctRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MAX_STOP_DISTANCE_PCT ?? 22
+      );
+      const STAGE6_MAX_STOP_DISTANCE_PCT =
+          Number.isFinite(stage6MaxStopDistancePctRaw) &&
+          stage6MaxStopDistancePctRaw > STAGE6_MIN_STOP_DISTANCE_PCT
+              ? stage6MaxStopDistancePctRaw
+              : 22;
+      const stage6MinTargetDistancePctRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MIN_TARGET_DISTANCE_PCT ?? 3
+      );
+      const STAGE6_MIN_TARGET_DISTANCE_PCT =
+          Number.isFinite(stage6MinTargetDistancePctRaw) && stage6MinTargetDistancePctRaw > 0
+              ? stage6MinTargetDistancePctRaw
+              : 3;
+      const stage6MaxAnchorExecGapPctRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_MAX_ANCHOR_EXEC_GAP_PCT ?? 12
+      );
+      const STAGE6_MAX_ANCHOR_EXEC_GAP_PCT =
+          Number.isFinite(stage6MaxAnchorExecGapPctRaw) && stage6MaxAnchorExecGapPctRaw > 0
+              ? stage6MaxAnchorExecGapPctRaw
+              : 12;
       const ENTRY_FEASIBILITY_VERDICT_ENFORCE = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_VERDICT_ENFORCE ?? 'true'
       );
@@ -3076,6 +3136,27 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               livePrice != null && entryExecPriceShadow != null && livePrice > 0
                   ? Number((Math.abs(livePrice - entryExecPriceShadow) / livePrice * 100).toFixed(2))
                   : null;
+          const stopDistancePct =
+              entryExecPriceShadow != null &&
+              mirroredStop != null &&
+              entryExecPriceShadow > 0 &&
+              mirroredStop > 0
+                  ? Number((((entryExecPriceShadow - mirroredStop) / entryExecPriceShadow) * 100).toFixed(2))
+                  : null;
+          const targetDistancePct =
+              entryExecPriceShadow != null &&
+              mirroredTarget != null &&
+              entryExecPriceShadow > 0 &&
+              mirroredTarget > 0
+                  ? Number((((mirroredTarget - entryExecPriceShadow) / entryExecPriceShadow) * 100).toFixed(2))
+                  : null;
+          const anchorExecGapPct =
+              entryExecPriceShadow != null &&
+              entryAnchorPrice != null &&
+              entryExecPriceShadow > 0 &&
+              entryAnchorPrice > 0
+                  ? Number((Math.abs(entryExecPriceShadow - entryAnchorPrice) / entryExecPriceShadow * 100).toFixed(2))
+                  : null;
           const hasPriceBox = mirroredEntry != null && mirroredTarget != null && mirroredStop != null;
           const hasGeometry = Boolean(
               hasPriceBox &&
@@ -3137,6 +3218,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_invalid_geometry';
           } else if (
+              stopDistancePct != null &&
+              Number.isFinite(stopDistancePct) &&
+              stopDistancePct < STAGE6_MIN_STOP_DISTANCE_PCT
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_stop_too_tight';
+          } else if (
+              stopDistancePct != null &&
+              Number.isFinite(stopDistancePct) &&
+              stopDistancePct > STAGE6_MAX_STOP_DISTANCE_PCT
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_stop_too_wide';
+          } else if (
+              targetDistancePct != null &&
+              Number.isFinite(targetDistancePct) &&
+              targetDistancePct < STAGE6_MIN_TARGET_DISTANCE_PCT
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_target_too_close';
+          } else if (
+              anchorExecGapPct != null &&
+              Number.isFinite(anchorExecGapPct) &&
+              anchorExecGapPct > STAGE6_MAX_ANCHOR_EXEC_GAP_PCT
+          ) {
+              finalDecision = 'BLOCKED_RISK';
+              decisionReason = 'blocked_anchor_exec_gap';
+          } else if (
               riskRewardRatioValue != null &&
               Number.isFinite(riskRewardRatioValue) &&
               riskRewardRatioValue < STAGE6_MIN_RR_HARD_GATE
@@ -3171,6 +3280,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               entryAnchorPrice,
               entryExecPriceShadow,
               entryDistancePctShadow,
+              stopDistancePct,
+              targetDistancePct,
+              anchorExecGapPct,
               entryFeasibleShadow,
               tradePlanStatusShadow,
               executionReason,
@@ -3206,6 +3318,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               entryExecPriceShadow: executionContract.entryExecPriceShadow ?? undefined,
               entryDistancePct: executionContract.entryDistancePctShadow ?? undefined,
               entryDistancePctShadow: executionContract.entryDistancePctShadow ?? undefined,
+              stopDistancePct: executionContract.stopDistancePct ?? null,
+              targetDistancePct: executionContract.targetDistancePct ?? null,
+              anchorExecGapPct: executionContract.anchorExecGapPct ?? null,
               entryFeasible: executionContract.entryFeasibleShadow,
               entryFeasibleShadow: executionContract.entryFeasibleShadow,
               tradePlanStatusShadow: executionContract.tradePlanStatusShadow,
@@ -3286,7 +3401,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           "info"
       );
       addLog(
-          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
+          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
           "info"
       );
       const executableSummaryLine = top6Elite.length > 0
@@ -3312,7 +3427,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -3421,6 +3536,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               entryExecPriceShadow: executionContract.entryExecPriceShadow ?? undefined,
               entryDistancePct: executionContract.entryDistancePctShadow ?? undefined,
               entryDistancePctShadow: executionContract.entryDistancePctShadow ?? undefined,
+              stopDistancePct: executionContract.stopDistancePct ?? null,
+              targetDistancePct: executionContract.targetDistancePct ?? null,
+              anchorExecGapPct: executionContract.anchorExecGapPct ?? null,
               entryFeasible: executionContract.entryFeasibleShadow,
               entryFeasibleShadow: executionContract.entryFeasibleShadow,
               tradePlanStatusShadow: executionContract.tradePlanStatusShadow,
@@ -3528,6 +3646,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionScore: Number.isFinite(Number(item.executionScore))
                   ? Number(item.executionScore)
                   : null,
+              stopDistancePct: Number.isFinite(Number(item.stopDistancePct))
+                  ? Number(item.stopDistancePct)
+                  : null,
+              targetDistancePct: Number.isFinite(Number(item.targetDistancePct))
+                  ? Number(item.targetDistancePct)
+                  : null,
+              anchorExecGapPct: Number.isFinite(Number(item.anchorExecGapPct))
+                  ? Number(item.anchorExecGapPct)
+                  : null,
               riskRewardRatioValue: Number.isFinite(Number(item.riskRewardRatioValue))
                   ? Number(item.riskRewardRatioValue)
                   : null,
@@ -3582,6 +3709,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       minRr: STAGE6_MIN_RR_HARD_GATE,
                       minExpectedReturnPct: STAGE6_MIN_EXPECTED_RETURN_PCT,
                       earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
+                      minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
+                      maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
+                      minTargetDistancePct: STAGE6_MIN_TARGET_DISTANCE_PCT,
+                      maxAnchorExecGapPct: STAGE6_MAX_ANCHOR_EXEC_GAP_PCT,
                       executionRankBasis: "execution_score"
                   },
                   scoreViewDefault: scoreViewMode
