@@ -419,6 +419,34 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "📌 Exec Rank",
         desc: "실행 가능 후보(Entry/Target/Stop 기하학 + 거리 조건 통과) 안에서의 순위입니다. **실제 주문 우선순위**에 더 가깝습니다."
     },
+    'EXEC_ROW_STATUS': {
+        title: "🧭 Execution Status",
+        desc: "현재 카드의 실행 계획 상태입니다. Valid Setup이면 실행 계약 관점에서 구조가 유효하다는 의미입니다."
+    },
+    'EXEC_ROW_REASON': {
+        title: "🧩 Decision Reason",
+        desc: "해당 종목이 지금 실행/대기/차단으로 분류된 핵심 사유입니다."
+    },
+    'AQ_SCORE': {
+        title: "🟨 AQ (Analysis Quality)",
+        desc: "분석 품질 신뢰 점수입니다. 데이터 정합성/평결 일관성 관점에서 신뢰도를 나타냅니다."
+    },
+    'XS_SCORE': {
+        title: "🟦 XS (Execution Score)",
+        desc: "실전 집행 적합 점수입니다. 가격 거리, 게이트 통과, 구조 안정성을 반영합니다."
+    },
+    'RR_RATIO': {
+        title: "🟩 RR (Risk-Reward)",
+        desc: "손익비(목표 수익 / 손절 손실)입니다. 값이 높을수록 기대 손익 구조가 유리합니다."
+    },
+    'ER_PERCENT': {
+        title: "🟩 ER% (Expected Return)",
+        desc: "기대 수익률입니다. 실행 전제 조건을 반영한 상대적 기대치로 해석합니다."
+    },
+    'EARNINGS_DDAY': {
+        title: "🟪 EARN D-Day",
+        desc: "다음 실적 이벤트까지 남은 일수입니다. D-3 이내는 이벤트 변동성 리스크가 크게 증가합니다."
+    },
     'EXECUTABLE': {
         title: "✅ Executable",
         desc: "현재 규칙에서 **즉시 실행 가능한 상태**입니다. (거리/기하학/게이트 조건 통과)"
@@ -745,26 +773,39 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
   const getDecisionReasonLabel = (reason?: string | null) => {
       const key = String(reason || '').toLowerCase().trim();
-      if (key === 'executable_pullback') return 'pullback_ok';
-      if (key === 'wait_pullback_not_reached') return 'wait_pullback';
-      if (key === 'wait_earnings_data_missing') return 'wait_earnings_data';
-      if (key === 'wait_state_verdict_conflict') return 'wait_state_conflict';
-      if (key === 'blocked_invalid_geometry') return 'invalid_geometry';
-      if (key === 'blocked_missing_trade_box') return 'missing_trade_box';
-      if (key === 'blocked_quality_missing_expected_return') return 'quality_missing_er';
-      if (key === 'blocked_quality_conviction_floor') return 'quality_conviction_floor';
-      if (key === 'blocked_quality_verdict_unusable') return 'quality_verdict';
-      if (key === 'blocked_stop_too_tight') return 'stop_too_tight';
-      if (key === 'blocked_stop_too_wide') return 'stop_too_wide';
-      if (key === 'blocked_target_too_close') return 'target_too_close';
-      if (key === 'blocked_anchor_exec_gap') return 'anchor_exec_gap';
-      if (key === 'blocked_rr_below_min') return 'rr_below_min';
-      if (key === 'blocked_ev_non_positive') return 'ev_below_min';
-      if (key === 'blocked_earnings_data_missing') return 'earnings_data_missing';
-      if (key === 'blocked_earnings_window') return 'earnings_blackout';
-      if (key === 'blocked_state_verdict_conflict') return 'state_verdict_conflict';
-      if (key === 'blocked_verdict_risk_off') return 'risk_off_verdict';
+      if (key === 'executable_pullback') return 'Pullback Confirmed';
+      if (key === 'wait_pullback_not_reached') return 'Pullback Not Reached';
+      if (key === 'wait_earnings_data_missing') return 'Awaiting Earnings Data';
+      if (key === 'wait_state_verdict_conflict') return 'Awaiting State Conflict Review';
+      if (key === 'blocked_invalid_geometry') return 'Blocked: Invalid Geometry';
+      if (key === 'blocked_missing_trade_box') return 'Blocked: Missing Trade Box';
+      if (key === 'blocked_quality_missing_expected_return') return 'Blocked: Missing Expected Return';
+      if (key === 'blocked_quality_conviction_floor') return 'Blocked: Conviction Below Floor';
+      if (key === 'blocked_quality_verdict_unusable') return 'Blocked: Verdict Not Usable';
+      if (key === 'blocked_stop_too_tight') return 'Blocked: Stop Too Tight';
+      if (key === 'blocked_stop_too_wide') return 'Blocked: Stop Too Wide';
+      if (key === 'blocked_target_too_close') return 'Blocked: Target Too Close';
+      if (key === 'blocked_anchor_exec_gap') return 'Blocked: Anchor/Exec Gap';
+      if (key === 'blocked_rr_below_min') return 'Blocked: RR Below Min';
+      if (key === 'blocked_ev_non_positive') return 'Blocked: Expected Value Too Low';
+      if (key === 'blocked_earnings_data_missing') return 'Blocked: Missing Earnings Data';
+      if (key === 'blocked_earnings_window') return 'Blocked: Earnings Window';
+      if (key === 'blocked_state_verdict_conflict') return 'Blocked: State/Verdict Conflict';
+      if (key === 'blocked_verdict_risk_off') return 'Blocked: Risk-Off Verdict';
       return 'n/a';
+  };
+  const getTradePlanStatusLabel = (status?: string | null) => {
+      const key = String(status || '').trim().toUpperCase();
+      if (key === 'VALID_EXEC' || key === 'VALID') return 'Valid Setup';
+      if (key === 'WAIT_PULLBACK_TOO_DEEP') return 'Pullback Pending';
+      if (key === 'INVALID_GEOMETRY') return 'Invalid Geometry';
+      if (key === 'INVALID_DATA') return 'Data Missing';
+      return key || 'N/A';
+  };
+  const toPositiveRank = (value: any): number | null => {
+      const n = Number(value);
+      if (!Number.isFinite(n)) return null;
+      return n > 0 ? Math.round(n) : null;
   };
   const sortCandidatesForDisplay = (a: AlphaCandidate, b: AlphaCandidate) => {
       const decisionDelta = getDecisionPriority(a) - getDecisionPriority(b);
@@ -808,6 +849,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       () => [...(resultsCache[selectedBrain] || [])].sort(sortCandidatesForDisplay),
       [resultsCache, selectedBrain]
   );
+  const executableResults = useMemo(
+      () =>
+          currentResults.filter((item) => {
+              const decision = String(item?.finalDecision || '').toUpperCase();
+              return decision === 'EXECUTABLE_NOW' || String(item?.executionBucket || '').toUpperCase() === 'EXECUTABLE';
+          }),
+      [currentResults]
+  );
+  const watchlistResults = useMemo(() => {
+      const executableSymbols = new Set(executableResults.map((item) => String(item?.symbol || '')));
+      return currentResults.filter((item) => !executableSymbols.has(String(item?.symbol || '')));
+  }, [currentResults, executableResults]);
   const currentBacktest = selectedStock ? backtestData[selectedStock.symbol] : null;
 
   const [logs, setLogs] = useState<string[]>(['> Alpha_Sieve Engine v9.9.9: Node Ready.']);
@@ -3655,7 +3708,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const modelSummaryLine = modelTop6Pool.length > 0
           ? modelTop6Pool
               .map((item, idx) =>
-                  `${idx + 1})${item.symbol}(R#${item.rankRaw ?? 'N/A'},F#${item.rankFinal ?? 'N/A'},M#${item.modelRank ?? 'N/A'},E#${item.executionRank ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
+                  `${idx + 1})${item.symbol}(R#${toPositiveRank(item.rankRaw) ?? 'N/A'},F#${toPositiveRank(item.rankFinal) ?? 'N/A'},M#${toPositiveRank(item.modelRank) ?? 'N/A'},E#${toPositiveRank(item.executionRank) ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
               )
               .join(' | ')
           : 'none';
@@ -3688,7 +3741,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
       const executableSummaryLine = top6Elite.length > 0
           ? top6Elite
-              .map((item, idx) => `${idx + 1})${item.symbol}(R#${item.rankRaw ?? 'N/A'},F#${item.rankFinal ?? 'N/A'},M#${item.modelRank ?? 'N/A'},E#${item.executionRank ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'})`)
+              .map((item, idx) => `${idx + 1})${item.symbol}(R#${toPositiveRank(item.rankRaw) ?? 'N/A'},F#${toPositiveRank(item.rankFinal) ?? 'N/A'},M#${toPositiveRank(item.modelRank) ?? 'N/A'},E#${toPositiveRank(item.executionRank) ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'})`)
               .join(' | ')
           : 'none';
       addLog(`Executable Picks: ${executableSummaryLine}`, top6Elite.length > 0 ? "ok" : "warn");
@@ -4633,8 +4686,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           
           {activeTab === 'INDIVIDUAL' ? (
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-              {currentResults.length > 0 ? currentResults.map((item, index) => {
+              {currentResults.length > 0 ? [...executableResults, ...watchlistResults].map((item, index) => {
                 if (!item) return null;
+                const showExecutableHeader = index === 0 && executableResults.length > 0;
+                const showWatchlistHeader = index === executableResults.length && watchlistResults.length > 0;
                 const isSelected = selectedStock?.symbol === item.symbol;
                 const isAuditRunning = analyzingSymbols.has(item.symbol);
                 const rtData = realtimePrices[item.symbol];
@@ -4672,10 +4727,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                         ? item.entryFeasible
                         : (typeof item.entryFeasibleShadow === 'boolean' ? item.entryFeasibleShadow : null);
                 const tradePlanStatusCard = String(item.tradePlanStatusShadow || item.tradePlanStatus || 'N/A');
-                const modelRankCardRaw = Number(item.modelRank);
-                const modelRankCard = Number.isFinite(modelRankCardRaw) ? modelRankCardRaw : null;
-                const executionRankCardRaw = Number(item.executionRank);
-                const executionRankCard = Number.isFinite(executionRankCardRaw) ? executionRankCardRaw : null;
+                const tradePlanStatusLabel = getTradePlanStatusLabel(tradePlanStatusCard);
+                const modelRankCard = toPositiveRank(item.modelRank);
+                const executionRankCard = toPositiveRank(item.executionRank);
                 const executionBucketCard =
                     item.executionBucket === 'EXECUTABLE' ? 'EXECUTABLE' : 'WATCHLIST';
                 const finalDecisionCardRaw = String(item.finalDecision || '').toUpperCase();
@@ -4743,8 +4797,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const isTopPick = modelRankCard != null ? modelRankCard <= 2 : index < 2;
 
                 return (
+                  <React.Fragment key={`${item.symbol || 'N/A'}-${index}`}>
+                    {showExecutableHeader && (
+                      <div className="col-span-full mb-1 mt-1 px-3 py-2 rounded-xl border border-emerald-500/25 bg-emerald-500/10 text-emerald-200 text-[10px] font-black uppercase tracking-wider">
+                        Executable Picks ({executableResults.length})
+                      </div>
+                    )}
+                    {showWatchlistHeader && (
+                      <div className="col-span-full mb-1 mt-3 px-3 py-2 rounded-xl border border-amber-500/25 bg-amber-500/10 text-amber-200 text-[10px] font-black uppercase tracking-wider">
+                        Watchlist ({watchlistResults.length})
+                      </div>
+                    )}
                   <div 
-                    key={item.symbol} 
                     onClick={() => handleStockClick(item)} 
                     style={{ transform: 'translateZ(0)', WebkitTransform: 'translateZ(0)' }}
                     className={`glass-panel p-6 rounded-[35px] border cursor-pointer transition-all duration-300 relative overflow-hidden flex flex-col min-h-[280px] ${
@@ -4832,13 +4896,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                         onClick={(e) => handleSignalClick(e, 'MODEL_RANK')}
                                         className="text-[7px] px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-cyan-500/35 transition-colors"
                                     >
-                                        Model #{modelRankCard ?? '-'}
+                                        Model #{modelRankCard ?? 'N/A'}
                                     </span>
                                     <span
                                         onClick={(e) => handleSignalClick(e, 'EXEC_RANK')}
                                         className="text-[7px] px-1.5 py-0.5 rounded-sm bg-indigo-500/20 text-indigo-200 border border-indigo-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-indigo-500/35 transition-colors"
                                     >
-                                        Exec #{executionRankCard ?? '-'}
+                                        Exec #{executionRankCard ?? 'N/A'}
                                     </span>
                                     <span
                                         onClick={(e) => handleSignalClick(e, executionBucketCard)}
@@ -4914,29 +4978,49 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <span className="mx-1">|</span>
                       <span>괴리 {entryDistanceCard == null ? 'N/A' : `${entryDistanceCard.toFixed(2)}%`}</span>
                       <span className="mx-1">|</span>
-                      <span>{tradePlanStatusCard}</span>
+                      <span
+                        onClick={(e) => handleSignalClick(e, 'EXEC_ROW_STATUS')}
+                        className="cursor-help underline decoration-dotted underline-offset-2"
+                      >
+                        {tradePlanStatusLabel}
+                      </span>
                       <span className="mx-1">|</span>
                       <span
-                        onClick={(e) => handleSignalClick(e, decisionReasonSignalKey)}
+                        onClick={(e) => handleSignalClick(e, decisionReasonSignalKey || 'EXEC_ROW_REASON')}
                         className="cursor-help underline decoration-dotted underline-offset-2"
                       >
                         {decisionReasonLabel}
                       </span>
                     </div>
                     <div className="mb-2 grid grid-cols-5 gap-2 text-[8px]">
-                      <div className="px-2 py-1 rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-200 font-semibold">
+                      <div
+                        onClick={(e) => handleSignalClick(e, 'AQ_SCORE')}
+                        className="px-2 py-1 rounded-md border border-amber-500/20 bg-amber-500/10 text-amber-200 font-semibold cursor-help hover:bg-amber-500/20 transition-colors"
+                      >
                         AQ {qualityScoreCard == null ? 'N/A' : qualityScoreCard.toFixed(1)}
                       </div>
-                      <div className="px-2 py-1 rounded-md border border-indigo-500/20 bg-indigo-500/10 text-indigo-200 font-semibold">
+                      <div
+                        onClick={(e) => handleSignalClick(e, 'XS_SCORE')}
+                        className="px-2 py-1 rounded-md border border-indigo-500/20 bg-indigo-500/10 text-indigo-200 font-semibold cursor-help hover:bg-indigo-500/20 transition-colors"
+                      >
                         XS {executionScoreCard == null ? 'N/A' : executionScoreCard.toFixed(1)}
                       </div>
-                      <div className="px-2 py-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 text-cyan-200 font-semibold">
+                      <div
+                        onClick={(e) => handleSignalClick(e, 'RR_RATIO')}
+                        className="px-2 py-1 rounded-md border border-cyan-500/20 bg-cyan-500/10 text-cyan-200 font-semibold cursor-help hover:bg-cyan-500/20 transition-colors"
+                      >
                         RR {rrCard == null ? 'N/A' : rrCard.toFixed(2)}
                       </div>
-                      <div className="px-2 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-200 font-semibold">
+                      <div
+                        onClick={(e) => handleSignalClick(e, 'ER_PERCENT')}
+                        className="px-2 py-1 rounded-md border border-emerald-500/20 bg-emerald-500/10 text-emerald-200 font-semibold cursor-help hover:bg-emerald-500/20 transition-colors"
+                      >
                         ER% {expectedReturnPctCard == null ? 'N/A' : `${expectedReturnPctCard.toFixed(0)}%`}
                       </div>
-                      <div className="px-2 py-1 rounded-md border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200 font-semibold">
+                      <div
+                        onClick={(e) => handleSignalClick(e, 'EARNINGS_DDAY')}
+                        className="px-2 py-1 rounded-md border border-fuchsia-500/20 bg-fuchsia-500/10 text-fuchsia-200 font-semibold cursor-help hover:bg-fuchsia-500/20 transition-colors"
+                      >
                         EARN {earningsDaysCard == null ? 'N/A' : `D-${earningsDaysCard}`}
                       </div>
                     </div>
@@ -4949,6 +5033,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       <span className={`px-2 py-1 rounded text-[7px] font-black uppercase border shadow-md whitespace-nowrap ${getVerdictStyle(item.aiVerdict)}`}>{translateVerdict(item.aiVerdict)}</span>
                     </div>
                   </div>
+                  </React.Fragment>
                 );
               }) : <div className="col-span-full py-24 text-center opacity-30 text-xs font-black uppercase tracking-[0.6em] italic">Awaiting Alpha Protocol Signal...</div>}
             </div>

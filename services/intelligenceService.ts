@@ -1782,8 +1782,14 @@ export async function generateTelegramBrief(
       // 3. Format Candidates Programmatically
       const INDEX_SYMBOLS = new Set(['SPY', 'QQQ', 'VIX', 'SPX', 'NDX', 'SP500', 'NASDAQ', 'NASDAQ100', 'IXIC']);
       const toNum = (value: any): number | null => {
+          if (value === null || value === undefined || value === '') return null;
           const n = Number(value);
           return Number.isFinite(n) ? n : null;
+      };
+      const toPositiveRank = (value: any): number | null => {
+          const n = toNum(value);
+          if (n == null) return null;
+          return n > 0 ? Math.round(n) : null;
       };
       const toVerdictKey = (value: any) =>
           String(value || '')
@@ -2177,10 +2183,10 @@ export async function generateTelegramBrief(
       const modelSummary = modelTop6.length > 0
           ? modelTop6
               .map((c, i) => {
-                  const rankRaw = toNum(c?.rankRaw);
-                  const rankFinal = toNum(c?.rankFinal);
-                  const modelRank = toNum(c?.modelRank);
-                  const execRank = toNum(c?.executionRank);
+                  const rankRaw = toPositiveRank(c?.rankRaw);
+                  const rankFinal = toPositiveRank(c?.rankFinal);
+                  const modelRank = toPositiveRank(c?.modelRank);
+                  const execRank = toPositiveRank(c?.executionRank);
                   const bucket = readExecutionBucket(c) || (isExecutableCandidate(c) ? 'EXECUTABLE' : 'WATCHLIST');
                   const reason = readExecutionReason(c) || (bucket === 'EXECUTABLE' ? 'VALID_EXEC' : 'N/A');
                   const decision = readDecision(c) || (bucket === 'EXECUTABLE' ? 'EXECUTABLE_NOW' : 'WAIT_PRICE');
@@ -2208,10 +2214,10 @@ export async function generateTelegramBrief(
       const watchlistSection = watchlistTop.length > 0
           ? watchlistTop
               .map((c, i) => {
-                  const rankRaw = toNum(c?.rankRaw);
-                  const rankFinal = toNum(c?.rankFinal);
-                  const modelRank = toNum(c?.modelRank);
-                  const execRank = toNum(c?.executionRank);
+                  const rankRaw = toPositiveRank(c?.rankRaw);
+                  const rankFinal = toPositiveRank(c?.rankFinal);
+                  const modelRank = toPositiveRank(c?.modelRank);
+                  const execRank = toPositiveRank(c?.executionRank);
                   const decision = readDecision(c) || 'N/A';
                   const reason = readExecutionReason(c) || 'N/A';
                   const decisionReason = readDecisionReason(c) || (decision === 'EXECUTABLE_NOW' ? reason : 'n/a');
