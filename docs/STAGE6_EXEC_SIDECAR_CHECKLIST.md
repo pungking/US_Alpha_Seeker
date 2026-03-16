@@ -129,6 +129,25 @@
 완료 기준:
 - 자동 튜닝이 있어도 규칙 위반/급격 파라미터 변동 없음
 
+### 9.1) Stage6 20-Trade 자동 기록 루프 (반영 상태)
+- [x] Sidecar 실행 시 거래 루프 JSON 자동 갱신
+  - `state/stage6-20trade-loop.json`
+- [x] Sidecar 실행 시 거래 루프 CSV 자동 갱신
+  - `state/stage6-20trade-loop.csv`
+- [x] `idempotencyKey` 기반 중복 삽입 방지(upsert)
+- [x] 10트레이드 단위 KPI 스냅샷 자동 생성
+  - 로그 키: `[PERF_LOOP_KPI]`
+- [x] 워크플로우 요약에 루프 상태(batch/trades/snapshots) 표기
+  - `perf_loop: batch=... trades=... snapshots=...`
+- [x] 아티팩트에 루프 파일 포함 업로드
+  - `state/stage6-20trade-loop.json`
+  - `state/stage6-20trade-loop.csv`
+- [x] 배치 수동 분리 지원
+  - 환경변수: `STAGE6_PERF_BATCH_ID`
+
+참고 문서:
+- `sidecar-template/alpha-exec-engine/docs/STAGE6_20TRADE_PERFORMANCE_LOOP_2026-03-16.md`
+
 ---
 
 ## 10) 검증 시나리오
