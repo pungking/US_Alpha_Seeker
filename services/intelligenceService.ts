@@ -2030,6 +2030,10 @@ export async function generateTelegramBrief(
           }
           return out || raw;
       };
+      const isAnchorExecEquivalent = (entryExec: number | null, entryAnchor: number | null): boolean => {
+          if (!(Number(entryExec) > 0) || !(Number(entryAnchor) > 0)) return false;
+          return Math.abs(Number(entryExec) - Number(entryAnchor)) / Number(entryExec) <= 0.002; // <= 0.2%
+      };
 
       const formatCandidateDetail = (c: any, i: number, numbered = true) => {
           if (!c) return "";
@@ -2164,13 +2168,16 @@ export async function generateTelegramBrief(
           const decisionLabelKo = toDecisionLabelKo(decision);
           const decisionReasonLabelKo = toDecisionReasonLabelKo(decisionReason);
           const planStatusLabelKo = toTradePlanStatusLabelKo(tradePlanStatus);
+          const planEntryLabel = isAnchorExecEquivalent(entryExecPrice, entryAnchorPrice)
+              ? `진입 ${fmtPrice(entryExecPrice)} (앵커=실행)`
+              : `진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)}`;
 
           const smartMoneyTag = (c.ictMetrics?.smartMoneyFlow || 0) > 85 ? " [🔥SMART MONEY]" : "";
           
           const headerPrefix = numbered ? `${i + 1}. ` : `• `;
           return `${headerPrefix}${c?.symbol || "N/A"} (${koreanVerdict}) : ${cleanName(c?.name)}${smartMoneyTag}${badgeStr}
    • 🏢 Sector: ${c?.sectorTheme || c?.sector || "N/A"}
-   • 🎯 Plan: 진입(실행) ${fmtPrice(entryExecPrice)} | 진입(앵커) ${fmtPrice(entryAnchorPrice)} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
+   • 🎯 Plan: ${planEntryLabel} | 목표 ${fmtPrice(targetPrice)} | 손절 ${fmtPrice(stopPrice)}
    • 🧭 Exec: 실행가능=${entryFeasibleLabel} | 상태=${planStatusLabelKo} | 거리=${distanceLabel}
    • 🧩 Decision: 판정=${decisionLabelKo} | 사유=${decisionReasonLabelKo} | ${conflictLabel} | AQ=${qualityScore == null ? 'N/A' : qualityScore.toFixed(1)} | XS=${executionScore == null ? 'N/A' : executionScore.toFixed(1)} | RR=${rrValue == null ? 'N/A' : rrValue.toFixed(2)} | ER%=${expectedReturnPct == null ? 'N/A' : `${expectedReturnPct.toFixed(0)}%`} | 실적=${earningsDays == null ? 'N/A' : `D-${earningsDays}`}
    • 📈 Exp.Return: ${expReturn}

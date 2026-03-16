@@ -1870,6 +1870,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return `+${Math.round(pct)}% (${tag})`;
   };
 
+  const isAnchorExecEquivalent = (entryExec: number, entryAnchor: number) => {
+      if (!(entryExec > 0) || !(entryAnchor > 0)) return false;
+      const gapPct = Math.abs(entryExec - entryAnchor) / entryExec;
+      return gapPct <= 0.002; // <= 0.2%
+  };
+
+  const buildPlanTrajectoryText = (entryExec: number, entryAnchor: number, target: number, stop: number) => {
+      const entryPart = isAnchorExecEquivalent(entryExec, entryAnchor)
+          ? `진입 $${entryExec.toFixed(1)} (앵커=실행)`
+          : `진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)}`;
+      return `${entryPart} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}`;
+  };
+
   const buildCanonicalTradePlan = (item: any) => {
       // [QUANT LOCK] Stage 5 quant trade-box is authoritative in Stage 6.
       // AI must not overwrite entry/target/stop geometry.
@@ -1920,7 +1933,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               : (typeof entryFeasibleShadowRaw === 'boolean' ? entryFeasibleShadowRaw : null);
       const tradePlanStatus = String(item?.tradePlanStatus || item?.tradePlanStatusShadow || 'N/A');
 
-      const trajectoryLine = `- **가격 목표 (Trajectory)** : 진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}`;
+      const trajectoryLine = `- **가격 목표 (Trajectory)** : ${buildPlanTrajectoryText(entryExec, entryAnchor, target, stop)}`;
       const executionLine = `- **실행 가능성 (Execution)** : feasible=${entryFeasible === null ? 'N/A' : String(entryFeasible)} | status=${tradePlanStatus} | distance=${entryDistancePct === null ? 'N/A' : `${entryDistancePct.toFixed(2)}%`}`;
       const hasTrajectoryLine = /- \*\*가격 목표\s*\(Trajectory\)\*\*\s*:.*/m.test(text);
       let nextText = text;
@@ -2009,7 +2022,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
 ## 2. 전문가 3인 성향 분석
 - **보수적 퀀트** : 손절선($${stop.toFixed(1)}) 기준 리스크 통제, 무효화 구간 이탈 시 시나리오 폐기.
-- **공격적 트레이더** : 진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)} 대비 목표($${target.toFixed(1)})의 보상/위험 기하 구조 확인.
+- **공격적 트레이더** : ${isAnchorExecEquivalent(entryExec, entryAnchor) ? `진입 $${entryExec.toFixed(1)} (앵커=실행)` : `진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)}`} 대비 목표($${target.toFixed(1)})의 보상/위험 기하 구조 확인.
 - **마켓 메이커** : ${pdZone} 구간에서 체결/유동성 리스크와 수급 흡수 가능성 점검.
 - **종합 분석** : 정량 Trade Box(OTE/TARGET/STOP)는 고정하고, 실행 가능성(feasible=${entryFeasible}, status=${tradePlanStatus}, distance=${entryDistancePct})을 별도 관리.
 
@@ -2017,7 +2030,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 - **핵심 논거 (Key Thesis)** : ${reasonList[2] || '핵심 논거 보강 필요'}
 - **상승 촉매 (Catalysts)** : 섹터 모멘텀, 수급 흐름, 이벤트 캘린더(Earnings/Regime) 동시 정렬 여부.
 - **리스크 요인 (Risk Factors)** : 레짐 전환, 변동성 급등, 손절선 하향 이탈.
-- **가격 목표 (Trajectory)** : 진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)} / 목표 $${target.toFixed(1)} / 손절 $${stop.toFixed(1)}
+- **가격 목표 (Trajectory)** : ${buildPlanTrajectoryText(entryExec, entryAnchor, target, stop)}
 - **실행 가능성 (Execution)** : feasible=${entryFeasible} | status=${tradePlanStatus} | distance=${entryDistancePct}
 
 참고 메모: ${rawPreview}`;
