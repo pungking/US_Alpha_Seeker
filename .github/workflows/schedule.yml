@@ -39,6 +39,7 @@ jobs:
       GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
       GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
       GDRIVE_ACCESS_TOKEN: ${{ secrets.GDRIVE_ACCESS_TOKEN }}
+      SIDECAR_DISPATCH_REPO: pungking/alpha-exec-engine
 
     steps:
       - name: 1. 소스 코드 가져오기 (Checkout)
@@ -73,12 +74,108 @@ jobs:
       - name: 7. 자동화 스크립트 실행 (Puppeteer)
         run: npm run automate
 
+      - name: 7.1 Stage6 Dispatch Payload 추출
+        id: stage6_dispatch_meta
+        if: success()
+        run: |
+          node - <<'NODE'
+          const fs = require("node:fs");
+          const outputPath = process.env.GITHUB_OUTPUT;
+          const fallback = {
+            stage6File: "",
+            stage6Hash: "",
+            sourceRunId: process.env.GITHUB_RUN_ID || ""
+          };
+          let payload = fallback;
+          if (fs.existsSync("stage6-dispatch-payload.json")) {
+            try {
+              const parsed = JSON.parse(fs.readFileSync("stage6-dispatch-payload.json", "utf8"));
+              payload = {
+                stage6File: String(parsed?.stage6File || ""),
+                stage6Hash: String(parsed?.stage6Hash || ""),
+                sourceRunId: String(parsed?.sourceRunId || fallback.sourceRunId)
+              };
+            } catch (error) {
+              console.log(`[WARN] stage6-dispatch-payload.json parse failed: ${error?.message || error}`);
+            }
+          } else {
+            console.log("[WARN] stage6-dispatch-payload.json not found; using fallback payload");
+          }
+          fs.appendFileSync(outputPath, `stage6_file=${payload.stage6File}\n`);
+          fs.appendFileSync(outputPath, `stage6_hash=${payload.stage6Hash}\n`);
+          fs.appendFileSync(outputPath, `source_run_id=${payload.sourceRunId}\n`);
+          console.log(`[DISPATCH_PREP] file=${payload.stage6File || "N/A"} hash=${(payload.stage6Hash || "N/A").slice(0, 12)} sourceRun=${payload.sourceRunId || "N/A"}`);
+          NODE
+
+      - name: 7.2 Sidecar Dry-Run 트리거 (repository_dispatch)
+        if: success()
+        env:
+          SIDECAR_DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+          STAGE6_FILE: ${{ steps.stage6_dispatch_meta.outputs.stage6_file }}
+          STAGE6_HASH: ${{ steps.stage6_dispatch_meta.outputs.stage6_hash }}
+          SOURCE_RUN_ID: ${{ steps.stage6_dispatch_meta.outputs.source_run_id }}
+        run: |
+          node - <<'NODE'
+          (async () => {
+            const token = String(process.env.SIDECAR_DISPATCH_TOKEN || "").trim();
+            if (!token) {
+              console.log("[WARN] SIDECAR_DISPATCH_TOKEN is not set; skip repository_dispatch.");
+              process.exit(0);
+            }
+
+            const repo = String(process.env.SIDECAR_DISPATCH_REPO || "").trim();
+            if (!repo.includes("/")) {
+              console.log(`[WARN] SIDECAR_DISPATCH_REPO is invalid: ${repo || "N/A"}; skip repository_dispatch.`);
+              process.exit(0);
+            }
+
+            const [owner, name] = repo.split("/", 2);
+            const body = {
+              event_type: "stage6_result_created",
+              client_payload: {
+                stage6File: process.env.STAGE6_FILE || "",
+                stage6Hash: process.env.STAGE6_HASH || "",
+                sourceRunId: process.env.SOURCE_RUN_ID || process.env.GITHUB_RUN_ID || "",
+                sourceRepo: process.env.GITHUB_REPOSITORY || "",
+                sourceWorkflow: process.env.GITHUB_WORKFLOW || "",
+                sourceSha: process.env.GITHUB_SHA || ""
+              }
+            };
+
+            const url = `https://api.github.com/repos/${owner}/${name}/dispatches`;
+            const response = await fetch(url, {
+              method: "POST",
+              headers: {
+                Accept: "application/vnd.github+json",
+                Authorization: `Bearer ${token}`,
+                "X-GitHub-Api-Version": "2022-11-28",
+                "Content-Type": "application/json"
+              },
+              body: JSON.stringify(body)
+            });
+
+            if (!response.ok) {
+              const text = await response.text();
+              throw new Error(`repository_dispatch failed (${response.status}): ${text}`);
+            }
+
+            console.log(
+              `[DISPATCH_OK] repo=${repo} event=stage6_result_created file=${body.client_payload.stage6File || "N/A"} hash=${String(body.client_payload.stage6Hash || "N/A").slice(0, 12)} sourceRun=${body.client_payload.sourceRunId || "N/A"}`
+            );
+          })().catch((error) => {
+            console.error(`[DISPATCH_ERR] ${error?.message || error}`);
+            process.exit(1);
+          });
+          NODE
+
       - name: 8. 결과 증거물 저장 (Screenshots)
         if: always() # 성공/실패 여부와 관계없이 실행
         uses: actions/upload-artifact@v5
         with:
           name: automation-evidence
-          path: "*.png"
+          path: |
+            *.png
+            stage6-dispatch-payload.json
           retention-days: 3
 
 

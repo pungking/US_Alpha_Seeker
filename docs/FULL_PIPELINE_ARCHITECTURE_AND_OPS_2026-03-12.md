@@ -45,6 +45,7 @@
 4. **후반 분석**
    - Stage 4 -> Stage 5 -> Stage 6 실행
    - `STAGE6_ALPHA_FINAL_*.json` 생성/저장 + 분석 텔레그램 리포트 전송
+   - 완료 직후 `alpha-exec-engine`로 `repository_dispatch(event_type=stage6_result_created)` 전송
 
 5. **실행 사이드카(`alpha-exec-engine`)**
    - Stage6 파일 로드/검증
@@ -98,7 +99,12 @@
   - `STAGE6_PART1_*`, `STAGE6_PART2_*` 보조 리포트
 - 종료:
   - 텔레그램 분석 리포트 송신
+  - `alpha-exec-engine` sidecar-dry-run 자동 트리거(`stage6_result_created`)
   - 앱 자동화 상태 `ALL PIPELINES EXECUTED.` 또는 `AUTO ABORTED:*`
+
+운영 메모:
+- cross-repo dispatch를 위해 `US_Alpha_Seeker` 레포에 `SIDECAR_DISPATCH_TOKEN` secret 필요
+  - scope: target repo(`pungking/alpha-exec-engine`)에 `repository_dispatch` 호출 가능 권한
 
 ---
 

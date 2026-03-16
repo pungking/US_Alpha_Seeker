@@ -4159,7 +4159,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               alpha_candidates: top6Elite,
               audit_trail: top6AuditTrail
           };
-          await uploadFile(accessToken, stage6FolderId, `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`, finalPayload);
+          const stage6FinalFileName = `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`;
+          const stage6FinalHash = fnv1aHash(JSON.stringify(finalPayload));
+          await uploadFile(accessToken, stage6FolderId, stage6FinalFileName, finalPayload);
+          (window as any).__STAGE6_DISPATCH_INFO = {
+              stage6File: stage6FinalFileName,
+              stage6Hash: stage6FinalHash,
+              sourceRunId: stage6FinalRunIdRef.current || getKstTimestamp(),
+              generatedAt: new Date().toISOString(),
+              candidateCount: top6Elite.length
+          };
+          addLog(
+              `[STAGE6_DISPATCH] file=${stage6FinalFileName} hash=${stage6FinalHash.slice(0, 12)} sourceRun=${stage6FinalRunIdRef.current || 'N/A'}`,
+              "info"
+          );
           addLog(`Final Elite Candidates archived to Drive (count=${top6Elite.length}).`, "ok");
       }
 

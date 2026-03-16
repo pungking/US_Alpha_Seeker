@@ -188,12 +188,14 @@ const App: React.FC = () => {
           setCurrentStage(0);
           setAutoStatusMessage("AUTO PILOT ENGAGED");
           (window as any).__AUTO_DONE = "";
+          (window as any).__STAGE6_DISPATCH_INFO = null;
           
       } else {
           setViewMode('MANUAL');
           setIsAutoPilotRunning(false);
           setAutoStatusMessage("MANUAL OVERRIDE");
           (window as any).__AUTO_DONE = "";
+          (window as any).__STAGE6_DISPATCH_INFO = null;
           setTimeout(() => setAutoStatusMessage("SYSTEM STANDBY"), 2000);
       }
   };

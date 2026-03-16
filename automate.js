@@ -1,4 +1,5 @@
 
+import fs from 'node:fs';
 import puppeteer from 'puppeteer';
 
 /**
@@ -179,6 +180,31 @@ async function getAccessToken() {
         if (typeof window.__AUTO_DONE === 'string' && window.__AUTO_DONE.length > 0) return window.__AUTO_DONE;
         return document.body.innerText;
     });
+
+    const dispatchInfo = await page.evaluate(() => {
+        const info = (window).__STAGE6_DISPATCH_INFO;
+        if (!info || typeof info !== 'object') return null;
+        return {
+            stage6File: String(info.stage6File || ''),
+            stage6Hash: String(info.stage6Hash || ''),
+            sourceRunId: String(info.sourceRunId || ''),
+            generatedAt: String(info.generatedAt || '')
+        };
+    });
+
+    const dispatchPayload = {
+        stage6File: dispatchInfo?.stage6File || '',
+        stage6Hash: dispatchInfo?.stage6Hash || '',
+        sourceRunId: dispatchInfo?.sourceRunId || process.env.GITHUB_RUN_ID || '',
+        sourceRepo: process.env.GITHUB_REPOSITORY || '',
+        sourceWorkflow: process.env.GITHUB_WORKFLOW || '',
+        sourceSha: process.env.GITHUB_SHA || '',
+        generatedAt: dispatchInfo?.generatedAt || new Date().toISOString()
+    };
+    fs.writeFileSync('stage6-dispatch-payload.json', JSON.stringify(dispatchPayload, null, 2), 'utf8');
+    console.log(
+        `[DISPATCH_PAYLOAD] stage6File=${dispatchPayload.stage6File || 'N/A'} stage6Hash=${(dispatchPayload.stage6Hash || 'N/A').slice(0, 12)} sourceRun=${dispatchPayload.sourceRunId || 'N/A'}`
+    );
     
     if (finalState.includes(SUCCESS_STATUS)) {
         console.log("✅ SUCCESS: Alpha Report Generated & Telegram Triggered.");
