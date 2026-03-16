@@ -3956,6 +3956,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       stage6ExecutableRef.current = top6Elite.map((item) => ({ ...item }));
       stage6FinalRef.current = top6Elite;
       stage6FinalRunIdRef.current = getKstTimestamp();
+      const displaySymbolSet = new Set<string>();
+      const stage6DisplayCandidates: AlphaCandidate[] = [];
+      for (const item of top6Elite) {
+          const symbolKey = normalizeContractSymbol(item?.symbol) || `EXEC_${stage6DisplayCandidates.length}`;
+          if (displaySymbolSet.has(symbolKey)) continue;
+          displaySymbolSet.add(symbolKey);
+          stage6DisplayCandidates.push(item);
+      }
+      for (const item of modelTop6Watchlist) {
+          const symbolKey = normalizeContractSymbol(item?.symbol) || `WATCH_${stage6DisplayCandidates.length}`;
+          if (displaySymbolSet.has(symbolKey)) continue;
+          displaySymbolSet.add(symbolKey);
+          stage6DisplayCandidates.push(item);
+      }
 
       const top6ProviderSet = Array.from(new Set(top6Elite.map(item => String(item?.aiProvider || 'UNKNOWN').toUpperCase())));
       if (usedProvider === ApiProvider.GEMINI && top6ProviderSet.some(p => p.includes('PERPLEXITY'))) {
@@ -3965,7 +3979,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           addLog(`[WARN] Engine Audit Mismatch: manifest actual=${usedProvider}, but Top6 providers include ${top6ProviderSet.join(', ')}`, "warn");
       }
 
-      setResultsCache(prev => ({ ...prev, [usedProvider]: top6Elite }));
+      setResultsCache(prev => ({ ...prev, [usedProvider]: stage6DisplayCandidates }));
       // [FIX] Keep selectedStock payload in sync with freshly updated Top6 objects.
       // Without this, detail panel can show stale pre-detail outlook text even when cards/logs are updated.
       setSelectedStock(prev => {
