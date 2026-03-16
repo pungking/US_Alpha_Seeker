@@ -29,6 +29,95 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
     return false;
   }
   const fullMessage = buildTelegramMessage(reportContent);
+  const MAX_LENGTH = 4000;
+
+  const splitLongSegment = (text: string, maxLen: number): string[] => {
+    if (text.length <= maxLen) return [text];
+    const chunks: string[] = [];
+    const lines = text.split('\n');
+    let current = '';
+    for (const line of lines) {
+      const candidate = current ? `${current}\n${line}` : line;
+      if (candidate.length <= maxLen) {
+        current = candidate;
+        continue;
+      }
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+      if (line.length <= maxLen) {
+        current = line;
+        continue;
+      }
+      for (let i = 0; i < line.length; i += maxLen) {
+        chunks.push(line.slice(i, i + maxLen));
+      }
+    }
+    if (current) chunks.push(current);
+    return chunks;
+  };
+
+  const packSegments = (segments: string[], maxLen: number): string[] => {
+    const chunks: string[] = [];
+    let current = '';
+    for (const raw of segments) {
+      const seg = raw.trim();
+      if (!seg) continue;
+      const candidate = current ? `${current}\n\n${seg}` : seg;
+      if (candidate.length <= maxLen) {
+        current = candidate;
+        continue;
+      }
+      if (current) {
+        chunks.push(current);
+        current = '';
+      }
+      if (seg.length <= maxLen) {
+        current = seg;
+        continue;
+      }
+      const split = splitLongSegment(seg, maxLen);
+      if (split.length > 1) {
+        chunks.push(...split.slice(0, -1));
+      }
+      current = split[split.length - 1] || '';
+    }
+    if (current) chunks.push(current);
+    return chunks;
+  };
+
+  const splitMessageBySections = (message: string, maxLen: number): string[] => {
+    const normalized = String(message || '').replace(/\r\n/g, '\n').trim();
+    if (normalized.length <= maxLen) return [normalized];
+
+    const sectionAnchors = [
+      '\n📊 Market Pulse',
+      '\n🧠 Top6 (Model Rank)',
+      '\n✅ Executable Picks',
+      '\n⏳ Watchlist (실행 대기)',
+      '\n[Alpha Signal Guide]'
+    ];
+    const anchorIndices = sectionAnchors
+      .map((anchor) => normalized.indexOf(anchor))
+      .filter((idx) => idx >= 0)
+      .sort((a, b) => a - b);
+
+    if (anchorIndices.length === 0) {
+      return packSegments(normalized.split(/\n\n+/), maxLen);
+    }
+
+    const sections: string[] = [];
+    let cursor = 0;
+    for (const idx of anchorIndices) {
+      if (idx > cursor) {
+        sections.push(normalized.slice(cursor, idx));
+        cursor = idx;
+      }
+    }
+    sections.push(normalized.slice(cursor));
+    return packSegments(sections, maxLen);
+  };
 
   // 2. Helper to send chunks with RETRY LOGIC
   const sendMessageChunk = async (text: string, useMarkdown = true, attempt = 1): Promise<boolean> => {
@@ -96,13 +185,8 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
     }
   };
 
-  // 3. Split message if too long (Telegram limit is 4096, we use 4000 for safety)
-  const MAX_LENGTH = 4000;
-  const chunks = [];
-  
-  for (let i = 0; i < fullMessage.length; i += MAX_LENGTH) {
-    chunks.push(fullMessage.substring(i, i + MAX_LENGTH));
-  }
+  // 3. Split message by logical sections first (then safe fallback splits)
+  const chunks = splitMessageBySections(fullMessage, MAX_LENGTH);
 
   // 4. Send all chunks with delay
   let success = true;

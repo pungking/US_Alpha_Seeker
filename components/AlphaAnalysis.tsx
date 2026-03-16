@@ -4022,6 +4022,62 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalGateBonus: Number(item.finalGateBonus || 0),
               finalGatePenalty: Number(item.finalGatePenalty || 0)
           }));
+          const toExecutionContractItem = (item: any) => ({
+              symbol: item?.symbol || 'N/A',
+              name: item?.name || 'N/A',
+              sector: item?.sectorTheme || item?.sector || 'N/A',
+              aiVerdict: item?.aiVerdict || item?.verdictFinal || item?.finalVerdict || 'N/A',
+              finalDecision: item?.finalDecision || 'N/A',
+              decisionReason: item?.decisionReason || item?.executionReason || 'N/A',
+              executionBucket: item?.executionBucket || 'WATCHLIST',
+              executionReason: item?.executionReason || item?.tradePlanStatusShadow || 'N/A',
+              entryAnchorPrice: Number.isFinite(Number(item?.entryAnchorPrice))
+                  ? Number(item.entryAnchorPrice)
+                  : null,
+              entryExecPrice: Number.isFinite(Number(item?.entryExecPrice ?? item?.entryExecPriceShadow))
+                  ? Number(item.entryExecPrice ?? item.entryExecPriceShadow)
+                  : null,
+              targetPrice: Number.isFinite(Number(item?.targetPrice ?? item?.targetMeanPrice))
+                  ? Number(item.targetPrice ?? item.targetMeanPrice)
+                  : null,
+              stopPrice: Number.isFinite(Number(item?.stopLoss ?? item?.ictStopLoss))
+                  ? Number(item.stopLoss ?? item.ictStopLoss)
+                  : null,
+              entryDistancePct: Number.isFinite(Number(item?.entryDistancePct ?? item?.entryDistancePctShadow))
+                  ? Number(item.entryDistancePct ?? item.entryDistancePctShadow)
+                  : null,
+              stopDistancePct: Number.isFinite(Number(item?.stopDistancePct))
+                  ? Number(item.stopDistancePct)
+                  : null,
+              targetDistancePct: Number.isFinite(Number(item?.targetDistancePct))
+                  ? Number(item.targetDistancePct)
+                  : null,
+              anchorExecGapPct: Number.isFinite(Number(item?.anchorExecGapPct))
+                  ? Number(item.anchorExecGapPct)
+                  : null,
+              rankRaw: Number.isFinite(Number(item?.rankRaw)) ? Number(item.rankRaw) : null,
+              rankFinal: Number.isFinite(Number(item?.rankFinal)) ? Number(item.rankFinal) : null,
+              modelRank: Number.isFinite(Number(item?.modelRank)) ? Number(item.modelRank) : null,
+              executionRank: Number.isFinite(Number(item?.executionRank)) ? Number(item.executionRank) : null,
+              qualityScore: Number.isFinite(Number(item?.qualityScore)) ? Number(item.qualityScore) : null,
+              executionScore: Number.isFinite(Number(item?.executionScore)) ? Number(item.executionScore) : null,
+              riskRewardRatioValue: Number.isFinite(Number(item?.riskRewardRatioValue))
+                  ? Number(item.riskRewardRatioValue)
+                  : null,
+              expectedReturnPct: Number.isFinite(Number(item?.expectedReturnPct))
+                  ? Number(item.expectedReturnPct)
+                  : null,
+              earningsDaysToEvent: Number.isFinite(Number(item?.earningsDaysToEvent))
+                  ? Number(item.earningsDaysToEvent)
+                  : null,
+              verdictConflict: Boolean(item?.verdictConflict),
+              stateVerdictConflict: Boolean(item?.stateVerdictConflict)
+          });
+          const decisionReasonCountsTop6 = top6Elite.reduce<Record<string, number>>((acc, item) => {
+              const key = String(item?.decisionReason || item?.executionReason || 'unknown').toLowerCase();
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+          }, {});
 
           const finalPayload = {
               manifest: { 
@@ -4076,6 +4132,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       executionRankBasis: "execution_score"
                   },
                   scoreViewDefault: scoreViewMode
+              },
+              execution_contract: {
+                  generatedAt: new Date().toISOString(),
+                  modelTop6: modelTop6Pool.map(toExecutionContractItem),
+                  executablePicks: top6Elite.map(toExecutionContractItem),
+                  watchlistTop: modelTop6Watchlist.map(toExecutionContractItem),
+                  decisionCountsPrimary,
+                  decisionCountsTop6,
+                  decisionReasonCountsPrimary,
+                  decisionReasonCountsTop6
               },
               alpha_candidates: top6Elite,
               audit_trail: top6AuditTrail
