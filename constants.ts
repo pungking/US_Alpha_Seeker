@@ -116,25 +116,49 @@ export const API_CONFIGS: ApiConfig[] = [
 ];
 
 // [C1 FIX] Centralized Gemini model contract to avoid per-file drift.
-const geminiPrimaryModel =
-  getEnvVar('GEMINI_PRIMARY_MODEL') ||
-  getEnvVar('VITE_GEMINI_PRIMARY_MODEL') ||
-  'gemini-2.0-pro-exp';
+const normalizeGeminiModel = (model: string, fallback: string): string => {
+  const legacyAlias: Record<string, string> = {
+    // Legacy / retired aliases -> currently supported family
+    'gemini-1.5-pro': 'gemini-2.5-pro',
+    'gemini-1.5-flash': 'gemini-2.5-flash',
+    'gemini-1.5-flash-latest': 'gemini-2.5-flash',
+    'gemini-2.0-pro-exp': 'gemini-2.5-pro',
+    'gemini-2.0-flash': 'gemini-2.5-flash'
+  };
+  const normalized = legacyAlias[model] || model;
+  return normalized || fallback;
+};
 
-const geminiFallbackModel =
-  getEnvVar('GEMINI_FALLBACK_MODEL') ||
-  getEnvVar('VITE_GEMINI_FALLBACK_MODEL') ||
-  'gemini-2.0-flash';
+const geminiPrimaryModel = normalizeGeminiModel(
+  getEnvVar('GEMINI_PRIMARY_MODEL') || getEnvVar('VITE_GEMINI_PRIMARY_MODEL'),
+  'gemini-3.1-pro-preview'
+);
 
-const geminiFastModel =
-  getEnvVar('GEMINI_FAST_MODEL') ||
-  getEnvVar('VITE_GEMINI_FAST_MODEL') ||
-  geminiFallbackModel;
+const geminiFallbackModel = normalizeGeminiModel(
+  getEnvVar('GEMINI_FALLBACK_MODEL') || getEnvVar('VITE_GEMINI_FALLBACK_MODEL'),
+  'gemini-3-flash-preview'
+);
+
+const geminiFastModel = normalizeGeminiModel(
+  getEnvVar('GEMINI_FAST_MODEL') || getEnvVar('VITE_GEMINI_FAST_MODEL'),
+  'gemini-2.5-flash'
+);
+
+const geminiLiteModel = normalizeGeminiModel(
+  getEnvVar('GEMINI_LITE_MODEL') || getEnvVar('VITE_GEMINI_LITE_MODEL'),
+  'gemini-2.5-flash-lite'
+);
+
+const geminiModelChain = Array.from(
+  new Set([geminiPrimaryModel, geminiFallbackModel, geminiFastModel, geminiLiteModel].filter(Boolean))
+);
 
 export const GEMINI_MODELS = {
   PRIMARY: geminiPrimaryModel,
   FALLBACK: geminiFallbackModel,
-  FAST: geminiFastModel
+  FAST: geminiFastModel,
+  LITE: geminiLiteModel,
+  CHAIN: geminiModelChain
 } as const;
 
 export const GOOGLE_DRIVE_TARGET = {

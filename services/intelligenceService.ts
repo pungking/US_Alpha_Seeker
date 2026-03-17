@@ -160,6 +160,19 @@ const detectFallbackAiPayload = (aiItem: any) => {
   return { isFallback, reasons };
 };
 
+const compactGeminiError = (error: any): string => {
+  const raw = String(error?.message || error || '');
+  return raw.length > 240 ? `${raw.slice(0, 240)}...` : raw;
+};
+
+const isGeminiQuotaHardStop = (error: any): boolean => {
+  const msg = String(error?.message || error || '').toLowerCase();
+  return (
+    msg.includes('resource_exhausted') &&
+    (msg.includes('limit: 0') || msg.includes('free_tier'))
+  );
+};
+
 const normalizeAiResultArray = (aiInput: any): { items: any[]; wrapperType: string } => {
   if (Array.isArray(aiInput)) return { items: aiInput, wrapperType: 'array' };
   if (aiInput?.alpha_candidates && Array.isArray(aiInput.alpha_candidates)) {
@@ -1001,10 +1014,13 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
       let allProcessedCandidates: any[] = [];
       let hasAnySuccess = false;
+      let forcePerplexityFallback = false;
+      const geminiChain = GEMINI_MODELS.CHAIN;
 
       console.log(`[Gemini] Starting batch processing. Total items: ${slimCandidates.length}, Batches: ${batches.length}`);
 
       for (let i = 0; i < batches.length; i++) {
+          if (forcePerplexityFallback) break;
           const batchCandidates = batches[i];
           console.log(`[Gemini] Processing Batch ${i + 1}/${batches.length} (${batchCandidates.length} items)...`);
 
@@ -1054,68 +1070,75 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           3. Ensure "symbol" matches exactly.
           `;
 
-          try {
-            // [STAGE 1] Gemini Pro (High Reasoning) - Per Batch
-            console.warn(`[ATTEMPT] Batch ${i+1}: Engaging Gemini Pro...`);
-            const resultPro = await fetchWithRetry(() => ai.models.generateContent({
-              model: GEMINI_MODELS.PRIMARY,
-              contents: batchPrompt,
-              config: { 
-                  responseMimeType: "application/json", 
-                  responseSchema: ALPHA_SCHEMA,
-                  systemInstruction: SYSTEM_INSTRUCTION,
-                  tools: [{ googleSearch: {} }] 
-              }
-            }), 0, 2000);
+          let batchSucceeded = false;
+          for (let modelIndex = 0; modelIndex < geminiChain.length; modelIndex++) {
+            const model = geminiChain[modelIndex];
+            const nextModel = geminiChain[modelIndex + 1];
+            const modelLabel = model.includes('pro')
+              ? 'Gemini Pro'
+              : model.includes('lite')
+                ? 'Gemini Flash Lite'
+                : 'Gemini Flash';
+            const timeoutMs = model.includes('pro') ? 35000 : 20000;
 
-            trackUsage(ApiProvider.GEMINI, resultPro.usageMetadata?.totalTokenCount || 0);
-            const parsedPro = sanitizeAndParseJson(resultPro.text);
-            
-            if (parsedPro && Array.isArray(parsedPro)) {
-                allProcessedCandidates = [...allProcessedCandidates, ...parsedPro];
-                hasAnySuccess = true;
-                console.log(`[Gemini] Batch ${i + 1} success (Pro). Retrieved ${parsedPro.length} items.`);
-                continue; // Skip to next batch
-            }
-            
-            // If Pro fails to return array, try Flash for this batch
-            throw new Error("Gemini Pro returned invalid format for batch");
-
-          } catch (proError: any) {
-            console.warn(`[RETRY] Batch ${i+1}: Gemini Pro Failed (${proError.message}). Switching to Flash Mode...`);
-            
             try {
-                // [STAGE 2] Gemini Flash (Speed & Stability) - Per Batch
-                const resultFlash = await fetchWithRetry(() => ai.models.generateContent({
-                  model: GEMINI_MODELS.FALLBACK,
+              console.warn(`[ATTEMPT] Batch ${i + 1}: Engaging ${modelLabel} (${model})...`);
+              const guardedResult: any = await Promise.race([
+                fetchWithRetry(() => ai.models.generateContent({
+                  model,
                   contents: batchPrompt,
-                  config: { 
-                      responseMimeType: "application/json", 
+                  config: {
+                      responseMimeType: "application/json",
                       responseSchema: ALPHA_SCHEMA,
                       systemInstruction: SYSTEM_INSTRUCTION,
-                      tools: [{ googleSearch: {} }] 
+                      tools: [{ googleSearch: {} }]
                   }
-                }), 1, 2000); 
-                
-                trackUsage(ApiProvider.GEMINI, resultFlash.usageMetadata?.totalTokenCount || 0);
-                const parsedFlash = sanitizeAndParseJson(resultFlash.text);
-                
-                if (parsedFlash && Array.isArray(parsedFlash)) {
-                    allProcessedCandidates = [...allProcessedCandidates, ...parsedFlash];
-                    hasAnySuccess = true;
-                    console.log(`[Gemini] Batch ${i + 1} success (Flash). Retrieved ${parsedFlash.length} items.`);
-                } else {
-                     console.error(`[Gemini] Batch ${i + 1} failed (Flash). Invalid format.`);
-                }
-    
-            } catch (flashError: any) {
-                 trackUsage(ApiProvider.GEMINI, 0, true, flashError.message);
-                 console.error(`[Gemini] Batch ${i + 1} failed completely.`);
+                }), 1, 2000),
+                timeoutPromise(timeoutMs, `${modelLabel} Timeout`)
+              ]);
+              trackUsage(ApiProvider.GEMINI, guardedResult.usageMetadata?.totalTokenCount || 0);
+              const parsed = sanitizeAndParseJson(guardedResult.text);
+
+              if (parsed && Array.isArray(parsed)) {
+                allProcessedCandidates = [...allProcessedCandidates, ...parsed];
+                hasAnySuccess = true;
+                batchSucceeded = true;
+                console.log(`[Gemini] Batch ${i + 1} success (${model}). Retrieved ${parsed.length} items.`);
+                break;
+              }
+
+              throw new Error(`${model} returned invalid format for batch`);
+            } catch (modelError: any) {
+              const errorMessage = compactGeminiError(modelError);
+
+              if (isGeminiQuotaHardStop(modelError)) {
+                trackUsage(ApiProvider.GEMINI, 0, true, errorMessage);
+                forcePerplexityFallback = true;
+                console.warn(`[HARD_STOP] Batch ${i + 1}: Gemini quota hard-stop (${errorMessage}). Switching to Perplexity immediately.`);
+                break;
+              }
+
+              if (nextModel) {
+                const nextLabel = nextModel.includes('pro')
+                  ? 'Gemini Pro'
+                  : nextModel.includes('lite')
+                    ? 'Gemini Flash Lite'
+                    : 'Gemini Flash';
+                console.warn(`[RETRY] Batch ${i + 1}: ${modelLabel} Failed (${errorMessage}). Switching to ${nextLabel}...`);
+                continue;
+              }
+
+              trackUsage(ApiProvider.GEMINI, 0, true, errorMessage);
+              console.error(`[Gemini] Batch ${i + 1} failed completely (${model}).`);
             }
+          }
+
+          if (!batchSucceeded && !forcePerplexityFallback) {
+            console.warn(`[Gemini] Batch ${i + 1} unresolved after model chain.`);
           }
       } // End Batch Loop
 
-      if (hasAnySuccess && allProcessedCandidates.length > 0) {
+      if (!forcePerplexityFallback && hasAnySuccess && allProcessedCandidates.length > 0) {
           const hydratedData = hydrateAndValidate(allProcessedCandidates, 'GEMINI_BATCH');
           return { data: hydratedData, usedProvider: 'GEMINI_BATCH' };
       }

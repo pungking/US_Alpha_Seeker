@@ -256,6 +256,26 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       `;
 
       let aiResult: AiProposal | null = null;
+      const geminiChain = GEMINI_MODELS.CHAIN;
+
+      const compactGeminiError = (error: any): string => {
+          const raw = String(error?.message || error || '');
+          return raw.length > 240 ? `${raw.slice(0, 240)}...` : raw;
+      };
+
+      const isGeminiQuotaHardStop = (error: any): boolean => {
+          const msg = String(error?.message || error || '').toLowerCase();
+          return (
+              msg.includes('resource_exhausted') &&
+              (msg.includes('limit: 0') || msg.includes('free_tier'))
+          );
+      };
+
+      const geminiNodeName = (model: string): string => {
+          if (model.includes('pro')) return 'Gemini Pro';
+          if (model.includes('lite')) return 'Gemini Flash Lite';
+          return 'Gemini Flash';
+      };
 
       // Helper: Perplexity Call
       const callPerplexity = async (): Promise<AiProposal | null> => {
@@ -300,7 +320,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           return null;
       };
 
-      // [3-STAGE FALLBACK LOGIC]
+      // [GEMINI AUTO-DEGRADE CHAIN] model not found => next model, quota hard-stop => immediate Perplexity
       try {
           // Explicitly search for Gemini Config
           const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
@@ -308,39 +328,45 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           
           if (geminiKey) {
               const ai = new GoogleGenAI({ apiKey: geminiKey });
-              
-              try {
-                  // [STAGE 1] Gemini Pro
-                  setActiveAi('Gemini Pro');
-                  const proRequest = ai.models.generateContent({
-                      model: GEMINI_MODELS.PRIMARY,
-                      contents: prompt,
-                      config: { responseMimeType: "application/json" }
-                  });
-                  const response: any = await Promise.race([proRequest, timeoutPromise(80000, "Gemini Pro Timeout")]);
-                  trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-                  aiResult = sanitizeJson(response.text);
 
-              } catch (proError: any) {
-                  // [STAGE 2] Gemini Flash
-                  addLog(`[RETRY] Gemini Pro Busy (${proError.message}). Trying Flash Mode...`, "warn");
-                  setActiveAi('Gemini Flash');
-                  
-                  const flashRequest = ai.models.generateContent({
-                      model: GEMINI_MODELS.FALLBACK,
-                      contents: prompt,
-                      config: { responseMimeType: "application/json" }
-                  });
-                  const response: any = await Promise.race([flashRequest, timeoutPromise(30000, "Gemini Flash Timeout")]);
-                  trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
-                  aiResult = sanitizeJson(response.text);
+              for (let i = 0; i < geminiChain.length; i++) {
+                  const model = geminiChain[i];
+                  const nodeName = geminiNodeName(model);
+                  setActiveAi(nodeName);
+                  const timeoutMs = model.includes('pro') ? 80000 : 30000;
+
+                  try {
+                      const request = ai.models.generateContent({
+                          model,
+                          contents: prompt,
+                          config: { responseMimeType: "application/json" }
+                      });
+                      const response: any = await Promise.race([request, timeoutPromise(timeoutMs, `${nodeName} Timeout`)]);
+                      trackUsage(ApiProvider.GEMINI, response.usageMetadata?.totalTokenCount || 0);
+                      aiResult = sanitizeJson(response.text);
+                      if (aiResult) break;
+                      throw new Error(`${model} returned empty payload`);
+                  } catch (geminiError: any) {
+                      const message = compactGeminiError(geminiError);
+
+                      if (isGeminiQuotaHardStop(geminiError)) {
+                          throw new Error(`GEMINI_QUOTA_HARD_STOP:${message}`);
+                      }
+
+                      if (i < geminiChain.length - 1) {
+                          addLog(`[RETRY] ${nodeName} Failed (${message}). Trying ${geminiNodeName(geminiChain[i + 1])}...`, "warn");
+                          continue;
+                      }
+
+                      throw geminiError;
+                  }
               }
           } else {
               throw new Error("Gemini Key Not Found");
           }
       } catch (geminiError: any) {
           // [STAGE 3] Perplexity
-          addLog(`[FALLBACK] Gemini Ecosystem Down (${geminiError.message}). Engaging Perplexity...`, "warn");
+          addLog(`[FALLBACK] Gemini Ecosystem Down (${compactGeminiError(geminiError)}). Engaging Perplexity...`, "warn");
           aiResult = await callPerplexity();
       }
 
