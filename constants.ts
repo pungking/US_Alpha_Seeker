@@ -123,7 +123,10 @@ const normalizeGeminiModel = (model: string, fallback: string): string => {
     'gemini-1.5-flash': 'gemini-2.5-flash',
     'gemini-1.5-flash-latest': 'gemini-2.5-flash',
     'gemini-2.0-pro-exp': 'gemini-2.5-pro',
-    'gemini-2.0-flash': 'gemini-2.5-flash'
+    'gemini-2.0-flash': 'gemini-2.5-flash',
+    // Free-tier-safe remaps for stale env values
+    'gemini-3.1-pro-preview': 'gemini-3-flash',
+    'gemini-2.5-pro': 'gemini-2.5-flash'
   };
   const normalized = legacyAlias[model] || model;
   return normalized || fallback;
@@ -131,12 +134,12 @@ const normalizeGeminiModel = (model: string, fallback: string): string => {
 
 const geminiPrimaryModel = normalizeGeminiModel(
   getEnvVar('GEMINI_PRIMARY_MODEL') || getEnvVar('VITE_GEMINI_PRIMARY_MODEL'),
-  'gemini-3.1-pro-preview'
+  'gemini-3-flash'
 );
 
 const geminiFallbackModel = normalizeGeminiModel(
   getEnvVar('GEMINI_FALLBACK_MODEL') || getEnvVar('VITE_GEMINI_FALLBACK_MODEL'),
-  'gemini-3-flash-preview'
+  'gemini-2.5-flash'
 );
 
 const geminiFastModel = normalizeGeminiModel(
