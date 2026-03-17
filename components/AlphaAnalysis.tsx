@@ -2951,9 +2951,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   .trim()
                   .toUpperCase()
                   .replace(/[\s-]+/g, '_');
+              const isBullishVerdictForWeight =
+                  aiVerdictKeyForWeight.includes('STRONGBUY') ||
+                  aiVerdictKeyForWeight.includes('STRONG_BUY') ||
+                  aiVerdictKeyForWeight.includes('BUY') ||
+                  aiVerdictKeyForWeight.includes('ACCUMULATE') ||
+                  aiVerdictKeyForWeight.includes('SPECULATIVEBUY') ||
+                  aiVerdictKeyForWeight.includes('SPECULATIVE_BUY') ||
+                  aiVerdictKeyForWeight.includes('매수');
               const stateConflictForWeight =
-                  STAGE6_STATE_CONFLICT_STATES.has(marketStateKeyForWeight) &&
-                  isBullishVerdictForExecution(aiVerdictKeyForWeight);
+                  (marketStateKeyForWeight === 'DISTRIBUTION' || marketStateKeyForWeight === 'MANIPULATION') &&
+                  isBullishVerdictForWeight;
               const riskOffVerdictForWeight = isRiskOffVerdict(aiVerdictKeyForWeight);
 
               let aiWeight = 0.35;
