@@ -4150,6 +4150,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               modelRank: Number.isFinite(Number(item?.modelRank)) ? Number(item.modelRank) : null,
               executionRank: Number.isFinite(Number(item?.executionRank)) ? Number(item.executionRank) : null,
               qualityScore: Number.isFinite(Number(item?.qualityScore)) ? Number(item.qualityScore) : null,
+              convictionScore: Number.isFinite(Number(item?.convictionScore))
+                  ? Number(item.convictionScore)
+                  : null,
+              rawConvictionScore: Number.isFinite(Number(item?.rawConvictionScore))
+                  ? Number(item.rawConvictionScore)
+                  : Number.isFinite(Number(item?.convictionScore))
+                      ? Number(item.convictionScore)
+                      : null,
               executionScore: Number.isFinite(Number(item?.executionScore)) ? Number(item.executionScore) : null,
               riskRewardRatioValue: Number.isFinite(Number(item?.riskRewardRatioValue))
                   ? Number(item.riskRewardRatioValue)
