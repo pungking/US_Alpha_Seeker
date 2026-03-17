@@ -5010,7 +5010,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     {/* [NEW] Header Layout: Two Layers (Absolute Protection for Ticker) */}
                     <div className="flex flex-col gap-1 mb-3">
                         {/* Layer 1: Badges (Left Aligned) */}
-                        <div className="flex flex-wrap gap-1 mb-2 min-h-[16px]">
+                        <div className="flex w-full min-w-0 flex-wrap gap-1 mb-2 min-h-[16px]">
                              {isTopPick && (
                                  <span 
                                     onClick={(e) => handleSignalClick(e, 'FINALIST')}
@@ -5063,12 +5063,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
                         {/* Layer 2: Ticker (Left) vs Price (Right) */}
                         <div className="flex justify-between items-end gap-2 border-b border-white/5 pb-2">
-                            <div className="flex flex-col flex-shrink-0 min-w-[100px] text-left">
+                            <div className="flex min-w-0 flex-1 flex-col text-left pr-2">
                                 <div className="flex items-baseline gap-2">
                                     <h4 className="text-2xl font-black text-white italic tracking-tighter uppercase leading-none shrink-0">{item.symbol}</h4>
                                 </div>
                                 <span className="text-[9px] font-bold text-slate-400 uppercase tracking-tighter truncate max-w-[140px] mt-0.5">{item.name}</span>
-                                <div className="flex flex-wrap items-center gap-1 mt-1">
+                                <div className="flex w-full min-w-0 flex-wrap items-center gap-1 mt-1">
                                     <span
                                         onClick={(e) => handleSignalClick(e, 'MODEL_RANK')}
                                         className="text-[7px] px-1.5 py-0.5 rounded-sm bg-cyan-500/20 text-cyan-200 border border-cyan-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-cyan-500/35 transition-colors"
@@ -5099,7 +5099,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                 </div>
                             </div>
                             
-                            <div className="flex flex-col justify-end items-end gap-0.5 ml-auto h-[45px]">
+                            <div className="flex shrink-0 min-w-[74px] flex-col justify-end items-end gap-0.5 ml-auto h-[45px]">
                                 <div 
                                     className="flex items-center gap-1 mb-1 whitespace-nowrap leading-none cursor-help group"
                                     onClick={(e) => handleSignalClick(e, 'CONVEXITY')} // Using Convexity as proxy or Conviction
