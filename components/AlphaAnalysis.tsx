@@ -2931,7 +2931,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
               // Merge Logic
               const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
-              const safeVerdict = aiData?.aiVerdict || "ACCUMULATE";
+              // Keep fallback verdict inside canonical contract.
+              const safeVerdict = aiData?.aiVerdict || "BUY";
               const safeOutlook = aiData?.investmentOutlook || "";
               const canonicalTrade = buildCanonicalTradePlan(item);
               // Preserve quant-side expected return label first to keep Stage UI semantics stable.
@@ -2988,7 +2989,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   otePrice: canonicalTrade.entry || item.otePrice || item.supportLevel || 0,
                   ictStopLoss: canonicalTrade.stop || item.ictStopLoss || item.stopLoss || 0,
                   marketState: item.marketState || 'Consolidation',
-                  verdict: item.verdict || aiData.aiVerdict || 'WAIT',
+                  verdict: item.verdict || aiData.aiVerdict || 'HOLD',
                   compositeAlpha: item.compositeAlpha || 0,
                   ictScore: Number(item.ictScore) || 0,
                   technicalScore: Number(item.technicalScore) || 0,
@@ -3870,7 +3871,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           if (shouldDowngradeByFeasibility) {
               entryFeasibilityDowngradedCount++;
           }
-          const verdictFinal = shouldDowngradeByFeasibility ? 'WAIT' : candidateVerdict;
+          // Keep Stage6 verdicts canonical (no WAIT code in final contract).
+          const verdictFinal = shouldDowngradeByFeasibility ? 'HOLD' : candidateVerdict;
           return {
               ...item,
               verdictRaw,
@@ -3938,7 +3940,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       });
       if (ENTRY_FEASIBILITY_VERDICT_ENFORCE) {
           addLog(
-              `Entry Feasibility Verdict Gate: downgraded ${entryFeasibilityDowngradedCount} names to WAIT (maxDistancePct=${ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT}).`,
+              `Entry Feasibility Verdict Gate: downgraded ${entryFeasibilityDowngradedCount} names to HOLD (maxDistancePct=${ENTRY_FEASIBILITY_SHADOW_MAX_DISTANCE_PCT}).`,
               entryFeasibilityDowngradedCount > 0 ? "warn" : "ok"
           );
       }

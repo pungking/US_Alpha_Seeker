@@ -655,13 +655,19 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       pe: c.pe || c.per || 0,
       roe: c.roe || 0,
       revenueGrowth: c.revenueGrowth || 0,
+      // C3: preserve key quant context so AI does not overfit to partial fields.
+      fundamentalScore: Number(c.fundamentalScore ?? c.quantScores?.fundamental ?? 0),
+      technicalScore: Number(c.technicalScore ?? c.quantScores?.technical ?? 0),
+      compositeAlpha: Number(c.compositeAlpha ?? c.alphaScore ?? c.totalScore ?? 0),
+      quantConviction: Number(c.quantConviction ?? c.convictionScore ?? c.conviction ?? 0),
       sector: c.sectorTheme || c.sector,
       pdZone: c.pdZone || 'EQUILIBRIUM', // Premium / Discount / Equilibrium
       otePrice: c.otePrice || 0,
       ictStopLoss: c.ictStopLoss || 0,
       marketState: c.marketState || 'Consolidation',
       ictMetrics: {
-          displacement: c.ictMetrics?.displacementScore || 0,
+          // C2: support both legacy and canonical displacement fields.
+          displacement: c.ictMetrics?.displacement ?? c.ictMetrics?.displacementScore ?? 0,
           liquiditySweep: c.ictMetrics?.liquiditySweep || false,
           marketStructure: c.ictMetrics?.marketStructure || 'Neutral',
           orderBlock: c.ictMetrics?.orderBlock || false,

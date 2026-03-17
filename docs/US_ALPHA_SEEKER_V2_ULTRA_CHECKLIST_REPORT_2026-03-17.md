@@ -61,8 +61,8 @@
 
 ## B-1. P0 (즉시)
 
-- [ ] **C2** `intelligenceService.ts`: `ictMetrics` 필드명 오타/타입 정합
-- [ ] **C3** slimCandidates에 `fundamentalScore/technicalScore/compositeAlpha/quantConviction` 추가
+- [x] **C2** `intelligenceService.ts`: `ictMetrics` 필드명 오타/타입 정합 (코드 반영)
+- [x] **C3** slimCandidates에 `fundamentalScore/technicalScore/compositeAlpha/quantConviction` 추가 (코드 반영)
 - [x] **C5** aiVerdict 허용값 3곳 통일 + 정규화 레이어 추가 (SYSTEM/SCHEMA/BATCH)
 - [ ] **C4** conviction 병합 정책: AI 단일 대체 금지, quant floor 포함 블렌딩
 - [x] **C1** Gemini 모델명 실존값으로 교체 (Stage1/Stage6 공통)
@@ -84,6 +84,12 @@
 - [x] `batchPrompt`의 `WATCH` 제거, `WATCH/WAIT -> HOLD` 지침 명시
 - [x] `hydrateAndValidate()`에 verdict 정규화 레이어 추가 (`aiVerdictRaw`, `aiVerdictNormalized`, `aiVerdictNormalizationReason`)
 - [ ] 운영 검증 1회: `blocked_quality_verdict_unusable` 감소 및 Stage6/sidecar 요약 계약 일치 확인
+
+### B-1-3. C2/C3 반영 내역 (코드 완료, 운영 검증 대기)
+
+- [x] `services/intelligenceService.ts` slimCandidates에 `fundamentalScore`, `technicalScore`, `compositeAlpha`, `quantConviction` 전달
+- [x] `services/intelligenceService.ts` `ictMetrics.displacement`를 `displacement ?? displacementScore`로 정규화
+- [ ] 운영 검증 1회: Stage6 Part2에서 verdictConflict/quality 차단 사유 분포 개선 여부 확인
 
 ## B-2. P1 (1주)
 
