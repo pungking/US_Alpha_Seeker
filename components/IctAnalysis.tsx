@@ -52,6 +52,8 @@ interface IctScoredTicker {
       heatPenalty: number;
       dataDoubtfulMultiplier: number;
       dataQualityMultiplier: number;
+      calibrationApplied: boolean;
+      calibrationDelta: number;
       preDiversificationComposite: number;
       sectorDiversificationMultiplier: number;
       postDiversificationComposite: number;
@@ -262,6 +264,23 @@ const calculateIctScore = (item: any) => {
             orderBlock: Number(Math.min(100, obScore).toFixed(2)),
             smartMoneyFlow: Number(Math.min(100, smFlow).toFixed(2))
         }
+    };
+};
+
+const calibrateCompositeAlpha = (rawComposite: number) => {
+    const minScore = Number(STRATEGY_CONFIG.ALPHA_SCORE_MIN ?? 0);
+    const maxScore = Number(STRATEGY_CONFIG.ALPHA_SCORE_MAX ?? 100);
+    const safeMin = Number.isFinite(minScore) ? minScore : 0;
+    const safeMax = Number.isFinite(maxScore) ? maxScore : 100;
+    const boundedMax = Math.max(safeMin, safeMax);
+    const safeRaw = Number.isFinite(rawComposite) ? rawComposite : safeMin;
+    const calibrated = Math.min(boundedMax, Math.max(safeMin, safeRaw));
+    const delta = calibrated - safeRaw;
+
+    return {
+        score: calibrated,
+        applied: Math.abs(delta) > 1e-6,
+        delta
     };
 };
 
@@ -602,10 +621,18 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         
         if (item.technicalScore > 0) {
             if (isFearMode) {
-                // [VIX > 22] Fear Mode: Fundamental Heavy (70%) + Tech (30%) + Small ICT Bonus
-                baseFundamentalPart = item.fundamentalScore * 0.70;
-                baseTechnicalPart = item.technicalScore * 0.30;
-                baseIctPart = ictAnalysis.score * 0.10;
+                // [VIX > 22] Fear Mode: normalized risk-off weights (H1)
+                const rawFundWeight = Number(STRATEGY_CONFIG.RISK_OFF_FUND_WEIGHT ?? 0.70);
+                const rawTechWeight = Number(STRATEGY_CONFIG.RISK_OFF_TECH_WEIGHT ?? 0.30);
+                const rawIctWeight = Number(STRATEGY_CONFIG.RISK_OFF_ICT_WEIGHT ?? 0.10);
+                const weightSum = Math.max(0.0001, rawFundWeight + rawTechWeight + rawIctWeight);
+                const fundWeight = rawFundWeight / weightSum;
+                const techWeight = rawTechWeight / weightSum;
+                const ictWeight = rawIctWeight / weightSum;
+
+                baseFundamentalPart = item.fundamentalScore * fundWeight;
+                baseTechnicalPart = item.technicalScore * techWeight;
+                baseIctPart = ictAnalysis.score * ictWeight;
                 composite = baseFundamentalPart + baseTechnicalPart + baseIctPart;
                 scoringMode = 'RISK_OFF';
             } else {
@@ -661,8 +688,9 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         else if (dataQualityState === 'ILLIQUID') dataQualityMultiplier = 0.82;
         else if (dataQualityState === 'STALE') dataQualityMultiplier = 0.75;
         composite *= dataQualityMultiplier;
-
-        const preDiversificationComposite = Number(composite.toFixed(2));
+        const calibratedComposite = calibrateCompositeAlpha(composite);
+        const preDiversificationComposite = Number(calibratedComposite.score.toFixed(2));
+        const calibrationDelta = Number(calibratedComposite.delta.toFixed(4));
 
         const ticker: IctScoredTicker = {
             ...item, // [CRITICAL] Grand Consolidation: Merge all previous stage data
@@ -672,7 +700,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             fundamentalScore: item.fundamentalScore || 0, 
             technicalScore: item.technicalScore || 0,
             ictScore: ictAnalysis.score, 
-            compositeAlpha: Number(composite.toFixed(2)),
+            compositeAlpha: preDiversificationComposite,
             ictMetrics: ictAnalysis.metrics,
             marketState: marketState,
             verdict: marketState === 'MARKUP' ? 'AGGRESSIVE BUY' : marketState === 'RE-ACCUMULATION' ? 'BUY DIP' : marketState === 'ACCUMULATION' ? 'BUILD POSITION' : 'WAIT',
@@ -693,6 +721,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                 heatPenalty: Number(signalHeatPenaltyApplied.toFixed(2)),
                 dataDoubtfulMultiplier: Number(dataDoubtfulMultiplier.toFixed(4)),
                 dataQualityMultiplier: Number(dataQualityMultiplier.toFixed(4)),
+                calibrationApplied: calibratedComposite.applied,
+                calibrationDelta,
                 preDiversificationComposite,
                 sectorDiversificationMultiplier: 1,
                 postDiversificationComposite: preDiversificationComposite,

@@ -101,7 +101,9 @@ v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**
 - KC 승수/TTM squeeze 파라미터 기준 정리.
 
 ### P1-2. RISK_OFF 점수 정규화 (H1)
-- 가중치 합 1.10 -> 정규화(또는 명시적 스케일링)로 비교 가능성 회복.
+- [x] 가중치 합 1.10 -> 정규화(합=1.0) 반영.
+- [x] `compositeAlpha` calibration guard(0~100 clamp) 추가로 분포 안정화.
+- [ ] 동적 가중치(VIX/시장폭/금리 연동)는 20-trade 샘플 확보 후 P2 후보로 이동.
 
 ### P1-3. 업로드/응답 검증 강제 (H5, 4-D)
 - Drive upload, Perplexity response에 `res.ok`/payload 검증 강제.

@@ -206,6 +206,14 @@ export const STRATEGY_CONFIG = {
   MAX_KELLY_WEIGHT: 0.20,          // 단일 종목에 할당 가능한 최대 투자 비중 (20%)
   SENTIMENT_REVERSAL_THRESHOLD: 0.9, // 뉴스 감성이 너무 높을 때 경계하는 역발상 임계값
 
+  // [ALPHA SCORING] H1 fix + calibration guard
+  // RISK_OFF base weights (normalized to sum=1.0)
+  RISK_OFF_FUND_WEIGHT: 0.6363636364,
+  RISK_OFF_TECH_WEIGHT: 0.2727272727,
+  RISK_OFF_ICT_WEIGHT: 0.0909090909,
+  ALPHA_SCORE_MIN: 0,
+  ALPHA_SCORE_MAX: 100,
+
   // [ICT ALGORITHM PARAMETERS]
   ICT_OTE_LEVEL: 0.705,            // 최적 진입 타점 (Optimal Trade Entry) 피보나치 레벨
   ICT_EQUILIBRIUM: 0.5,            // 프리미엄/디스카운트 구간 기준점

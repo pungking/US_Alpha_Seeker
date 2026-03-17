@@ -34,7 +34,7 @@
 ## A-1. P0 (즉시)
 
 - [ ] **C9** `IctAnalysis.tsx`: `ictStopLoss`/`otePrice` 52주 기준 제거, 최근 스윙+ATR 기반으로 교체
-- [ ] **H1** `IctAnalysis.tsx`: RISK_OFF 가중치 합 1.10 정규화(합=1.0)
+- [x] **H1** `IctAnalysis.tsx`: RISK_OFF 가중치 합 1.10 정규화(합=1.0) + compositeAlpha calibration(0~100 clamp) 반영
 - [ ] **C6** `DeepQualityFilter.tsx`: `debtToEquity=0` 결측 처리 제거 (`allowZero=true`)
 - [ ] **C7** `FundamentalAnalysis.tsx`: ROIC 계산식 절대 부채 기준 우선
 - [ ] **C8** `TechnicalAnalysis.tsx`: EMA 초기화 SMA 방식으로 수정
@@ -54,6 +54,14 @@
 - [ ] Stage0~5 각 산출 파일 1회씩 정상 생성
 - [ ] Stage5 Top50에서 `blocked_stop_too_wide` 비중 유의미 감소
 - [ ] Harvester 실패 종목은 원인 로그가 남음(“FAILED” 단일 문자열 금지)
+
+### A-4. H1 반영 메모 (2026-03-18)
+
+- [x] `STRATEGY_CONFIG`에 RISK_OFF 정규화 가중치(`RISK_OFF_FUND_WEIGHT`, `RISK_OFF_TECH_WEIGHT`, `RISK_OFF_ICT_WEIGHT`) 추가
+- [x] `components/IctAnalysis.tsx` RISK_OFF 산식 정규화 적용(합=1.0)
+- [x] `compositeAlpha` calibration 적용(`ALPHA_SCORE_MIN/MAX`, 0~100 guard clamp)
+- [x] `compositeBreakdown`에 `calibrationApplied`, `calibrationDelta` 추적 필드 추가
+- [ ] **동적 가중치(후속)**: VIX/시장폭/금리 기반 자동 가중치 엔진은 20-trade 루프 데이터 확보 후 P1-2에서 재개
 
 ---
 
