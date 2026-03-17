@@ -64,7 +64,7 @@
 - [x] **C2** `intelligenceService.ts`: `ictMetrics` 필드명 오타/타입 정합 (코드 반영)
 - [x] **C3** slimCandidates에 `fundamentalScore/technicalScore/compositeAlpha/quantConviction` 추가 (코드 반영)
 - [x] **C5** aiVerdict 허용값 3곳 통일 + 정규화 레이어 추가 (SYSTEM/SCHEMA/BATCH)
-- [ ] **C4** conviction 병합 정책: AI 단일 대체 금지, quant floor 포함 블렌딩
+- [x] **C4** conviction 병합 정책: AI 단일 대체 금지, quant floor 포함 블렌딩 (코드 반영)
 - [x] **C1** Gemini 모델명 실존값으로 교체 (Stage1/Stage6 공통)
 - [ ] **H2** PREMIUM 자동 강등 규칙 완화(조건부 페널티)
 - [ ] **H4** `engineFallbackUsed`: `SHARDED` 오탐 제거
@@ -90,6 +90,13 @@
 - [x] `services/intelligenceService.ts` slimCandidates에 `fundamentalScore`, `technicalScore`, `compositeAlpha`, `quantConviction` 전달
 - [x] `services/intelligenceService.ts` `ictMetrics.displacement`를 `displacement ?? displacementScore`로 정규화
 - [ ] 운영 검증 1회: Stage6 Part2에서 verdictConflict/quality 차단 사유 분포 개선 여부 확인
+
+### B-1-4. C4 반영 내역 (코드 완료, 운영 검증 대기)
+
+- [x] `components/AlphaAnalysis.tsx` conviction 병합을 `AI 단일 대체`에서 `동적 가중 블렌딩`으로 변경
+- [x] quant floor(70%) 적용으로 Conviction Cliff 방지 (`convictionFloor`, `convictionFloorApplied` 추적 필드 추가)
+- [x] Final Gate의 `rawConvictionScore` 기준을 `item.rawConvictionScore` 우선으로 교정
+- [ ] 운영 검증 1회: `blocked_quality_conviction_floor`/`verdictConflict`/실행 가능 종목 분포 개선 여부 확인
 
 ## B-2. P1 (1주)
 

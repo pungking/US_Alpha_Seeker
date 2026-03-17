@@ -2929,8 +2929,56 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               
               verifiedAiCount++;
 
-              // Merge Logic
-              const safeConviction = aiData ? Number(aiData.convictionScore || item.convictionScore || 0) : Number(item.convictionScore || 0);
+              // Merge Logic (C4):
+              // Blend AI + quant conviction, but keep a quant floor to prevent conviction cliffs.
+              const quantConvictionBaseRaw =
+                  Number(item?.rawConvictionScore ?? item?.convictionScore ?? item?.compositeAlpha ?? 0);
+              const quantConvictionBase = Number.isFinite(quantConvictionBaseRaw)
+                  ? Math.max(0, Math.min(100, quantConvictionBaseRaw))
+                  : 0;
+              const aiConvictionRaw = Number(aiData?.convictionScore ?? quantConvictionBase);
+              const aiConviction = Number.isFinite(aiConvictionRaw)
+                  ? Math.max(0, Math.min(100, aiConvictionRaw))
+                  : quantConvictionBase;
+
+              const baseVerdictKeyForWeight = toVerdictKey(item?.verdict || item?.finalVerdict || item?.aiVerdict || '');
+              const aiVerdictKeyForWeight = toVerdictKey(aiData?.aiVerdict || '');
+              const verdictConflictForWeight =
+                  Boolean(baseVerdictKeyForWeight) &&
+                  Boolean(aiVerdictKeyForWeight) &&
+                  baseVerdictKeyForWeight !== aiVerdictKeyForWeight;
+              const marketStateKeyForWeight = String(item?.marketState || '')
+                  .trim()
+                  .toUpperCase()
+                  .replace(/[\s-]+/g, '_');
+              const stateConflictForWeight =
+                  STAGE6_STATE_CONFLICT_STATES.has(marketStateKeyForWeight) &&
+                  isBullishVerdictForExecution(aiVerdictKeyForWeight);
+              const riskOffVerdictForWeight = isRiskOffVerdict(aiVerdictKeyForWeight);
+
+              let aiWeight = 0.35;
+              if (!Number.isFinite(aiConvictionRaw) || aiConvictionRaw <= 0) {
+                  aiWeight = 0;
+              } else {
+                  if (verdictConflictForWeight) aiWeight -= 0.10;
+                  if (stateConflictForWeight) aiWeight -= 0.10;
+                  if (riskOffVerdictForWeight) aiWeight -= 0.05;
+                  aiWeight = Math.max(0.10, Math.min(0.45, aiWeight));
+              }
+
+              const blendedConvictionRaw =
+                  aiWeight > 0
+                      ? quantConvictionBase * (1 - aiWeight) + aiConviction * aiWeight
+                      : quantConvictionBase;
+              const quantConvictionFloor = Math.max(0, Math.min(100, Math.round(quantConvictionBase * 0.7)));
+              const safeConviction = Math.round(
+                  Math.max(
+                      Math.min(100, Math.max(0, blendedConvictionRaw)),
+                      quantConvictionFloor
+                  )
+              );
+              const convictionFloorApplied = safeConviction > Math.round(blendedConvictionRaw);
+
               // Keep fallback verdict inside canonical contract.
               const safeVerdict = aiData?.aiVerdict || "BUY";
               const safeOutlook = aiData?.investmentOutlook || "";
@@ -2959,7 +3007,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ...item,
                   ...aiData,
                   convictionScore: safeConviction,
-                  rawConvictionScore: Number(item.rawConvictionScore || safeConviction || 0),
+                  rawConvictionScore: quantConvictionBase,
+                  convictionAiRaw: aiConviction,
+                  convictionAiWeight: Number(aiWeight.toFixed(2)),
+                  convictionBlendedRaw: Number(blendedConvictionRaw.toFixed(2)),
+                  convictionFloor: quantConvictionFloor,
+                  convictionFloorApplied,
                   aiVerdict: safeVerdict,
                   investmentOutlook: safeOutlook,
                   rawExpectedReturn: baseExpectedReturn,
@@ -3033,7 +3086,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const signalQualityState = item.techMetrics?.signalQualityState || 'NEUTRAL';
           const dataQualityState = item.techMetrics?.dataQualityState || 'NORMAL';
           const pdZone = item.pdZone || 'EQUILIBRIUM';
-          const rawConvictionScore = Number(item.convictionScore || 0);
+          const rawConvictionScore = Number(item.rawConvictionScore ?? item.convictionScore ?? 0);
           const aiSynthesisStatus = item.aiSynthesisStatus || 'UNKNOWN';
           const aiFallbackDetected = item.aiFallbackDetected === true;
           const tradePlanStatus = item.tradePlanStatus || 'VALID';
