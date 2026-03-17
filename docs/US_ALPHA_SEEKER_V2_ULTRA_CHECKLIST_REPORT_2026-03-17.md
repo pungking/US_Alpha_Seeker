@@ -63,11 +63,27 @@
 
 - [ ] **C2** `intelligenceService.ts`: `ictMetrics` 필드명 오타/타입 정합
 - [ ] **C3** slimCandidates에 `fundamentalScore/technicalScore/compositeAlpha/quantConviction` 추가
-- [ ] **C5** aiVerdict 허용값 3곳 통일 (SYSTEM/SCHEMA/BATCH)
+- [x] **C5** aiVerdict 허용값 3곳 통일 + 정규화 레이어 추가 (SYSTEM/SCHEMA/BATCH)
 - [ ] **C4** conviction 병합 정책: AI 단일 대체 금지, quant floor 포함 블렌딩
 - [x] **C1** Gemini 모델명 실존값으로 교체 (Stage1/Stage6 공통)
 - [ ] **H2** PREMIUM 자동 강등 규칙 완화(조건부 페널티)
 - [ ] **H4** `engineFallbackUsed`: `SHARDED` 오탐 제거
+
+### B-1-1. C1 반영 내역 (완료)
+
+- [x] `constants.ts` 모델 계약 중앙화 + 레거시 alias 정규화 적용
+- [x] 기본 체인 free-tier 안전값 적용 (`gemini-3-flash` → `gemini-2.5-flash` → `gemini-2.5-flash-lite`)
+- [x] `components/PreliminaryFilter.tsx` Stage1 단일 모델 하드코딩 제거, `GEMINI_MODELS.CHAIN` 사용
+- [x] `services/intelligenceService.ts` Stage6 단일 모델 하드코딩 제거, `GEMINI_MODELS.CHAIN` 사용
+- [x] `.github/workflows/schedule.yml`에 `GEMINI_*` + `VITE_GEMINI_*` vars 연결
+- [ ] 운영 검증 1회: Stage1 로그에서 실제 시도 모델명이 free-tier 체인 순서로 출력되는지 확인
+
+### B-1-2. C5 반영 내역 (코드 완료, 운영 검증 대기)
+
+- [x] `services/intelligenceService.ts` verdict 계약 단일화 (`STRONG_BUY|BUY|HOLD|PARTIAL_EXIT|SPECULATIVE_BUY`)
+- [x] `batchPrompt`의 `WATCH` 제거, `WATCH/WAIT -> HOLD` 지침 명시
+- [x] `hydrateAndValidate()`에 verdict 정규화 레이어 추가 (`aiVerdictRaw`, `aiVerdictNormalized`, `aiVerdictNormalizationReason`)
+- [ ] 운영 검증 1회: `blocked_quality_verdict_unusable` 감소 및 Stage6/sidecar 요약 계약 일치 확인
 
 ## B-2. P1 (1주)
 
@@ -80,6 +96,7 @@
 - [ ] Stage6 Part2에서 `verdictConflict` 비율 감소
 - [ ] Stage6 Final에서 `blocked_quality_verdict_unusable` 감소
 - [ ] Stage6 Final JSON에 실행 후보 가격 박스 필드 null 없음
+- [ ] C1 운영 검증 로그 확보(모델명/체인/폴백 사유 확인 가능)
 
 ---
 

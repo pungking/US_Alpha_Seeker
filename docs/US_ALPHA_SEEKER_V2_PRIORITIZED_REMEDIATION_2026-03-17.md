@@ -21,15 +21,15 @@
 
 ---
 
-## 2) 현재 코드 기준 즉시 확인 결과 (2026-03-17)
+## 2) 현재 코드 기준 즉시 확인 결과 (2026-03-17, 최신 반영 포함)
 
 v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**한다.
 
-- C1 모델명 오류: `components/PreliminaryFilter.tsx`에 `gemini-3.1-pro-preview`, `gemini-3-flash-preview` 존재.
+- C1 모델명 오류: **반영 완료**. `constants.ts` 기준 모델 계약 중앙화 + free-tier 체인 적용 + workflow vars 연결 완료(운영 로그 1회 최종 확인 필요).
 - C2 필드 오타: `services/intelligenceService.ts`에 `ictMetrics?.displacementScore` 존재.
 - C3 slimCandidates 누락: 동일 파일 slimCandidates에 `fundamentalScore/technicalScore/compositeAlpha/quantConviction` 미포함.
 - C4 점수 대체: `components/AlphaAnalysis.tsx`에서 `safeConviction = aiData.convictionScore || item.convictionScore`.
-- C5 verdict 불일치: batchPrompt에 `"WATCH"` 포함, schema/system 허용값과 불일치.
+- C5 verdict 불일치: **코드 반영 완료**. `services/intelligenceService.ts`의 SYSTEM/SCHEMA/BATCH verdict set 단일화 + ingest 정규화 레이어 추가(운영 로그 검증 대기).
 - C6 0값 결측 처리: `DeepQualityFilter.tsx`의 `debtVal` 계산이 `allowZero=false`.
 - C8 EMA 초기화: `TechnicalAnalysis.tsx`에서 `const ema = [data[0]]`.
 - C9 52주 저점 stop: `IctAnalysis.tsx`에서 `ictStopLoss = low52 * 0.985`.
@@ -160,6 +160,8 @@ v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**
 7. `fix(stage4-fallback): wire candle API fallback when drive candles missing`
 8. `chore(observability): standardize trigger/summary/timezone and response validation`
 
+참고: C1(모델명/체인)은 선반영 완료 상태로, 위 실행순서에서 제외.
+
 ---
 
 ## 5) 테스트/검증 게이트 (우선순위별)
@@ -205,4 +207,3 @@ v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**
 ## 7) 최종 우선순위 요약 (한 줄)
 
 **지금은 P0(계약/병합/실행박스/가드/보안) 먼저 끝내고, 그 다음 P1 지표정합으로 들어가는 순서가 가장 빠르고 안전하다.**
-

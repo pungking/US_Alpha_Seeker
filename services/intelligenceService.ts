@@ -109,9 +109,71 @@ const QUANT_ONLY_SELECTION_REASONS = [
   "Manual Review"
 ];
 
+const STAGE6_VERDICT_CANONICAL = new Set([
+  "STRONG_BUY",
+  "BUY",
+  "HOLD",
+  "PARTIAL_EXIT",
+  "SPECULATIVE_BUY"
+]);
+
 const hasSameReasons = (candidateReasons: any, baseline: string[]): boolean => {
   if (!Array.isArray(candidateReasons) || candidateReasons.length !== baseline.length) return false;
   return candidateReasons.every((reason, index) => String(reason || '').trim() === baseline[index]);
+};
+
+const normalizeAiVerdict = (
+  input: any
+): { value: string; raw: string; normalized: boolean; reason: string } => {
+  const raw = String(input ?? "").trim();
+  const key = raw
+    .toUpperCase()
+    .replace(/\s+/g, "_")
+    .replace(/-/g, "_");
+
+  if (!key || key === "N/A" || key === "NA" || key === "NONE" || key === "NULL" || key === "UNDEFINED" || key === "TBD") {
+    return { value: "HOLD", raw, normalized: true, reason: "missing_verdict_default_hold" };
+  }
+
+  if (STAGE6_VERDICT_CANONICAL.has(key)) {
+    return { value: key, raw, normalized: false, reason: "canonical" };
+  }
+
+  if (key === "STRONGBUY") {
+    return { value: "STRONG_BUY", raw, normalized: true, reason: "alias_strongbuy" };
+  }
+
+  if (key === "SPECULATIVEBUY") {
+    return { value: "SPECULATIVE_BUY", raw, normalized: true, reason: "alias_speculativebuy" };
+  }
+
+  if (
+    key === "WATCH" ||
+    key === "WAIT" ||
+    key === "OBSERVE" ||
+    key === "NEUTRAL" ||
+    key.includes("관망")
+  ) {
+    return { value: "HOLD", raw, normalized: true, reason: "watch_wait_to_hold" };
+  }
+
+  if (
+    key === "SELL" ||
+    key === "EXIT" ||
+    key === "REDUCE" ||
+    key === "TRIM" ||
+    key.includes("매도") ||
+    key.includes("청산") ||
+    key.includes("축소")
+  ) {
+    return { value: "PARTIAL_EXIT", raw, normalized: true, reason: "sell_exit_to_partial_exit" };
+  }
+
+  if (key === "ACCUMULATE" || key === "LONG" || key.includes("매수")) {
+    return { value: "BUY", raw, normalized: true, reason: "accumulate_to_buy" };
+  }
+
+  return { value: "HOLD", raw, normalized: true, reason: "unknown_to_hold" };
 };
 
 const detectFallbackAiPayload = (aiItem: any) => {
@@ -122,7 +184,7 @@ const detectFallbackAiPayload = (aiItem: any) => {
     return { isFallback: true, reasons };
   }
 
-  const verdict = String(aiItem.aiVerdict || '').trim().toUpperCase();
+  const verdict = normalizeAiVerdict(aiItem.aiVerdict).value;
   const expectedReturn = String(aiItem.expectedReturn || '').trim();
   const theme = String(aiItem.theme || '').trim();
   const sentiment = String(aiItem.newsSentiment || '').trim().toUpperCase();
@@ -245,7 +307,7 @@ const ALPHA_SCHEMA = {
     type: Type.OBJECT,
     properties: {
       symbol: { type: Type.STRING, description: "Stock symbol" },
-      aiVerdict: { type: Type.STRING, description: "Verdict: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT', 'SPECULATIVE_BUY'" },
+      aiVerdict: { type: Type.STRING, description: "Canonical verdict only: 'STRONG_BUY', 'BUY', 'HOLD', 'PARTIAL_EXIT', 'SPECULATIVE_BUY'" },
       marketCapClass: { type: Type.STRING, description: "Size: 'LARGE', 'MID', 'SMALL', 'MICRO'" },
       sectorTheme: { type: Type.STRING, description: "Theme in Korean" },
       investmentOutlook: { type: Type.STRING, description: "Concise Korean thesis (max 2 short sentences, plain text)." },
@@ -633,7 +695,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     The output must contain EVERY input symbol exactly once.
     Each object must strictly match this schema:
     - **symbol**: Ticker.
-    - **aiVerdict**: "STRONG_BUY", "BUY", "PARTIAL_EXIT".
+    - **aiVerdict**: "STRONG_BUY", "BUY", "HOLD", "PARTIAL_EXIT", "SPECULATIVE_BUY".
     - **convictionScore**: 0-100.
     - **newsSentiment**: "Ext. Positive", "Positive", "Neutral", "Negative".
     - **newsScore**: 0.0 to 1.0.
@@ -956,6 +1018,9 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
             const cleanOrgSymbol = String(original.symbol).replace(/[^a-zA-Z]/g, '').toUpperCase();
             const aiItem = aiMap.get(cleanOrgSymbol) || {};
+            const normalizedVerdict = normalizeAiVerdict(
+                aiItem.aiVerdict ?? aiItem.verdictFinal ?? aiItem.finalVerdict ?? aiItem.verdict
+            );
             const fallbackCheck = detectFallbackAiPayload(aiItem);
             
             const merged = {
@@ -963,7 +1028,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 ...original, // Base: All Quant Data (Price, Metrics, Scores)
                 
                 // --- AI Evaluation Fields (Overwritable) ---
-                aiVerdict: aiItem.aiVerdict || 'HOLD',
+                aiVerdict: normalizedVerdict.value,
+                aiVerdictRaw: normalizedVerdict.raw || 'N/A',
+                aiVerdictNormalized: normalizedVerdict.normalized,
+                aiVerdictNormalizationReason: normalizedVerdict.reason,
                 convictionScore: typeof aiItem.convictionScore === 'number' ? aiItem.convictionScore : 50,
                 investmentOutlook: aiItem.investmentOutlook || 'AI analysis unavailable for this ticker.',
                 selectionReasons: Array.isArray(aiItem.selectionReasons) && aiItem.selectionReasons.length >= 3 
@@ -1045,7 +1113,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           Each object must follow this schema:
           {
               "symbol": "TICKER",
-              "aiVerdict": "BUY" | "HOLD" | "WATCH",
+              "aiVerdict": "STRONG_BUY" | "BUY" | "HOLD" | "PARTIAL_EXIT" | "SPECULATIVE_BUY",
               "convictionScore": 0-100 (Integer),
               "investmentOutlook": "Concise strategic summary (max 2 sentences). Focus on WHY this is a winner.",
               "selectionReasons": ["Reason 1", "Reason 2", "Reason 3"],
@@ -1068,6 +1136,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
           1. Output ONLY valid JSON. No markdown formatting.
           2. Do not hallucinate data. If unsure, use conservative estimates.
           3. Ensure "symbol" matches exactly.
+          4. Never output WATCH/WAIT. Use HOLD instead.
           `;
 
           let batchSucceeded = false;
