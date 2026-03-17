@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { API_CONFIGS, GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from "../constants";
+import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
 
@@ -493,7 +493,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
     if (provider === ApiProvider.GEMINI) {
       const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
       const result = await fetchWithRetry(() => ai.models.generateContent({
-        model: 'gemini-3-flash-preview',
+        model: GEMINI_MODELS.FAST,
         contents: prompt,
         config: { responseMimeType: "application/json", responseSchema: BACKTEST_SCHEMA }
       }));
@@ -1058,7 +1058,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             // [STAGE 1] Gemini Pro (High Reasoning) - Per Batch
             console.warn(`[ATTEMPT] Batch ${i+1}: Engaging Gemini Pro...`);
             const resultPro = await fetchWithRetry(() => ai.models.generateContent({
-              model: 'gemini-3.1-pro-preview',
+              model: GEMINI_MODELS.PRIMARY,
               contents: batchPrompt,
               config: { 
                   responseMimeType: "application/json", 
@@ -1087,7 +1087,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             try {
                 // [STAGE 2] Gemini Flash (Speed & Stability) - Per Batch
                 const resultFlash = await fetchWithRetry(() => ai.models.generateContent({
-                  model: 'gemini-3-flash-preview',
+                  model: GEMINI_MODELS.FALLBACK,
                   contents: batchPrompt,
                   config: { 
                       responseMimeType: "application/json", 
@@ -1527,7 +1527,7 @@ export async function analyzePipelineStatus(data: {
     if (provider === ApiProvider.GEMINI) {
         const ai = new GoogleGenAI({ apiKey });
         const result = await fetchWithRetry(() => ai.models.generateContent({
-            model: 'gemini-3-flash-preview',
+            model: GEMINI_MODELS.FAST,
             contents: userPrompt,
             config: { systemInstruction: systemPrompt }
         }));
@@ -1741,7 +1741,7 @@ export async function generateTelegramBrief(
       try {
          if (provider === ApiProvider.GEMINI) {
               const ai = new GoogleGenAI({ apiKey });
-              const res = await ai.models.generateContent({ model: 'gemini-3-flash-preview', contents: macroPrompt });
+              const res = await ai.models.generateContent({ model: GEMINI_MODELS.FAST, contents: macroPrompt });
               macroSection = res.text ? res.text.trim() : "";
           } else {
               const body = JSON.stringify({ 

@@ -1,0 +1,46 @@
+name: Master Stock Harvester
+
+on:
+  # 웹앱에서 신호를 주면 즉시 실행
+  repository_dispatch:
+    types: [stage3_completed]
+    
+  # 정기 스케줄 (KST 기준 오전 7시, 오전 10시 등)
+  schedule:
+    - cron: '0 22 * * 1-5'
+    - cron: '0 1 * * 2-6'
+    
+  workflow_dispatch: # 수동 실행 버튼
+  
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v5
+        
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          
+      - name: Install Dependencies
+        run: pip install google-api-python-client google-auth requests yfinance pandas
+        
+      - name: Run Master Harvester
+        env:
+          # 🎯 [본계정 모드 전용 키로 교체]
+          GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+          GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+          GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+          
+          TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          
+          # 🎯 파이썬 코드가 웹앱 신호인지 스케줄 실행인지 판단하는 핵심 변수
+          GITHUB_EVENT_NAME: ${{ github.event_name }}
+        run: python harvester.py

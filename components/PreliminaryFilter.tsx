@@ -3,7 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { GoogleGenAI } from "@google/genai";
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
-import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
@@ -313,7 +313,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   // [STAGE 1] Gemini Pro
                   setActiveAi('Gemini Pro');
                   const proRequest = ai.models.generateContent({
-                      model: 'gemini-3.1-pro-preview',
+                      model: GEMINI_MODELS.PRIMARY,
                       contents: prompt,
                       config: { responseMimeType: "application/json" }
                   });
@@ -327,7 +327,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   setActiveAi('Gemini Flash');
                   
                   const flashRequest = ai.models.generateContent({
-                      model: 'gemini-3-flash-preview',
+                      model: GEMINI_MODELS.FALLBACK,
                       contents: prompt,
                       config: { responseMimeType: "application/json" }
                   });

@@ -115,6 +115,28 @@ export const API_CONFIGS: ApiConfig[] = [
   }
 ];
 
+// [C1 FIX] Centralized Gemini model contract to avoid per-file drift.
+const geminiPrimaryModel =
+  getEnvVar('GEMINI_PRIMARY_MODEL') ||
+  getEnvVar('VITE_GEMINI_PRIMARY_MODEL') ||
+  'gemini-2.0-pro-exp';
+
+const geminiFallbackModel =
+  getEnvVar('GEMINI_FALLBACK_MODEL') ||
+  getEnvVar('VITE_GEMINI_FALLBACK_MODEL') ||
+  'gemini-2.0-flash';
+
+const geminiFastModel =
+  getEnvVar('GEMINI_FAST_MODEL') ||
+  getEnvVar('VITE_GEMINI_FAST_MODEL') ||
+  geminiFallbackModel;
+
+export const GEMINI_MODELS = {
+  PRIMARY: geminiPrimaryModel,
+  FALLBACK: geminiFallbackModel,
+  FAST: geminiFastModel
+} as const;
+
 export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
   rootFolderName: 'US_Alpha_Seeker',

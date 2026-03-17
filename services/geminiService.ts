@@ -1,6 +1,6 @@
 
 import { GoogleGenAI } from "@google/genai";
-import { API_CONFIGS } from "../constants";
+import { API_CONFIGS, GEMINI_MODELS } from "../constants";
 import { ApiProvider } from "../types";
 
 const getApiKey = () => {
@@ -38,7 +38,7 @@ export async function analyzePipelineStatus(data: {
   try {
     // Pro 모델 대신 프리 티어 할당량이 넉넉한 Flash 모델 사용
     const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: GEMINI_MODELS.FAST,
       contents: prompt,
     }));
     return response.text;
@@ -60,7 +60,7 @@ export async function generateAlphaSynthesis(candidates: any[]) {
 
   try {
     const response = await fetchWithRetry(() => ai.models.generateContent({
-      model: 'gemini-3-flash-preview',
+      model: GEMINI_MODELS.FAST,
       contents: prompt,
       config: {
         responseMimeType: "application/json",
