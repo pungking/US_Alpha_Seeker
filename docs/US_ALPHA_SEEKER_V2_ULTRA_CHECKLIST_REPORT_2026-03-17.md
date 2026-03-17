@@ -33,7 +33,7 @@
 
 ## A-1. P0 (즉시)
 
-- [ ] **C9** `IctAnalysis.tsx`: `ictStopLoss`/`otePrice` 52주 기준 제거, 최근 스윙+ATR 기반으로 교체
+- [x] **C9** `IctAnalysis.tsx`: `ictStopLoss`/`otePrice` 52주 기준 제거, 최근 스윙+ATR 기반으로 교체 (코드 반영, 운영 검증 대기)
 - [x] **H1** `IctAnalysis.tsx`: RISK_OFF 가중치 합 1.10 정규화(합=1.0) + compositeAlpha calibration(0~100 clamp) 반영
 - [ ] **C6** `DeepQualityFilter.tsx`: `debtToEquity=0` 결측 처리 제거 (`allowZero=true`)
 - [ ] **C7** `FundamentalAnalysis.tsx`: ROIC 계산식 절대 부채 기준 우선

@@ -284,6 +284,113 @@ const calibrateCompositeAlpha = (rawComposite: number) => {
     };
 };
 
+type PriceHistoryBar = {
+    high: number;
+    low: number;
+    close: number;
+};
+
+const normalizePriceHistoryBars = (priceHistory: any): PriceHistoryBar[] => {
+    if (!Array.isArray(priceHistory)) return [];
+
+    return priceHistory
+        .map((candle: any) => {
+            const highRaw = Number(candle?.high);
+            const lowRaw = Number(candle?.low);
+            const closeRaw = Number(candle?.close ?? candle?.c);
+
+            if (!Number.isFinite(highRaw) || !Number.isFinite(lowRaw)) return null;
+            const high = Math.max(highRaw, lowRaw);
+            const low = Math.min(highRaw, lowRaw);
+            const mid = (high + low) / 2;
+            const close = Number.isFinite(closeRaw) ? closeRaw : mid;
+
+            return { high, low, close };
+        })
+        .filter((bar): bar is PriceHistoryBar => Boolean(bar));
+};
+
+const calculateAtrFromBars = (bars: PriceHistoryBar[], period = 20): number | null => {
+    if (!Array.isArray(bars) || bars.length < period) return null;
+
+    const trueRanges: number[] = [];
+    for (let i = 0; i < bars.length; i++) {
+        const current = bars[i];
+        const prevClose = i > 0 ? bars[i - 1].close : current.close;
+        const tr = Math.max(
+            current.high - current.low,
+            Math.abs(current.high - prevClose),
+            Math.abs(current.low - prevClose)
+        );
+        if (Number.isFinite(tr)) trueRanges.push(tr);
+    }
+
+    if (trueRanges.length < period) return null;
+    const window = trueRanges.slice(-period);
+    const atr = window.reduce((sum, value) => sum + value, 0) / period;
+    return Number.isFinite(atr) && atr > 0 ? atr : null;
+};
+
+const resolveIctExecutionGeometry = (item: any) => {
+    const high52 = Number(item?.fiftyTwoWeekHigh || item?.high52 || item?.price * 1.2 || 0);
+    const low52 = Number(item?.fiftyTwoWeekLow || item?.low52 || item?.price * 0.8 || 0);
+    const fallbackRange = Math.max(0, high52 - low52);
+    const fallbackOte = fallbackRange > 0 ? high52 - (fallbackRange * Number(STRATEGY_CONFIG.ICT_OTE_LEVEL ?? 0.705)) : Number(item?.price || 0);
+    const fallbackStop = low52 > 0 ? low52 * 0.985 : Number(item?.price || 0) * 0.9;
+    const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
+    const fallbackIctPos = fallbackRange > 0 ? clamp01((Number(item?.price || 0) - low52) / fallbackRange) : 0.5;
+
+    const rangeLookback = Math.max(20, Number(STRATEGY_CONFIG.ICT_RANGE_LOOKBACK_BARS ?? 60));
+    const stopLookback = Math.max(10, Number(STRATEGY_CONFIG.ICT_STOP_LOOKBACK_BARS ?? 20));
+    const atrMultiplier = Math.max(0.5, Number(STRATEGY_CONFIG.ICT_STOP_ATR_MULTIPLIER ?? 1.0));
+
+    const bars = normalizePriceHistoryBars(item?.priceHistory);
+    const rangeBars = bars.slice(-rangeLookback);
+    const stopBars = bars.slice(-stopLookback);
+
+    if (rangeBars.length >= 20 && stopBars.length >= 10) {
+        const recentHigh = Math.max(...rangeBars.map((bar) => bar.high));
+        const recentLow = Math.min(...rangeBars.map((bar) => bar.low));
+        const recentRange = recentHigh - recentLow;
+        const recentLowStop = Math.min(...stopBars.map((bar) => bar.low));
+        const atr = calculateAtrFromBars(stopBars, Math.min(stopLookback, 20));
+
+        if (recentRange > 0 && Number.isFinite(recentLowStop) && atr != null) {
+            const recentOte = recentHigh - (recentRange * Number(STRATEGY_CONFIG.ICT_OTE_LEVEL ?? 0.705));
+            let stop = recentLowStop - (atr * atrMultiplier);
+
+            if (!Number.isFinite(stop) || stop <= 0) stop = fallbackStop;
+            if (Number.isFinite(recentOte) && stop >= recentOte) {
+                stop = Math.min(recentLowStop * 0.995, recentOte * 0.985);
+            }
+
+            return {
+                high52,
+                low52,
+                ictPos: clamp01((Number(item?.price || 0) - recentLow) / recentRange),
+                otePrice: recentOte,
+                ictStopLoss: Math.max(0.01, stop),
+                executionGeometrySource: "RECENT_SWING_ATR",
+                executionRangeBars: rangeBars.length,
+                executionStopBars: stopBars.length,
+                executionAtr: Number(atr.toFixed(4))
+            };
+        }
+    }
+
+    return {
+        high52,
+        low52,
+        ictPos: fallbackIctPos,
+        otePrice: fallbackOte,
+        ictStopLoss: Math.max(0.01, fallbackStop),
+        executionGeometrySource: "FALLBACK_52W",
+        executionRangeBars: rangeBars.length,
+        executionStopBars: stopBars.length,
+        executionAtr: null
+    };
+};
+
 const determineMarketState = (metrics: any): 'ACCUMULATION' | 'MARKUP' | 'DISTRIBUTION' | 'MANIPULATION' | 'RE-ACCUMULATION' => {
     if (metrics.marketStructure > 75 && metrics.displacement > 70) return 'MARKUP';
     if (metrics.marketStructure > 60 && metrics.orderBlock > 80) return 'RE-ACCUMULATION';
@@ -545,6 +652,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       if (isFearMode) addLog(`Risk Protocol: VIX ${vix} > ${STRATEGY_CONFIG.VIX_RISK_OFF_LEVEL}. Defensive Mode Active.`, "warn");
 
       const results: IctScoredTicker[] = [];
+      let c9RecentGeometryCount = 0;
+      let c9FallbackGeometryCount = 0;
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -553,25 +662,19 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         const ictAnalysis = calculateIctScore(item);
         
         // [ICT 5-Step Logic] P/D Array & OTE Calculation
-        // Use ictPos from Stage 3 if available for consistency
-        let ictPos = item.ictPos;
-        const high52 = item.fiftyTwoWeekHigh || item.high52 || item.price * 1.2;
-        const low52 = item.fiftyTwoWeekLow || item.low52 || item.price * 0.8;
-        
-        if (ictPos === undefined || ictPos === null) {
-             ictPos = (high52 - low52) === 0 ? 0.5 : (item.price - low52) / (high52 - low52);
-        }
-        
+        // C9: prefer recent swing/ATR geometry, fallback to 52w when data is sparse
+        const geometry = resolveIctExecutionGeometry(item);
+        if (geometry.executionGeometrySource === "RECENT_SWING_ATR") c9RecentGeometryCount++;
+        else c9FallbackGeometryCount++;
+        let ictPos = Number(item?.ictPos);
+        if (!Number.isFinite(ictPos)) ictPos = geometry.ictPos;
+
         let pdZone: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT' = 'EQUILIBRIUM';
         if (ictPos < 0.45) pdZone = 'DISCOUNT';
         else if (ictPos > 0.55) pdZone = 'PREMIUM';
 
-        // OTE (Optimal Trade Entry): 70.5% Retracement from High (Deep Discount)
-        const range = high52 - low52;
-        const otePrice = high52 - (range * 0.705);
-        
-        // ICT Stop Loss: Recent Low - 1.5% (Noise Buffer)
-        const ictStopLoss = low52 * 0.985;
+        const otePrice = geometry.otePrice;
+        const ictStopLoss = geometry.ictStopLoss;
 
         // [Logic Injection] Enhance Score based on ICT 5-Step
         // 1. Discount Zone Bonus (Buying Cheap is Key)
@@ -733,7 +836,11 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             // [NEW] ICT 5-Step Data
             pdZone,
             otePrice,
-            ictStopLoss
+            ictStopLoss,
+            executionGeometrySource: geometry.executionGeometrySource,
+            executionRangeBars: geometry.executionRangeBars,
+            executionStopBars: geometry.executionStopBars,
+            executionAtr: geometry.executionAtr
         };
 
         results.push(ticker);
@@ -750,6 +857,10 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       addLog(`Smart Money Flow: Displacement Checked`, "ok");
       addLog(`Stage 4 Signal Bridge: Minervini / MACD / DMI Context Ingested`, "ok");
       addLog(`Final Bridge Constructed: All Alpha Tags Encoded for Stage 6 Final`, "ok");
+      addLog(
+          `[C9_GEOMETRY] recent_swing_atr=${c9RecentGeometryCount} | fallback_52w=${c9FallbackGeometryCount}`,
+          c9FallbackGeometryCount > 0 ? "warn" : "ok"
+      );
 
       // [NEW] Sector Diversification Logic (Step 6) - Progressive Penalty Protocol
       // Strategy: Allow Momentum leaders (Top 4) but aggressively kill followers to ensure diversity.

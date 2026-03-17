@@ -66,8 +66,9 @@ v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**
 - 원인: 52주 고저 기반 OTE/Stop을 단기 실행 게이트에 직접 사용.
 - 영향: `blocked_stop_too_wide` 반복, 우량 watchlist 과도 누적.
 - 조치:
-  - Stop: 최근 스윙/ATR 기반.
-  - OTE: 최근 N봉(예: 60봉) 구조 기반 재정의.
+  - [x] Stop: 최근 스윙/ATR 기반으로 교체(코드 반영).
+  - [x] OTE: 최근 N봉(예: 60봉) 구조 기반으로 재정의(코드 반영).
+  - [x] 데이터 부족 종목은 52주 fallback 유지 + `[C9_GEOMETRY]` 로그 추가.
 - 완료 기준:
   - VIST/UTHR류의 `stop_too_wide` 비중 유의미 감소.
   - `WAIT_PRICE`와 `EXECUTABLE_NOW` 분포가 시장 상황에 맞게 이동.

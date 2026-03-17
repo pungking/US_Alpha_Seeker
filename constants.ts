@@ -218,6 +218,9 @@ export const STRATEGY_CONFIG = {
   ICT_OTE_LEVEL: 0.705,            // 최적 진입 타점 (Optimal Trade Entry) 피보나치 레벨
   ICT_EQUILIBRIUM: 0.5,            // 프리미엄/디스카운트 구간 기준점
   DISCOUNT_BONUS: 10,              // 할인 구간(Discount Zone) 가산점
+  ICT_RANGE_LOOKBACK_BARS: 60,     // C9: OTE 계산용 최근 스윙 구간
+  ICT_STOP_LOOKBACK_BARS: 20,      // C9: 손절 기준 최근 스윙 저점 구간
+  ICT_STOP_ATR_MULTIPLIER: 1.0,    // C9: ATR 배수 (최근 저점 하단 버퍼)
 
   // [RISK MANAGEMENT REFINED]
   STOP_LOSS_BUFFER: 0.015,         // 손절가 설정을 위한 노이즈 버퍼 (1.5%)
