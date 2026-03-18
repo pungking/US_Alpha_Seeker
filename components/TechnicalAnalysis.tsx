@@ -75,6 +75,10 @@ interface TechnicalTicker {
       eventDistanceBand?: 'D_MINUS_1_TO_PLUS_1' | 'D_MINUS_2_TO_MINUS_5' | 'NONE';
       eventRiskSource?: 'DISTANCE' | 'LABEL' | 'NONE';
       eventRiskPenalty?: number;
+      ttmProfile?: TtmSqueezeProfile;
+      ttmProfileMode?: TtmSqueezeMode;
+      ttmKcAtrMult?: number;
+      ttmBbStdMult?: number;
   };
   
   priceHistory: { date: string; close: number; open?: number; high?: number; low?: number; volume?: number }[];
@@ -158,6 +162,37 @@ interface EarningsEventMap {
         days_to_event?: number;
         event_risk?: 'HIGH' | 'MEDIUM' | 'NONE';
     }>;
+}
+
+type TtmSqueezeProfile = 'STRICT' | 'DEFAULT' | 'WIDE';
+type TtmSqueezeMode = 'STATIC' | 'VIX_DYNAMIC' | 'ADAPTIVE_SHADOW' | 'ADAPTIVE_ACTIVE';
+
+interface TtmAdaptiveState {
+    version: 1;
+    runs: number;
+    samples: number;
+    emaSqueezeOnRate: number;
+    recommendedKcAtrMult: number;
+    lastAppliedKcAtrMult: number;
+    updatedAt: string;
+}
+
+interface TtmSqueezeRuntimeConfig {
+    profileMode: TtmSqueezeMode;
+    profile: TtmSqueezeProfile;
+    bbStdMult: number;
+    kcAtrMultBase: number;
+    kcAtrMultApplied: number;
+    reason: string;
+    vixRef: number | null;
+    adaptive: {
+        eligible: boolean;
+        minSamples: number;
+        samples: number;
+        emaSqueezeOnRate: number | null;
+        recommendedKcAtrMult: number | null;
+        appliedAdaptive: boolean;
+    } | null;
 }
 
 // [KNOWLEDGE BASE] Expanded Technical Definitions
@@ -271,6 +306,173 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   
   const logRef = useRef<HTMLDivElement>(null);
+  const TTM_ADAPTIVE_STATE_KEY = 'us_alpha_ttm_squeeze_adaptive_v1';
+
+  const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+  const round4 = (value: number) => Number(value.toFixed(4));
+
+  const readTtmAdaptiveState = (): TtmAdaptiveState | null => {
+      if (typeof window === 'undefined') return null;
+      try {
+          const raw = window.localStorage.getItem(TTM_ADAPTIVE_STATE_KEY);
+          if (!raw) return null;
+          const parsed = JSON.parse(raw);
+          if (!parsed || parsed.version !== 1) return null;
+          const samples = Number(parsed.samples);
+          const runs = Number(parsed.runs);
+          const emaRate = Number(parsed.emaSqueezeOnRate);
+          const recommended = Number(parsed.recommendedKcAtrMult);
+          const lastApplied = Number(parsed.lastAppliedKcAtrMult);
+          if (![samples, runs, emaRate, recommended, lastApplied].every(Number.isFinite)) return null;
+          return {
+              version: 1,
+              samples: Math.max(0, Math.floor(samples)),
+              runs: Math.max(0, Math.floor(runs)),
+              emaSqueezeOnRate: emaRate,
+              recommendedKcAtrMult: recommended,
+              lastAppliedKcAtrMult: lastApplied,
+              updatedAt: String(parsed.updatedAt || '')
+          };
+      } catch {
+          return null;
+      }
+  };
+
+  const writeTtmAdaptiveState = (state: TtmAdaptiveState) => {
+      if (typeof window === 'undefined') return;
+      try {
+          window.localStorage.setItem(TTM_ADAPTIVE_STATE_KEY, JSON.stringify(state));
+      } catch {
+          // ignore storage write errors
+      }
+  };
+
+  const resolveTtmSqueezeConfig = (vixCloseInput: number | null): TtmSqueezeRuntimeConfig => {
+      const bbStdMult = Number(STRATEGY_CONFIG.TTM_SQUEEZE_BB_STD_MULT || 2.0);
+      const strictMult = Number(STRATEGY_CONFIG.TTM_SQUEEZE_KC_ATR_MULT_STRICT || 1.25);
+      const defaultMult = Number(STRATEGY_CONFIG.TTM_SQUEEZE_KC_ATR_MULT_DEFAULT || 1.5);
+      const wideMult = Number(STRATEGY_CONFIG.TTM_SQUEEZE_KC_ATR_MULT_WIDE || 2.0);
+      const strictMinVix = Number(STRATEGY_CONFIG.TTM_SQUEEZE_VIX_STRICT_MIN || 24);
+      const wideMaxVix = Number(STRATEGY_CONFIG.TTM_SQUEEZE_VIX_WIDE_MAX || 18);
+      const profileModeRaw = String(STRATEGY_CONFIG.TTM_SQUEEZE_KC_PROFILE_MODE || 'STATIC').toUpperCase();
+      const profileMode: TtmSqueezeMode = (
+          profileModeRaw === 'VIX_DYNAMIC' ||
+          profileModeRaw === 'ADAPTIVE_SHADOW' ||
+          profileModeRaw === 'ADAPTIVE_ACTIVE'
+      ) ? profileModeRaw : 'STATIC';
+      const vixRef = Number.isFinite(Number(vixCloseInput)) ? Number(vixCloseInput) : null;
+
+      let profile: TtmSqueezeProfile = 'DEFAULT';
+      let reason = 'static_default';
+      if (profileMode !== 'STATIC' && vixRef != null) {
+          if (vixRef >= strictMinVix) {
+              profile = 'STRICT';
+              reason = `vix>=${strictMinVix}`;
+          } else if (vixRef <= wideMaxVix) {
+              profile = 'WIDE';
+              reason = `vix<=${wideMaxVix}`;
+          } else {
+              reason = `vix_mid(${wideMaxVix}<vix<${strictMinVix})`;
+          }
+      } else if (profileMode !== 'STATIC') {
+          reason = 'vix_missing_fallback_default';
+      }
+
+      const profileToMult: Record<TtmSqueezeProfile, number> = {
+          STRICT: strictMult,
+          DEFAULT: defaultMult,
+          WIDE: wideMult
+      };
+      const kcAtrMultBase = profileToMult[profile];
+      let kcAtrMultApplied = kcAtrMultBase;
+
+      const minSamples = Math.max(100, Math.floor(Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MIN_SAMPLES || 600)));
+      const minKc = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MIN_KC || 1.1);
+      const maxKc = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MAX_KC || 2.2);
+
+      let adaptive: TtmSqueezeRuntimeConfig['adaptive'] = null;
+      if (profileMode === 'ADAPTIVE_SHADOW' || profileMode === 'ADAPTIVE_ACTIVE') {
+          const state = readTtmAdaptiveState();
+          const recommended = state ? clamp(state.recommendedKcAtrMult, minKc, maxKc) : null;
+          const eligible = Boolean(state && state.samples >= minSamples && recommended != null);
+          const appliedAdaptive = profileMode === 'ADAPTIVE_ACTIVE' && eligible && recommended != null;
+          if (appliedAdaptive && recommended != null) {
+              kcAtrMultApplied = recommended;
+              reason += '|adaptive_active';
+          } else if (profileMode === 'ADAPTIVE_SHADOW') {
+              reason += '|adaptive_shadow';
+          }
+          adaptive = {
+              eligible,
+              minSamples,
+              samples: state?.samples || 0,
+              emaSqueezeOnRate: state ? round4(state.emaSqueezeOnRate) : null,
+              recommendedKcAtrMult: recommended != null ? round4(recommended) : null,
+              appliedAdaptive
+          };
+      }
+
+      return {
+          profileMode,
+          profile,
+          bbStdMult: round4(bbStdMult),
+          kcAtrMultBase: round4(kcAtrMultBase),
+          kcAtrMultApplied: round4(kcAtrMultApplied),
+          reason,
+          vixRef: vixRef != null ? round4(vixRef) : null,
+          adaptive
+      };
+  };
+
+  const updateTtmAdaptiveState = (
+      config: TtmSqueezeRuntimeConfig,
+      sampleCount: number,
+      squeezeOnCount: number
+  ): TtmAdaptiveState | null => {
+      if (!(config.profileMode === 'ADAPTIVE_SHADOW' || config.profileMode === 'ADAPTIVE_ACTIVE')) return null;
+      if (!Number.isFinite(sampleCount) || sampleCount <= 0) return null;
+
+      const minSamples = Math.max(100, Math.floor(Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MIN_SAMPLES || 600)));
+      const targetMinRaw = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MIN || 0.14);
+      const targetMaxRaw = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MAX || 0.28);
+      const targetMin = Math.min(targetMinRaw, targetMaxRaw);
+      const targetMax = Math.max(targetMinRaw, targetMaxRaw);
+      const step = Math.max(0.01, Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_STEP || 0.05));
+      const minKc = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MIN_KC || 1.1);
+      const maxKc = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MAX_KC || 2.2);
+
+      const runRate = clamp(squeezeOnCount / sampleCount, 0, 1);
+      const prev = readTtmAdaptiveState();
+      const prevSamples = prev?.samples || 0;
+      const prevRuns = prev?.runs || 0;
+      const prevEma = prev ? clamp(prev.emaSqueezeOnRate, 0, 1) : runRate;
+      const prevRecommended = prev
+          ? clamp(prev.recommendedKcAtrMult, minKc, maxKc)
+          : clamp(config.kcAtrMultApplied, minKc, maxKc);
+
+      const weight = prev ? clamp(prevSamples / Math.max(1, prevSamples + sampleCount), 0.2, 0.85) : 0;
+      const emaRate = prev ? (prevEma * weight) + (runRate * (1 - weight)) : runRate;
+      const nextSamples = prevSamples + sampleCount;
+
+      let nextRecommended = prevRecommended;
+      if (nextSamples >= minSamples) {
+          if (emaRate > targetMax) nextRecommended = clamp(prevRecommended - step, minKc, maxKc);
+          else if (emaRate < targetMin) nextRecommended = clamp(prevRecommended + step, minKc, maxKc);
+      }
+
+      const nextState: TtmAdaptiveState = {
+          version: 1,
+          runs: prevRuns + 1,
+          samples: nextSamples,
+          emaSqueezeOnRate: round4(emaRate),
+          recommendedKcAtrMult: round4(nextRecommended),
+          lastAppliedKcAtrMult: round4(config.kcAtrMultApplied),
+          updatedAt: new Date().toISOString()
+      };
+
+      writeTtmAdaptiveState(nextState);
+      return nextState;
+  };
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -632,8 +834,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       highs: number[],
       lows: number[],
       closes: number[],
-      momentumBias = 0
+      momentumBias = 0,
+      squeezeConfig?: TtmSqueezeRuntimeConfig
   ): 'SQUEEZE_ON' | 'SQUEEZE_OFF' | 'FIRED_LONG' | 'FIRED_SHORT' => {
+      const bbStdMult = squeezeConfig?.bbStdMult ?? Number(STRATEGY_CONFIG.TTM_SQUEEZE_BB_STD_MULT || 2.0);
+      const kcAtrMult = squeezeConfig?.kcAtrMultApplied ?? Number(STRATEGY_CONFIG.TTM_SQUEEZE_KC_ATR_MULT_DEFAULT || 1.5);
       const getSqueezeFlag = (offset = 0) => {
           const end = closes.length - offset;
           if (end < 20) return false;
@@ -647,10 +852,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
           if (basis === 0 || atr === 0) return false;
 
-          const bbUpper = basis + (deviation * 2);
-          const bbLower = basis - (deviation * 2);
-          const kcUpper = basis + (atr * 1.5);
-          const kcLower = basis - (atr * 1.5);
+          const bbUpper = basis + (deviation * bbStdMult);
+          const bbLower = basis - (deviation * bbStdMult);
+          const kcUpper = basis + (atr * kcAtrMult);
+          const kcLower = basis - (atr * kcAtrMult);
 
           return bbLower > kcLower && bbUpper < kcUpper;
       };
@@ -1464,6 +1669,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog("Benchmark index unavailable. Using Internal Relative Strength.", "warn");
       }
 
+      const vixForSqueezeProfile = Number.isFinite(Number(marketRegimeSnapshot?.benchmarks?.vix?.close))
+          ? Number(marketRegimeSnapshot?.benchmarks?.vix?.close)
+          : null;
+      const ttmSqueezeConfig = resolveTtmSqueezeConfig(vixForSqueezeProfile);
+      addLog(
+          `[TTM_PROFILE] mode=${ttmSqueezeConfig.profileMode} profile=${ttmSqueezeConfig.profile} bb=${ttmSqueezeConfig.bbStdMult} kc(base/applied)=${ttmSqueezeConfig.kcAtrMultBase}/${ttmSqueezeConfig.kcAtrMultApplied} reason=${ttmSqueezeConfig.reason} vix=${ttmSqueezeConfig.vixRef ?? 'N/A'}`,
+          "info"
+      );
+
 	      const grouped: Record<string, any[]> = {};
       candidates.forEach((c: any) => {
           const letter = c.symbol.charAt(0).toUpperCase();
@@ -1498,6 +1712,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let driveCorruptCount = 0;
           let heuristicRecoveredFromMissingCount = 0;
           let apiFallbackCapLogged = false;
+          let ttmSampleCount = 0;
+          let ttmSqueezeOnCount = 0;
+          let ttmSqueezeFiredCount = 0;
+          let ttmSqueezeOnRate = 0;
+          let ttmAdaptiveStateAfterRun: TtmAdaptiveState | null = null;
 
       for (const letter of letters) {
           setProgress(prev => ({ ...prev, status: `Scanning Sector ${letter}...` }));
@@ -1653,7 +1872,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       }
 
                       const { passCount: minerviniPassCount, score: minerviniScore } = calculateMinerviniTemplate(closes, high52, low52);
-                      const squeezeState = calculateTTMSqueezeState(highs, lows, closes, histogram);
+                      const squeezeState = calculateTTMSqueezeState(highs, lows, closes, histogram, ttmSqueezeConfig);
+                      ttmSampleCount++;
+                      if (squeezeState === 'SQUEEZE_ON') ttmSqueezeOnCount++;
+                      if (squeezeState === 'FIRED_LONG' || squeezeState === 'FIRED_SHORT') ttmSqueezeFiredCount++;
                       const stage31Signal = calculateStage31SignalOverlay({
                           minerviniScore,
                           minerviniPassCount,
@@ -1726,7 +1948,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                               stage31SignalScore: stage31Signal.stage31SignalScore,
                               signalComboBonus: stage31Signal.signalComboBonus,
                               signalHeatPenalty: stage31Signal.signalHeatPenalty,
-                              signalQualityState: stage31Signal.signalQualityState
+                              signalQualityState: stage31Signal.signalQualityState,
+                              ttmProfile: ttmSqueezeConfig.profile,
+                              ttmProfileMode: ttmSqueezeConfig.profileMode,
+                              ttmKcAtrMult: ttmSqueezeConfig.kcAtrMultApplied,
+                              ttmBbStdMult: ttmSqueezeConfig.bbStdMult
                           },
                           scoreBreakdown: {
                               rawSignalScore: safeTechnicalScore,
@@ -1911,6 +2137,22 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog(`Event Overlay: flagged ${eventRiskPenaltyCount} assets (high ${eventHighRiskCount}, medium ${eventMediumRiskCount}, avg -${averageEventPenalty}).`, "ok");
       }
 
+      ttmSqueezeOnRate = ttmSampleCount > 0 ? Number((ttmSqueezeOnCount / ttmSampleCount).toFixed(4)) : 0;
+      addLog(
+          `[TTM_PROFILE_STATS] samples ${ttmSampleCount}, squeezeOn ${ttmSqueezeOnCount}, fired ${ttmSqueezeFiredCount}, onRate ${ttmSqueezeOnRate}`,
+          "info"
+      );
+
+      ttmAdaptiveStateAfterRun = updateTtmAdaptiveState(ttmSqueezeConfig, ttmSampleCount, ttmSqueezeOnCount);
+      if (ttmAdaptiveStateAfterRun) {
+          const minSamples = Number(STRATEGY_CONFIG.TTM_SQUEEZE_ADAPTIVE_MIN_SAMPLES || 600);
+          const shadowOrActive = ttmSqueezeConfig.profileMode === 'ADAPTIVE_ACTIVE' ? 'active' : 'shadow';
+          addLog(
+              `[TTM_ADAPTIVE_${shadowOrActive.toUpperCase()}] runs ${ttmAdaptiveStateAfterRun.runs}, samples ${ttmAdaptiveStateAfterRun.samples}/${minSamples}, emaOnRate ${ttmAdaptiveStateAfterRun.emaSqueezeOnRate}, recommendedKC ${ttmAdaptiveStateAfterRun.recommendedKcAtrMult}, appliedKC ${ttmAdaptiveStateAfterRun.lastAppliedKcAtrMult}`,
+              "info"
+          );
+      }
+
       results.sort((a, b) => b.technicalScore - a.technicalScore);
 
       // Guardrail: keep JSON schema stable even if any upstream branch misses scoreBreakdown.
@@ -2004,6 +2246,21 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               dataSource: GOOGLE_DRIVE_TARGET.financialOhlcvFolder,
               marketRegimeState: marketRegimeSnapshot?.regime?.state || null,
               marketRegimeScore: marketRegimeSnapshot?.regime?.score ?? null,
+              ttmSqueezeProfileMode: ttmSqueezeConfig.profileMode,
+              ttmSqueezeProfile: ttmSqueezeConfig.profile,
+              ttmSqueezeBbStdMult: ttmSqueezeConfig.bbStdMult,
+              ttmSqueezeKcAtrMultBase: ttmSqueezeConfig.kcAtrMultBase,
+              ttmSqueezeKcAtrMultApplied: ttmSqueezeConfig.kcAtrMultApplied,
+              ttmSqueezeProfileReason: ttmSqueezeConfig.reason,
+              ttmSqueezeVixRef: ttmSqueezeConfig.vixRef,
+              ttmSqueezeAdaptive: ttmSqueezeConfig.adaptive,
+              ttmSqueezeStats: {
+                  sampleCount: ttmSampleCount,
+                  squeezeOnCount: ttmSqueezeOnCount,
+                  squeezeFiredCount: ttmSqueezeFiredCount,
+                  squeezeOnRate: ttmSqueezeOnRate,
+                  adaptiveStateAfterRun: ttmAdaptiveStateAfterRun
+              },
               earningsEventSource: earningsEventMap?.source || null,
               earningsEventCount: Object.keys(earningsEventMap?.events || {}).length,
               scoreBreakdownSchema: "v1",

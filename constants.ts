@@ -32,6 +32,26 @@ const getEnvVar = (key: string): string => {
     return '';
 };
 
+const parseNumberEnv = (keys: string[], fallback: number): number => {
+    for (const key of keys) {
+        const raw = String(getEnvVar(key) || '').trim();
+        if (!raw) continue;
+        const num = Number(raw);
+        if (Number.isFinite(num)) return num;
+    }
+    return fallback;
+};
+
+const parseEnumEnv = <T extends string>(keys: string[], allowed: readonly T[], fallback: T): T => {
+    const allowedSet = new Set(allowed);
+    for (const key of keys) {
+        const raw = String(getEnvVar(key) || '').trim().toUpperCase();
+        if (!raw) continue;
+        if (allowedSet.has(raw as T)) return raw as T;
+    }
+    return fallback;
+};
+
 // ============================================================
 // [GITHUB DISPATCH CONFIG]
 // Stage 3 완료 후 → US_Alpha_Seeker_Harvester 워크플로우 트리거
@@ -221,6 +241,62 @@ export const STRATEGY_CONFIG = {
   ICT_RANGE_LOOKBACK_BARS: 60,     // C9: OTE 계산용 최근 스윙 구간
   ICT_STOP_LOOKBACK_BARS: 20,      // C9: 손절 기준 최근 스윙 저점 구간
   ICT_STOP_ATR_MULTIPLIER: 1.0,    // C9: ATR 배수 (최근 저점 하단 버퍼)
+
+  // [H8] TTM Squeeze profile control
+  // Profile mode: STATIC | VIX_DYNAMIC | ADAPTIVE_SHADOW | ADAPTIVE_ACTIVE
+  TTM_SQUEEZE_KC_PROFILE_MODE: parseEnumEnv(
+    ['VITE_TTM_SQUEEZE_KC_PROFILE_MODE', 'TTM_SQUEEZE_KC_PROFILE_MODE'],
+    ['STATIC', 'VIX_DYNAMIC', 'ADAPTIVE_SHADOW', 'ADAPTIVE_ACTIVE'] as const,
+    'STATIC'
+  ),
+  TTM_SQUEEZE_BB_STD_MULT: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_BB_STD_MULT', 'TTM_SQUEEZE_BB_STD_MULT'],
+    2.0
+  ),
+  TTM_SQUEEZE_KC_ATR_MULT_STRICT: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_KC_ATR_MULT_STRICT', 'TTM_SQUEEZE_KC_ATR_MULT_STRICT'],
+    1.25
+  ),
+  TTM_SQUEEZE_KC_ATR_MULT_DEFAULT: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_KC_ATR_MULT_DEFAULT', 'TTM_SQUEEZE_KC_ATR_MULT_DEFAULT'],
+    1.5
+  ),
+  TTM_SQUEEZE_KC_ATR_MULT_WIDE: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_KC_ATR_MULT_WIDE', 'TTM_SQUEEZE_KC_ATR_MULT_WIDE'],
+    2.0
+  ),
+  TTM_SQUEEZE_VIX_STRICT_MIN: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_VIX_STRICT_MIN', 'TTM_SQUEEZE_VIX_STRICT_MIN'],
+    24
+  ),
+  TTM_SQUEEZE_VIX_WIDE_MAX: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_VIX_WIDE_MAX', 'TTM_SQUEEZE_VIX_WIDE_MAX'],
+    18
+  ),
+  TTM_SQUEEZE_ADAPTIVE_MIN_SAMPLES: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_ADAPTIVE_MIN_SAMPLES', 'TTM_SQUEEZE_ADAPTIVE_MIN_SAMPLES'],
+    600
+  ),
+  TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MIN: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MIN', 'TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MIN'],
+    0.14
+  ),
+  TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MAX: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MAX', 'TTM_SQUEEZE_ADAPTIVE_TARGET_RATE_MAX'],
+    0.28
+  ),
+  TTM_SQUEEZE_ADAPTIVE_STEP: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_ADAPTIVE_STEP', 'TTM_SQUEEZE_ADAPTIVE_STEP'],
+    0.05
+  ),
+  TTM_SQUEEZE_ADAPTIVE_MIN_KC: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_ADAPTIVE_MIN_KC', 'TTM_SQUEEZE_ADAPTIVE_MIN_KC'],
+    1.1
+  ),
+  TTM_SQUEEZE_ADAPTIVE_MAX_KC: parseNumberEnv(
+    ['VITE_TTM_SQUEEZE_ADAPTIVE_MAX_KC', 'TTM_SQUEEZE_ADAPTIVE_MAX_KC'],
+    2.2
+  ),
 
   // [RISK MANAGEMENT REFINED]
   STOP_LOSS_BUFFER: 0.015,         // 손절가 설정을 위한 노이즈 버퍼 (1.5%)
