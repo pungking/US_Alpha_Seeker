@@ -32,6 +32,12 @@ interface AlphaCandidate {
   executionScore?: number | null;
   executionReadinessScore?: number | null;
   qualityScore?: number | null;
+  stage6Tier?: 'TIER1' | 'TIER2' | 'NONE';
+  stage6TierReason?: string;
+  stage6TierMultiplier?: number | null;
+  stage6Displacement?: number | null;
+  stage6IctPos?: number | null;
+  stage6TrendAlignment?: string | null;
   executionBucket?: 'EXECUTABLE' | 'WATCHLIST';
   executionReason?: 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA';
   finalDecision?: 'EXECUTABLE_NOW' | 'WAIT_PRICE' | 'BLOCKED_RISK' | 'BLOCKED_EVENT';
@@ -2711,17 +2717,40 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
 
           // ICT PD-Array Filter
+          const displacement = Number(c.ictMetrics?.displacement ?? 0);
+          const ictPosRaw = Number(c.ictPos);
+          const ictPos = Number.isFinite(ictPosRaw) ? ictPosRaw : null;
+          const trendAlignment = String(c.techMetrics?.trendAlignment || '')
+              .trim()
+              .toUpperCase()
+              .replace(/[\s-]+/g, '_');
+          const premiumTier1 =
+              displacement > 55 &&
+              ictPos != null &&
+              ictPos > 0.85;
+          const premiumTier2 =
+              ['BULLISH', 'POWER_TREND'].includes(trendAlignment) &&
+              ict >= 55;
           let isOverheated = false;
+          let premiumPenaltyMode: 'NONE' | 'REDUCED_TIER1' | 'REDUCED_TIER2' | 'STRICT' = 'NONE';
           if (c.pdZone === 'DISCOUNT') {
               convictionScore += 15;
               sortScore += 15;
           } else if (c.pdZone === 'PREMIUM') {
-              isOverheated = true;
-              sortScore -= 50; 
+              if (premiumTier1) {
+                  sortScore -= 8;
+                  premiumPenaltyMode = 'REDUCED_TIER1';
+              } else if (premiumTier2) {
+                  sortScore -= 18;
+                  premiumPenaltyMode = 'REDUCED_TIER2';
+              } else {
+                  isOverheated = true;
+                  sortScore -= 50;
+                  premiumPenaltyMode = 'STRICT';
+              }
           }
 
           // Institutional Entry Badge
-          const displacement = c.ictMetrics?.displacement ?? 0;
           const isInstitutionalEntry = displacement > 65;
 
           if (isHiddenGem) sortScore += 25; 
@@ -2735,7 +2764,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               spyAlpha,
               qqqAlpha,
               isInstitutionalEntry,
-              isOverheated
+              isOverheated,
+              premiumPenaltyMode
           };
       });
 
@@ -3315,6 +3345,50 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const STAGE6_VERDICT_CONFLICT_FLAG = parseBooleanFlag(
           (import.meta as any)?.env?.VITE_STAGE6_VERDICT_CONFLICT_FLAG ?? 'true'
       );
+      const stage6Tier1DisplacementRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_TIER1_DISPLACEMENT_MIN ?? 55
+      );
+      const STAGE6_TIER1_DISPLACEMENT_MIN =
+          Number.isFinite(stage6Tier1DisplacementRaw) && stage6Tier1DisplacementRaw >= 0
+              ? stage6Tier1DisplacementRaw
+              : 55;
+      const stage6Tier1IctPosRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_TIER1_ICT_POS_MIN ?? 0.85
+      );
+      const STAGE6_TIER1_ICT_POS_MIN =
+          Number.isFinite(stage6Tier1IctPosRaw) && stage6Tier1IctPosRaw >= 0 && stage6Tier1IctPosRaw <= 1
+              ? stage6Tier1IctPosRaw
+              : 0.85;
+      const stage6Tier2IctScoreRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_TIER2_ICT_SCORE_MIN ?? 55
+      );
+      const STAGE6_TIER2_ICT_SCORE_MIN =
+          Number.isFinite(stage6Tier2IctScoreRaw) && stage6Tier2IctScoreRaw >= 0
+              ? stage6Tier2IctScoreRaw
+              : 55;
+      const stage6Tier1MultiplierRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_TIER1_SCORE_MULTIPLIER ?? 1.08
+      );
+      const STAGE6_TIER1_SCORE_MULTIPLIER =
+          Number.isFinite(stage6Tier1MultiplierRaw) && stage6Tier1MultiplierRaw > 0
+              ? stage6Tier1MultiplierRaw
+              : 1.08;
+      const stage6Tier2MultiplierRaw = Number(
+          (import.meta as any)?.env?.VITE_STAGE6_TIER2_SCORE_MULTIPLIER ?? 1.03
+      );
+      const STAGE6_TIER2_SCORE_MULTIPLIER =
+          Number.isFinite(stage6Tier2MultiplierRaw) && stage6Tier2MultiplierRaw > 0
+              ? stage6Tier2MultiplierRaw
+              : 1.03;
+      const stage6Tier2TrendKeysRaw = String(
+          (import.meta as any)?.env?.VITE_STAGE6_TIER2_TREND_KEYS ?? 'BULLISH,POWER_TREND'
+      );
+      const STAGE6_TIER2_TREND_KEYS = new Set(
+          stage6Tier2TrendKeysRaw
+              .split(',')
+              .map((v) => String(v || '').trim().toUpperCase().replace(/[\s-]+/g, '_'))
+              .filter(Boolean)
+      );
       const isBullishVerdictForExecution = (verdict: string | null | undefined) => {
           const key = toVerdictKey(verdict);
           if (!key || key === 'NA' || key === 'N/A' || key === 'NONE' || key === 'NULL' || key === 'UNDEFINED' || key === 'TBD') {
@@ -3370,6 +3444,56 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           return null;
       };
+      const deriveStage6Tier = (item: AlphaCandidate) => {
+          const displacement = pickFinite(
+              (item as any)?.ictMetrics?.displacement,
+              (item as any)?.displacement
+          );
+          const ictPos = pickFinite((item as any)?.ictPos, (item as any)?.stage6IctPos);
+          const trendAlignment = String((item as any)?.techMetrics?.trendAlignment || (item as any)?.trendAlignment || '')
+              .trim()
+              .toUpperCase()
+              .replace(/[\s-]+/g, '_');
+          const ictScore = pickFinite((item as any)?.ictScore);
+          const isTier1 =
+              displacement != null &&
+              displacement >= STAGE6_TIER1_DISPLACEMENT_MIN &&
+              ictPos != null &&
+              ictPos >= STAGE6_TIER1_ICT_POS_MIN;
+          const isTier2 =
+              !isTier1 &&
+              STAGE6_TIER2_TREND_KEYS.has(trendAlignment) &&
+              ictScore != null &&
+              ictScore >= STAGE6_TIER2_ICT_SCORE_MIN;
+          if (isTier1) {
+              return {
+                  tier: 'TIER1' as const,
+                  tierReason: 'tier1_displacement_ictpos',
+                  tierMultiplier: STAGE6_TIER1_SCORE_MULTIPLIER,
+                  displacement,
+                  ictPos,
+                  trendAlignment: trendAlignment || null
+              };
+          }
+          if (isTier2) {
+              return {
+                  tier: 'TIER2' as const,
+                  tierReason: 'tier2_trend_ict',
+                  tierMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER,
+                  displacement,
+                  ictPos,
+                  trendAlignment: trendAlignment || null
+              };
+          }
+          return {
+              tier: 'NONE' as const,
+              tierReason: 'tier_none',
+              tierMultiplier: 1,
+              displacement,
+              ictPos,
+              trendAlignment: trendAlignment || null
+          };
+      };
       const computeExecutionScore = (params: {
           conviction: number | null;
           rr: number | null;
@@ -3379,6 +3503,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           verdictConflict: boolean;
           stateVerdictConflict: boolean;
           finalDecision: AlphaCandidate["finalDecision"];
+          tierMultiplier?: number;
       }): number => {
           const convictionNorm = toScore(params.conviction ?? 0, 0, 100);
           const rrNorm =
@@ -3408,7 +3533,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       : params.finalDecision === 'BLOCKED_EVENT'
                           ? 35
                           : 45;
-          return Number(toScore(baseScore - structuralPenalty - decisionPenalty, 0, 100).toFixed(1));
+          const tierMultiplier =
+              Number.isFinite(Number(params.tierMultiplier)) && Number(params.tierMultiplier) > 0
+                  ? Number(params.tierMultiplier)
+                  : 1;
+          return Number(toScore((baseScore - structuralPenalty - decisionPenalty) * tierMultiplier, 0, 100).toFixed(1));
       };
       const verdictToScore = (verdict: string | null | undefined): number => {
           const key = toVerdictKey(verdict);
@@ -3549,6 +3678,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               STAGE6_STATE_CONFLICT_STATES.has(marketStateKey) &&
               isBullishVerdictForExecution(aiVerdictKey);
           const convictionScore = pickFinite(item?.convictionScore, item?.rawConvictionScore, item?.compositeAlpha);
+          const stage6TierInfo = deriveStage6Tier(item);
 
           let finalDecision: AlphaCandidate["finalDecision"] = 'EXECUTABLE_NOW';
           let decisionReason: AlphaCandidate["decisionReason"] = 'executable_pullback';
@@ -3655,7 +3785,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               earningsDaysToEvent,
               verdictConflict,
               stateVerdictConflict,
-              finalDecision
+              finalDecision,
+              tierMultiplier: stage6TierInfo.tierMultiplier
           });
           const qualityScore = computeAlphaQualityScore({
               conviction: convictionScore,
@@ -3690,7 +3821,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               earningsDaysToEvent,
               verdictConflict,
               verdictConflictDetail,
-              stateVerdictConflict
+              stateVerdictConflict,
+              stage6Tier: stage6TierInfo.tier,
+              stage6TierReason: stage6TierInfo.tierReason,
+              stage6TierMultiplier: stage6TierInfo.tierMultiplier,
+              stage6Displacement: stage6TierInfo.displacement,
+              stage6IctPos: stage6TierInfo.ictPos,
+              stage6TrendAlignment: stage6TierInfo.trendAlignment
           };
       };
 
@@ -3732,6 +3869,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               executionScore: executionContract.executionScore,
               executionReadinessScore: executionContract.executionReadinessScore,
               qualityScore: executionContract.qualityScore,
+              stage6Tier: executionContract.stage6Tier,
+              stage6TierReason: executionContract.stage6TierReason,
+              stage6TierMultiplier: executionContract.stage6TierMultiplier,
+              stage6Displacement: executionContract.stage6Displacement,
+              stage6IctPos: executionContract.stage6IctPos,
+              stage6TrendAlignment: executionContract.stage6TrendAlignment,
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
@@ -3783,7 +3926,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const modelSummaryLine = modelTop6Pool.length > 0
           ? modelTop6Pool
               .map((item, idx) =>
-                  `${idx + 1})${item.symbol}(R#${toPositiveRank(item.rankRaw) ?? 'N/A'},F#${toPositiveRank(item.rankFinal) ?? 'N/A'},M#${toPositiveRank(item.modelRank) ?? 'N/A'},E#${toPositiveRank(item.executionRank) ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
+                  `${idx + 1})${item.symbol}(R#${toPositiveRank(item.rankRaw) ?? 'N/A'},F#${toPositiveRank(item.rankFinal) ?? 'N/A'},M#${toPositiveRank(item.modelRank) ?? 'N/A'},E#${toPositiveRank(item.executionRank) ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},T=${item.stage6Tier || 'NONE'},D=${item.finalDecision || 'N/A'},R=${item.decisionReason || item.executionReason || 'N/A'})`
               )
               .join(' | ')
           : 'none';
@@ -3816,7 +3959,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
       const executableSummaryLine = top6Elite.length > 0
           ? top6Elite
-              .map((item, idx) => `${idx + 1})${item.symbol}(R#${toPositiveRank(item.rankRaw) ?? 'N/A'},F#${toPositiveRank(item.rankFinal) ?? 'N/A'},M#${toPositiveRank(item.modelRank) ?? 'N/A'},E#${toPositiveRank(item.executionRank) ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'})`)
+              .map((item, idx) => `${idx + 1})${item.symbol}(R#${toPositiveRank(item.rankRaw) ?? 'N/A'},F#${toPositiveRank(item.rankFinal) ?? 'N/A'},M#${toPositiveRank(item.modelRank) ?? 'N/A'},E#${toPositiveRank(item.executionRank) ?? 'N/A'},AQ=${Number.isFinite(Number(item.qualityScore)) ? Number(item.qualityScore).toFixed(1) : 'N/A'},XS=${Number.isFinite(Number(item.executionScore)) ? Number(item.executionScore).toFixed(1) : 'N/A'},T=${item.stage6Tier || 'NONE'})`)
               .join(' | ')
           : 'none';
       addLog(`Executable Picks: ${executableSummaryLine}`, top6Elite.length > 0 ? "ok" : "warn");
@@ -4158,6 +4301,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   : Number.isFinite(Number(item?.convictionScore))
                       ? Number(item.convictionScore)
                       : null,
+              stage6Tier: String(item?.stage6Tier || 'NONE').toUpperCase(),
+              stage6TierReason: item?.stage6TierReason || 'tier_none',
+              stage6TierMultiplier: Number.isFinite(Number(item?.stage6TierMultiplier))
+                  ? Number(item.stage6TierMultiplier)
+                  : 1,
+              displacement: Number.isFinite(Number(item?.stage6Displacement ?? item?.ictMetrics?.displacement))
+                  ? Number(item.stage6Displacement ?? item.ictMetrics?.displacement)
+                  : null,
+              ictPos: Number.isFinite(Number(item?.stage6IctPos ?? item?.ictPos))
+                  ? Number(item.stage6IctPos ?? item.ictPos)
+                  : null,
+              trendAlignment:
+                  typeof item?.stage6TrendAlignment === 'string' && item.stage6TrendAlignment.trim()
+                      ? item.stage6TrendAlignment.trim().toUpperCase()
+                      : typeof item?.techMetrics?.trendAlignment === 'string' && item.techMetrics.trendAlignment.trim()
+                          ? item.techMetrics.trendAlignment.trim().toUpperCase()
+                          : null,
               executionScore: Number.isFinite(Number(item?.executionScore)) ? Number(item.executionScore) : null,
               riskRewardRatioValue: Number.isFinite(Number(item?.riskRewardRatioValue))
                   ? Number(item.riskRewardRatioValue)
@@ -4227,7 +4387,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       stateVerdictPolicy: STAGE6_STATE_VERDICT_POLICY,
                       stateConflictStates: Array.from(STAGE6_STATE_CONFLICT_STATES),
                       verdictConflictFlag: STAGE6_VERDICT_CONFLICT_FLAG,
-                      executionRankBasis: "execution_score"
+                      executionRankBasis: "execution_score",
+                      tier1DisplacementMin: STAGE6_TIER1_DISPLACEMENT_MIN,
+                      tier1IctPosMin: STAGE6_TIER1_ICT_POS_MIN,
+                      tier2IctScoreMin: STAGE6_TIER2_ICT_SCORE_MIN,
+                      tier2TrendKeys: Array.from(STAGE6_TIER2_TREND_KEYS),
+                      tier1ScoreMultiplier: STAGE6_TIER1_SCORE_MULTIPLIER,
+                      tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER
                   },
                   scoreViewDefault: scoreViewMode
               },

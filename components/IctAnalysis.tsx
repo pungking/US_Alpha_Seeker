@@ -834,6 +834,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             },
             
             // [NEW] ICT 5-Step Data
+            ictPos: Number.isFinite(ictPos) ? Number(ictPos.toFixed(4)) : null,
             pdZone,
             otePrice,
             ictStopLoss,
