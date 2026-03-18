@@ -689,7 +689,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     [CRITICAL CONSTRAINTS - READ CAREFULLY]
     1. **READ-ONLY CONSTRAINT**: The provided numeric data (price, pe, roe, ictScore, ictMetrics) is verified by a Quant Engine. **DO NOT MODIFY THESE NUMBERS**.
     2. **CONFLICT RESOLUTION**:
-       - IF 'pdZone' is 'PREMIUM' (Expensive) -> Automatic Downgrade, regardless of fundamentals.
+       - IF 'pdZone' is 'PREMIUM' (Expensive), apply **conditional caution** only:
+         - Do NOT automatically downgrade.
+         - Reduce conviction by 0~15 points based on combined risk signals
+           (low 'fundamentalScore', low 'quantConviction', weak 'ictScore', high 'ictMetrics.displacement').
+         - If fundamentals and quant context are strong ('fundamentalScore' >= 70 AND 'quantConviction' >= 70),
+           keep BUY/STRONG_BUY eligible with caution notes instead of forced downgrade.
        - IF 'price' is near 'otePrice' AND 'smartMoneyFlow' > 70 -> Mark as 'INSTITUTIONAL_ACCUMULATION' (Priority Selection).
     3. **SECTOR DIVERSIFICATION**: Your conviction ranking should prefer a final top 6 mix where **NO SINGLE SECTOR exceeds 50%** (Max 3 stocks per sector).
     4. **PRIORITY**: Give higher weight to stocks with high 'ictScore'.
