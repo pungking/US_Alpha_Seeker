@@ -4336,6 +4336,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               acc[key] = (acc[key] || 0) + 1;
               return acc;
           }, {});
+          const engineResponseTag = String(responseUsedProviderRaw || '').toUpperCase();
+          const engineProviderSwapped = requestedProvider !== usedProvider;
+          const engineResponseFallback = /FALLBACK|REPAIR/i.test(engineResponseTag);
+          const engineResponseSharded = /SHARDED/i.test(engineResponseTag);
+          const engineFallbackUsed = engineProviderSwapped || engineResponseFallback;
+          const engineExecutionMode = engineProviderSwapped
+              ? 'PROVIDER_SWAP'
+              : engineResponseFallback
+                  ? 'RECOVERY'
+                  : engineResponseSharded
+                      ? 'SHARDED'
+                      : 'DIRECT';
 
           const finalPayload = {
               manifest: { 
@@ -4347,11 +4359,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   engineRequested: requestedProvider,
                   engineActual: usedProvider,
                   engineResponse: responseUsedProviderRaw || null,
-                  engineFallbackUsed:
-                      requestedProvider !== usedProvider ||
-                      /FALLBACK|SHARDED|REPAIR/i.test(responseUsedProviderRaw || ''),
+                  engineFallbackUsed,
+                  engineExecutionMode,
+                  engineResponseSharded,
                   engineFallbackPath:
-                      requestedProvider === usedProvider ? 'DIRECT' : `${requestedProvider} -> ${usedProvider}`,
+                      engineProviderSwapped
+                          ? `${requestedProvider} -> ${usedProvider}`
+                          : engineFallbackUsed
+                              ? `${usedProvider}::RECOVERY`
+                              : 'DIRECT',
                   engineProvidersInTop6: Array.from(
                       new Set(top6Elite.map(item => String(item?.aiProvider || 'UNKNOWN')))
                   ),
