@@ -683,12 +683,40 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               };
 
               // [FIX] PEG Ratio Calculation
+              // Revenue growth can arrive as either a ratio (0.12 => 12%) or a percent (12 => 12%).
+              // Normalize to percent before fallback PEG calculation to avoid scale drift.
               const per = Number(root.per || root.pe || root.peRatio || 0);
               const revGrowthRaw = Number(root.revenueGrowth || 0);
               let pegRatio = Number(root.pegRatio || root.peg || 0);
-              
-              if (pegRatio === 0 && per > 0 && revGrowthRaw !== 0) {
-                  pegRatio = per / (revGrowthRaw * 100);
+
+              const normalizeGrowthPctForPeg = (rawGrowth: number): number => {
+                  if (!Number.isFinite(rawGrowth) || rawGrowth === 0) return 0;
+                  const absGrowth = Math.abs(rawGrowth);
+
+                  // Common ratio-form feed from Yahoo/FMP style payloads.
+                  if (absGrowth <= 1.5) return rawGrowth * 100;
+                  // Clearly percent-form values.
+                  if (absGrowth >= 5) return rawGrowth;
+
+                  // Ambiguous zone (1.5~5): choose the interpretation that yields a sane PEG.
+                  const asDecimalPct = rawGrowth * 100;
+                  const asPercent = rawGrowth;
+                  if (per <= 0) return asDecimalPct;
+
+                  const pegFromDecimal = per / asDecimalPct;
+                  const pegFromPercent = per / asPercent;
+                  const isSanePeg = (peg: number) => Number.isFinite(peg) && peg > 0 && peg <= 25;
+
+                  if (isSanePeg(pegFromDecimal) && !isSanePeg(pegFromPercent)) return asDecimalPct;
+                  if (!isSanePeg(pegFromDecimal) && isSanePeg(pegFromPercent)) return asPercent;
+
+                  // Default to ratio interpretation to preserve current harvester contract.
+                  return asDecimalPct;
+              };
+
+              const growthPctForPeg = normalizeGrowthPctForPeg(revGrowthRaw);
+              if (pegRatio === 0 && per > 0 && growthPctForPeg > 0) {
+                  pegRatio = per / growthPctForPeg;
               }
 
               return {
