@@ -133,6 +133,48 @@ async function getAccessToken() {
         console.error(`[BROWSER CRASH] Page Error: ${err.message}`);
     });
 
+    const captureIndividualAnalysisDashboard = async () => {
+        try {
+            await page.waitForFunction(
+                () => {
+                    const body = document.body?.innerText || '';
+                    return (
+                        body.includes('ALPHA_SIEVE ENGINE') ||
+                        body.includes('Executable Picks') ||
+                        body.includes('WATCHLIST')
+                    );
+                },
+                { timeout: 15000, polling: 1000 }
+            ).catch(() => {});
+
+            await page.evaluate(() => {
+                const controls = Array.from(document.querySelectorAll('button,[role="button"]'));
+                const individualTab = controls.find((el) =>
+                    (el.textContent || '').toUpperCase().includes('INDIVIDUAL ANALYSIS')
+                );
+                if (individualTab instanceof HTMLElement) individualTab.click();
+
+                const focusTexts = ['ALPHA_SIEVE ENGINE', 'EXECUTABLE PICKS', 'WATCHLIST'];
+                let focusEl = null;
+                const candidates = Array.from(document.querySelectorAll('h1,h2,h3,h4,div,span,p'));
+                for (const txt of focusTexts) {
+                    focusEl = candidates.find((el) => (el.textContent || '').toUpperCase().includes(txt));
+                    if (focusEl) break;
+                }
+                if (focusEl instanceof HTMLElement) {
+                    focusEl.scrollIntoView({ block: 'start', behavior: 'auto' });
+                    window.scrollBy(0, -80);
+                }
+            });
+
+            await new Promise((resolve) => setTimeout(resolve, 1200));
+            await page.screenshot({ path: 'alpha_dashboard_individual_analysis.png', fullPage: true });
+            console.log('📸 Saved dashboard capture: alpha_dashboard_individual_analysis.png');
+        } catch (e) {
+            console.warn(`⚠️ Dashboard capture skipped: ${e?.message || e}`);
+        }
+    };
+
     console.log("🔌 Connecting to Alpha Node...");
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'networkidle0' });
     
@@ -205,6 +247,9 @@ async function getAccessToken() {
     console.log(
         `[DISPATCH_PAYLOAD] stage6File=${dispatchPayload.stage6File || 'N/A'} stage6Hash=${(dispatchPayload.stage6Hash || 'N/A').slice(0, 12)} sourceRun=${dispatchPayload.sourceRunId || 'N/A'}`
     );
+
+    // Capture Individual Analysis dashboard section with recommended picks.
+    await captureIndividualAnalysisDashboard();
     
     if (finalState.includes(SUCCESS_STATUS)) {
         console.log("✅ SUCCESS: Alpha Report Generated & Telegram Triggered.");
