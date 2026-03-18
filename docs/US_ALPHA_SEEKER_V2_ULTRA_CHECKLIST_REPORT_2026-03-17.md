@@ -106,6 +106,15 @@
 - [x] Final Gate의 `rawConvictionScore` 기준을 `item.rawConvictionScore` 우선으로 교정
 - [ ] 운영 검증 1회: `blocked_quality_conviction_floor`/`verdictConflict`/실행 가능 종목 분포 개선 여부 확인
 
+### B-1-5. C9 확장(Adaptive Tier Overlay) 반영 계획
+
+- [ ] Tier1(Primary): `displacement > 55 && ictPos > 0.85` 선별 조건 추가
+- [ ] Tier2(Secondary): `trendAlignment in [BULLISH, POWER_TREND] && ictScore > 55` 보조 조건 추가
+- [ ] 기존 Stage6 하드게이트(`RR/stop/event/conviction`) 유지
+- [ ] `PREMIUM` 일괄 강등 로직을 조건부 페널티로 전환
+- [ ] sidecar report에 `tier/displacement/ictPos` 표시(추천-실행-추적 계약 일치)
+- [ ] 10/20-trade shadow run 결과가 확보되기 전까지는 “탐색 모드”로 운영
+
 ## B-2. P1 (1주)
 
 - [ ] Stage6 decision reason/label 계약 정리(한글화 포함)

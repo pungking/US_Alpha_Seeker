@@ -73,6 +73,19 @@ v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**
   - VIST/UTHR류의 `stop_too_wide` 비중 유의미 감소.
   - `WAIT_PRICE`와 `EXECUTABLE_NOW` 분포가 시장 상황에 맞게 이동.
 
+### P0-3b. C9 확장안(Adaptive Tier Overlay) — 단계적 적용
+- 배경: 최신 백테스트 제안에서 `displacement × ictPos` 조합이 선별 성능 개선 후보로 반복 제시됨.
+- 원칙: **C9(실행 기하) 본체는 유지**하고, Stage6 선별 레이어에서만 overlay 적용(전면 교체 금지).
+- 조치:
+  - [ ] Tier1(Primary): `displacement > 55 && ictPos > 0.85`
+  - [ ] Tier2(Secondary): `trendAlignment in [BULLISH, POWER_TREND] && ictScore > 55`
+  - [ ] 기존 하드 게이트(`RR/stop/event/conviction`) 그대로 유지
+  - [ ] `PREMIUM` 일괄 패널티는 조건부로 완화(고 displacement 종목 예외 허용)
+  - [ ] sidecar summary에 tier/source 메타데이터 출력 추가
+- 검증 기준:
+  - [ ] 10/20-trade shadow run에서 기존 대비 EV/손실/skip reason 비교표 확보
+  - [ ] 거래수 극소(`n<15`) 구간 결과는 “탐색 신호”로만 취급(운영 확정치로 사용 금지)
+
 ### P0-4. Guard stale fail-open 제거 (C10)
 - 원인: stale이면 무조건 `blocked=false`.
 - 영향: 최신 가드 상태 없을 때 신규 진입이 열릴 수 있음.
