@@ -327,12 +327,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (processedData.length === 0) return 'Drive OHLCV Scan Ready';
 
       const driveCount = processedData.filter(item => item.dataSource === 'DRIVE').length;
+      const apiFallbackCount = processedData.filter(item => item.dataSource === 'API_FALLBACK').length;
       const heuristicCount = processedData.filter(item => item.dataSource === 'HEURISTIC').length;
       const failureCount = processedData.filter(item => item.dataSource === 'FAILURE').length;
 
-      if (heuristicCount === 0 && failureCount === 0) return `Drive OHLCV Verified (${driveCount})`;
-      if (failureCount === 0) return `Hybrid Output: ${driveCount} Drive / ${heuristicCount} Est.`;
-      return `Mixed Output: ${driveCount} Drive / ${heuristicCount} Est. / ${failureCount} Fail`;
+      if (heuristicCount === 0 && failureCount === 0 && apiFallbackCount === 0) return `Drive OHLCV Verified (${driveCount})`;
+      if (failureCount === 0) return `Hybrid Output: ${driveCount} Drive / ${apiFallbackCount} API / ${heuristicCount} Est.`;
+      return `Mixed Output: ${driveCount} Drive / ${apiFallbackCount} API / ${heuristicCount} Est. / ${failureCount} Fail`;
   };
 
   const formatSqueezeBadge = (state: TechnicalTicker['techMetrics']['squeezeState']) => {
@@ -1456,7 +1457,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog("Benchmark index unavailable. Using Internal Relative Strength.", "warn");
       }
 
-      const grouped: Record<string, any[]> = {};
+	      const grouped: Record<string, any[]> = {};
       candidates.forEach((c: any) => {
           const letter = c.symbol.charAt(0).toUpperCase();
           if (!grouped[letter]) grouped[letter] = [];
@@ -1476,10 +1477,20 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let macroBoostCount = 0;
       let macroPenaltyCount = 0;
       let macroOverlayTotal = 0;
-      let eventRiskPenaltyCount = 0;
-      let eventHighRiskCount = 0;
-      let eventMediumRiskCount = 0;
-      let eventOverlayTotal = 0;
+	      let eventRiskPenaltyCount = 0;
+	      let eventHighRiskCount = 0;
+	      let eventMediumRiskCount = 0;
+	      let eventOverlayTotal = 0;
+          const stage4ApiFallbackEnabled = String((import.meta as any)?.env?.VITE_STAGE4_API_FALLBACK_ENABLED ?? 'false').toLowerCase() === 'true';
+          const apiFallbackMaxRaw = Number((import.meta as any)?.env?.VITE_STAGE4_API_FALLBACK_MAX ?? 50);
+          const stage4ApiFallbackMax = Number.isFinite(apiFallbackMaxRaw) && apiFallbackMaxRaw > 0 ? Math.floor(apiFallbackMaxRaw) : 50;
+          let apiFallbackAttempted = 0;
+          let apiFallbackRecovered = 0;
+          let apiFallbackFailed = 0;
+          let driveMissingCount = 0;
+          let driveCorruptCount = 0;
+          let heuristicRecoveredFromMissingCount = 0;
+          let apiFallbackCapLogged = false;
 
       for (const letter of letters) {
           setProgress(prev => ({ ...prev, status: `Scanning Sector ${letter}...` }));
@@ -1493,31 +1504,56 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   continue;
               }
 
-              try {
-                  let candles: any[] = [];
-                  let dataSrc = 'DRIVE';
+	              try {
+	                  let candles: any[] = [];
+	                  let dataSrc: 'DRIVE' | 'API_FALLBACK' = 'DRIVE';
+                      let driveLoadState: 'OK' | 'MISSING' | 'CORRUPT' = 'MISSING';
 
-                  try {
-                      const driveCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, item.symbol);
-                      if (driveCandles) candles = driveCandles;
-                  } catch {
-                      droppedCount++;
-                      addLog(`Corrupt OHLCV skipped: ${item.symbol.toUpperCase()}_OHLCV.json`, "warn");
-                      continue;
-                  }
+	                  try {
+	                      const driveCandles = await loadOhlcvFromDrive(accessToken, ohlcvFolderId, item.symbol);
+	                      if (driveCandles && driveCandles.length > 0) {
+                              candles = driveCandles;
+                              driveLoadState = 'OK';
+                          }
+	                  } catch {
+                          driveLoadState = 'CORRUPT';
+	                  }
 
-                  if (candles.length === 0) {
-                      droppedCount++;
-                      addLog(`Missing OHLCV skipped: ${item.symbol.toUpperCase()}_OHLCV.json`, "warn");
-                      continue;
-                  }
+	                  if (candles.length === 0) {
+                          if (driveLoadState === 'CORRUPT') {
+                              driveCorruptCount++;
+                              addLog(`Corrupt OHLCV detected: ${item.symbol.toUpperCase()}_OHLCV.json`, "warn");
+                          } else {
+                              driveMissingCount++;
+                              addLog(`Missing OHLCV detected: ${item.symbol.toUpperCase()}_OHLCV.json`, "warn");
+                          }
 
-                  let techData;
+                          if (stage4ApiFallbackEnabled) {
+                              if (apiFallbackAttempted < stage4ApiFallbackMax) {
+                                  apiFallbackAttempted++;
+                                  const apiCandles = await fetchCandlesFromAPI(item.symbol);
+                                  if (apiCandles && apiCandles.length > 0) {
+                                      candles = apiCandles;
+                                      dataSrc = 'API_FALLBACK';
+                                      apiFallbackRecovered++;
+                                      addLog(`API fallback recovered OHLCV: ${item.symbol.toUpperCase()} (${apiCandles.length} bars)`, "ok");
+                                  } else {
+                                      apiFallbackFailed++;
+                                  }
+                              } else if (!apiFallbackCapLogged) {
+                                  apiFallbackCapLogged = true;
+                                  addLog(`API fallback cap reached (${stage4ApiFallbackMax}). Remaining missing OHLCV uses heuristic mode.`, "warn");
+                              }
+                          }
+	                  }
 
-                  if (candles.length < 30) {
-                      addLog(`Sparse OHLCV fallback: ${item.symbol.toUpperCase()} (${candles.length} bars)`, "warn");
-                      techData = generateHeuristicData(item);
-                  } else {
+	                  let techData;
+
+	                  if (candles.length < 30) {
+                          if (candles.length === 0) heuristicRecoveredFromMissingCount++;
+	                      addLog(`Sparse OHLCV fallback: ${item.symbol.toUpperCase()} (${candles.length} bars)`, "warn");
+	                      techData = generateHeuristicData(item);
+	                  } else {
                       // Perform Real Analysis
                       const closes = candles.map((c: any) => c.c);
                       const highs = candles.map((c: any) => c.h);
@@ -1836,11 +1872,24 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         return;
       }
 
-      const survivalRate = ((results.length / candidates.length) * 100).toFixed(1);
-      addLog(`Survival Rate: ${survivalRate}% (Dropped ${droppedCount} invalid assets).`, "ok");
-      if (dataQualityPenaltyCount > 0) {
-          addLog(`Data Hygiene Overlay: Penalized ${dataQualityPenaltyCount} assets (stale ${stalePenaltyCount}, liquidity ${liquidityPenaltyCount}).`, "warn");
-      }
+	      const survivalRate = ((results.length / candidates.length) * 100).toFixed(1);
+	      addLog(`Survival Rate: ${survivalRate}% (Dropped ${droppedCount} invalid assets).`, "ok");
+          if (driveMissingCount > 0 || driveCorruptCount > 0 || apiFallbackRecovered > 0 || heuristicRecoveredFromMissingCount > 0) {
+              addLog(
+                  `OHLCV Recovery: missing ${driveMissingCount}, corrupt ${driveCorruptCount}, apiRecovered ${apiFallbackRecovered}, heuristicRecovered ${heuristicRecoveredFromMissingCount}.`,
+                  "warn"
+              );
+          }
+          if (stage4ApiFallbackEnabled) {
+              const fallbackSummaryType = apiFallbackFailed > 0 ? "warn" : "ok";
+              addLog(
+                  `API Fallback Usage: attempted ${apiFallbackAttempted}/${stage4ApiFallbackMax}, recovered ${apiFallbackRecovered}, failed ${apiFallbackFailed}.`,
+                  fallbackSummaryType
+              );
+          }
+	      if (dataQualityPenaltyCount > 0) {
+	          addLog(`Data Hygiene Overlay: Penalized ${dataQualityPenaltyCount} assets (stale ${stalePenaltyCount}, liquidity ${liquidityPenaltyCount}).`, "warn");
+	      }
       if (dataQualityCapCount > 0) {
           addLog(`Selection Guard: Capped ${dataQualityCapCount} stale/illiquid assets (stale ${staleCapCount}, illiquid ${illiquidCapCount}).`, "warn");
       }
