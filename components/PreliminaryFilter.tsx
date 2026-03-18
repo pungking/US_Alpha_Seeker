@@ -7,6 +7,7 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GEMINI_MODELS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
 interface MasterTicker {
@@ -460,9 +461,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
     try {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
-      const now = new Date();
-      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+      const timestamp = formatKstFilenameTimestamp();
         
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       

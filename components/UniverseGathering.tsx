@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 declare global {
   interface Window {
@@ -549,7 +550,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
           const folderId = await ensureFolder(token, GOOGLE_DRIVE_TARGET.targetSubFolder);
           
-          const timestamp = getFormattedTimestamp();
+          const timestamp = formatKstFilenameTimestamp();
           const fileName = `STAGE0_MASTER_UNIVERSE_${timestamp}.json`;
           
           const payload = {
@@ -843,17 +844,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           const errText = await uploadRes.text().catch(() => '');
           throw new Error(`Drive upload failed (${name}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
       }
-  };
-
-  // [MODIFIED] KST Timestamp Formatter
-  const getFormattedTimestamp = () => {
-      const now = new Date();
-      // KST (UTC+9) Calculation
-      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      return kstDate.toISOString()
-        .replace('T', '_')
-        .replace(/:/g, '-')
-        .split('.')[0]; // Removes milliseconds and 'Z'
   };
 
   const formatMarketCap = (num: number) => {

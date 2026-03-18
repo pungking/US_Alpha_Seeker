@@ -4,6 +4,7 @@ import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, Pola
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { ApiProvider } from '../types';
 import { trackUsage } from '../services/intelligenceService';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 interface Props {
   autoStart?: boolean;
@@ -410,9 +411,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           
           const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder);
           
-          const now = new Date();
-          const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-          const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+          const timestamp = formatKstFilenameTimestamp();
           const resultFileName = `STAGE2_ELITE_UNIVERSE_${timestamp}.json`;
 
           const payload = {

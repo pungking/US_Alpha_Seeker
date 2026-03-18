@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { ResponsiveContainer, Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS, GITHUB_DISPATCH_CONFIG } from '../constants';
 import { ApiProvider } from '../types';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 interface Props {
   autoStart?: boolean;
@@ -911,9 +912,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             addLog(`Deep Scan Complete. ${eliteCandidates.length} Assets Preserved.`, "ok");
             
             const saveFolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage3SubFolder);
-            const now = new Date();
-            const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-            const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+            const timestamp = formatKstFilenameTimestamp();
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
             const payload = {

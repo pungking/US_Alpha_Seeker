@@ -5,6 +5,7 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS, STRATEGY_CONFIG } from '../constants'
 import { ApiProvider } from '../types';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 // [ADDED] Markdown Components
 const MarkdownComponents: any = {
@@ -1983,9 +1984,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       addLog(`[DATA-SYNC] Passing Fundamental Alpha Tags to ICT Stage`, "ok");
 
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
-      const now = new Date();
-      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+      const timestamp = formatKstFilenameTimestamp();
       const fileName = `STAGE4_TECHNICAL_FULL_${timestamp}.json`;
 
       const payload = {

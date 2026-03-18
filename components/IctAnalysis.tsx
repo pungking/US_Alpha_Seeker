@@ -2,6 +2,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from '../constants';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 interface IctScoredTicker {
   symbol: string;
@@ -986,9 +987,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage5SubFolder);
       
-      const now = new Date();
-      const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-      const timestamp = kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
+      const timestamp = formatKstFilenameTimestamp();
       const fileName = `STAGE5_ICT_ELITE_50_${timestamp}.json`;
       
       const payload = {

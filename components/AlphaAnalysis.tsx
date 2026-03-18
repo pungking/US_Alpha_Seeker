@@ -8,6 +8,7 @@ import { GOOGLE_DRIVE_TARGET, API_CONFIGS, STRATEGY_CONFIG } from '../constants'
 import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analyzePipelineStatus, generateTelegramBrief, archiveReport, removeCitations, type TelegramBriefContractContext } from '../services/intelligenceService';
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
+import { formatKstFilenameTimestamp } from '../services/timeService';
 
 declare global {
   interface Window {
@@ -1318,12 +1319,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   // [FIXED] Dump Telegram Brief to Google Drive (Report Folder)
                   const token = sessionStorage.getItem('gdrive_access_token');
                   if (token) {
-                    const getKstTimestamp = () => {
-                        const now = new Date();
-                        const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-                        return kstDate.toISOString().replace('T', '_').replace(/:/g, '-').split('.')[0];
-                    }
-                    const timestamp = getKstTimestamp();
+                    const timestamp = formatKstFilenameTimestamp();
                     const fileName = `TELEGRAM_BRIEF_REPORT_${timestamp}.md`;
                     const archivedBrief = buildTelegramMessage(brief);
                     // [FIXED] Fire-and-Forget Archive to prevent timeout
@@ -2049,9 +2045,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   };
 
   const getKstTimestamp = () => {
-    const now = new Date();
-    const kstDate = new Date(now.getTime() + 9 * 60 * 60 * 1000);
-    return kstDate.toISOString().replace('T', '_').replace(/\..+/, '').replace(/:/g, '-');
+    return formatKstFilenameTimestamp();
   };
 
   const ensureFolder = async (token: string, name: string) => {
