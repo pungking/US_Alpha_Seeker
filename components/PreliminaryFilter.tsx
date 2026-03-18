@@ -482,9 +482,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
       form.append('file', new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' }));
 
-      await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+      const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
         method: 'POST', headers: { 'Authorization': `Bearer ${accessToken}` }, body: form
       });
+      if (!uploadRes.ok) {
+        const errText = await uploadRes.text().catch(() => '');
+        throw new Error(`Drive upload failed (${fileName}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
+      }
 
       addLog(`Success: Stage 1 Complete. Data Saved.`, "ok");
       

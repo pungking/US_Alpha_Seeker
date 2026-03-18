@@ -2071,9 +2071,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
     form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
     
-    await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
+    const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
     });
+    if (!uploadRes.ok) {
+      const errText = await uploadRes.text().catch(() => '');
+      throw new Error(`Drive upload failed (${name}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
+    }
   };
 
   const resolveStage5LockOverride = (): Stage5LockOverrideConfig => {
