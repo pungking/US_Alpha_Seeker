@@ -57,6 +57,28 @@ const hasValue = (val: any) => !(val === undefined || val === null || val === ''
 
 const firstPresent = (...vals: any[]) => vals.find(hasValue);
 
+type RoicDebtMode = 'RELAXED' | 'AUTO' | 'STRICT';
+
+const parseRoicDebtMode = (rawMode: any): RoicDebtMode => {
+    const mode = String(rawMode || '').trim().toUpperCase();
+    if (mode === 'RELAXED' || mode === 'AUTO' || mode === 'STRICT') return mode;
+    return 'AUTO';
+};
+
+const parseRoicCoverageThreshold = (raw: any): number => {
+    const n = Number(raw);
+    if (!Number.isFinite(n)) return 90;
+    return Math.max(0, Math.min(100, n));
+};
+
+const hasAbsoluteDebtData = (data: any): boolean => hasValue(firstPresent(
+    data?.totalDebt,
+    data?.longTermDebt,
+    data?.shortLongTermDebtTotal,
+    data?.longTermDebtAndCapitalLeaseObligation,
+    data?.totalDebtAndCapitalLeaseObligation
+));
+
 const normalizeScore = (val: number, min: number, max: number) => {
     if (val <= min) return 0;
     if (val >= max) return 100;
@@ -114,13 +136,17 @@ const computeUniverseBaselines = (universe: any[]) => {
 };
 
 // [ENGINE v5.3] Pure Quant Logic (No AI)
-const performFinancialEngineering = (data: any) => {
+const performFinancialEngineering = (
+    data: any,
+    options: { allowRatioDebtFallback?: boolean } = {}
+) => {
     // ... (Existing logic remains exactly same) ...
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
     const marketCap = safeNum(data.marketCap || data.marketValue);
     const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
     
+    const allowRatioDebtFallback = options.allowRatioDebtFallback !== false;
     const rawDebtToEquity = firstPresent(data.debtToEquity);
     let totalDebtRatio = hasValue(rawDebtToEquity) ? safeNum(rawDebtToEquity) : 0;
     
@@ -135,9 +161,14 @@ const performFinancialEngineering = (data: any) => {
     const hasAbsoluteDebt = hasValue(rawTotalDebtAbsolute);
     const absoluteDebtValue = hasAbsoluteDebt ? safeNum(rawTotalDebtAbsolute) : 0;
     const ratioDebtProxy = totalEquity > 0 ? (totalDebtRatio * totalEquity) : 0;
-    // C7: Prefer absolute debt when available. Use debt/equity proxy only as fallback.
-    const totalDebtAbsolute = Math.max(0, hasAbsoluteDebt ? absoluteDebtValue : ratioDebtProxy);
-    const roicDebtSource = hasAbsoluteDebt ? 'ABSOLUTE' : 'RATIO_PROXY';
+    // C7: Prefer absolute debt. Ratio proxy is used only when fallback is explicitly enabled.
+    const totalDebtAbsolute = Math.max(
+        0,
+        hasAbsoluteDebt ? absoluteDebtValue : (allowRatioDebtFallback ? ratioDebtProxy : 0)
+    );
+    const roicDebtSource = hasAbsoluteDebt
+        ? 'ABSOLUTE'
+        : (allowRatioDebtFallback ? 'RATIO_PROXY' : 'MISSING_ABS_DEBT');
     const pe = safeNum(data.pe || data.per);
     const pbr = safeNum(data.pbr || data.priceToBook);
     
@@ -281,6 +312,7 @@ const performFinancialEngineering = (data: any) => {
         economicMoat,
         dataConfidence,
         cashflowProxyUsed: isCashflowProxy,
+        roicDebtFallbackEnabled: allowRatioDebtFallback,
         roicDebtSource,
         hasReportedCashflow,
         hasNonPositiveReportedCashflow,
@@ -601,6 +633,59 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
             const results: any[] = [];
             const sortedLetters = Object.keys(groupedByLetter).sort();
+            const roicDebtModeRequested = parseRoicDebtMode((import.meta as any).env?.VITE_FUND_ROIC_DEBT_MODE);
+            const roicDebtStrictCoverageMin = parseRoicCoverageThreshold((import.meta as any).env?.VITE_FUND_ROIC_STRICT_COVERAGE_MIN);
+
+            const dailyDataByLetter: Record<string, Map<string, any>> = {};
+            for (const letter of sortedLetters) {
+                const dailyDataMap = new Map<string, any>();
+                if (dailyFolderId) {
+                    const dailyFileName = `${letter}_stocks_daily.json`;
+                    const dailyFileId = await findFileId(accessToken, dailyFileName, dailyFolderId);
+                    if (dailyFileId) {
+                        try {
+                            const content = await downloadFile(accessToken, dailyFileId);
+                            Object.keys(content).forEach(sym => dailyDataMap.set(sym, content[sym]));
+                        } catch (e) {
+                            console.warn(`Failed to parse ${dailyFileName}`, e);
+                        }
+                    }
+                }
+                dailyDataByLetter[letter] = dailyDataMap;
+            }
+
+            let absoluteDebtCoverageCount = 0;
+            for (const letter of sortedLetters) {
+                const batch = groupedByLetter[letter];
+                const dailyDataMap = dailyDataByLetter[letter] || new Map<string, any>();
+                for (const rawItem of batch) {
+                    const dData = dailyDataMap.get(rawItem.symbol);
+                    if (hasAbsoluteDebtData({ ...rawItem, ...(dData || {}) })) {
+                        absoluteDebtCoverageCount += 1;
+                    }
+                }
+            }
+
+            const roicDebtCoveragePct = candidates.length > 0
+                ? (absoluteDebtCoverageCount / candidates.length) * 100
+                : 0;
+            const roicDebtModeEffective: Exclude<RoicDebtMode, 'AUTO'> =
+                roicDebtModeRequested === 'AUTO'
+                    ? (roicDebtCoveragePct >= roicDebtStrictCoverageMin ? 'STRICT' : 'RELAXED')
+                    : roicDebtModeRequested;
+            const allowRatioDebtFallback = roicDebtModeEffective !== 'STRICT';
+            const roicModeLabel = roicDebtModeRequested === 'AUTO'
+                ? `AUTO->${roicDebtModeEffective}`
+                : roicDebtModeEffective;
+            addLog(
+                `[ROIC] Absolute debt coverage ${roicDebtCoveragePct.toFixed(1)}% (${absoluteDebtCoverageCount}/${candidates.length}) | mode=${roicModeLabel} | ratioFallback=${allowRatioDebtFallback ? 'ON' : 'OFF'} | strict>=${roicDebtStrictCoverageMin}%`,
+                roicDebtModeEffective === 'STRICT' ? 'ok' : 'warn'
+            );
+            const roicDebtSourceCounts: Record<string, number> = {
+                ABSOLUTE: 0,
+                RATIO_PROXY: 0,
+                MISSING_ABS_DEBT: 0
+            };
             
             for (const letter of sortedLetters) {
                 setProgress(prev => ({ ...prev, msg: `Scanning Cylinder ${letter}...` }));
@@ -623,17 +708,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     }
                 }
 
-                let dailyDataMap = new Map();
-                if (dailyFolderId) {
-                    const dailyFileName = `${letter}_stocks_daily.json`;
-                    const dailyFileId = await findFileId(accessToken, dailyFileName, dailyFolderId);
-                    if (dailyFileId) {
-                         try {
-                            const content = await downloadFile(accessToken, dailyFileId);
-                            Object.keys(content).forEach(sym => dailyDataMap.set(sym, content[sym]));
-                         } catch (e) { console.warn(`Failed to parse ${dailyFileName}`, e); }
-                    }
-                }
+                const dailyDataMap: Map<string, any> = dailyDataByLetter[letter] || new Map<string, any>();
 
                 const batch = groupedByLetter[letter];
                 for (const rawItem of batch) {
@@ -700,7 +775,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     }
 
                     const item = sanitizeData(itemToAnalyze);
-                    const analysis = performFinancialEngineering(item);
+                    const analysis = performFinancialEngineering(item, { allowRatioDebtFallback });
+                    const debtSource = analysis.roicDebtSource || 'UNKNOWN';
+                    roicDebtSourceCounts[debtSource] = (roicDebtSourceCounts[debtSource] || 0) + 1;
 
                     // [NEW] Financial Integrity Filter (Cash Flow Guard)
                     let integrityPenalty = 0;
@@ -748,6 +825,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 setProgress(prev => ({ ...prev, current: results.length }));
                 await new Promise(r => setTimeout(r, 0));
             }
+
+            addLog(
+                `[ROIC] Debt source mix | ABSOLUTE=${roicDebtSourceCounts.ABSOLUTE} | RATIO_PROXY=${roicDebtSourceCounts.RATIO_PROXY} | MISSING_ABS_DEBT=${roicDebtSourceCounts.MISSING_ABS_DEBT}`,
+                roicDebtSourceCounts.RATIO_PROXY > 0 ? 'warn' : 'ok'
+            );
+            addLog(
+                `[ROIC] Effective mode ${roicDebtModeEffective}. ${roicDebtModeEffective === 'STRICT' ? 'No ratio-based debt proxy used.' : 'Ratio proxy retained as fallback.'}`,
+                roicDebtModeEffective === 'STRICT' ? 'ok' : 'warn'
+            );
 
             // --- [NEW] SECTOR INTELLIGENCE & MOMENTUM SCORING ---
             
