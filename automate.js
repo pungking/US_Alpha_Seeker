@@ -120,6 +120,7 @@ async function getAccessToken() {
   
   try {
     const page = await browser.newPage();
+    await page.setViewport({ width: 1920, height: 1080, deviceScaleFactor: 1.5 });
     
     await page.setBypassCSP(true);
     
@@ -167,6 +168,12 @@ async function getAccessToken() {
                 }
             });
 
+            await page.evaluate(async () => {
+                const fonts = document?.fonts;
+                if (fonts && typeof fonts.ready?.then === 'function') {
+                    await fonts.ready;
+                }
+            });
             await new Promise((resolve) => setTimeout(resolve, 1200));
             await page.screenshot({ path: 'alpha_dashboard_individual_analysis.png', fullPage: true });
             console.log('📸 Saved dashboard capture: alpha_dashboard_individual_analysis.png');
@@ -253,7 +260,15 @@ async function getAccessToken() {
     
     if (finalState.includes(SUCCESS_STATUS)) {
         console.log("✅ SUCCESS: Alpha Report Generated & Telegram Triggered.");
-        await page.screenshot({ path: 'alpha_report_success.png', fullPage: true });
+        await page.evaluate(async () => {
+            window.scrollTo(0, 0);
+            const fonts = document?.fonts;
+            if (fonts && typeof fonts.ready?.then === 'function') {
+                await fonts.ready;
+            }
+        });
+        await new Promise((resolve) => setTimeout(resolve, 800));
+        await page.screenshot({ path: 'alpha_report_success.png', fullPage: false });
     } else {
         const normalized = String(finalState || '');
         const statusLine =
@@ -262,7 +277,8 @@ async function getAccessToken() {
                 .find((line) => line.includes(SUCCESS_STATUS) || FAILURE_MARKERS.some((marker) => line.includes(marker))) ||
             normalized.slice(0, 200);
         console.error(`❌ PIPELINE TERMINATED: ${statusLine}`);
-        await page.screenshot({ path: 'alpha_report_warning.png', fullPage: true });
+        await page.evaluate(() => window.scrollTo(0, 0));
+        await page.screenshot({ path: 'alpha_report_warning.png', fullPage: false });
         process.exitCode = 1;
     }
 

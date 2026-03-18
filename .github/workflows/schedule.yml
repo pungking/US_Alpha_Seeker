@@ -65,6 +65,12 @@ jobs:
           node-version: '20'
           cache: 'npm'
 
+      - name: 2.1 한글 캡처 폰트 설치
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends fonts-noto-cjk fonts-noto-color-emoji fontconfig
+          fc-cache -fv
+
       - name: 3. 의존성 패키지 설치
         # npm ci 대신 npm install을 사용하여 package-lock.json 불일치 문제 해결
         run: npm install
