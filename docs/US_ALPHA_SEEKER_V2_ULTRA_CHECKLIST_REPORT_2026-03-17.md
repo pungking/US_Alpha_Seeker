@@ -53,7 +53,7 @@
 - [ ] **H3** PEG ratio 단위 스케일 자동 감지
 - [x] **H7** ADX 계산을 Wilder smoothing 표준으로 교체
 - [x] **H8** TTM Squeeze 하드코딩 제거(프로파일/적응 구조 + manifest/로그 추적)
-- [ ] **H6** KST 파일명 생성 로직(`toISOString`) 정리
+- [x] **H6** KST 파일명 생성 로직(`toISOString`) 정리 (Stage0~5 공통 `formatKstFilenameTimestamp` 단일화 + Intl 실패 fallback 적용)
 - [ ] Drive 검색에 parent folder 제한 추가 (오탐 파일 방지)
 
 ## A-3. Layer A 완료 기준 (DoD)
