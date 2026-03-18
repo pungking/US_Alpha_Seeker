@@ -43,14 +43,15 @@
 - [x] **H1** `IctAnalysis.tsx`: RISK_OFF 가중치 합 1.10 정규화(합=1.0) + compositeAlpha calibration(0~100 clamp) 반영
 - [x] **C6** `DeepQualityFilter.tsx`: `debtToEquity=0` 결측 처리 제거 (`allowZero=true`) + `roe=0` 유효 처리(결측 플래그 분리)
 - [x] **C7** `FundamentalAnalysis.tsx`: ROIC 계산식 절대 부채 기준 우선(절대부채 우선 + ratio fallback, `roicDebtSource` 추적)
-- [ ] **C8** `TechnicalAnalysis.tsx`: EMA 초기화 SMA 방식으로 수정
-- [ ] **H10** `TechnicalAnalysis.tsx`: Drive miss 시 `fetchCandlesFromAPI()` 실제 fallback 연결
-- [ ] **H9** `harvester.py`: bare except 제거 + 실패 원인 로깅
+- [x] **C8** `TechnicalAnalysis.tsx`: EMA 초기화 SMA 방식으로 수정
+- [x] **H10** `TechnicalAnalysis.tsx`: Drive miss 시 `fetchCandlesFromAPI()` 실제 fallback 연결
+- [x] **H9** `harvester.py`: bare except 제거 + 실패 원인 로깅
 - [ ] **H5** Stage0/1/2/3/4/5 업로드 응답 `res.ok` 검증 강제
+  - 진행 현황: **Stage0/Stage2 fail-fast 적용 완료**, Stage1/3/4/5 ensure/list/create 경로 확장 적용 대기
 
 ## A-2. P1 (1주)
 
-- [ ] **H3** PEG ratio 단위 스케일 자동 감지
+- [x] **H3** PEG ratio 단위 스케일 자동 감지
 - [x] **H7** ADX 계산을 Wilder smoothing 표준으로 교체
 - [x] **H8** TTM Squeeze 하드코딩 제거(프로파일/적응 구조 + manifest/로그 추적)
 - [x] **H6** KST 파일명 생성 로직(`toISOString`) 정리 (Stage0~5 공통 `formatKstFilenameTimestamp` 단일화 + Intl 실패 fallback 적용)
@@ -81,8 +82,8 @@
 - [x] **C5** aiVerdict 허용값 3곳 통일 + 정규화 레이어 추가 (SYSTEM/SCHEMA/BATCH)
 - [x] **C4** conviction 병합 정책: AI 단일 대체 금지, quant floor 포함 블렌딩 (코드 반영)
 - [x] **C1** Gemini 모델명 실존값으로 교체 (Stage1/Stage6 공통)
-- [ ] **H2** PREMIUM 자동 강등 규칙 완화(조건부 페널티)
-- [ ] **H4** `engineFallbackUsed`: `SHARDED` 오탐 제거
+- [x] **H2** PREMIUM 자동 강등 규칙 완화(조건부 페널티)
+- [x] **H4** `engineFallbackUsed`: `SHARDED` 오탐 제거
 
 ### B-1-1. C1 반영 내역 (완료)
 
@@ -141,7 +142,7 @@
 
 ## C-1. P0 (즉시)
 
-- [ ] **C10** stale guard fail-open 제거 (stale + L2+ 시 보수적 차단)
+- [x] **C10** stale guard fail-open 제거 (stale + L2+ 시 보수적 차단, live mode 보수 차단 유지)
 - [ ] Stage6 dispatch trigger hash/file/sourceRun 검증 로깅 유지
 - [ ] dedupe 이유/skip reason 분포 summary 출력 유지
 
