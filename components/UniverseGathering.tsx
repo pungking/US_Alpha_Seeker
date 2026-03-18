@@ -329,6 +329,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               eps: raw.eps || raw.trailingEps || 0,
               operatingMargins: toPercent(raw.operatingMargins),
               debtToEquity: keepRaw(raw.debtToEquity), // Debt is ratio, keep as is
+              totalDebt: keepRaw(raw.totalDebt),
+              longTermDebt: keepRaw(raw.longTermDebt),
+              shortLongTermDebtTotal: keepRaw(raw.shortLongTermDebtTotal || raw.shortLongTermDebt),
+              totalDebtAndCapitalLeaseObligation: keepRaw(raw.totalDebtAndCapitalLeaseObligation || raw.totalDebt),
+              totalEquity: keepRaw(raw.totalEquity || raw.stockholdersEquity || raw.totalStockholderEquity),
+              totalStockholdersEquity: keepRaw(raw.totalStockholdersEquity || raw.totalStockholderEquity || raw.stockholdersEquity || raw.totalEquity),
               
               revenueGrowth: toPercent(raw.revenueGrowth),
               operatingCashflow: 0,
@@ -708,6 +714,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   eps: Number(root.eps || root.earningsPerShare || 0),
                   operatingMargins: toPercent(root.operatingMargins || root.operatingMargin),
                   debtToEquity: keepRaw(root.debtToEquity || root.debtEquityRatio), // Keep raw
+                  totalDebt: Number(root.totalDebt || 0),
+                  longTermDebt: Number(root.longTermDebt || 0),
+                  shortLongTermDebtTotal: Number(root.shortLongTermDebtTotal || root.shortLongTermDebt || 0),
+                  totalDebtAndCapitalLeaseObligation: Number(root.totalDebtAndCapitalLeaseObligation || root.totalDebt || 0),
+                  totalEquity: Number(root.totalEquity || root.stockholdersEquity || root.totalStockholderEquity || 0),
+                  totalStockholdersEquity: Number(root.totalStockholdersEquity || root.totalStockholderEquity || root.stockholdersEquity || root.totalEquity || 0),
 
                   // 4. Growth & Cash
                   revenueGrowth: toPercent(root.revenueGrowth),
