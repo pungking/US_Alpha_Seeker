@@ -125,6 +125,19 @@ const performFinancialEngineering = (data: any) => {
     let totalDebtRatio = hasValue(rawDebtToEquity) ? safeNum(rawDebtToEquity) : 0;
     
     const totalEquity = safeNum(data.totalEquity || data.totalStockholdersEquity);
+    const rawTotalDebtAbsolute = firstPresent(
+        data.totalDebt,
+        data.longTermDebt,
+        data.shortLongTermDebtTotal,
+        data.longTermDebtAndCapitalLeaseObligation,
+        data.totalDebtAndCapitalLeaseObligation
+    );
+    const hasAbsoluteDebt = hasValue(rawTotalDebtAbsolute);
+    const absoluteDebtValue = hasAbsoluteDebt ? safeNum(rawTotalDebtAbsolute) : 0;
+    const ratioDebtProxy = totalEquity > 0 ? (totalDebtRatio * totalEquity) : 0;
+    // C7: Prefer absolute debt when available. Use debt/equity proxy only as fallback.
+    const totalDebtAbsolute = Math.max(0, hasAbsoluteDebt ? absoluteDebtValue : ratioDebtProxy);
+    const roicDebtSource = hasAbsoluteDebt ? 'ABSOLUTE' : 'RATIO_PROXY';
     const pe = safeNum(data.pe || data.per);
     const pbr = safeNum(data.pbr || data.priceToBook);
     
@@ -181,9 +194,9 @@ const performFinancialEngineering = (data: any) => {
 
     const fairValueGap = price > 0 ? ((intrinsicValue - price) / price) * 100 : 0;
     
-    const investedCapital = totalEquity + (totalDebtRatio * totalEquity); 
+    const investedCapital = Math.max(1, totalEquity + totalDebtAbsolute);
     let roic = 0;
-    if (investedCapital > 0) {
+    if (totalEquity > 0) {
         roic = (netIncome / investedCapital) * 100;
     } else {
         roic = roe * 0.7; 
@@ -268,6 +281,7 @@ const performFinancialEngineering = (data: any) => {
         economicMoat,
         dataConfidence,
         cashflowProxyUsed: isCashflowProxy,
+        roicDebtSource,
         hasReportedCashflow,
         hasNonPositiveReportedCashflow,
         zScoreIsProxy: !hasZScoreProxy,
