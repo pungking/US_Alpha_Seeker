@@ -379,11 +379,29 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
   const calculateEMAArray = (data: number[], period: number) => {
       if (data.length === 0) return [];
+      if (period <= 1) return [...data];
       const multiplier = 2 / (period + 1);
-      const ema: number[] = [data[0]];
-      for (let i = 1; i < data.length; i++) {
-          ema.push((data[i] * multiplier) + (ema[i - 1] * (1 - multiplier)));
+
+      // C8: Seed EMA with SMA(period) to reduce warm-up bias in MACD/signal.
+      if (data.length < period) {
+          const seed = calculateAverage(data, data.length);
+          let prev = seed;
+          return data.map((value, index) => {
+              if (index === 0) return seed;
+              prev = (value * multiplier) + (prev * (1 - multiplier));
+              return prev;
+          });
       }
+
+      const initialSMA = data.slice(0, period).reduce((a, b) => a + b, 0) / period;
+      const ema: number[] = new Array(period - 1).fill(initialSMA);
+      ema.push(initialSMA);
+
+      for (let i = period; i < data.length; i++) {
+          const prev = ema[ema.length - 1];
+          ema.push((data[i] * multiplier) + (prev * (1 - multiplier)));
+      }
+
       return ema;
   };
 
