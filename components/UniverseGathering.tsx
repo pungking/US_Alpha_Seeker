@@ -786,11 +786,18 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // --- DRIVE UTILS ---
+  const assertDriveOk = async (res: Response, context: string) => {
+      if (res.ok) return;
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
+  };
+
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
           headers: { 'Authorization': `Bearer ${token}` }
       });
+      await assertDriveOk(res, `findFolder(${name})`);
       const data = await res.json();
       return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
@@ -800,6 +807,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
           headers: { 'Authorization': `Bearer ${token}` }
       });
+      await assertDriveOk(res, `findFileId(${name})`);
       const data = await res.json();
       return data.files && data.files.length > 0 ? data.files[0].id : null;
   };
@@ -808,7 +816,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, {
           headers: { 'Authorization': `Bearer ${token}` }
       });
-      if (!res.ok) throw new Error(`Download failed for ${fileId}`);
+      await assertDriveOk(res, `downloadFile(${fileId})`);
       
       // [FIX] Handle non-standard JSON (NaN, Infinity) from Python/Pandas dumps
       const text = await res.text();
@@ -822,13 +830,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const ensureFolder = async (token: string, name: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
-      if (res.files?.length > 0) return res.files[0].id;
-      const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+      const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      await assertDriveOk(listRes, `ensureFolder.list(${name})`);
+      const listed = await listRes.json();
+      if (listed.files?.length > 0) return listed.files[0].id;
+
+      const createRes = await fetch(`https://www.googleapis.com/drive/v3/files`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-      }).then(r => r.json());
-      return create.id;
+      });
+      await assertDriveOk(createRes, `ensureFolder.create(${name})`);
+      const created = await createRes.json();
+      if (!created?.id) throw new Error(`Drive ensureFolder.create(${name}) succeeded but missing folder id`);
+      return created.id;
   };
 
   const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
@@ -844,6 +858,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           const errText = await uploadRes.text().catch(() => '');
           throw new Error(`Drive upload failed (${name}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
       }
+      const uploaded = await uploadRes.json().catch(() => null);
+      if (!uploaded?.id) {
+          addLog(`[WARN] Drive upload 응답에 fileId 누락 (${name})`, "warn");
+          return;
+      }
+      addLog(`[OK] Drive upload verified: ${name} (${uploaded.id})`, "ok");
   };
 
   const formatMarketCap = (num: number) => {
