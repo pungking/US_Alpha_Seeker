@@ -35,7 +35,7 @@
 
 - [x] **C9** `IctAnalysis.tsx`: `ictStopLoss`/`otePrice` 52주 기준 제거, 최근 스윙+ATR 기반으로 교체 (코드 반영, 운영 검증 대기)
 - [x] **H1** `IctAnalysis.tsx`: RISK_OFF 가중치 합 1.10 정규화(합=1.0) + compositeAlpha calibration(0~100 clamp) 반영
-- [ ] **C6** `DeepQualityFilter.tsx`: `debtToEquity=0` 결측 처리 제거 (`allowZero=true`)
+- [x] **C6** `DeepQualityFilter.tsx`: `debtToEquity=0` 결측 처리 제거 (`allowZero=true`) + `roe=0` 유효 처리(결측 플래그 분리)
 - [ ] **C7** `FundamentalAnalysis.tsx`: ROIC 계산식 절대 부채 기준 우선
 - [ ] **C8** `TechnicalAnalysis.tsx`: EMA 초기화 SMA 방식으로 수정
 - [ ] **H10** `TechnicalAnalysis.tsx`: Drive miss 시 `fetchCandlesFromAPI()` 실제 fallback 연결

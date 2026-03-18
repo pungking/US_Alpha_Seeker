@@ -249,7 +249,13 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const isFinancial = sector.includes('financial') || sector.includes('bank') || sector.includes('insurance');
                   
                   // 2. Data Cleaning & Imputation
-                  const roe = winsorize(imputeValue(item.roe, -5, false), -50, 100);
+                  const rawRoe = item.roe;
+                  const roeMissing =
+                      rawRoe === null ||
+                      rawRoe === undefined ||
+                      rawRoe === '' ||
+                      !isFinite(Number(rawRoe));
+                  const roe = winsorize(imputeValue(rawRoe, -5, true), -50, 100);
                   const roa = winsorize(imputeValue(item.roa, -2, false), -20, 50);
                   const rawDebt = item.debtToEquity;
                   
@@ -258,7 +264,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   if (rawDebt < 0) {
                       debtScore = 0; // Insolvency
                   } else {
-                      const debtVal = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, false);
+                      // debtToEquity=0 means debt-free and must be treated as a valid value.
+                      const debtVal = imputeValue(rawDebt, isFinancial ? 0.5 : 1.5, true);
                       debtScore = Math.max(0, 100 - (debtVal * 50)); 
                   }
                   
@@ -287,7 +294,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   let dataQuality = 'HIGH';
                   let penalty = 0;
                   
-                  if (roe === -5) { penalty += 10; dataQuality = 'MEDIUM'; }
+                  if (roeMissing) { penalty += 10; dataQuality = 'MEDIUM'; }
                   if (!item.targetMeanPrice || item.targetMeanPrice <= 0) {
                       penalty += 20;
                       dataQuality = 'LOW_VISIBILITY';
