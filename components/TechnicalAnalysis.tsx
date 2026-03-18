@@ -466,7 +466,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   };
 
   const calculateADX = (highs: number[], lows: number[], closes: number[], period = 14): number => {
-    if (highs.length < period * 2) return 0;
+    // ADX needs enough bars for DM/TR smoothing + first DX window + Wilder smoothing pass.
+    if (highs.length < (period * 2) + 1) return 0;
 
     let tr = [], dmPlus = [], dmMinus = [];
     
@@ -507,9 +508,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
     }
     
     if (dxList.length < period) return 0;
-    const finalADX = dxList.slice(-period).reduce((a,b)=>a+b, 0) / period;
-    
-    return Number(finalADX.toFixed(2));
+
+    // Standard ADX: seed with first SMA(period) of DX, then apply Wilder smoothing.
+    let adx = dxList.slice(0, period).reduce((a, b) => a + b, 0) / period;
+    for (let i = period; i < dxList.length; i++) {
+        adx = ((adx * (period - 1)) + dxList[i]) / period;
+    }
+
+    return Number(adx.toFixed(2));
   };
 
   const calculateDMI = (highs: number[], lows: number[], closes: number[], period = 14) => {
