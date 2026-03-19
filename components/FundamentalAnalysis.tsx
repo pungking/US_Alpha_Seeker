@@ -488,12 +488,19 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     };
 
     // ... (Drive functions remain same) ...
+    const assertDriveOk = async (res: Response, context: string) => {
+      if (res.ok) return;
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
+    };
+
     const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(
         `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=10&includeItemsFromAllDrives=true&supportsAllDrives=true`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
+      await assertDriveOk(res, `findFolder(${name})`);
       const data = await res.json();
       return data.files?.[0]?.id || null;
     };
@@ -504,6 +511,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
         `https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=10&includeItemsFromAllDrives=true&supportsAllDrives=true`,
         { headers: { 'Authorization': `Bearer ${token}` } }
       );
+      await assertDriveOk(res, `findFileId(${name})`);
       const data = await res.json();
       return data.files?.[0]?.id || null;
     };
@@ -514,6 +522,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=modifiedTime desc&pageSize=1&fields=files(id,name,parents)&includeItemsFromAllDrives=true&supportsAllDrives=true`,
             { headers: { 'Authorization': `Bearer ${token}` } }
         );
+        await assertDriveOk(res, `findLatestFileParentId(${fileName})`);
         const data = await res.json();
         return data.files?.[0]?.parents?.[0] || null;
     };
@@ -545,6 +554,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
     const downloadFile = async (token: string, fileId: string) => {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
+      await assertDriveOk(res, `downloadFile(${fileId})`);
       const text = await res.text();
       const safeText = text.replace(/:\s*NaN/g, ': null').replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
       return JSON.parse(safeText);
@@ -553,13 +563,16 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const ensureFolder = async (token: string, name: string) => {
       const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+      await assertDriveOk(res, `ensureFolder.list(${name})`);
       const data = await res.json();
       if (data.files?.length > 0) return data.files[0].id;
       const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
           body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
       });
+      await assertDriveOk(create, `ensureFolder.create(${name})`);
       const json = await create.json();
+      if (!json?.id) throw new Error(`Drive ensureFolder.create(${name}) succeeded but missing folder id`);
       return json.id;
     };
 
@@ -591,6 +604,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=5`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });
+            await assertDriveOk(listRes, "loadStage2.list");
             const listData = await listRes.json();
 
             if (!listData.files?.length) throw new Error("Stage 2 Data Missing. Please run Stage 2.");
@@ -599,9 +613,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             let selectedStage2FileName = '';
 
             for (const file of listData.files) {
-                const candidateContent = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
+                const candidateRes = await fetch(`https://www.googleapis.com/drive/v3/files/${file.id}?alt=media`, {
                     headers: { 'Authorization': `Bearer ${accessToken}` }
-                }).then(r => r.json());
+                });
+                await assertDriveOk(candidateRes, `loadStage2.content(${file.id})`);
+                const candidateContent = await candidateRes.json();
 
                 const candidateUniverse = Array.isArray(candidateContent?.elite_universe) ? candidateContent.elite_universe : [];
                 if (candidateUniverse.length > 0) {

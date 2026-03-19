@@ -46,7 +46,7 @@
 - [x] **C8** `TechnicalAnalysis.tsx`: EMA 초기화 SMA 방식으로 수정
 - [x] **H10** `TechnicalAnalysis.tsx`: Drive miss 시 `fetchCandlesFromAPI()` 실제 fallback 연결
 - [x] **H9** `harvester.py`: bare except 제거 + 실패 원인 로깅
-- [ ] **H5** Stage0/1/2/3/4/5 업로드 응답 `res.ok` 검증 강제
+- [x] **H5** Stage0/1/2/3/4/5 업로드/Drive 응답 `res.ok` 검증 강제 (2026-03-19 완료)
   - 진행 현황: **Stage0/Stage2 fail-fast 적용 완료**, Stage1/3/4/5 ensure/list/create 경로 확장 적용 대기
 
 ## A-2. P1 (1주)

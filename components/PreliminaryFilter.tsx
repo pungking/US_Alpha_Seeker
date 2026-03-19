@@ -117,6 +117,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const timeoutPromise = (ms: number, msg: string) => new Promise((_, reject) => 
       setTimeout(() => reject(new Error(msg)), ms)
   );
+  const assertDriveOk = async (res: Response, context: string) => {
+      if (res.ok) return;
+      const errText = await res.text().catch(() => '');
+      throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
+  };
 
   const handleSyncAndAnalyze = async (autoCommit = false) => {
       if (!accessToken) {
@@ -140,15 +145,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           // 2. Load Stage 0 Data
           addLog("Phase 2: Retrieving Global Universe from Stage 0...", "info");
           const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
-          const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          const listFetch = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-          }).then(r => r.json());
+          });
+          await assertDriveOk(listFetch, "loadStage0.list");
+          const listRes = await listFetch.json();
 
           if (!listRes.files?.length) throw new Error("Stage 0 Data not found. Please run Stage 0 first.");
 
-          const content = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
+          const contentFetch = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-          }).then(r => r.json());
+          });
+          await assertDriveOk(contentFetch, `loadStage0.content(${listRes.files[0].id})`);
+          const content = await contentFetch.json();
 
           // CRITICAL: Capture data in local scope to avoid State Race Conditions
           const data: MasterTicker[] = content.universe || [];
@@ -503,14 +512,19 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
   const ensureFolder = async (token: string, name: string) => {
     const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
-    const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } }).then(r => r.json());
-    if (res.files?.length > 0) return res.files[0].id;
-    const create = await fetch(`https://www.googleapis.com/drive/v3/files`, {
+    const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
+    await assertDriveOk(listRes, `ensureFolder.list(${name})`);
+    const listed = await listRes.json();
+    if (listed.files?.length > 0) return listed.files[0].id;
+    const createRes = await fetch(`https://www.googleapis.com/drive/v3/files`, {
       method: 'POST',
       headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
-    }).then(r => r.json());
-    return create.id;
+    });
+    await assertDriveOk(createRes, `ensureFolder.create(${name})`);
+    const created = await createRes.json();
+    if (!created?.id) throw new Error(`Drive ensureFolder.create(${name}) succeeded but missing folder id`);
+    return created.id;
   };
 
   return (
