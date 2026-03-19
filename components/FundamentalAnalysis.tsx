@@ -260,6 +260,103 @@ const computeFiveYearTrendSignals = (rawHistory: any, maxAdjustment = 6) => {
     };
 };
 
+const getQuarterKey = (row: any): string | null => {
+    const raw = row?.date || row?.asOfDate || row?.periodEndDate;
+    if (!raw) return null;
+    const d = new Date(raw);
+    if (!Number.isFinite(d.getTime())) return null;
+    const q = Math.floor(d.getUTCMonth() / 3) + 1;
+    return `${d.getUTCFullYear()}-Q${q}`;
+};
+
+const quarterSortValue = (quarterKey: string): number => {
+    const m = /^(\d{4})-Q([1-4])$/.exec(quarterKey);
+    if (!m) return -1;
+    return Number(m[1]) * 10 + Number(m[2]);
+};
+
+const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) => {
+    const rows = normalizeHistoryRows(rawHistory);
+    if (!rows.length) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
+    }
+
+    const quarterlyRows = rows
+        .filter((row) => String(row?._periodType || '').toUpperCase() === 'QUARTERLY')
+        .map((row) => ({
+            quarterKey: getQuarterKey(row),
+            revenue: getHistoryNumber(row, HISTORY_REVENUE_KEYS)
+        }))
+        .filter((row) => !!row.quarterKey && row.revenue !== null && Number(row.revenue) > 0) as Array<{ quarterKey: string; revenue: number | null }>;
+
+    if (quarterlyRows.length < 8) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
+    }
+
+    const byQuarter = new Map<string, number>();
+    quarterlyRows.forEach((row) => byQuarter.set(row.quarterKey, Number(row.revenue)));
+    const keys = Array.from(byQuarter.keys()).sort((a, b) => quarterSortValue(a) - quarterSortValue(b));
+
+    const yoyList: number[] = [];
+    for (const key of keys) {
+        const [yearStr, qStr] = key.split('-Q');
+        const prevKey = `${Number(yearStr) - 1}-Q${qStr}`;
+        const curr = byQuarter.get(key);
+        const prev = byQuarter.get(prevKey);
+        if (!curr || !prev || prev <= 0) continue;
+        yoyList.push(((curr / prev) - 1) * 100);
+    }
+
+    if (!yoyList.length) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
+    }
+
+    const avgYoYGrowthPct = yoyList.reduce((sum, v) => sum + v, 0) / yoyList.length;
+    const positiveRatioPct = (yoyList.filter((v) => v > 0).length / yoyList.length) * 100;
+    const avgScore = normalizeScore(avgYoYGrowthPct, -12, 20);
+    const ratioScore = normalizeScore(positiveRatioPct, 35, 90);
+    const score = (avgScore * 0.6) + (ratioScore * 0.4);
+    const adjustment = Math.max(-maxAdjustment, Math.min(maxAdjustment, ((score - 50) / 50) * maxAdjustment));
+    const coverage = Math.min(100, Math.round((yoyList.length / 12) * 100));
+
+    return {
+        available: true,
+        score,
+        adjustment,
+        coverage,
+        avgYoYGrowthPct,
+        positiveRatioPct
+    };
+};
+
+const DEFENSIVE_SECTOR_HINTS = ['healthcare', 'consumer defensive', 'utilities', 'financial', 'insurance', 'telecom', 'communication services'];
+const CYCLICAL_SECTOR_HINTS = ['technology', 'consumer cyclical', 'industrials', 'energy', 'materials', 'real estate'];
+
+const resolveRegimeSectorAdjustment = (
+    sector: string,
+    regimeStateRaw: any,
+    vixRefRaw: any
+) => {
+    const regimeState = String(regimeStateRaw || 'UNKNOWN').toUpperCase();
+    const vixRef = Number(vixRefRaw);
+    const s = String(sector || '').toLowerCase();
+    const isDefensive = DEFENSIVE_SECTOR_HINTS.some((x) => s.includes(x));
+    const isCyclical = CYCLICAL_SECTOR_HINTS.some((x) => s.includes(x));
+    const boost = Number.isFinite(vixRef) && vixRef >= 24 ? 2 : 1.5;
+
+    if (regimeState === 'RISK_OFF') {
+        if (isDefensive) return { adjustment: boost, tilt: 'DEFENSIVE_FAVOR' as const };
+        if (isCyclical) return { adjustment: -boost, tilt: 'CYCLICAL_CUT' as const };
+        return { adjustment: -0.3, tilt: 'RISK_OFF_NEUTRAL' as const };
+    }
+    if (regimeState === 'RISK_ON') {
+        if (isCyclical) return { adjustment: boost, tilt: 'CYCLICAL_FAVOR' as const };
+        if (isDefensive) return { adjustment: -boost, tilt: 'DEFENSIVE_CUT' as const };
+        return { adjustment: 0.4, tilt: 'RISK_ON_NEUTRAL' as const };
+    }
+    return { adjustment: 0, tilt: 'NEUTRAL' as const };
+};
+
 // [ENGINE v5.3] Pure Quant Logic (No AI)
 const performFinancialEngineering = (
     data: any,
@@ -411,7 +508,31 @@ const performFinancialEngineering = (
     // [STAGE 3 WEIGHTS] Focus on Value (40%) and Safety (30%)
     const baseFundamentalScore = (valScore * 0.40) + (safetyScore * 0.30) + (qualScore * 0.20) + (growthScore * 0.10);
     const trendSignals = computeFiveYearTrendSignals(data.financialHistory || data.fullHistory, 6);
-    const fundamentalScore = Math.max(0, Math.min(100, baseFundamentalScore + trendSignals.adjustment));
+    const seasonalitySignals = computeFinancialSeasonalitySignals(data.financialHistory || data.fullHistory, 4);
+
+    const regimeSignals = resolveRegimeSectorAdjustment(data.sector || '', data.marketRegimeState, data.marketRegimeVixRef);
+    const regimeAdjustment = hasValue(data.regimeAdjustment)
+        ? safeNum(data.regimeAdjustment)
+        : regimeSignals.adjustment;
+
+    const derivedQualityFactorScore = Math.max(
+        0,
+        Math.min(100, (qualScore * 0.35) + (safetyScore * 0.40) + (earningsQualityScore * 0.25))
+    );
+    const qualityFactorScore = hasValue(data.qualityFactorScore)
+        ? safeNum(data.qualityFactorScore)
+        : derivedQualityFactorScore;
+    const qualityFactorAdjustment = hasValue(data.qualityFactorAdjustment)
+        ? safeNum(data.qualityFactorAdjustment)
+        : Math.max(-3, Math.min(3, ((qualityFactorScore - 55) / 45) * 3));
+
+    const totalFactorAdjustment =
+        trendSignals.adjustment +
+        seasonalitySignals.adjustment +
+        regimeAdjustment +
+        qualityFactorAdjustment;
+
+    const fundamentalScore = Math.max(0, Math.min(100, baseFundamentalScore + totalFactorAdjustment));
 
     let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
     if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = 'Wide';
@@ -444,6 +565,16 @@ const performFinancialEngineering = (
         revenueCagrPct: trendSignals.revenueCagrPct,
         marginTrendDeltaPct: trendSignals.marginDeltaPct,
         debtImprovementPct: trendSignals.debtImprovementPct,
+        seasonalityScore: Number((seasonalitySignals.score || 50).toFixed(2)),
+        seasonalityAdjustment: Number((seasonalitySignals.adjustment || 0).toFixed(2)),
+        seasonalityCoverage: seasonalitySignals.coverage || 0,
+        seasonalityYoYGrowthPct: seasonalitySignals.avgYoYGrowthPct,
+        seasonalityPositiveRatioPct: seasonalitySignals.positiveRatioPct,
+        regimeAdjustment: Number((regimeAdjustment || 0).toFixed(2)),
+        regimeSectorTilt: regimeSignals.tilt,
+        qualityFactorScore: Number((qualityFactorScore || 0).toFixed(2)),
+        qualityFactorAdjustment: Number((qualityFactorAdjustment || 0).toFixed(2)),
+        factorAdjustmentTotal: Number((totalFactorAdjustment || 0).toFixed(2)),
         cashflowProxyUsed: isCashflowProxy,
         roicDebtFallbackEnabled: allowRatioDebtFallback,
         roicDebtSource,
@@ -777,6 +908,25 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const systemMapId = await resolveSystemMapFolderId(accessToken);
             const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
             const dailyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialDailyFolder, systemMapId) : null;
+            const marketRegimeFileId = systemMapId ? await findFileId(accessToken, 'MARKET_REGIME_SNAPSHOT.json', systemMapId) : null;
+            let marketRegimeState = 'UNKNOWN';
+            let marketRegimeScore: number | null = null;
+            let marketRegimeVixRef: number | null = null;
+            if (marketRegimeFileId) {
+                try {
+                    const regimeData = await downloadFile(accessToken, marketRegimeFileId);
+                    marketRegimeState = String(regimeData?.regime?.state || 'UNKNOWN').toUpperCase();
+                    const scoreCandidate = Number(regimeData?.regime?.score);
+                    marketRegimeScore = Number.isFinite(scoreCandidate) ? scoreCandidate : null;
+                    const vixCandidate = Number(regimeData?.benchmarks?.vix?.close);
+                    marketRegimeVixRef = Number.isFinite(vixCandidate) ? vixCandidate : null;
+                    addLog(`Market Regime Locked: ${marketRegimeState} (${marketRegimeScore ?? 'N/A'})`, "ok");
+                } catch (e: any) {
+                    addLog(`[WARN] Market regime parse failed: ${e?.message || 'unknown'}`, "warn");
+                }
+            } else {
+                addLog("Market Regime snapshot missing. Regime factor will use neutral mode.", "warn");
+            }
             
             if (!historyFolderId) addLog("History folder not found. Proceeding with Snapshot data only.", "warn");
             if (!dailyFolderId) addLog("Daily folder not found. Proceeding with limited data.", "warn");
@@ -908,6 +1058,9 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         itemToAnalyze.financialHistory = fullHistory;
                         itemToAnalyze.fullHistory = fullHistory;
                     }
+                    itemToAnalyze.marketRegimeState = marketRegimeState;
+                    itemToAnalyze.marketRegimeScore = marketRegimeScore;
+                    itemToAnalyze.marketRegimeVixRef = marketRegimeVixRef;
 
                     let isImputed = false;
                     
@@ -995,6 +1148,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             addLog(
                 `[ROIC] Effective mode ${roicDebtModeEffective}. ${roicDebtModeEffective === 'STRICT' ? 'No ratio-based debt proxy used.' : 'Ratio proxy retained as fallback.'}`,
                 roicDebtModeEffective === 'STRICT' ? 'ok' : 'warn'
+            );
+            const avgAdj = (key: string) => {
+                if (!results.length) return 0;
+                return results.reduce((sum, item) => sum + Number(item?.[key] || 0), 0) / results.length;
+            };
+            addLog(
+                `[5Y_FACTOR] trend=${avgAdj('trendAdjustment').toFixed(2)} seasonality=${avgAdj('seasonalityAdjustment').toFixed(2)} quality=${avgAdj('qualityFactorAdjustment').toFixed(2)} regime=${avgAdj('regimeAdjustment').toFixed(2)}`,
+                "ok"
             );
 
             // --- [NEW] SECTOR INTELLIGENCE & MOMENTUM SCORING ---

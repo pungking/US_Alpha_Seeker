@@ -204,6 +204,104 @@ const computeFiveYearTrendSignals = (rawHistory: any, maxAdjustment = 5) => {
     };
 };
 
+const getQuarterKey = (row: any): string | null => {
+    const raw = row?.date || row?.asOfDate || row?.periodEndDate;
+    if (!raw) return null;
+    const d = new Date(raw);
+    if (!Number.isFinite(d.getTime())) return null;
+    const q = Math.floor(d.getUTCMonth() / 3) + 1;
+    return `${d.getUTCFullYear()}-Q${q}`;
+};
+
+const quarterSortValue = (quarterKey: string): number => {
+    const m = /^(\d{4})-Q([1-4])$/.exec(quarterKey);
+    if (!m) return -1;
+    return Number(m[1]) * 10 + Number(m[2]);
+};
+
+const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) => {
+    const rows = normalizeHistoryRows(rawHistory);
+    if (!rows.length) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
+    }
+
+    const quarterlyRows = rows
+        .filter((row) => String(row?._periodType || '').toUpperCase() === 'QUARTERLY')
+        .map((row) => ({
+            quarterKey: getQuarterKey(row),
+            revenue: getHistoryNumber(row, HISTORY_REVENUE_KEYS)
+        }))
+        .filter((row) => !!row.quarterKey && row.revenue !== null && Number(row.revenue) > 0) as Array<{ quarterKey: string; revenue: number | null }>;
+
+    if (quarterlyRows.length < 8) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
+    }
+
+    const byQuarter = new Map<string, number>();
+    quarterlyRows.forEach((row) => {
+        byQuarter.set(row.quarterKey, Number(row.revenue));
+    });
+
+    const keys = Array.from(byQuarter.keys()).sort((a, b) => quarterSortValue(a) - quarterSortValue(b));
+    const yoyList: number[] = [];
+
+    for (const key of keys) {
+        const [yearStr, qStr] = key.split('-Q');
+        const prevKey = `${Number(yearStr) - 1}-Q${qStr}`;
+        const curr = byQuarter.get(key);
+        const prev = byQuarter.get(prevKey);
+        if (!curr || !prev || prev <= 0) continue;
+        yoyList.push(((curr / prev) - 1) * 100);
+    }
+
+    if (!yoyList.length) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
+    }
+
+    const avgYoYGrowthPct = yoyList.reduce((sum, v) => sum + v, 0) / yoyList.length;
+    const positiveRatioPct = (yoyList.filter((v) => v > 0).length / yoyList.length) * 100;
+    const avgScore = normalizeScore(avgYoYGrowthPct, -12, 20);
+    const ratioScore = normalizeScore(positiveRatioPct, 35, 90);
+    const score = (avgScore * 0.6) + (ratioScore * 0.4);
+    const adjustment = Math.max(-maxAdjustment, Math.min(maxAdjustment, ((score - 50) / 50) * maxAdjustment));
+    const coverage = Math.min(100, Math.round((yoyList.length / 12) * 100));
+
+    return {
+        available: true,
+        score,
+        adjustment,
+        coverage,
+        avgYoYGrowthPct,
+        positiveRatioPct
+    };
+};
+
+const DEFENSIVE_SECTOR_HINTS = ['healthcare', 'consumer defensive', 'utilities', 'financial', 'insurance', 'telecom', 'communication services'];
+const CYCLICAL_SECTOR_HINTS = ['technology', 'consumer cyclical', 'industrials', 'energy', 'materials', 'real estate'];
+
+const resolveRegimeSectorAdjustment = (
+    sector: string,
+    regimeState: string,
+    vixRef: number | null
+) => {
+    const s = String(sector || '').toLowerCase();
+    const isDefensive = DEFENSIVE_SECTOR_HINTS.some((x) => s.includes(x));
+    const isCyclical = CYCLICAL_SECTOR_HINTS.some((x) => s.includes(x));
+    const boost = (vixRef !== null && vixRef >= 24) ? 2 : 1.5;
+
+    if (regimeState === 'RISK_OFF') {
+        if (isDefensive) return { adjustment: boost, tilt: 'DEFENSIVE_FAVOR' as const };
+        if (isCyclical) return { adjustment: -boost, tilt: 'CYCLICAL_CUT' as const };
+        return { adjustment: -0.3, tilt: 'RISK_OFF_NEUTRAL' as const };
+    }
+    if (regimeState === 'RISK_ON') {
+        if (isCyclical) return { adjustment: boost, tilt: 'CYCLICAL_FAVOR' as const };
+        if (isDefensive) return { adjustment: -boost, tilt: 'DEFENSIVE_CUT' as const };
+        return { adjustment: 0.4, tilt: 'RISK_ON_NEUTRAL' as const };
+    }
+    return { adjustment: 0, tilt: 'NEUTRAL' as const };
+};
+
 const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, isVisible = true }) => {
   const [loading, setLoading] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0, msg: '' });
@@ -364,6 +462,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
           if (!systemMapId) systemMapId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
           const historyFolderId = systemMapId ? await findFolder(accessToken, GOOGLE_DRIVE_TARGET.financialHistoryFolder, systemMapId) : null;
+          const marketRegimeFileId = systemMapId ? await findFileId(accessToken, 'MARKET_REGIME_SNAPSHOT.json', systemMapId) : null;
+          let regimeState = 'UNKNOWN';
+          let regimeVixRef: number | null = null;
+          if (marketRegimeFileId) {
+              try {
+                  const marketRegime = await downloadFile(accessToken, marketRegimeFileId);
+                  regimeState = String(marketRegime?.regime?.state || 'UNKNOWN').toUpperCase();
+                  const vixCandidate = Number(marketRegime?.benchmarks?.vix?.close);
+                  regimeVixRef = Number.isFinite(vixCandidate) ? vixCandidate : null;
+                  addLog(`[REGIME] ${regimeState} | vix=${regimeVixRef ?? 'N/A'}`, "ok");
+              } catch (e: any) {
+                  addLog(`[WARN] Market regime snapshot parse failed: ${e?.message || 'unknown'}`, "warn");
+              }
+          } else {
+              addLog("Market regime snapshot not found. Regime factor disabled.", "warn");
+          }
           
           if (!historyFolderId) addLog("History folder not found. Proceeding with Snapshot data only.", "warn");
 
@@ -463,14 +577,21 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   // 6. Final Quality Score
                   let rawQuality = (profitScore * 0.4 + debtScore * 0.3 + valueScore * 0.3) - penalty;
                   const trendSignals = computeFiveYearTrendSignals(fullHistory, 5);
+                  const seasonalitySignals = computeFinancialSeasonalitySignals(fullHistory, 4);
+                  const qualityFactorScore = clampScore((profitScore * 0.5) + (debtScore * 0.35) + ((100 - Math.min(100, penalty * 3)) * 0.15));
+                  const qualityFactorAdjustment = Math.max(-3, Math.min(3, ((qualityFactorScore - 55) / 45) * 3));
+                  const regimeSignals = resolveRegimeSectorAdjustment(item.sector || '', regimeState, regimeVixRef);
                   
                   // [ICT STRATEGY BOOST] Upside Potential Bonus
                   // If Target Price > Current Price * 1.2 (20% Upside), add bonus
                   if (item.targetMeanPrice > item.price * 1.2) {
                       rawQuality += 10; 
                   }
-                  // Stage2 5Y trend adjustment: bounded to avoid overpowering core quality profile.
+                  // Stage2 factor stack: 5Y trend + 5Y seasonality + regime tilt + quality factor.
                   rawQuality += trendSignals.adjustment;
+                  rawQuality += seasonalitySignals.adjustment;
+                  rawQuality += qualityFactorAdjustment;
+                  rawQuality += regimeSignals.adjustment;
                   
                   const qualityScore = clampScore(rawQuality);
 
@@ -519,6 +640,17 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           revenueCagrPct: trendSignals.revenueCagrPct,
                           marginTrendDeltaPct: trendSignals.marginDeltaPct,
                           debtImprovementPct: trendSignals.debtImprovementPct,
+                          seasonalityScore: Number((seasonalitySignals.score || 50).toFixed(2)),
+                          seasonalityAdjustment: Number((seasonalitySignals.adjustment || 0).toFixed(2)),
+                          seasonalityCoverage: seasonalitySignals.coverage || 0,
+                          seasonalityYoYGrowthPct: seasonalitySignals.avgYoYGrowthPct,
+                          seasonalityPositiveRatioPct: seasonalitySignals.positiveRatioPct,
+                          qualityFactorScore: Number(qualityFactorScore.toFixed(2)),
+                          qualityFactorAdjustment: Number(qualityFactorAdjustment.toFixed(2)),
+                          regimeState,
+                          regimeVixRef,
+                          regimeAdjustment: Number(regimeSignals.adjustment.toFixed(2)),
+                          regimeSectorTilt: regimeSignals.tilt,
                           
                           // [CRITICAL] Preserve ICT Data Fields with Safeguards
                           fiftyTwoWeekHigh: safeHigh52,
@@ -560,6 +692,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           addLog(`[DYNAMIC-SCALE] Market Condition Detected. Target: ${targetCount} Assets.`, "info");
 
           const eliteCandidates = results.slice(0, targetCount);
+          const avgAdj = (key: string) => {
+              if (!eliteCandidates.length) return 0;
+              return eliteCandidates.reduce((sum, item) => sum + Number(item?.[key] || 0), 0) / eliteCandidates.length;
+          };
+          addLog(
+              `[5Y_FACTOR] trend=${avgAdj('trendAdjustment').toFixed(2)} seasonality=${avgAdj('seasonalityAdjustment').toFixed(2)} quality=${avgAdj('qualityFactorAdjustment').toFixed(2)} regime=${avgAdj('regimeAdjustment').toFixed(2)}`,
+              "ok"
+          );
           
           // [QUANT ONLY] No AI Audit
           addLog(`[OK] 5-Factor Quant Engine: Scan Complete`, "ok");
