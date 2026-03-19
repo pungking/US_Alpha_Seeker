@@ -15,6 +15,10 @@ const getEnvVar = (key: string): string => {
     try {
         // @ts-ignore
         if (typeof import.meta !== 'undefined' && import.meta.env) {
+            const viteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
+            const viteDirect = import.meta.env[viteKey] || import.meta.env[key] || '';
+            if (viteDirect) return viteDirect;
+
             // Static access for common keys to ensure Vite includes them
             if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
             if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || '';
@@ -27,7 +31,8 @@ const getEnvVar = (key: string): string => {
             return import.meta.env[key] || '';
         }
         if (typeof process !== 'undefined' && process.env) {
-            return process.env[key] || '';
+            const nodeViteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
+            return process.env[nodeViteKey] || process.env[key] || '';
         }
     } catch (e) {}
     return '';

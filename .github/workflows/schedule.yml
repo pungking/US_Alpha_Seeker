@@ -24,6 +24,8 @@ jobs:
       # AI Keys
       GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
       PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
+      VITE_GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      VITE_PERPLEXITY_API_KEY: ${{ secrets.PERPLEXITY_API_KEY }}
       GEMINI_PRIMARY_MODEL: ${{ vars.GEMINI_PRIMARY_MODEL }}
       GEMINI_FALLBACK_MODEL: ${{ vars.GEMINI_FALLBACK_MODEL }}
       GEMINI_FAST_MODEL: ${{ vars.GEMINI_FAST_MODEL }}
@@ -43,10 +45,23 @@ jobs:
       FMP_KEY: ${{ secrets.FMP_KEY }}
       TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
       ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+      GDRIVE_API_KEY: ${{ secrets.GDRIVE_API_KEY }}
+      VITE_RAPID_API_KEY: ${{ secrets.RAPID_API_KEY }}
+      VITE_POLYGON_API_KEY: ${{ secrets.POLYGON_API_KEY }}
+      VITE_ALPACA_KEY: ${{ secrets.ALPACA_KEY }}
+      VITE_FINNHUB_KEY: ${{ secrets.FINNHUB_KEY }}
+      VITE_FMP_KEY: ${{ secrets.FMP_KEY }}
+      VITE_TWELVE_DATA_KEY: ${{ secrets.TWELVE_DATA_KEY }}
+      VITE_ALPHA_VANTAGE_KEY: ${{ secrets.ALPHA_VANTAGE_KEY }}
+      VITE_GDRIVE_API_KEY: ${{ secrets.GDRIVE_API_KEY }}
       
       # Telegram
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID }}
+      VITE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      VITE_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+      VITE_TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID }}
       
       # Google Drive OAuth
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
