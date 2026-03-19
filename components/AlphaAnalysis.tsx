@@ -217,7 +217,7 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
     'VAPS': {
         title: "VAPS (변동성 조정 수량)",
         desc: "1회 거래당 총 자산의 1%만 잃도록 설계된 수량 산출 공식입니다 (Volatility Adjusted Position Sizing).\n\n`Qty = (Capital * 0.01) / (Entry - Stop)`",
-        strategy: "수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
+        strategy: "수치 해석:\n- 수량이 많음 = 손절폭이 짧음 (리스크가 적음)\n- 수량이 적음 = 손절폭이 큼 (변동성이 큼)\n*이 수량대로 매수하면 손절가 도달 시 딱 1%의 자산만 감소합니다."
     },
     'RISK_REWARD': {
         title: "Risk:Reward Ratio (손익비)",
