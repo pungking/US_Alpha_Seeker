@@ -13,6 +13,29 @@ export interface ApiConfig {
 // [SECURITY POLICY] Env-only credentials (no hardcoded secret fallback).
 const getEnvVar = (key: string): string => {
     try {
+        const readDefinedProcessEnv = (targetKey: string): string => {
+            if (typeof process === 'undefined' || !process.env) return '';
+            // Use static property access so Vite `define` can inline injected values.
+            const directMap: Record<string, string | undefined> = {
+                GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+                API_KEY: process.env.API_KEY,
+                PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
+                RAPID_API_KEY: process.env.RAPID_API_KEY,
+                POLYGON_API_KEY: process.env.POLYGON_API_KEY,
+                ALPACA_KEY: process.env.ALPACA_KEY,
+                FINNHUB_KEY: process.env.FINNHUB_KEY,
+                FMP_KEY: process.env.FMP_KEY,
+                TWELVE_DATA_KEY: process.env.TWELVE_DATA_KEY,
+                ALPHA_VANTAGE_KEY: process.env.ALPHA_VANTAGE_KEY,
+                GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
+                TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
+                TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
+                TELEGRAM_SIMULATION_CHAT_ID: process.env.TELEGRAM_SIMULATION_CHAT_ID,
+                GITHUB_PAT: process.env.GITHUB_PAT
+            };
+            return directMap[targetKey] || '';
+        };
+
         // @ts-ignore
         if (typeof import.meta !== 'undefined' && import.meta.env) {
             const viteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
@@ -21,18 +44,20 @@ const getEnvVar = (key: string): string => {
 
             // Static access for common keys to ensure Vite includes them
             if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
-            if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || '';
+            if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || readDefinedProcessEnv('API_KEY');
             if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
             if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
             if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
             if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
+            const definedProcessValue = readDefinedProcessEnv(key);
+            if (definedProcessValue) return definedProcessValue;
             
             // Fallback to dynamic access
             return import.meta.env[key] || '';
         }
         if (typeof process !== 'undefined' && process.env) {
             const nodeViteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
-            return process.env[nodeViteKey] || process.env[key] || '';
+            return process.env[nodeViteKey] || process.env[key] || readDefinedProcessEnv(key);
         }
     } catch (e) {}
     return '';
