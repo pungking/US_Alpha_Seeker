@@ -299,7 +299,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               let perplexityKey = perplexityConfig?.key;
 
               if (!perplexityKey) {
-                   perplexityKey = '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'; 
+                   throw new Error('Perplexity API key missing');
               }
               
               if (perplexityKey) {

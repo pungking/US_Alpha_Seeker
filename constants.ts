@@ -10,7 +10,7 @@ export interface ApiConfig {
   category: 'Acquisition' | 'Intelligence' | 'Infrastructure';
 }
 
-// [HYBRID CONFIG] Priority: Environment Variables (GitHub Actions) > Hardcoded Fallback (Local Dev)
+// [SECURITY POLICY] Env-only credentials (no hardcoded secret fallback).
 const getEnvVar = (key: string): string => {
     try {
         // @ts-ignore
@@ -20,6 +20,7 @@ const getEnvVar = (key: string): string => {
             if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || '';
             if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
             if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
+            if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
             if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
             
             // Fallback to dynamic access
@@ -61,76 +62,73 @@ export const GITHUB_DISPATCH_CONFIG = {
   OWNER: 'pungking',
   REPO: 'US_Alpha_Seeker_Harvester',
   EVENT_TYPE: 'stage3_completed',
-  // 환경변수 우선, 없으면 PAT 폴백
-  TOKEN: getEnvVar('GITHUB_PAT') || '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',
+  TOKEN: getEnvVar('GITHUB_PAT'),
   get API_URL() {
     return `https://api.github.com/repos/${this.OWNER}/${this.REPO}/dispatches`;
   }
 };
 
 export const TELEGRAM_CONFIG = {
-  TOKEN: getEnvVar('TELEGRAM_TOKEN') || process.env.TELEGRAM_TOKEN || '8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs',
-  // [FIX] Hardcoded Chat ID to ensure delivery as per user validation
-  CHAT_ID: '-1003800785574',
+  TOKEN: getEnvVar('TELEGRAM_TOKEN') || process.env.TELEGRAM_TOKEN || '',
+  CHAT_ID: getEnvVar('TELEGRAM_CHAT_ID') || process.env.TELEGRAM_CHAT_ID || '',
   // [SIMULATION CHANNEL] Backtest/simulation execution events are routed here.
-  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID') || '1281749368'
+  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID') || process.env.TELEGRAM_SIMULATION_CHAT_ID || ''
 };
 
 export const API_CONFIGS: ApiConfig[] = [
   // Acquisition Node (Data Feeders)
   { 
     provider: ApiProvider.RAPID_API, 
-    key: getEnvVar('RAPID_API_KEY') || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e', 
+    key: getEnvVar('RAPID_API_KEY'), 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.POLYGON, 
-    key: getEnvVar('POLYGON_API_KEY') || 'ArKrr9dmI2FxH71B_YTSWk8YXC2AG9KQ', 
+    key: getEnvVar('POLYGON_API_KEY'), 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.ALPACA, 
-    key: getEnvVar('ALPACA_KEY') || 'PKHWDYDOEWWLYZKMUG9L', 
+    key: getEnvVar('ALPACA_KEY'), 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.FINNHUB, 
-    key: getEnvVar('FINNHUB_KEY') || 'd2pjjgpr01qnf9nlc7ngd2pjjgpr01qnf9nlc7o0', 
+    key: getEnvVar('FINNHUB_KEY'), 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.FMP, 
-    key: getEnvVar('FMP_KEY') || 'dMhbH7OaYJKXeCCpCp001RQrq55259p7', 
+    key: getEnvVar('FMP_KEY'), 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.TWELVE_DATA, 
-    key: getEnvVar('TWELVE_DATA_KEY') || '5ef1dfe22fe7463688783c6787e8f2bf', 
+    key: getEnvVar('TWELVE_DATA_KEY'), 
     category: 'Acquisition' 
   },
   { 
     provider: ApiProvider.ALPHA_VANTAGE, 
-    key: getEnvVar('ALPHA_VANTAGE_KEY') || '8PBTS3IDZM85B3QE', 
+    key: getEnvVar('ALPHA_VANTAGE_KEY'), 
     category: 'Acquisition' 
   },
   
   // Intelligence Node (AI Brains)
   { 
     provider: ApiProvider.GEMINI, 
-    key: getEnvVar('GEMINI_API_KEY') || getEnvVar('API_KEY') || 'AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc', 
+    key: getEnvVar('GEMINI_API_KEY') || getEnvVar('API_KEY'), 
     category: 'Intelligence' 
   },
   { 
     provider: ApiProvider.PERPLEXITY, 
-    key: getEnvVar('PERPLEXITY_API_KEY') || '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', 
+    key: getEnvVar('PERPLEXITY_API_KEY'), 
     category: 'Intelligence' 
   },
   
   // Infrastructure Node (Storage)
   { 
     provider: ApiProvider.GOOGLE_DRIVE, 
-    // [CRITICAL REVERT] Restored original API Key format for status checks.
-    key: getEnvVar('GDRIVE_API_KEY') || 'AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY', 
+    key: getEnvVar('GDRIVE_API_KEY'), 
     category: 'Infrastructure' 
   }
 ];

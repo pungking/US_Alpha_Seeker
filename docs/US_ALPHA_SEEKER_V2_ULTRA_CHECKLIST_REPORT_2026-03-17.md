@@ -24,7 +24,7 @@
 - [ ] 항목 1개 = 커밋 1개 원칙
 - [ ] 각 커밋마다 “검증 근거 파일/로그” 1개 이상 남기기
 - [ ] 크레딧 절약: 단계별 단일 테스트 후 다음 단계 진행
-- [ ] 하드코딩 키/토큰은 즉시 제거(보안 항목 우선)
+- [x] 하드코딩 키/토큰 제거 1차 완료(`constants.ts`, `components/PreliminaryFilter.tsx`)
 - [ ] 결과 판단은 “로그 + 산출 JSON”으로만 한다 (화면만 보고 판정 금지)
 - [x] **Raw-first 수집 원칙**: 가능한 필드는 Harvester에서 원데이터로 먼저 수집하고, Stage 계산 단계 fallback은 보조 수단으로만 제한
 - [x] **No blind fallback 원칙(명시)**:
@@ -162,10 +162,19 @@
 
 ## 5) 보안 체크리스트 (병렬 즉시)
 
-- [ ] constants/컴포넌트 하드코딩 키 제거
-- [ ] 유출 키 전면 폐기 + 재발급
-- [ ] `import.meta.env` / GitHub Secrets로 단일화
+- [x] constants/컴포넌트 하드코딩 키 제거(1차)
+- [ ] 유출 키 전면 폐기 + 재발급 (**운영 필수**)
+- [x] `import.meta.env` / GitHub Secrets 기반 env-only 로직 반영
 - [ ] 로컬/레포 `.env*` 커밋 방지 재점검
+
+### 보안 업데이트 (2026-03-20)
+
+- 웹앱 키 로딩 정책을 `env-only`로 고정:
+  - `GITHUB_PAT`, `TELEGRAM_*`, `RAPID/POLYGON/ALPACA/FINNHUB/FMP/TWELVE/ALPHA_VANTAGE`, `GEMINI/PERPLEXITY`, `GDRIVE_API_KEY`
+- Perplexity 하드코딩 fallback 제거:
+  - `components/PreliminaryFilter.tsx`에서 하드코딩 키 삭제, 미설정 시 명시적 오류 처리
+- 후속 필수:
+  - 이미 노출된 키는 **반드시 폐기/재발급** 후 Secrets에 재등록
 
 ---
 
