@@ -62,6 +62,10 @@ jobs:
       VITE_TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       VITE_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       VITE_TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID }}
+
+      # GitHub Dispatch (Stage3 -> Harvester)
+      GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
+      VITE_GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
       
       # Google Drive OAuth
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
