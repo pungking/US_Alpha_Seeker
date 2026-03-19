@@ -79,6 +79,19 @@ interface TechnicalTicker {
       ttmProfileMode?: TtmSqueezeMode;
       ttmKcAtrMult?: number;
       ttmBbStdMult?: number;
+      factorSeasonalityScore?: number;
+      factorSeasonalityAdjustment?: number;
+      factorSeasonalityCoverage?: number;
+      factorSeasonalityAvgMonthlyReturnPct?: number | null;
+      factorSeasonalityWinRatePct?: number | null;
+      factorSeasonalitySampleCount?: number;
+      factorUpstreamAdjustment?: number;
+      factorUpstreamCoverage?: number;
+      factorRegimeAlignmentAdjustment?: number;
+      factorQualityScore?: number;
+      factorAdjustmentTotal?: number;
+      factorConfidence?: number;
+      factorCoverage?: number;
   };
   
   priceHistory: { date: string; close: number; open?: number; high?: number; low?: number; volume?: number }[];
@@ -98,6 +111,7 @@ interface TechnicalTicker {
   scoreBreakdown: {
       rawSignalScore: number;
       signalBonus: number;
+      factorAdjustment?: number;
       regimePenalty: number;
       eventPenalty: number;
       liquidityPenalty: number;
@@ -1108,6 +1122,174 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       };
   };
 
+  const toFiniteNumber = (value: any, fallback = 0) => {
+      const num = Number(value);
+      return Number.isFinite(num) ? num : fallback;
+  };
+
+  const normalizeRangeScore = (value: number, min: number, max: number) => {
+      if (!Number.isFinite(value)) return 50;
+      if (max <= min) return 50;
+      const ratio = (value - min) / (max - min);
+      return clamp(ratio * 100, 0, 100);
+  };
+
+  const computeOhlcvSeasonalitySignals = (candles: any[], maxAdjustment = 3.5) => {
+      const normalized = (candles || [])
+          .filter((c: any) => Number.isFinite(Number(c?.c)) && Number.isFinite(Number(c?.t)))
+          .slice(-1300)
+          .sort((a: any, b: any) => Number(a.t) - Number(b.t));
+
+      if (normalized.length < 252) {
+          return {
+              available: false,
+              score: 50,
+              adjustment: 0,
+              coverage: 0,
+              avgMonthlyReturnPct: null,
+              winRatePct: null,
+              sampleCount: 0
+          };
+      }
+
+      const monthMap = new Map<string, { close: number; monthIndex: number; ts: number }>();
+      normalized.forEach((candle: any) => {
+          const d = new Date(Number(candle.t));
+          if (!Number.isFinite(d.getTime())) return;
+          const monthIndex = d.getUTCFullYear() * 12 + d.getUTCMonth();
+          const key = `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}`;
+          monthMap.set(key, { close: Number(candle.c), monthIndex, ts: Number(candle.t) });
+      });
+
+      const months = Array.from(monthMap.values()).sort((a, b) => a.monthIndex - b.monthIndex);
+      if (months.length < 24) {
+          return {
+              available: false,
+              score: 50,
+              adjustment: 0,
+              coverage: 0,
+              avgMonthlyReturnPct: null,
+              winRatePct: null,
+              sampleCount: 0
+          };
+      }
+
+      const monthlyReturns: Array<{ calendarMonth: number; retPct: number }> = [];
+      for (let i = 1; i < months.length; i++) {
+          const prev = months[i - 1];
+          const curr = months[i];
+          if (!prev || !curr || prev.close <= 0) continue;
+          const retPct = ((curr.close / prev.close) - 1) * 100;
+          if (!Number.isFinite(retPct)) continue;
+          const currMonth = (curr.monthIndex % 12) + 1;
+          monthlyReturns.push({ calendarMonth: currMonth, retPct });
+      }
+
+      if (monthlyReturns.length < 18) {
+          return {
+              available: false,
+              score: 50,
+              adjustment: 0,
+              coverage: 0,
+              avgMonthlyReturnPct: null,
+              winRatePct: null,
+              sampleCount: 0
+          };
+      }
+
+      const latestCalendarMonth = (months[months.length - 1].monthIndex % 12) + 1;
+      let scoped = monthlyReturns.filter((r) => r.calendarMonth === latestCalendarMonth);
+      if (scoped.length < 3) scoped = monthlyReturns;
+
+      const avgMonthlyReturnPct = scoped.reduce((sum, r) => sum + r.retPct, 0) / Math.max(1, scoped.length);
+      const winRatePct = (scoped.filter((r) => r.retPct > 0).length / Math.max(1, scoped.length)) * 100;
+      const avgScore = normalizeRangeScore(avgMonthlyReturnPct, -4, 6);
+      const winScore = normalizeRangeScore(winRatePct, 35, 75);
+      const score = (avgScore * 0.6) + (winScore * 0.4);
+      const adjustment = clamp(((score - 50) / 50) * maxAdjustment, -maxAdjustment, maxAdjustment);
+      const coverage = Math.min(100, Math.round((scoped.length / 5) * 100));
+
+      return {
+          available: true,
+          score: Number(score.toFixed(2)),
+          adjustment: Number(adjustment.toFixed(2)),
+          coverage,
+          avgMonthlyReturnPct: Number(avgMonthlyReturnPct.toFixed(2)),
+          winRatePct: Number(winRatePct.toFixed(1)),
+          sampleCount: scoped.length
+      };
+  };
+
+  const computeStage4FactorOverlay = (
+      item: any,
+      candles: any[],
+      marketSnapshot: MarketRegimeSnapshot | null,
+      trendAlignment: TechnicalTicker['techMetrics']['trendAlignment']
+  ) => {
+      const seasonality = computeOhlcvSeasonalitySignals(candles, 3.5);
+
+      const upstreamTrendAdj = toFiniteNumber(item?.trendAdjustment, 0);
+      const upstreamSeasonalityAdj = toFiniteNumber(item?.seasonalityAdjustment, 0);
+      const upstreamQualityAdj = toFiniteNumber(item?.qualityFactorAdjustment, 0);
+      const upstreamRegimeAdj = toFiniteNumber(item?.regimeAdjustment, 0);
+
+      const upstreamDefined = [
+          item?.trendAdjustment,
+          item?.seasonalityAdjustment,
+          item?.qualityFactorAdjustment,
+          item?.regimeAdjustment
+      ].filter((v) => Number.isFinite(Number(v))).length;
+
+      const upstreamCoverage = Math.round((upstreamDefined / 4) * 100);
+      const upstreamAdjustment = clamp(
+          (upstreamTrendAdj * 0.25) +
+          (upstreamSeasonalityAdj * 0.35) +
+          (upstreamQualityAdj * 0.25) +
+          (upstreamRegimeAdj * 0.15),
+          -3.5,
+          3.5
+      );
+
+      const qualityScore = toFiniteNumber(item?.qualityFactorScore, toFiniteNumber(item?.qualityScore, 50));
+      const regimeState = String(marketSnapshot?.regime?.state || item?.marketRegimeState || 'UNKNOWN').toUpperCase();
+      let regimeAlignmentAdjustment = 0;
+
+      if (regimeState === 'RISK_OFF') {
+          if (qualityScore >= 70) regimeAlignmentAdjustment += 0.8;
+          if (trendAlignment === 'POWER_TREND') regimeAlignmentAdjustment += 0.5;
+          else if (trendAlignment === 'BEARISH') regimeAlignmentAdjustment -= 0.6;
+      } else if (regimeState === 'RISK_ON') {
+          if (qualityScore >= 65 && (trendAlignment === 'POWER_TREND' || trendAlignment === 'BULLISH')) regimeAlignmentAdjustment += 0.7;
+          if (qualityScore < 45) regimeAlignmentAdjustment -= 0.8;
+      }
+      regimeAlignmentAdjustment = Number(clamp(regimeAlignmentAdjustment, -1.5, 1.5).toFixed(2));
+
+      const totalAdjustment = Number(
+          clamp(seasonality.adjustment + upstreamAdjustment + regimeAlignmentAdjustment, -5, 5).toFixed(2)
+      );
+      const factorCoverage = Math.round((seasonality.coverage * 0.5) + (upstreamCoverage * 0.5));
+      const factorConfidence = Math.round(
+          clamp(
+              (factorCoverage * 0.7) +
+              (Number.isFinite(qualityScore) ? 20 : 0) +
+              (seasonality.available ? 10 : 0),
+              0,
+              100
+          )
+      );
+
+      return {
+          seasonality,
+          upstreamAdjustment: Number(upstreamAdjustment.toFixed(2)),
+          upstreamCoverage,
+          regimeAlignmentAdjustment,
+          qualityScore: Number(qualityScore.toFixed(2)),
+          totalAdjustment,
+          factorCoverage,
+          factorConfidence
+      };
+  };
+
   // [NEW] Logarithmic Scaling for RVOL
   // Transforms raw ratio (e.g., 0.5, 2.0, 10.0) into 0-100 Score
   // Logic: 1.0 -> 50, 2.0 -> 75, 4.0 -> 100, 0.5 -> 25
@@ -1536,6 +1718,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           scoreBreakdown: {
               rawSignalScore: clampedScore,
               signalBonus: 0,
+              factorAdjustment: 0,
               regimePenalty: 0,
               eventPenalty: 0,
               liquidityPenalty: 0,
@@ -1711,10 +1894,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       let macroBoostCount = 0;
       let macroPenaltyCount = 0;
       let macroOverlayTotal = 0;
-	      let eventRiskPenaltyCount = 0;
-	      let eventHighRiskCount = 0;
-	      let eventMediumRiskCount = 0;
-	      let eventOverlayTotal = 0;
+      let eventRiskPenaltyCount = 0;
+      let eventHighRiskCount = 0;
+      let eventMediumRiskCount = 0;
+      let eventOverlayTotal = 0;
+          let factorBoostCount = 0;
+          let factorPenaltyCount = 0;
+          let factorOverlayTotal = 0;
+          let factorSeasonalityTotal = 0;
+          let factorUpstreamTotal = 0;
+          let factorRegimeAlignTotal = 0;
+          let factorCoverageTotal = 0;
+          let factorConfidenceTotal = 0;
           const stage4ApiFallbackEnabled = String((import.meta as any)?.env?.VITE_STAGE4_API_FALLBACK_ENABLED ?? 'false').toLowerCase() === 'true';
           const apiFallbackMaxRaw = Number((import.meta as any)?.env?.VITE_STAGE4_API_FALLBACK_MAX ?? 50);
           const stage4ApiFallbackMax = Number.isFinite(apiFallbackMaxRaw) && apiFallbackMaxRaw > 0 ? Math.floor(apiFallbackMaxRaw) : 50;
@@ -1970,6 +2161,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           scoreBreakdown: {
                               rawSignalScore: safeTechnicalScore,
                               signalBonus: 0,
+                              factorAdjustment: 0,
                               regimePenalty: 0,
                               eventPenalty: 0,
                               liquidityPenalty: 0,
@@ -2037,6 +2229,59 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       }
                   };
 
+                  // Stage4 factor stack: 5Y OHLCV seasonality + Stage3 upstream factors + regime alignment.
+                  const factorOverlay = computeStage4FactorOverlay(
+                      item,
+                      candles,
+                      marketRegimeSnapshot,
+                      techData.techMetrics.trendAlignment
+                  );
+
+                  if (factorOverlay.totalAdjustment > 0) factorBoostCount++;
+                  else if (factorOverlay.totalAdjustment < 0) factorPenaltyCount++;
+                  factorOverlayTotal += factorOverlay.totalAdjustment;
+                  factorSeasonalityTotal += factorOverlay.seasonality.adjustment;
+                  factorUpstreamTotal += factorOverlay.upstreamAdjustment;
+                  factorRegimeAlignTotal += factorOverlay.regimeAlignmentAdjustment;
+                  factorCoverageTotal += factorOverlay.factorCoverage;
+                  factorConfidenceTotal += factorOverlay.factorConfidence;
+
+                  techData = {
+                      ...techData,
+                      technicalScore: Number(Math.min(99, Math.max(1, techData.technicalScore + factorOverlay.totalAdjustment)).toFixed(2)),
+                      scoreBreakdown: {
+                          ...techData.scoreBreakdown,
+                          factorAdjustment: Number(((techData.scoreBreakdown.factorAdjustment || 0) + factorOverlay.totalAdjustment).toFixed(2)),
+                          finalScore: Number(Math.min(99, Math.max(1, techData.technicalScore + factorOverlay.totalAdjustment)).toFixed(2))
+                      },
+                      techMetrics: {
+                          ...techData.techMetrics,
+                          factorSeasonalityScore: factorOverlay.seasonality.score,
+                          factorSeasonalityAdjustment: factorOverlay.seasonality.adjustment,
+                          factorSeasonalityCoverage: factorOverlay.seasonality.coverage,
+                          factorSeasonalityAvgMonthlyReturnPct: factorOverlay.seasonality.avgMonthlyReturnPct,
+                          factorSeasonalityWinRatePct: factorOverlay.seasonality.winRatePct,
+                          factorSeasonalitySampleCount: factorOverlay.seasonality.sampleCount,
+                          factorUpstreamAdjustment: factorOverlay.upstreamAdjustment,
+                          factorUpstreamCoverage: factorOverlay.upstreamCoverage,
+                          factorRegimeAlignmentAdjustment: factorOverlay.regimeAlignmentAdjustment,
+                          factorQualityScore: factorOverlay.qualityScore,
+                          factorAdjustmentTotal: factorOverlay.totalAdjustment,
+                          factorCoverage: factorOverlay.factorCoverage,
+                          factorConfidence: factorOverlay.factorConfidence
+                      },
+                      factorSeasonalityScore: factorOverlay.seasonality.score,
+                      factorSeasonalityAdjustment: factorOverlay.seasonality.adjustment,
+                      factorSeasonalityCoverage: factorOverlay.seasonality.coverage,
+                      factorUpstreamAdjustment: factorOverlay.upstreamAdjustment,
+                      factorUpstreamCoverage: factorOverlay.upstreamCoverage,
+                      factorRegimeAlignmentAdjustment: factorOverlay.regimeAlignmentAdjustment,
+                      factorQualityScore: factorOverlay.qualityScore,
+                      factorAdjustmentTotal: factorOverlay.totalAdjustment,
+                      factorCoverage: factorOverlay.factorCoverage,
+                      factorConfidence: factorOverlay.factorConfidence
+                  };
+
                   const effectivePrice = candles[candles.length - 1]?.c || item.price || 0;
                   const dataQualityPenalty = evaluateDataQualityPenalty(candles, benchmarkCandles, effectivePrice);
                   if (dataQualityPenalty.dataQualityPenalty > 0) {
@@ -2092,6 +2337,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       scoreBreakdown: {
                           rawSignalScore: 0,
                           signalBonus: 0,
+                          factorAdjustment: 0,
                           regimePenalty: 0,
                           eventPenalty: 0,
                           liquidityPenalty: 0,
@@ -2149,6 +2395,18 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const averageEventPenalty = Number((eventOverlayTotal / Math.max(results.length, 1)).toFixed(2));
           addLog(`Event Overlay: flagged ${eventRiskPenaltyCount} assets (high ${eventHighRiskCount}, medium ${eventMediumRiskCount}, avg -${averageEventPenalty}).`, "ok");
       }
+      if (results.length > 0) {
+          const avgFactorTotal = Number((factorOverlayTotal / results.length).toFixed(2));
+          const avgSeasonalityAdj = Number((factorSeasonalityTotal / results.length).toFixed(2));
+          const avgUpstreamAdj = Number((factorUpstreamTotal / results.length).toFixed(2));
+          const avgRegimeAlignAdj = Number((factorRegimeAlignTotal / results.length).toFixed(2));
+          const avgCoverage = Number((factorCoverageTotal / results.length).toFixed(1));
+          const avgConfidence = Number((factorConfidenceTotal / results.length).toFixed(1));
+          addLog(
+              `[5Y_FACTOR] stage4 seasonality=${avgSeasonalityAdj.toFixed(2)} upstream=${avgUpstreamAdj.toFixed(2)} regime=${avgRegimeAlignAdj.toFixed(2)} total=${avgFactorTotal.toFixed(2)} | boost ${factorBoostCount}, cut ${factorPenaltyCount}, cov ${avgCoverage}%, conf ${avgConfidence}%`,
+              "ok"
+          );
+      }
 
       ttmSqueezeOnRate = ttmSampleCount > 0 ? Number((ttmSqueezeOnCount / ttmSampleCount).toFixed(4)) : 0;
       addLog(
@@ -2178,6 +2436,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   : {
                       rawSignalScore: safeFinalScore,
                       signalBonus: 0,
+                      factorAdjustment: 0,
                       regimePenalty: 0,
                       eventPenalty: 0,
                       liquidityPenalty: 0,
@@ -2189,7 +2448,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       const topAuditUniverse = auditReadyResults.slice(0, 10);
       const formatSigned = (value: number) => `${value >= 0 ? '+' : ''}${value.toFixed(2)}`;
-      const majorPenaltyCounter: Record<'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE' | 'NONE', number> = {
+      const majorPenaltyCounter: Record<'FACTOR' | 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE' | 'NONE', number> = {
+          FACTOR: 0,
           REGIME: 0,
           EVENT: 0,
           LIQUIDITY: 0,
@@ -2201,6 +2461,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const sb = ticker.scoreBreakdown || {
               rawSignalScore: ticker.technicalScore,
               signalBonus: 0,
+              factorAdjustment: 0,
               regimePenalty: 0,
               eventPenalty: 0,
               liquidityPenalty: 0,
@@ -2208,14 +2469,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               finalScore: ticker.technicalScore
           };
 
-          const penaltyLadder: Array<{ label: 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE'; value: number }> = [
+          const penaltyLadder: Array<{ label: 'FACTOR' | 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE'; value: number }> = [
+              { label: 'FACTOR', value: Math.max(0, -(sb.factorAdjustment || 0)) },
               { label: 'REGIME', value: sb.regimePenalty || 0 },
               { label: 'EVENT', value: sb.eventPenalty || 0 },
               { label: 'LIQUIDITY', value: sb.liquidityPenalty || 0 },
               { label: 'HYGIENE', value: sb.hygienePenalty || 0 }
           ];
 
-          let majorPenalty: 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE' | 'NONE' = 'NONE';
+          let majorPenalty: 'FACTOR' | 'REGIME' | 'EVENT' | 'LIQUIDITY' | 'HYGIENE' | 'NONE' = 'NONE';
           let majorPenaltyValue = 0;
           penaltyLadder.forEach((penalty) => {
               if (penalty.value > majorPenaltyValue) {
@@ -2230,13 +2492,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const eventBand = ticker.techMetrics?.eventDistanceBand || 'NONE';
 
           addLog(
-              `[AUDIT_SCORE] #${index + 1} ${ticker.symbol} | raw ${sb.rawSignalScore.toFixed(2)} -> bonus ${formatSigned(sb.signalBonus || 0)} -> regime -${(sb.regimePenalty || 0).toFixed(2)} -> event -${(sb.eventPenalty || 0).toFixed(2)} -> liq -${(sb.liquidityPenalty || 0).toFixed(2)} -> hyg -${(sb.hygienePenalty || 0).toFixed(2)} | final ${sb.finalScore.toFixed(2)} | major ${majorPenalty}${majorPenaltyValue > 0 ? `(${majorPenaltyValue.toFixed(2)})` : ''} | VIXΔ ${vixDistanceLabel} | EVT ${eventBand}`,
+              `[AUDIT_SCORE] #${index + 1} ${ticker.symbol} | raw ${sb.rawSignalScore.toFixed(2)} -> bonus ${formatSigned(sb.signalBonus || 0)} -> factor ${formatSigned(sb.factorAdjustment || 0)} -> regime -${(sb.regimePenalty || 0).toFixed(2)} -> event -${(sb.eventPenalty || 0).toFixed(2)} -> liq -${(sb.liquidityPenalty || 0).toFixed(2)} -> hyg -${(sb.hygienePenalty || 0).toFixed(2)} | final ${sb.finalScore.toFixed(2)} | major ${majorPenalty}${majorPenaltyValue > 0 ? `(${majorPenaltyValue.toFixed(2)})` : ''} | VIXΔ ${vixDistanceLabel} | EVT ${eventBand}`,
               "info"
           );
       });
 
       addLog(
-          `[AUDIT_SCORE_TOP_PENALTY] Top10 major causes => REGIME:${majorPenaltyCounter.REGIME} EVENT:${majorPenaltyCounter.EVENT} LIQ:${majorPenaltyCounter.LIQUIDITY} HYG:${majorPenaltyCounter.HYGIENE} NONE:${majorPenaltyCounter.NONE}`,
+          `[AUDIT_SCORE_TOP_PENALTY] Top10 major causes => FACTOR:${majorPenaltyCounter.FACTOR} REGIME:${majorPenaltyCounter.REGIME} EVENT:${majorPenaltyCounter.EVENT} LIQ:${majorPenaltyCounter.LIQUIDITY} HYG:${majorPenaltyCounter.HYGIENE} NONE:${majorPenaltyCounter.NONE}`,
           "info"
       );
       setProcessedData(auditReadyResults);
@@ -2276,7 +2538,17 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               },
               earningsEventSource: earningsEventMap?.source || null,
               earningsEventCount: Object.keys(earningsEventMap?.events || {}).length,
-              scoreBreakdownSchema: "v1",
+              factorOverlayStats: {
+                  avgTotalAdjustment: Number((factorOverlayTotal / Math.max(results.length, 1)).toFixed(2)),
+                  avgSeasonalityAdjustment: Number((factorSeasonalityTotal / Math.max(results.length, 1)).toFixed(2)),
+                  avgUpstreamAdjustment: Number((factorUpstreamTotal / Math.max(results.length, 1)).toFixed(2)),
+                  avgRegimeAlignmentAdjustment: Number((factorRegimeAlignTotal / Math.max(results.length, 1)).toFixed(2)),
+                  avgCoverage: Number((factorCoverageTotal / Math.max(results.length, 1)).toFixed(1)),
+                  avgConfidence: Number((factorConfidenceTotal / Math.max(results.length, 1)).toFixed(1)),
+                  boostedCount: factorBoostCount,
+                  penalizedCount: factorPenaltyCount
+              },
+              scoreBreakdownSchema: "v1.1",
               scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`
           },
           technical_universe: auditReadyResults
