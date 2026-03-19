@@ -52,3 +52,14 @@
 1. 다음 market-guard 실행 후 `state/guard-control.json`의 `updatedAt`가 최신 시간으로 갱신되는지 확인.
 2. 다음 dry-run 텔레그램에서 Top6의 `ER N/A`가 줄고 ER 퍼센트가 표시되는지 확인.
 3. stop-distance 경계값 종목에서 불필요한 오탐 skip이 줄었는지 확인.
+
+## 운영 검증 결과 (PASS, 2026-03-20)
+- Dry-Run Summary 기준:
+  - `lastSentAt=2026-03-19T17:09:32.464Z` (dedupe 아님, 최신 실행 반영)
+  - `guard_control.stale=false`, `updatedAt=2026-03-19T16:45:52.992Z`
+  - `skip_reasons=entry_blocked:guard_control_halt_new_entries(...):3, conviction_below_floor:2`
+  - `max_orders_reached`가 메인 요약에서 제거되어 차단 원인 일관화 확인
+- 텔레그램 본문 기준:
+  - Top6 `ER`가 `+24%`, `+51%` 등 정상 표기 (기존 `ER N/A` 해소)
+  - Guard 차단 사유가 `entry_blocked:guard_control_halt_new_entries(level=L2),simulated_live_parity`로 명확히 표기
+- 결론: 본 문서의 핵심 수정 항목(ER 표시/가격 정밀도/guard-control stale)은 운영 검증에서 모두 PASS.
