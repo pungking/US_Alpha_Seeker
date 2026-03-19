@@ -300,6 +300,14 @@ const toFiniteNumber = (value: any, fallback = 0) => {
 };
 
 const computeStage5FactorCarry = (item: any, dataQualityState: string) => {
+    const coverageRaw = item?.factorCoverage ?? item?.techMetrics?.factorCoverage;
+    const confidenceRaw = item?.factorConfidence ?? item?.techMetrics?.factorConfidence;
+    const qualityRaw = item?.factorQualityScore ?? item?.techMetrics?.factorQualityScore;
+    const hasCoverageMeta = Number.isFinite(Number(coverageRaw));
+    const hasConfidenceMeta = Number.isFinite(Number(confidenceRaw));
+    const hasQualityMeta = Number.isFinite(Number(qualityRaw));
+    const hasFactorMeta = hasCoverageMeta || hasConfidenceMeta || hasQualityMeta;
+
     const stage4Adjustment = clamp(
         toFiniteNumber(item?.factorAdjustmentTotal, toFiniteNumber(item?.techMetrics?.factorAdjustmentTotal, 0)),
         -5,
@@ -323,6 +331,21 @@ const computeStage5FactorCarry = (item: any, dataQualityState: string) => {
         0,
         100
     );
+
+    // Legacy Stage4 schema safeguard: if confidence/coverage/quality metadata is absent,
+    // skip carry entirely rather than introducing negative bias via low-coverage penalty.
+    if (!hasFactorMeta) {
+        return {
+            appliedCarry: 0,
+            carryScale: 0,
+            lowCoveragePenalty: 0,
+            factorCoverage: 0,
+            factorConfidence: 0,
+            factorQualityScore: Number(factorQualityScore.toFixed(2)),
+            stage4Adjustment: Number(stage4Adjustment.toFixed(2)),
+            guard: 'NORMAL' as const
+        };
+    }
 
     let carryScale = 0.15 + (0.35 * (factorConfidence / 100)); // 0.15 ~ 0.50
     let lowCoveragePenalty = 0;
@@ -491,6 +514,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
   const logRef = useRef<HTMLDivElement>(null);
+  const autoStartTriggeredRef = useRef(false);
 
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
@@ -526,11 +550,16 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
   }, [loading, progress]);
 
   useEffect(() => {
-    if (autoStart && !loading) {
+    if (!autoStart) {
+        autoStartTriggeredRef.current = false;
+        return;
+    }
+    if (autoStart && !loading && !autoStartTriggeredRef.current) {
+        autoStartTriggeredRef.current = true;
         addLog("AUTO-PILOT: Engaging Institutional Footprint Scanner...", "signal");
         executeIntegratedIctProtocol();
     }
-  }, [autoStart]);
+  }, [autoStart, loading]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -575,13 +604,17 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
     addLog("Phase 5: Initiating Institutional Liquidity Sieve...", "info");
     
     try {
-      const fullQuery = encodeURIComponent(`name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`);
+      const stage4FolderId = await findFolderId(accessToken, GOOGLE_DRIVE_TARGET.stage4SubFolder);
+      const fullQueryRaw = stage4FolderId
+          ? `name contains 'STAGE4_TECHNICAL_FULL' and '${stage4FolderId}' in parents and trashed = false`
+          : `name contains 'STAGE4_TECHNICAL_FULL' and trashed = false`;
+      const fullQuery = encodeURIComponent(fullQueryRaw);
 
       // [RESILIENCE] Retry Logic for Drive Latency (3 Attempts)
       let fullRes: any = { files: [] };
       for (let attempt = 1; attempt <= 3; attempt++) {
           try {
-              const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${fullQuery}&orderBy=createdTime desc&pageSize=5`, {
+              const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${fullQuery}&orderBy=createdTime desc&pageSize=10&fields=files(id,name,createdTime,modifiedTime)`, {
                   headers: { 'Authorization': `Bearer ${accessToken}` }
               });
               if (res.ok) {
@@ -598,24 +631,58 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
 
       let mergedUniverse: any[] = [];
       let stage4SourceStage3File: string | null = null;
+      let selectedStage4Name: string | null = null;
+      let selectedStage4FactorReady = false;
+
+      const isFactorReady = (rows: any[]) => {
+          if (!Array.isArray(rows) || rows.length === 0) return false;
+          return rows.some((row: any) => {
+              const coverage = Number(row?.factorCoverage ?? row?.techMetrics?.factorCoverage);
+              const confidence = Number(row?.factorConfidence ?? row?.techMetrics?.factorConfidence);
+              const quality = Number(row?.factorQualityScore ?? row?.techMetrics?.factorQualityScore);
+              return Number.isFinite(coverage) && Number.isFinite(confidence) && Number.isFinite(quality);
+          });
+      };
 
       if (fullRes.files?.length) {
-          const latestFull = fullRes.files[0];
-          try {
-              const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFull.id}?alt=media`, {
-                  headers: { 'Authorization': `Bearer ${accessToken}` }
-              });
-              await assertDriveOk(contentRes, `loadStage4.content(${latestFull.id})`);
-              const content = await contentRes.json();
+          for (const fileMeta of fullRes.files) {
+              try {
+                  const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${fileMeta.id}?alt=media`, {
+                      headers: { 'Authorization': `Bearer ${accessToken}` }
+                  });
+                  await assertDriveOk(contentRes, `loadStage4.content(${fileMeta.id})`);
+                  const content = await contentRes.json();
+                  const rows = Array.isArray(content?.technical_universe) ? content.technical_universe : [];
+                  if (rows.length === 0) continue;
 
-              if (content.technical_universe && Array.isArray(content.technical_universe)) {
-                  mergedUniverse = content.technical_universe;
-                  stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
-                  addLog(`Stage 4 Full Vault Locked: ${latestFull.name}`, "ok");
+                  const factorReady = isFactorReady(rows);
+                  if (mergedUniverse.length === 0) {
+                      mergedUniverse = rows;
+                      stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
+                      selectedStage4Name = fileMeta.name || null;
+                      selectedStage4FactorReady = factorReady;
+                  }
+
+                  // Prefer latest factor-ready Stage4 file to keep Stage5 carry contract consistent.
+                  if (factorReady) {
+                      mergedUniverse = rows;
+                      stage4SourceStage3File = content?.manifest?.sourceStage3File || null;
+                      selectedStage4Name = fileMeta.name || null;
+                      selectedStage4FactorReady = true;
+                      break;
+                  }
+              } catch (e) {
+                  console.warn(`Failed to load Stage 4 full file ${fileMeta.name}`, e);
+                  addLog(`Warning: Failed to load ${fileMeta.name}`, "warn");
               }
-          } catch (e) {
-              console.warn(`Failed to load Stage 4 full file ${latestFull.name}`, e);
-              addLog(`Warning: Failed to load ${latestFull.name}`, "warn");
+          }
+      }
+
+      if (selectedStage4Name) {
+          if (selectedStage4FactorReady) {
+              addLog(`Stage 4 Full Vault Locked: ${selectedStage4Name} (factor-ready)`, "ok");
+          } else {
+              addLog(`Stage 4 Full Vault Locked: ${selectedStage4Name} (legacy factor schema)`, "warn");
           }
       }
 
