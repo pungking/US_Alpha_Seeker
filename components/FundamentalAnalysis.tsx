@@ -136,6 +136,130 @@ const computeUniverseBaselines = (universe: any[]) => {
     return baselines;
 };
 
+const HISTORY_REVENUE_KEYS = ['Total Revenue', 'Revenue', 'Operating Revenue', 'Net Sales', 'Sales'];
+const HISTORY_OPERATING_INCOME_KEYS = ['Operating Income', 'Operating Income Loss'];
+const HISTORY_NET_INCOME_KEYS = ['Net Income', 'Net Income Common Stockholders', 'Net Income Including Noncontrolling Interests'];
+const HISTORY_DEBT_KEYS = [
+    'Total Debt',
+    'Total Debt And Capital Lease Obligation',
+    'Long Term Debt',
+    'Current Debt',
+    'Current Debt And Capital Lease Obligation'
+];
+
+const getHistoryDateMs = (row: any): number => {
+    const raw = row?.date || row?.asOfDate || row?.periodEndDate;
+    const t = raw ? new Date(raw).getTime() : NaN;
+    return Number.isFinite(t) ? t : NaN;
+};
+
+const getHistoryNumber = (row: any, keys: string[]): number | null => {
+    if (!row || typeof row !== 'object') return null;
+    for (const key of keys) {
+        const value = row[key];
+        const num = Number(value);
+        if (Number.isFinite(num)) return num;
+    }
+    return null;
+};
+
+const normalizeHistoryRows = (raw: any): any[] => {
+    if (Array.isArray(raw)) return raw;
+    if (raw && typeof raw === 'object') {
+        if (Array.isArray(raw.financials)) return raw.financials;
+        const keys = Object.keys(raw).filter((k) => !k.startsWith('_'));
+        return keys.map((k) => ({ date: k, ...(raw[k] || {}) }));
+    }
+    return [];
+};
+
+const computeFiveYearTrendSignals = (rawHistory: any, maxAdjustment = 6) => {
+    const rows = normalizeHistoryRows(rawHistory)
+        .map((row) => ({ ...row, __dateMs: getHistoryDateMs(row) }))
+        .filter((row) => Number.isFinite(row.__dateMs))
+        .sort((a, b) => a.__dateMs - b.__dateMs);
+
+    if (!rows.length) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, revenueCagrPct: null, marginDeltaPct: null, debtImprovementPct: null };
+    }
+
+    const annualRows = rows.filter((row) => String(row._periodType || '').toUpperCase() === 'ANNUAL');
+    const trendRows = annualRows.length >= 3 ? annualRows : rows;
+
+    const firstLastMetric = (resolver: (row: any) => number | null) => {
+        const values = trendRows
+            .map((row) => ({ row, value: resolver(row) }))
+            .filter((x) => x.value !== null && Number.isFinite(Number(x.value)));
+        if (values.length < 2) return null;
+        return { first: Number(values[0].value), last: Number(values[values.length - 1].value), firstRow: values[0].row, lastRow: values[values.length - 1].row };
+    };
+
+    const revenuePair = firstLastMetric((row) => {
+        const revenue = getHistoryNumber(row, HISTORY_REVENUE_KEYS);
+        return revenue && revenue > 0 ? revenue : null;
+    });
+    let revenueCagrPct: number | null = null;
+    let revenueScore: number | null = null;
+    if (revenuePair) {
+        const yearSpan = Math.max(1, (revenuePair.lastRow.__dateMs - revenuePair.firstRow.__dateMs) / (1000 * 60 * 60 * 24 * 365));
+        if (revenuePair.first > 0 && revenuePair.last > 0) {
+            revenueCagrPct = (Math.pow(revenuePair.last / revenuePair.first, 1 / yearSpan) - 1) * 100;
+            revenueScore = normalizeScore(revenueCagrPct, -10, 18);
+        }
+    }
+
+    const marginPair = firstLastMetric((row) => {
+        const revenue = getHistoryNumber(row, HISTORY_REVENUE_KEYS);
+        if (!revenue || revenue <= 0) return null;
+        const operatingIncome = getHistoryNumber(row, HISTORY_OPERATING_INCOME_KEYS);
+        const netIncome = getHistoryNumber(row, HISTORY_NET_INCOME_KEYS);
+        const numerator = operatingIncome !== null ? operatingIncome : netIncome;
+        if (numerator === null) return null;
+        return (numerator / revenue) * 100;
+    });
+    let marginDeltaPct: number | null = null;
+    let marginScore: number | null = null;
+    if (marginPair) {
+        marginDeltaPct = marginPair.last - marginPair.first;
+        marginScore = normalizeScore(marginDeltaPct, -6, 8);
+    }
+
+    const debtPair = firstLastMetric((row) => {
+        const debt = getHistoryNumber(row, HISTORY_DEBT_KEYS);
+        return debt && debt > 0 ? debt : null;
+    });
+    let debtImprovementPct: number | null = null;
+    let debtScore: number | null = null;
+    if (debtPair && debtPair.first > 0) {
+        debtImprovementPct = ((debtPair.first - debtPair.last) / debtPair.first) * 100;
+        debtScore = normalizeScore(debtImprovementPct, -30, 30);
+    }
+
+    const components: Array<{ score: number; weight: number }> = [];
+    if (revenueScore !== null) components.push({ score: revenueScore, weight: 0.45 });
+    if (marginScore !== null) components.push({ score: marginScore, weight: 0.35 });
+    if (debtScore !== null) components.push({ score: debtScore, weight: 0.20 });
+
+    if (!components.length) {
+        return { available: false, score: 50, adjustment: 0, coverage: 0, revenueCagrPct, marginDeltaPct, debtImprovementPct };
+    }
+
+    const totalWeight = components.reduce((sum, c) => sum + c.weight, 0);
+    const score = components.reduce((sum, c) => sum + (c.score * c.weight), 0) / totalWeight;
+    const adjustment = Math.max(-maxAdjustment, Math.min(maxAdjustment, ((score - 50) / 50) * maxAdjustment));
+    const coverage = Math.round((components.length / 3) * 100);
+
+    return {
+        available: true,
+        score,
+        adjustment,
+        coverage,
+        revenueCagrPct,
+        marginDeltaPct,
+        debtImprovementPct
+    };
+};
+
 // [ENGINE v5.3] Pure Quant Logic (No AI)
 const performFinancialEngineering = (
     data: any,
@@ -285,7 +409,9 @@ const performFinancialEngineering = (
     }
 
     // [STAGE 3 WEIGHTS] Focus on Value (40%) and Safety (30%)
-    const fundamentalScore = (valScore * 0.40) + (safetyScore * 0.30) + (qualScore * 0.20) + (growthScore * 0.10);
+    const baseFundamentalScore = (valScore * 0.40) + (safetyScore * 0.30) + (qualScore * 0.20) + (growthScore * 0.10);
+    const trendSignals = computeFiveYearTrendSignals(data.financialHistory || data.fullHistory, 6);
+    const fundamentalScore = Math.max(0, Math.min(100, baseFundamentalScore + trendSignals.adjustment));
 
     let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
     if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = 'Wide';
@@ -312,6 +438,12 @@ const performFinancialEngineering = (
         earningsQuality: safeNum(earningsQualityScore),
         economicMoat,
         dataConfidence,
+        trendScore: Number((trendSignals.score || 50).toFixed(2)),
+        trendAdjustment: Number((trendSignals.adjustment || 0).toFixed(2)),
+        trendCoverage: trendSignals.coverage || 0,
+        revenueCagrPct: trendSignals.revenueCagrPct,
+        marginTrendDeltaPct: trendSignals.marginDeltaPct,
+        debtImprovementPct: trendSignals.debtImprovementPct,
         cashflowProxyUsed: isCashflowProxy,
         roicDebtFallbackEnabled: allowRatioDebtFallback,
         roicDebtSource,
@@ -770,6 +902,11 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                          if (!hasValue(itemToAnalyze.grossMargin) && latestHistory['Gross Profit'] && latestHistory['Total Revenue']) {
                               itemToAnalyze.grossMargin = (latestHistory['Gross Profit'] / latestHistory['Total Revenue']) * 100;
                          }
+                    }
+                    if (fullHistory.length > 0) {
+                        // 5Y trend scoring uses normalized financial history inside performFinancialEngineering.
+                        itemToAnalyze.financialHistory = fullHistory;
+                        itemToAnalyze.fullHistory = fullHistory;
                     }
 
                     let isImputed = false;
