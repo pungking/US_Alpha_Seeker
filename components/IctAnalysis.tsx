@@ -49,6 +49,13 @@ interface IctScoredTicker {
       signalQualityBonus: number;
       signalComboBonus: number;
       minerviniBonus: number;
+      factorCarryApplied: number;
+      factorCarryScale: number;
+      factorCarryLowCoveragePenalty: number;
+      factorCarryGuard: 'NORMAL' | 'THIN_REDUCED' | 'ILLIQUID_BLOCK_POSITIVE' | 'STALE_BLOCK_POSITIVE';
+      factorCoverage: number;
+      factorConfidence: number;
+      factorQualityScore: number;
       rsiPenalty: number;
       heatPenalty: number;
       dataDoubtfulMultiplier: number;
@@ -282,6 +289,77 @@ const calibrateCompositeAlpha = (rawComposite: number) => {
         score: calibrated,
         applied: Math.abs(delta) > 1e-6,
         delta
+    };
+};
+
+const clamp = (value: number, min: number, max: number) => Math.max(min, Math.min(max, value));
+
+const toFiniteNumber = (value: any, fallback = 0) => {
+    const parsed = Number(value);
+    return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const computeStage5FactorCarry = (item: any, dataQualityState: string) => {
+    const stage4Adjustment = clamp(
+        toFiniteNumber(item?.factorAdjustmentTotal, toFiniteNumber(item?.techMetrics?.factorAdjustmentTotal, 0)),
+        -5,
+        5
+    );
+    const factorCoverage = clamp(
+        toFiniteNumber(item?.factorCoverage, toFiniteNumber(item?.techMetrics?.factorCoverage, 0)),
+        0,
+        100
+    );
+    const factorConfidence = clamp(
+        toFiniteNumber(item?.factorConfidence, toFiniteNumber(item?.techMetrics?.factorConfidence, 0)),
+        0,
+        100
+    );
+    const factorQualityScore = clamp(
+        toFiniteNumber(
+            item?.factorQualityScore,
+            toFiniteNumber(item?.techMetrics?.factorQualityScore, toFiniteNumber(item?.qualityFactorScore, toFiniteNumber(item?.qualityScore, 50)))
+        ),
+        0,
+        100
+    );
+
+    let carryScale = 0.15 + (0.35 * (factorConfidence / 100)); // 0.15 ~ 0.50
+    let lowCoveragePenalty = 0;
+    if (factorCoverage < 40) {
+        carryScale *= 0.8;
+        lowCoveragePenalty = -0.6;
+    } else if (factorCoverage < 60) {
+        carryScale *= 0.9;
+    }
+
+    let rawCarry = (stage4Adjustment * carryScale) + lowCoveragePenalty;
+
+    // If factor quality itself is weak, only allow half of positive carry.
+    if (factorQualityScore < 40 && rawCarry > 0) rawCarry *= 0.5;
+
+    let guard: 'NORMAL' | 'THIN_REDUCED' | 'ILLIQUID_BLOCK_POSITIVE' | 'STALE_BLOCK_POSITIVE' = 'NORMAL';
+    if (dataQualityState === 'STALE') {
+        rawCarry = Math.min(rawCarry, 0);
+        guard = 'STALE_BLOCK_POSITIVE';
+    } else if (dataQualityState === 'ILLIQUID') {
+        rawCarry = Math.min(rawCarry, 0);
+        guard = 'ILLIQUID_BLOCK_POSITIVE';
+    } else if (dataQualityState === 'THIN') {
+        if (rawCarry > 0) rawCarry *= 0.5;
+        guard = 'THIN_REDUCED';
+    }
+
+    const appliedCarry = Number(clamp(rawCarry, -3, 3).toFixed(2));
+    return {
+        appliedCarry,
+        carryScale: Number(carryScale.toFixed(4)),
+        lowCoveragePenalty: Number(lowCoveragePenalty.toFixed(2)),
+        factorCoverage: Number(factorCoverage.toFixed(2)),
+        factorConfidence: Number(factorConfidence.toFixed(2)),
+        factorQualityScore: Number(factorQualityScore.toFixed(2)),
+        stage4Adjustment: Number(stage4Adjustment.toFixed(2)),
+        guard
     };
 };
 
@@ -560,6 +638,12 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           { label: 'techMetrics.rsRating', valid: (t) => Number.isFinite(Number(t?.techMetrics?.rsRating)) },
           { label: 'techMetrics.rvol', valid: (t) => Number.isFinite(Number(t?.techMetrics?.rvol)) }
       ];
+      const factorContractChecks: Array<{ label: string; valid: (ticker: any) => boolean }> = [
+          { label: 'factorAdjustmentTotal', valid: (t) => Number.isFinite(Number(t?.factorAdjustmentTotal ?? t?.techMetrics?.factorAdjustmentTotal)) },
+          { label: 'factorCoverage', valid: (t) => Number.isFinite(Number(t?.factorCoverage ?? t?.techMetrics?.factorCoverage)) },
+          { label: 'factorConfidence', valid: (t) => Number.isFinite(Number(t?.factorConfidence ?? t?.techMetrics?.factorConfidence)) },
+          { label: 'factorQualityScore', valid: (t) => Number.isFinite(Number(t?.factorQualityScore ?? t?.techMetrics?.factorQualityScore)) }
+      ];
 
       const missingRows = mergedUniverse
           .map((ticker: any, idx: number) => {
@@ -602,6 +686,29 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           }
       } else {
           addLog(`Stage4 Contract Check: 0/${mergedUniverse.length} incomplete rows.`, "ok");
+      }
+
+      // Warn-only: factor contract coverage (no abort)
+      const factorCoverageSummary = factorContractChecks
+          .map((check) => {
+              const presentCount = mergedUniverse.filter((ticker: any) => check.valid(ticker)).length;
+              const coveragePct = mergedUniverse.length > 0 ? (presentCount / mergedUniverse.length) * 100 : 0;
+              return {
+                  label: check.label,
+                  presentCount,
+                  coveragePct: Number(coveragePct.toFixed(1))
+              };
+          })
+          .sort((a, b) => a.coveragePct - b.coveragePct);
+
+      const factorCoverageLine = factorCoverageSummary
+          .map((row) => `${row.label}:${row.coveragePct}%`)
+          .join(', ');
+      const lowFactorCoverage = factorCoverageSummary.filter((row) => row.coveragePct < 80);
+      if (lowFactorCoverage.length > 0) {
+          addLog(`Stage4 Factor Contract (warn-only): ${factorCoverageLine}`, "warn");
+      } else {
+          addLog(`Stage4 Factor Contract: ${factorCoverageLine}`, "ok");
       }
 
         // [CHECK] Sort by technical score to prioritize momentum, but also respect Fundamental
@@ -662,6 +769,16 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       const results: IctScoredTicker[] = [];
       let c9RecentGeometryCount = 0;
       let c9FallbackGeometryCount = 0;
+      let factorCarryBoostCount = 0;
+      let factorCarryPenaltyCount = 0;
+      let factorCarryTotal = 0;
+      let factorCarryScaleTotal = 0;
+      let factorCoverageTotal = 0;
+      let factorConfidenceTotal = 0;
+      let factorLowCoveragePenaltyCount = 0;
+      let factorGuardThinCount = 0;
+      let factorGuardIlliquidCount = 0;
+      let factorGuardStaleCount = 0;
 
       for (let i = 0; i < total; i++) {
         const item = targets[i];
@@ -799,6 +916,21 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         else if (dataQualityState === 'ILLIQUID') dataQualityMultiplier = 0.82;
         else if (dataQualityState === 'STALE') dataQualityMultiplier = 0.75;
         composite *= dataQualityMultiplier;
+
+        // Stage5 factor carry: Stage4 factor stack continuity with conservative anti-double-count scaling.
+        const factorCarry = computeStage5FactorCarry(item, dataQualityState);
+        composite += factorCarry.appliedCarry;
+        factorCarryTotal += factorCarry.appliedCarry;
+        factorCarryScaleTotal += factorCarry.carryScale;
+        factorCoverageTotal += factorCarry.factorCoverage;
+        factorConfidenceTotal += factorCarry.factorConfidence;
+        if (factorCarry.appliedCarry > 0) factorCarryBoostCount++;
+        else if (factorCarry.appliedCarry < 0) factorCarryPenaltyCount++;
+        if (factorCarry.lowCoveragePenalty < 0) factorLowCoveragePenaltyCount++;
+        if (factorCarry.guard === 'THIN_REDUCED') factorGuardThinCount++;
+        else if (factorCarry.guard === 'ILLIQUID_BLOCK_POSITIVE') factorGuardIlliquidCount++;
+        else if (factorCarry.guard === 'STALE_BLOCK_POSITIVE') factorGuardStaleCount++;
+
         const calibratedComposite = calibrateCompositeAlpha(composite);
         const preDiversificationComposite = Number(calibratedComposite.score.toFixed(2));
         const calibrationDelta = Number(calibratedComposite.delta.toFixed(4));
@@ -828,6 +960,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                 signalQualityBonus: Number(signalQualityBonus.toFixed(2)),
                 signalComboBonus: Number(signalComboBonusApplied.toFixed(2)),
                 minerviniBonus: Number(minerviniBonus.toFixed(2)),
+                factorCarryApplied: factorCarry.appliedCarry,
+                factorCarryScale: factorCarry.carryScale,
+                factorCarryLowCoveragePenalty: factorCarry.lowCoveragePenalty,
+                factorCarryGuard: factorCarry.guard,
+                factorCoverage: factorCarry.factorCoverage,
+                factorConfidence: factorCarry.factorConfidence,
+                factorQualityScore: factorCarry.factorQualityScore,
                 rsiPenalty: Number(rsiPenalty.toFixed(2)),
                 heatPenalty: Number(signalHeatPenaltyApplied.toFixed(2)),
                 dataDoubtfulMultiplier: Number(dataDoubtfulMultiplier.toFixed(4)),
@@ -849,7 +988,13 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
             executionGeometrySource: geometry.executionGeometrySource,
             executionRangeBars: geometry.executionRangeBars,
             executionStopBars: geometry.executionStopBars,
-            executionAtr: geometry.executionAtr
+            executionAtr: geometry.executionAtr,
+            factorCarryApplied: factorCarry.appliedCarry,
+            factorCarryScale: factorCarry.carryScale,
+            factorCoverage: factorCarry.factorCoverage,
+            factorConfidence: factorCarry.factorConfidence,
+            factorQualityScore: factorCarry.factorQualityScore,
+            factorCarryGuard: factorCarry.guard
         };
 
         results.push(ticker);
@@ -869,6 +1014,15 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       addLog(
           `[C9_GEOMETRY] recent_swing_atr=${c9RecentGeometryCount} | fallback_52w=${c9FallbackGeometryCount}`,
           c9FallbackGeometryCount > 0 ? "warn" : "ok"
+      );
+      const denominator = Math.max(total, 1);
+      const avgFactorCarry = Number((factorCarryTotal / denominator).toFixed(2));
+      const avgFactorScale = Number((factorCarryScaleTotal / denominator).toFixed(3));
+      const avgFactorCoverage = Number((factorCoverageTotal / denominator).toFixed(1));
+      const avgFactorConfidence = Number((factorConfidenceTotal / denominator).toFixed(1));
+      addLog(
+          `[FACTOR_CARRY] avg=${avgFactorCarry.toFixed(2)} scale=${avgFactorScale.toFixed(3)} cov=${avgFactorCoverage}% conf=${avgFactorConfidence}% | boost ${factorCarryBoostCount}, cut ${factorCarryPenaltyCount}, lowCovPenalty ${factorLowCoveragePenaltyCount}, thin ${factorGuardThinCount}, illiquid ${factorGuardIlliquidCount}, stale ${factorGuardStaleCount}`,
+          "ok"
       );
 
       // [NEW] Sector Diversification Logic (Step 6) - Progressive Penalty Protocol
@@ -949,7 +1103,7 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           const breakdown = ticker.compositeBreakdown;
           if (!breakdown) return;
           addLog(
-              `[ALPHA_BREAKDOWN] #${index + 1} ${ticker.symbol} | rank ${ticker.rankRaw}->${ticker.rankFinal} | pre ${breakdown.preDiversificationComposite.toFixed(2)} x sector ${breakdown.sectorDiversificationMultiplier.toFixed(2)} (${breakdown.sectorBucket}) => final ${ticker.compositeAlpha.toFixed(2)} | mode ${ticker.regimeMode} | cause ${ticker.majorPenaltyCause}`,
+              `[ALPHA_BREAKDOWN] #${index + 1} ${ticker.symbol} | rank ${ticker.rankRaw}->${ticker.rankFinal} | pre ${breakdown.preDiversificationComposite.toFixed(2)} x sector ${breakdown.sectorDiversificationMultiplier.toFixed(2)} (${breakdown.sectorBucket}) => final ${ticker.compositeAlpha.toFixed(2)} | factor ${breakdown.factorCarryApplied >= 0 ? '+' : ''}${breakdown.factorCarryApplied.toFixed(2)} (${breakdown.factorCarryGuard}) | mode ${ticker.regimeMode} | cause ${ticker.majorPenaltyCause}`,
               "ok"
           );
       });
