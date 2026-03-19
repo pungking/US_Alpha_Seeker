@@ -113,10 +113,19 @@ const App: React.FC = () => {
   useEffect(() => {
       const win = window as any;
       win.__AUTO_STATUS = autoStatusMessage;
+      const stageMeta = STAGES_FLOW.find((s) => s.id === currentStage);
+      win.__AUTO_PROGRESS = {
+          mode: viewMode,
+          auto: isAutoPilotRunning,
+          stageId: currentStage,
+          stageLabel: stageMeta?.label || `Stage ${currentStage}`,
+          status: autoStatusMessage,
+          updatedAt: new Date().toISOString()
+      };
       if (AUTO_TERMINAL_MESSAGES.has(autoStatusMessage)) {
           win.__AUTO_DONE = autoStatusMessage;
       }
-  }, [autoStatusMessage]);
+  }, [autoStatusMessage, currentStage, viewMode, isAutoPilotRunning]);
 
   // Stage Completion Handler (Single Run Logic)
   const handleStageComplete = async (stageId: number, reportPayload?: string) => {

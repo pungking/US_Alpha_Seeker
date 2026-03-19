@@ -200,6 +200,23 @@ async function getAccessToken() {
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded' });
 
     console.log("⏳ Pipeline Execution in Progress... (Waiting for 'ALL PIPELINES EXECUTED')");
+    let progressTicker = null;
+    let lastProgressSignature = "";
+    progressTicker = setInterval(async () => {
+        try {
+            const progress = await page.evaluate(() => (window).__AUTO_PROGRESS || null);
+            if (!progress) return;
+            const signature = `${progress.mode}|${progress.auto}|${progress.stageId}|${progress.status}`;
+            if (signature === lastProgressSignature) return;
+            lastProgressSignature = signature;
+            console.log(
+                `📍 [PROGRESS] mode=${progress.mode} auto=${progress.auto} ` +
+                `stage=${progress.stageId}(${progress.stageLabel}) status="${progress.status}"`
+            );
+        } catch {
+            // Ignore transient evaluate failures while page is transitioning.
+        }
+    }, 10000);
     
     const TIMEOUT_MS = 100 * 60 * 1000; // 100 minutes
     
@@ -223,6 +240,11 @@ async function getAccessToken() {
         console.log(bodyText.substring(0, 2000) + "... (truncated)");
         console.log("--- [CURRENT PAGE TEXT END] ---");
         throw waitError;
+    } finally {
+        if (progressTicker) {
+            clearInterval(progressTicker);
+            progressTicker = null;
+        }
     }
 
     const finalState = await page.evaluate(() => {
