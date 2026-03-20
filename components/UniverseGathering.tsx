@@ -42,6 +42,15 @@ interface MasterTicker {
   eps: number;            // eps (Currency)
   operatingMargins: number; // operatingMargins
   debtToEquity: number;   // debtToEquity (Ratio)
+  // Distress model raw inputs (Altman / stability)
+  totalAssets?: number;
+  totalLiabilities?: number;
+  currentAssets?: number;
+  currentLiabilities?: number;
+  workingCapital?: number;
+  retainedEarnings?: number;
+  ebit?: number;
+  totalRevenue?: number;
   
   // 4. Growth & Cash (Growth)
   revenueGrowth: number;  // revenueGrowth (%)
@@ -336,6 +345,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               totalDebtAndCapitalLeaseObligation: keepRaw(raw.totalDebtAndCapitalLeaseObligation),
               totalEquity: keepRaw(raw.totalEquity || raw.stockholdersEquity || raw.totalStockholderEquity),
               totalStockholdersEquity: keepRaw(raw.totalStockholdersEquity || raw.totalStockholderEquity || raw.stockholdersEquity),
+              // Distress model raw inputs (Altman / stability). Preserve source units as-is.
+              totalAssets: keepRaw(raw.totalAssets),
+              totalLiabilities: keepRaw(raw.totalLiabilities),
+              currentAssets: keepRaw(raw.currentAssets),
+              currentLiabilities: keepRaw(raw.currentLiabilities),
+              workingCapital: keepRaw(raw.workingCapital),
+              retainedEarnings: keepRaw(raw.retainedEarnings),
+              ebit: keepRaw(raw.ebit),
+              totalRevenue: keepRaw(raw.totalRevenue || raw.revenue),
               
               revenueGrowth: toPercent(raw.revenueGrowth),
               operatingCashflow: 0,
@@ -749,6 +767,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   totalDebtAndCapitalLeaseObligation: Number(root.totalDebtAndCapitalLeaseObligation || 0),
                   totalEquity: Number(root.totalEquity || root.stockholdersEquity || root.totalStockholderEquity || 0),
                   totalStockholdersEquity: Number(root.totalStockholdersEquity || root.totalStockholderEquity || root.stockholdersEquity || 0),
+                  // Distress model raw inputs (Altman / stability). Keep numeric scale from harvester.
+                  totalAssets: Number(root.totalAssets || 0),
+                  totalLiabilities: Number(root.totalLiabilities || 0),
+                  currentAssets: Number(root.currentAssets || 0),
+                  currentLiabilities: Number(root.currentLiabilities || 0),
+                  workingCapital: Number(root.workingCapital || 0),
+                  retainedEarnings: Number(root.retainedEarnings || 0),
+                  ebit: Number(root.ebit || 0),
+                  totalRevenue: Number(root.totalRevenue || root.revenue || 0),
 
                   // 4. Growth & Cash
                   revenueGrowth: toPercent(root.revenueGrowth),
