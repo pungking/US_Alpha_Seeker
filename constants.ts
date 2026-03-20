@@ -31,7 +31,9 @@ const getEnvVar = (key: string): string => {
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
                 TELEGRAM_SIMULATION_CHAT_ID: process.env.TELEGRAM_SIMULATION_CHAT_ID,
-                GITHUB_PAT: process.env.GITHUB_PAT
+                GITHUB_PAT: process.env.GITHUB_PAT,
+                GH_PAT: process.env.GH_PAT,
+                SIDECAR_DISPATCH_TOKEN: process.env.SIDECAR_DISPATCH_TOKEN
             };
             return directMap[targetKey] || '';
         };
@@ -92,7 +94,7 @@ export const GITHUB_DISPATCH_CONFIG = {
   OWNER: 'pungking',
   REPO: 'US_Alpha_Seeker_Harvester',
   EVENT_TYPE: 'stage3_completed',
-  TOKEN: getEnvVar('GITHUB_PAT'),
+  TOKEN: getEnvVar('GITHUB_PAT') || getEnvVar('GH_PAT') || getEnvVar('SIDECAR_DISPATCH_TOKEN'),
   get API_URL() {
     return `https://api.github.com/repos/${this.OWNER}/${this.REPO}/dispatches`;
   }

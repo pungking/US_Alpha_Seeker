@@ -602,7 +602,13 @@ const triggerGitHubHarvester = async (meta?: {
   stockCount?: number;
   timestamp?: string;
   triggerFile?: string;
-}): Promise<boolean> => {
+}): Promise<{ ok: boolean; status: number; detail: string }> => {
+  if (!GITHUB_DISPATCH_CONFIG.TOKEN) {
+    const detail = 'missing_dispatch_token(VITE_GITHUB_PAT|VITE_GH_PAT|VITE_SIDECAR_DISPATCH_TOKEN)';
+    console.error(`[GITHUB DISPATCH] ❌ ${detail}`);
+    return { ok: false, status: 0, detail };
+  }
+
   try {
     const res = await fetch(GITHUB_DISPATCH_CONFIG.API_URL, {
       method: 'POST',
@@ -629,16 +635,17 @@ const triggerGitHubHarvester = async (meta?: {
         `[GITHUB DISPATCH] ✅ "${GITHUB_DISPATCH_CONFIG.EVENT_TYPE}" 트리거 성공` +
         ` → ${GITHUB_DISPATCH_CONFIG.OWNER}/${GITHUB_DISPATCH_CONFIG.REPO}`
       );
-      return true;
+      return { ok: true, status: res.status, detail: 'ok' };
     }
 
     const errText = await res.text();
     console.error(`[GITHUB DISPATCH] ❌ HTTP ${res.status}`, errText);
-    return false;
+    return { ok: false, status: res.status, detail: (errText || '').slice(0, 240) };
 
   } catch (e) {
     console.error('[GITHUB DISPATCH] ❌ 네트워크 오류:', e);
-    return false;
+    const detail = String((e as any)?.message || e || 'network_error');
+    return { ok: false, status: 0, detail };
   }
 };
 
@@ -1274,12 +1281,12 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             progressCompleteLoggedRef.current = false;
             readySignalHandledRef.current = false;
             addLog(`GitHub Harvester Trigger 전송 중...`, 'info');
-            const triggered = await triggerGitHubHarvester({
+            const dispatchResult = await triggerGitHubHarvester({
               stockCount: eliteCandidates.length,
               timestamp: new Date().toISOString(),
               triggerFile: fileName,
             });
-            if (triggered) {
+            if (dispatchResult.ok) {
               addLog(`GitHub Dispatch OK → event: "${GITHUB_DISPATCH_CONFIG.EVENT_TYPE}"`, 'ok');
 
               setIsSyncActive(true);
@@ -1302,7 +1309,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
               pendingStage4TriggerRef.current = null;
               setIsSyncActive(false);
               stopSyncPolling();
-              addLog(`GitHub Dispatch FAILED - check console`, 'err');
+              const reason = dispatchResult.detail ? ` | ${dispatchResult.detail}` : '';
+              addLog(`GitHub Dispatch FAILED (${dispatchResult.status || 'ERR'})${reason}`, 'err');
             }
 
         } catch (e: any) {
