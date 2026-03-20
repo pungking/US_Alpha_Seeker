@@ -31,9 +31,9 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
         strategy: "70점 이상: 강력한 현금 창출 능력. 하락장에서도 주가 방어력이 높습니다."
     },
     'Z_SCORE': {
-        title: "Altman Z-Score (파산위험)",
-        desc: "기업의 파산 가능성을 통계적으로 예측하는 모델입니다. (2.99 이상: 안전 / 1.8 미만: 위험)",
-        strategy: "1.8 미만인 기업은 기술적 반등이 있어도 '가치 함정(Value Trap)'일 확률이 높으므로 피하십시오."
+        title: "Distress Risk Score (부도위험 스코어)",
+        desc: "비금융주는 Altman Z-Score(원데이터 기반), 금융주는 섹터 적합 안정성 모델로 산출합니다. 동일 라벨이지만 계산식은 섹터별로 다릅니다.",
+        strategy: "Altman 모델은 2.99↑ 안전 / 1.8↓ 위험으로 해석합니다. 금융주 모델은 '상대 안정성 점수'이므로 섹터 내 순위와 Safety/현금흐름을 함께 보십시오."
     },
     'SAFETY_SCORE': {
         title: "Safety Score (재무안정성)",
@@ -64,6 +64,127 @@ const winsorize = (val: number, min: number, max: number): number => {
 };
 
 const clampScore = (val: number): number => Math.min(100, Math.max(0, val));
+const clamp01 = (val: number): number => Math.min(1, Math.max(0, val));
+
+type DistressScoreModel = 'ALTMAN_Z' | 'FINANCIAL_STABILITY' | 'SAFETY_PROXY';
+type DistressScoreResult = {
+    value: number;
+    model: DistressScoreModel;
+    coveragePct: number;
+    confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+};
+
+const toFiniteNumber = (value: any): number | null => {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : null;
+};
+
+const firstFiniteNumber = (...values: any[]): number | null => {
+    for (const value of values) {
+        const n = toFiniteNumber(value);
+        if (n !== null) return n;
+    }
+    return null;
+};
+
+const toDistressConfidence = (coveragePct: number): 'HIGH' | 'MEDIUM' | 'LOW' => {
+    if (coveragePct >= 90) return 'HIGH';
+    if (coveragePct >= 70) return 'MEDIUM';
+    return 'LOW';
+};
+
+const computeDistressScore = (
+    item: any,
+    isFinancial: boolean,
+    roe: number,
+    roa: number,
+    rawDebtRatio: any
+): DistressScoreResult => {
+    const totalAssets = toFiniteNumber(item.totalAssets);
+    const totalLiabilities = toFiniteNumber(item.totalLiabilities);
+    const currentAssets = toFiniteNumber(item.currentAssets);
+    const currentLiabilities = toFiniteNumber(item.currentLiabilities);
+    const workingCapital = firstFiniteNumber(
+        item.workingCapital,
+        currentAssets !== null && currentLiabilities !== null ? currentAssets - currentLiabilities : null
+    );
+    const retainedEarnings = toFiniteNumber(item.retainedEarnings);
+    const ebit = toFiniteNumber(item.ebit);
+    const totalRevenue = toFiniteNumber(item.totalRevenue);
+    const marketCap = firstFiniteNumber(item.marketCap, item.marketCapRaw, item.market_cap);
+    const debtRatio = toFiniteNumber(rawDebtRatio);
+
+    if (!isFinancial) {
+        const inputs = [workingCapital, retainedEarnings, ebit, marketCap, totalRevenue];
+        const available = inputs.filter((v) => v !== null).length;
+        const coveragePct = Number(((available / inputs.length) * 100).toFixed(1));
+
+        if (
+            totalAssets !== null &&
+            totalAssets > 0 &&
+            totalLiabilities !== null &&
+            totalLiabilities > 0 &&
+            workingCapital !== null &&
+            retainedEarnings !== null &&
+            ebit !== null &&
+            marketCap !== null &&
+            totalRevenue !== null
+        ) {
+            const altman =
+                1.2 * (workingCapital / totalAssets) +
+                1.4 * (retainedEarnings / totalAssets) +
+                3.3 * (ebit / totalAssets) +
+                0.6 * (marketCap / totalLiabilities) +
+                1.0 * (totalRevenue / totalAssets);
+            return {
+                value: Number(winsorize(altman, -2, 8).toFixed(2)),
+                model: 'ALTMAN_Z',
+                coveragePct,
+                confidence: toDistressConfidence(coveragePct)
+            };
+        }
+
+        // If raw financial statements are partially missing, degrade to a transparent safety proxy.
+        const roeNorm = clamp01((roe + 10) / 35);
+        const roaNorm = clamp01((roa + 2) / 10);
+        const debtNorm = debtRatio === null ? 0.45 : clamp01(1 - (Math.max(debtRatio, 0) / 2.5));
+        const liquidityNorm =
+            currentAssets !== null && currentLiabilities !== null && currentLiabilities > 0
+                ? clamp01((currentAssets / currentLiabilities) / 2)
+                : 0.5;
+        const proxy = 1 + ((roeNorm * 0.35) + (roaNorm * 0.2) + (debtNorm * 0.35) + (liquidityNorm * 0.1)) * 2.5;
+        return {
+            value: Number(proxy.toFixed(2)),
+            model: 'SAFETY_PROXY',
+            coveragePct,
+            confidence: toDistressConfidence(coveragePct)
+        };
+    }
+
+    // Financial sector model: Altman is not structurally valid for banks/insurers.
+    const financialInputs = [
+        Number.isFinite(roe) ? 1 : 0,
+        Number.isFinite(roa) ? 1 : 0,
+        debtRatio !== null ? 1 : 0,
+        totalAssets !== null && totalLiabilities !== null && totalAssets > 0 ? 1 : 0
+    ];
+    const coveragePct = Number(((financialInputs.reduce((sum, v) => sum + v, 0) / financialInputs.length) * 100).toFixed(1));
+    const roeNorm = clamp01((roe + 5) / 20);
+    const roaNorm = clamp01((roa + 1) / 4);
+    const leverageNorm = debtRatio === null ? 0.5 : clamp01(1 - (Math.max(debtRatio, 0) / 8));
+    const capitalRatio =
+        totalAssets !== null && totalLiabilities !== null && totalAssets > 0
+            ? (totalAssets - totalLiabilities) / totalAssets
+            : null;
+    const capitalNorm = capitalRatio === null ? 0.5 : clamp01((capitalRatio + 0.1) / 0.3);
+    const stability = 1 + ((roeNorm * 0.35) + (roaNorm * 0.25) + (leverageNorm * 0.2) + (capitalNorm * 0.2)) * 2.5;
+    return {
+        value: Number(stability.toFixed(2)),
+        model: 'FINANCIAL_STABILITY',
+        coveragePct,
+        confidence: toDistressConfidence(coveragePct)
+    };
+};
 
 const sanitizeData = (item: any) => {
     let { dividendYield, roe, operatingMargins, pbr, debtToEquity } = item;
@@ -532,6 +653,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   const roe = winsorize(imputeValue(rawRoe, -5, true), -50, 100);
                   const roa = winsorize(imputeValue(item.roa, -2, false), -20, 50);
                   const rawDebt = item.debtToEquity;
+                  const distressScore = computeDistressScore(item, isFinancial, roe, roa, rawDebt);
                   
                   // [LOGIC] Negative Debt/Equity means Negative Equity (Insolvency Risk)
                   let debtScore = 0;
@@ -595,9 +717,6 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   
                   const qualityScore = clampScore(rawQuality);
 
-                  // 7. Z-Score Proxy
-                  const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 2.0 : 1.0;
-
                   if (qualityScore > 35) {
                       // [STAGE 5 SAFEGUARD] Data Integrity & Imputation
                       let isImputed = false;
@@ -627,7 +746,10 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                           ...item,
                           roe: roe || 0,
                           debtToEquity: rawDebt || 0,
-                          zScoreProxy: Number(zScore.toFixed(2)),
+                          zScoreProxy: distressScore.value,
+                          zScoreModel: distressScore.model,
+                          zScoreCoveragePct: distressScore.coveragePct,
+                          zScoreConfidence: distressScore.confidence,
                           profitScore: Math.round(profitScore),
                           safeScore: Math.round(debtScore),
                           valueScore: Math.round(valueScore),
@@ -678,6 +800,20 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           }
 
           results.sort((a, b) => b.qualityScore - a.qualityScore);
+
+          const distressModelCounts = results.reduce<Record<string, number>>((acc, item) => {
+              const model = String(item?.zScoreModel || 'SAFETY_PROXY');
+              acc[model] = (acc[model] || 0) + 1;
+              return acc;
+          }, {});
+          const avgDistressCoverage =
+              results.length > 0
+                  ? results.reduce((sum, item) => sum + Number(item?.zScoreCoveragePct || 0), 0) / results.length
+                  : 0;
+          addLog(
+              `[DISTRESS] ALTMAN_Z=${distressModelCounts.ALTMAN_Z || 0} | FIN_STABILITY=${distressModelCounts.FINANCIAL_STABILITY || 0} | SAFETY_PROXY=${distressModelCounts.SAFETY_PROXY || 0} | avgCoverage=${avgDistressCoverage.toFixed(1)}%`,
+              "ok"
+          );
 
           // [DYNAMIC SCALING] Market Condition Analysis
           const avgScore = results.reduce((sum, item) => sum + item.qualityScore, 0) / (results.length || 1);
@@ -877,7 +1013,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                     onClick={() => setActiveInsight('Z_SCORE')}
                                     className="bg-slate-800/50 p-2 rounded-lg text-center border border-white/5 hover:bg-slate-700/50 cursor-help transition-all insight-trigger"
                                >
-                                   <p className="text-[7px] text-slate-400 uppercase font-bold">Z-Score</p>
+                                   <p className="text-[7px] text-slate-400 uppercase font-bold">{selectedTicker.zScoreModel === 'ALTMAN_Z' ? 'Altman Z' : 'Distress'}</p>
                                    <p className={`text-xs font-black ${selectedTicker.zScoreProxy > 2.9 ? 'text-emerald-400' : selectedTicker.zScoreProxy < 1.8 ? 'text-rose-400' : 'text-amber-400'}`}>{selectedTicker.zScoreProxy}</p>
                                </div>
                                <div 

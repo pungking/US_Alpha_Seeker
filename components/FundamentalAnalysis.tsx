@@ -30,9 +30,9 @@ const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: st
         strategy: "70점 이상: 강력한 현금 창출 능력. 하락장에서도 주가 방어력이 높습니다."
     },
     'Z_SCORE': {
-        title: "Z-Score Proxy (재무위험 프록시)",
-        desc: "현재 엔진은 정식 Altman Z-Score가 아닌 재무위험 프록시를 사용합니다. 부채와 수익성의 왜곡을 빠르게 잡아내는 보조 안전지표입니다.",
-        strategy: "정식 부도예측 모델이 아니므로 단독 해석은 피하고, 현금흐름과 부채비율이 함께 강한 종목만 신뢰하십시오."
+        title: "Distress Risk Score (부도위험 스코어)",
+        desc: "Stage 2에서 비금융은 Altman Z, 금융은 섹터 적합 안정성 모델로 계산된 스코어를 전달합니다. 즉, 라벨은 동일하지만 모델은 섹터별로 다릅니다.",
+        strategy: "Altman 모델은 2.99↑ 안정 / 1.8↓ 경계로 해석하고, 금융 모델은 섹터 내 상대 순위와 Safety/현금흐름을 함께 보십시오."
     },
     'SAFETY_SCORE': {
         title: "Safety Score (재무안정성)",
@@ -468,8 +468,9 @@ const performFinancialEngineering = (
     if (grossMargin > 20) fScore++;
     if (divYield > 0) fScore++;
     
-    // Default Z-Score (Mathematical Proxy)
+    // Distress score arrives from Stage2: ALTMAN_Z (non-financial) or sector-model proxy (financial).
     const hasZScoreProxy = hasValue(data.zScoreProxy);
+    const zScoreModel = String(data.zScoreModel || '').toUpperCase() || (isFinancial ? 'FINANCIAL_STABILITY' : 'SAFETY_PROXY');
     const zScore = hasZScoreProxy ? safeNum(data.zScoreProxy) : ((totalDebtRatio < 0.5 && roe > 0) ? 3.0 : 1.5);
 
     let valScore = 0;
@@ -494,7 +495,9 @@ const performFinancialEngineering = (
              safetyScore = normalizeScore(2.5 - totalDebtRatio, 0, 2);
         }
     }
-    if (hasZScoreProxy && zScore > 2.99) safetyScore = Math.max(safetyScore, 90);
+    if (hasZScoreProxy && zScoreModel === 'ALTMAN_Z' && zScore > 2.99) safetyScore = Math.max(safetyScore, 90);
+    if (hasZScoreProxy && zScoreModel === 'FINANCIAL_STABILITY' && zScore > 2.8) safetyScore = Math.max(safetyScore, 88);
+    if (hasZScoreProxy && zScoreModel === 'SAFETY_PROXY' && zScore > 2.6) safetyScore = Math.max(safetyScore, 85);
 
     let earningsQualityScore = 0;
     if (isCashflowProxy) {
@@ -549,6 +552,7 @@ const performFinancialEngineering = (
         fundamentalScore: safeNum(fundamentalScore),
         qualityScore: safeNum(qualScore), 
         zScore: safeNum(zScore),
+        zScoreModel,
         fScore: safeNum(fScore),
         roic: safeNum(roic),
         ruleOf40: safeNum(ruleOf40),
@@ -1412,7 +1416,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                                                      onClick={() => setActiveInsight('Z_SCORE')}
                                                      className={`text-[8px] font-black px-2 py-0.5 rounded border border-cyan-500/20 uppercase cursor-help hover:opacity-80 transition-opacity insight-trigger ${selectedTicker.zScore < 1.8 ? 'bg-rose-900/30 text-rose-400' : 'bg-emerald-900/30 text-emerald-400'}`}
                                                 >
-                                                    Z-Score {selectedTicker.zScore}
+                                                    {selectedTicker.zScoreModel === 'ALTMAN_Z' ? 'Altman Z' : 'Distress'} {selectedTicker.zScore}
                                                 </span>
                                                 {selectedTicker.isImputed && <span className="text-[8px] font-black text-amber-500 border border-amber-500/30 px-2 py-0.5 rounded uppercase">IMPUTED</span>}
                                            </div>
