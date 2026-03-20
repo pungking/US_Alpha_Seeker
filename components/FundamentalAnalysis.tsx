@@ -656,6 +656,21 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
     const pendingStage4TriggerRef = useRef<string | null>(null);
     const progressCompleteLoggedRef = useRef(false);
     const readySignalHandledRef = useRef(false);
+    const progressCheckErrorRef = useRef<{ signature: string; lastAt: number }>({ signature: '', lastAt: 0 });
+
+    const isTransientProgressError = (error: unknown): boolean => {
+        const message = String((error as any)?.message || error || '').toLowerCase();
+        if (!message) return false;
+        return (
+            message.includes('http 500') ||
+            message.includes('http 502') ||
+            message.includes('http 503') ||
+            message.includes('http 504') ||
+            message.includes('failed to fetch') ||
+            message.includes('networkerror') ||
+            message.includes('timeout')
+        );
+    };
 
     const stopSyncPolling = () => {
         if (pollingInterval.current) {
@@ -716,7 +731,24 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 if (onComplete) onComplete();
             }
         } catch (e) {
-            console.error("Progress check error", e);
+            const message = String((e as any)?.message || e || 'unknown');
+            const transient = isTransientProgressError(e);
+            const signature = `${transient ? 'T' : 'P'}:${message.slice(0, 120)}`;
+            const now = Date.now();
+            const shouldEmit =
+                signature !== progressCheckErrorRef.current.signature ||
+                now - progressCheckErrorRef.current.lastAt > 30000;
+
+            if (shouldEmit) {
+                progressCheckErrorRef.current = { signature, lastAt: now };
+                if (transient) {
+                    addLog(`Progress sync transient issue (auto-retry): ${message.slice(0, 120)}`, "warn");
+                    console.warn("Progress check transient issue", e);
+                } else {
+                    addLog(`Progress sync error: ${message.slice(0, 120)}`, "warn");
+                    console.error("Progress check error", e);
+                }
+            }
         }
     };
   

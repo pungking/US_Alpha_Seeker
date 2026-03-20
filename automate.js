@@ -258,6 +258,7 @@ async function getAccessToken() {
         return {
             stage6File: String(info.stage6File || ''),
             stage6Hash: String(info.stage6Hash || ''),
+            stage6HashAlgo: String(info.stage6HashAlgo || ''),
             sourceRunId: String(info.sourceRunId || ''),
             generatedAt: String(info.generatedAt || '')
         };
@@ -266,6 +267,7 @@ async function getAccessToken() {
     const dispatchPayload = {
         stage6File: dispatchInfo?.stage6File || '',
         stage6Hash: dispatchInfo?.stage6Hash || '',
+        stage6HashAlgo: dispatchInfo?.stage6HashAlgo || '',
         sourceRunId: dispatchInfo?.sourceRunId || process.env.GITHUB_RUN_ID || '',
         sourceRepo: process.env.GITHUB_REPOSITORY || '',
         sourceWorkflow: process.env.GITHUB_WORKFLOW || '',
@@ -274,7 +276,7 @@ async function getAccessToken() {
     };
     fs.writeFileSync('stage6-dispatch-payload.json', JSON.stringify(dispatchPayload, null, 2), 'utf8');
     console.log(
-        `[DISPATCH_PAYLOAD] stage6File=${dispatchPayload.stage6File || 'N/A'} stage6Hash=${(dispatchPayload.stage6Hash || 'N/A').slice(0, 12)} sourceRun=${dispatchPayload.sourceRunId || 'N/A'}`
+        `[DISPATCH_PAYLOAD] stage6File=${dispatchPayload.stage6File || 'N/A'} stage6Hash=${(dispatchPayload.stage6Hash || 'N/A').slice(0, 12)} algo=${dispatchPayload.stage6HashAlgo || 'unknown'} sourceRun=${dispatchPayload.sourceRunId || 'N/A'}`
     );
 
     // Capture Individual Analysis dashboard section with recommended picks.

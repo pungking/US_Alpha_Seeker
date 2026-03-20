@@ -9,6 +9,7 @@ import { generateAlphaSynthesis, generateTop6NeuralOutlook, runAiBacktest, analy
 import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage } from '../services/telegramService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
+import { enforceStageDriveRetention } from '../services/driveRetentionService';
 
 declare global {
   interface Window {
@@ -357,6 +358,20 @@ const fnv1aHash = (input: string): string => {
       (hash << 24);
   }
   return (hash >>> 0).toString(16).padStart(8, '0');
+};
+
+const sha256Hex = async (input: string): Promise<string> => {
+  const subtle = (globalThis as any)?.crypto?.subtle;
+  if (subtle) {
+    const encoded = new TextEncoder().encode(input);
+    const digest = await subtle.digest('SHA-256', encoded);
+    return Array.from(new Uint8Array(digest))
+      .map((byte) => byte.toString(16).padStart(2, '0'))
+      .join('');
+  }
+  // Local fallback for non-secure runtime. Keeping legacy hash prevents hard failure.
+  console.warn('[STAGE6_DISPATCH] crypto.subtle unavailable; fallback hash=fnv1a32');
+  return fnv1aHash(input);
 };
 
 const ALPHA_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
@@ -2059,11 +2074,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return create.id;
   };
 
-  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
+  const uploadFile = async (
+    token: string,
+    folderId: string,
+    name: string,
+    content: any,
+    serializedContent?: string
+  ) => {
     const meta = { name, parents: [folderId], mimeType: 'application/json' };
     const form = new FormData();
+    const filePayload = serializedContent ?? JSON.stringify(content, null, 2);
     form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
-    form.append('file', new Blob([JSON.stringify(content, null, 2)], { type: 'application/json' }));
+    form.append('file', new Blob([filePayload], { type: 'application/json' }));
     
     const uploadRes = await fetch('https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart', {
       method: 'POST', headers: { 'Authorization': `Bearer ${token}` }, body: form
@@ -4425,20 +4447,79 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               audit_trail: top6AuditTrail
           };
           const stage6FinalFileName = `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`;
-          const stage6FinalHash = fnv1aHash(JSON.stringify(finalPayload));
-          await uploadFile(accessToken, stage6FolderId, stage6FinalFileName, finalPayload);
+          const finalPayloadJson = JSON.stringify(finalPayload, null, 2);
+          const stage6HashAlgo = (globalThis as any)?.crypto?.subtle ? 'sha256' : 'fnv1a32_fallback';
+          const stage6FinalHash = await sha256Hex(finalPayloadJson);
+          await uploadFile(accessToken, stage6FolderId, stage6FinalFileName, finalPayload, finalPayloadJson);
           (window as any).__STAGE6_DISPATCH_INFO = {
               stage6File: stage6FinalFileName,
               stage6Hash: stage6FinalHash,
+              stage6HashAlgo,
+              stage6HashShort: stage6FinalHash.slice(0, 12),
               sourceRunId: stage6FinalRunIdRef.current || getKstTimestamp(),
               generatedAt: new Date().toISOString(),
               candidateCount: top6Elite.length
           };
           addLog(
-              `[STAGE6_DISPATCH] file=${stage6FinalFileName} hash=${stage6FinalHash.slice(0, 12)} sourceRun=${stage6FinalRunIdRef.current || 'N/A'}`,
+              `[STAGE6_DISPATCH] file=${stage6FinalFileName} hash=${stage6FinalHash.slice(0, 12)} algo=${stage6HashAlgo} sourceRun=${stage6FinalRunIdRef.current || 'N/A'}`,
               "info"
           );
           addLog(`Final Elite Candidates archived to Drive (count=${top6Elite.length}).`, "ok");
+
+          // [DRIVE RETENTION] Keep only recent files in Stage0~Stage6 folders (Report folder is excluded).
+          const retentionEnabled = (() => {
+              const raw = (import.meta as any)?.env?.VITE_DRIVE_RETENTION_ENABLED;
+              if (raw == null || String(raw).trim() === '') return true; // default ON
+              return parseBooleanFlag(raw);
+          })();
+          if (retentionEnabled) {
+              const envDays = Number((import.meta as any)?.env?.VITE_DRIVE_RETENTION_DAYS);
+              const retentionDays = Number.isFinite(envDays) && envDays > 0 ? Math.floor(envDays) : 30;
+              const retentionDryRun = parseBooleanFlag((import.meta as any)?.env?.VITE_DRIVE_RETENTION_DRY_RUN);
+              addLog(
+                  `[RETENTION] Stage0~6 cleanup start (days=${retentionDays}, dryRun=${retentionDryRun}).`,
+                  "info"
+              );
+              try {
+                  const retention = await enforceStageDriveRetention(accessToken, {
+                      days: retentionDays,
+                      dryRun: retentionDryRun
+                  });
+                  retention.folders.forEach((folder) => {
+                      if (folder.message === 'folder_not_found') {
+                          addLog(
+                              `[RETENTION] ${folder.folderName}: folder not found (skip).`,
+                              "warn"
+                          );
+                          return;
+                      }
+                      if (folder.message) {
+                          addLog(
+                              `[RETENTION] ${folder.folderName}: error=${folder.message}`,
+                              "warn"
+                          );
+                          return;
+                      }
+                      const actionLabel = retention.dryRun ? 'eligible' : 'deleted';
+                      const actionValue = retention.dryRun ? folder.scanned : folder.deleted;
+                      addLog(
+                          `[RETENTION] ${folder.folderName}: scanned=${folder.scanned} ${actionLabel}=${actionValue} failed=${folder.failed}`,
+                          folder.failed > 0 ? "warn" : "ok"
+                      );
+                  });
+                  addLog(
+                      `[RETENTION] completed cutoff=${retention.cutoffIso} scanned=${retention.totalScanned} ` +
+                          `${retention.dryRun ? 'eligible' : 'deleted'}=${retention.dryRun ? retention.totalScanned : retention.totalDeleted} ` +
+                          `failed=${retention.totalFailed}`,
+                      retention.totalFailed > 0 ? "warn" : "ok"
+                  );
+              } catch (retentionError: any) {
+                  addLog(
+                      `[RETENTION] failed: ${retentionError?.message || retentionError}`,
+                      "warn"
+                  );
+              }
+          }
       }
 
       return top6Elite;
