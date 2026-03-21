@@ -1906,8 +1906,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let factorRegimeAlignTotal = 0;
           let factorCoverageTotal = 0;
           let factorConfidenceTotal = 0;
-          const stage4ApiFallbackEnabled = String((import.meta as any)?.env?.VITE_STAGE4_API_FALLBACK_ENABLED ?? 'false').toLowerCase() === 'true';
-          const apiFallbackMaxRaw = Number((import.meta as any)?.env?.VITE_STAGE4_API_FALLBACK_MAX ?? 50);
+          const stage4ApiFallbackEnabled = Boolean(STRATEGY_CONFIG.STAGE4_API_FALLBACK_ENABLED);
+          const apiFallbackMaxRaw = Number(STRATEGY_CONFIG.STAGE4_API_FALLBACK_MAX ?? 50);
           const stage4ApiFallbackMax = Number.isFinite(apiFallbackMaxRaw) && apiFallbackMaxRaw > 0 ? Math.floor(apiFallbackMaxRaw) : 50;
           let apiFallbackAttempted = 0;
           let apiFallbackRecovered = 0;
@@ -1921,6 +1921,11 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let ttmSqueezeFiredCount = 0;
           let ttmSqueezeOnRate = 0;
           let ttmAdaptiveStateAfterRun: TtmAdaptiveState | null = null;
+
+          addLog(
+              `[OHLCV_FALLBACK_CFG] enabled=${stage4ApiFallbackEnabled} max=${stage4ApiFallbackMax} source=STRATEGY_CONFIG`,
+              stage4ApiFallbackEnabled ? "ok" : "warn"
+          );
 
       for (const letter of letters) {
           setProgress(prev => ({ ...prev, status: `Scanning Sector ${letter}...` }));

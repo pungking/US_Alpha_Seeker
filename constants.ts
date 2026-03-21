@@ -85,6 +85,16 @@ const parseEnumEnv = <T extends string>(keys: string[], allowed: readonly T[], f
     return fallback;
 };
 
+const parseBooleanEnv = (keys: string[], fallback: boolean): boolean => {
+    for (const key of keys) {
+        const raw = String(getEnvVar(key) || '').trim().toLowerCase();
+        if (!raw) continue;
+        if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on') return true;
+        if (raw === 'false' || raw === '0' || raw === 'no' || raw === 'off') return false;
+    }
+    return fallback;
+};
+
 // ============================================================
 // [GITHUB DISPATCH CONFIG]
 // Stage 3 완료 후 → US_Alpha_Seeker_Harvester 워크플로우 트리거
@@ -326,6 +336,16 @@ export const STRATEGY_CONFIG = {
   TTM_SQUEEZE_ADAPTIVE_MAX_KC: parseNumberEnv(
     ['VITE_TTM_SQUEEZE_ADAPTIVE_MAX_KC', 'TTM_SQUEEZE_ADAPTIVE_MAX_KC'],
     2.2
+  ),
+
+  // [H10] Stage4 OHLCV API fallback control
+  STAGE4_API_FALLBACK_ENABLED: parseBooleanEnv(
+    ['VITE_STAGE4_API_FALLBACK_ENABLED', 'STAGE4_API_FALLBACK_ENABLED'],
+    false
+  ),
+  STAGE4_API_FALLBACK_MAX: parseNumberEnv(
+    ['VITE_STAGE4_API_FALLBACK_MAX', 'STAGE4_API_FALLBACK_MAX'],
+    50
   ),
 
   // [RISK MANAGEMENT REFINED]
