@@ -92,6 +92,10 @@ interface TechnicalTicker {
       factorAdjustmentTotal?: number;
       factorConfidence?: number;
       factorCoverage?: number;
+      sourceIntegrityState?: 'DRIVE_VERIFIED' | 'NON_DRIVE_DEGRADED';
+      sourceIntegrityMode?: 'STRICT' | 'RELAXED';
+      sourceIntegrityPenalty?: number;
+      sourceIntegrityScoreCap?: number;
   };
   
   priceHistory: { date: string; close: number; open?: number; high?: number; low?: number; volume?: number }[];
@@ -1909,12 +1913,22 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           const stage4ApiFallbackEnabled = Boolean(STRATEGY_CONFIG.STAGE4_API_FALLBACK_ENABLED);
           const apiFallbackMaxRaw = Number(STRATEGY_CONFIG.STAGE4_API_FALLBACK_MAX ?? 50);
           const stage4ApiFallbackMax = Number.isFinite(apiFallbackMaxRaw) && apiFallbackMaxRaw > 0 ? Math.floor(apiFallbackMaxRaw) : 50;
+          const stage4IntegrityMode = String(STRATEGY_CONFIG.STAGE4_DATA_INTEGRITY_MODE || 'STRICT').toUpperCase() === 'RELAXED' ? 'RELAXED' : 'STRICT';
+          const stage4NonDriveScoreCapRaw = Number(STRATEGY_CONFIG.STAGE4_NON_DRIVE_SCORE_CAP ?? 58);
+          const stage4NonDriveScoreCap = Number.isFinite(stage4NonDriveScoreCapRaw)
+              ? Math.min(99, Math.max(1, stage4NonDriveScoreCapRaw))
+              : 58;
+          const stage4RequireDriveForBreakout = Boolean(STRATEGY_CONFIG.STAGE4_REQUIRE_DRIVE_FOR_BREAKOUT);
           let apiFallbackAttempted = 0;
           let apiFallbackRecovered = 0;
           let apiFallbackFailed = 0;
           let driveMissingCount = 0;
           let driveCorruptCount = 0;
           let heuristicRecoveredFromMissingCount = 0;
+          let nonDriveSourceCount = 0;
+          let nonDriveApiCount = 0;
+          let nonDriveHeuristicCount = 0;
+          let integrityCapAppliedCount = 0;
           let apiFallbackCapLogged = false;
           let ttmSampleCount = 0;
           let ttmSqueezeOnCount = 0;
@@ -1923,7 +1937,7 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           let ttmAdaptiveStateAfterRun: TtmAdaptiveState | null = null;
 
           addLog(
-              `[OHLCV_FALLBACK_CFG] enabled=${stage4ApiFallbackEnabled} max=${stage4ApiFallbackMax} source=STRATEGY_CONFIG`,
+              `[OHLCV_FALLBACK_CFG] enabled=${stage4ApiFallbackEnabled} max=${stage4ApiFallbackMax} source=STRATEGY_CONFIG | integrity=${stage4IntegrityMode} cap=${stage4NonDriveScoreCap} requireDriveBreakout=${stage4RequireDriveForBreakout}`,
               stage4ApiFallbackEnabled ? "ok" : "warn"
           );
 
@@ -2318,7 +2332,59 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       }
                   };
 
-                  const isTechnicalBreakout = techData.techMetrics.trendAlignment === 'POWER_TREND' || techData.techMetrics.isBlueSky;
+                  const isNonDriveSource = techData.dataSource !== 'DRIVE';
+                  if (isNonDriveSource) {
+                      nonDriveSourceCount++;
+                      if (techData.dataSource === 'API_FALLBACK') nonDriveApiCount++;
+                      else nonDriveHeuristicCount++;
+                  }
+
+                  if (isNonDriveSource) {
+                      let integrityPenalty = 0;
+                      if (stage4IntegrityMode === 'STRICT') {
+                          const cappedScore = Number(Math.min(techData.technicalScore, stage4NonDriveScoreCap).toFixed(2));
+                          integrityPenalty = Number((techData.technicalScore - cappedScore).toFixed(2));
+                          if (integrityPenalty > 0) {
+                              integrityCapAppliedCount++;
+                              techData = {
+                                  ...techData,
+                                  technicalScore: cappedScore,
+                                  scoreBreakdown: {
+                                      ...techData.scoreBreakdown,
+                                      hygienePenalty: Number((techData.scoreBreakdown.hygienePenalty + integrityPenalty).toFixed(2)),
+                                      finalScore: cappedScore
+                                  }
+                              };
+                          }
+                      }
+
+                      techData = {
+                          ...techData,
+                          techMetrics: {
+                              ...techData.techMetrics,
+                              sourceIntegrityState: 'NON_DRIVE_DEGRADED',
+                              sourceIntegrityMode: stage4IntegrityMode,
+                              sourceIntegrityPenalty: integrityPenalty,
+                              sourceIntegrityScoreCap: stage4IntegrityMode === 'STRICT' ? stage4NonDriveScoreCap : undefined
+                          }
+                      };
+                  } else {
+                      techData = {
+                          ...techData,
+                          techMetrics: {
+                              ...techData.techMetrics,
+                              sourceIntegrityState: 'DRIVE_VERIFIED',
+                              sourceIntegrityMode: stage4IntegrityMode,
+                              sourceIntegrityPenalty: 0,
+                              sourceIntegrityScoreCap: undefined
+                          }
+                      };
+                  }
+
+                  let isTechnicalBreakout = techData.techMetrics.trendAlignment === 'POWER_TREND' || techData.techMetrics.isBlueSky;
+                  if (stage4RequireDriveForBreakout && isNonDriveSource) {
+                      isTechnicalBreakout = false;
+                  }
 
                   results.push({
                       ...item,
@@ -2382,6 +2448,13 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               addLog(
                   `API Fallback Usage: attempted ${apiFallbackAttempted}/${stage4ApiFallbackMax}, recovered ${apiFallbackRecovered}, failed ${apiFallbackFailed}.`,
                   fallbackSummaryType
+              );
+          }
+          if (nonDriveSourceCount > 0) {
+              const integritySummaryType = integrityCapAppliedCount > 0 ? "warn" : "ok";
+              addLog(
+                  `[INTEGRITY_GUARD] mode=${stage4IntegrityMode} nonDrive=${nonDriveSourceCount} (api ${nonDriveApiCount}, heuristic ${nonDriveHeuristicCount}) capped=${integrityCapAppliedCount} cap=${stage4NonDriveScoreCap} requireDriveBreakout=${stage4RequireDriveForBreakout}.`,
+                  integritySummaryType
               );
           }
 	      if (dataQualityPenaltyCount > 0) {
@@ -2552,6 +2625,15 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                   avgConfidence: Number((factorConfidenceTotal / Math.max(results.length, 1)).toFixed(1)),
                   boostedCount: factorBoostCount,
                   penalizedCount: factorPenaltyCount
+              },
+              sourceIntegrity: {
+                  mode: stage4IntegrityMode,
+                  requireDriveForBreakout: stage4RequireDriveForBreakout,
+                  nonDriveScoreCap: stage4NonDriveScoreCap,
+                  nonDriveCount: nonDriveSourceCount,
+                  apiFallbackCount: nonDriveApiCount,
+                  heuristicCount: nonDriveHeuristicCount,
+                  capAppliedCount: integrityCapAppliedCount
               },
               scoreBreakdownSchema: "v1.1",
               scoreBreakdownCoverage: `${auditReadyResults.filter((x) => !!x.scoreBreakdown).length}/${auditReadyResults.length}`
