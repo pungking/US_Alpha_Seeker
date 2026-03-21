@@ -1991,7 +1991,10 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                                   }
                               } else if (!apiFallbackCapLogged) {
                                   apiFallbackCapLogged = true;
-                                  addLog(`API fallback cap reached (${stage4ApiFallbackMax}). Remaining missing OHLCV uses heuristic mode.`, "warn");
+                                  addLog(
+                                      `API fallback cap reached (${stage4ApiFallbackMax}). Remaining missing OHLCV uses ${stage4IntegrityMode === 'STRICT' ? 'STRICT skip mode' : 'heuristic mode'}.`,
+                                      "warn"
+                                  );
                               }
                           }
 	                  }
@@ -1999,6 +2002,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 	                  let techData;
 
 	                  if (candles.length < 30) {
+                          if (stage4IntegrityMode === 'STRICT') {
+                              droppedCount++;
+                              addLog(
+                                  `OHLCV insufficient in STRICT mode: ${item.symbol.toUpperCase()} (${candles.length} bars, source=${dataSrc})`,
+                                  "warn"
+                              );
+                              continue;
+                          }
                           if (candles.length === 0) heuristicRecoveredFromMissingCount++;
 	                      addLog(`Sparse OHLCV fallback: ${item.symbol.toUpperCase()} (${candles.length} bars)`, "warn");
 	                      techData = generateHeuristicData(item);

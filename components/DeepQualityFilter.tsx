@@ -354,10 +354,6 @@ const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) 
         }))
         .filter((row) => !!row.quarterKey && row.revenue !== null && Number(row.revenue) > 0) as Array<{ quarterKey: string; revenue: number | null }>;
 
-    if (quarterlyRows.length < 8) {
-        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
-    }
-
     const byQuarter = new Map<string, number>();
     quarterlyRows.forEach((row) => {
         byQuarter.set(row.quarterKey, Number(row.revenue));
@@ -384,8 +380,14 @@ const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) 
     const avgScore = normalizeScore(avgYoYGrowthPct, -12, 20);
     const ratioScore = normalizeScore(positiveRatioPct, 35, 90);
     const score = (avgScore * 0.6) + (ratioScore * 0.4);
-    const adjustment = Math.max(-maxAdjustment, Math.min(maxAdjustment, ((score - 50) / 50) * maxAdjustment));
-    const coverage = Math.min(100, Math.round((yoyList.length / 12) * 100));
+    const quarterCoverage = Math.min(100, Math.round((keys.length / 12) * 100));
+    const yoyCoverage = Math.min(100, Math.round((yoyList.length / 4) * 100));
+    const coverage = Math.round((quarterCoverage * 0.4) + (yoyCoverage * 0.6));
+    const confidenceScale = Math.max(0.2, coverage / 100);
+    const adjustment = Math.max(
+        -maxAdjustment,
+        Math.min(maxAdjustment, (((score - 50) / 50) * maxAdjustment) * confidenceScale)
+    );
 
     return {
         available: true,

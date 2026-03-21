@@ -173,6 +173,19 @@ const normalizeHistoryRows = (raw: any): any[] => {
     return [];
 };
 
+const getLatestHistoryNumber = (rawHistory: any, keys: string[]): number | null => {
+    const rows = normalizeHistoryRows(rawHistory)
+        .map((row) => ({ ...row, __dateMs: getHistoryDateMs(row) }))
+        .filter((row) => Number.isFinite(row.__dateMs))
+        .sort((a, b) => b.__dateMs - a.__dateMs);
+
+    for (const row of rows) {
+        const value = getHistoryNumber(row, keys);
+        if (value !== null && Number.isFinite(Number(value))) return Number(value);
+    }
+    return null;
+};
+
 const computeFiveYearTrendSignals = (rawHistory: any, maxAdjustment = 6) => {
     const rows = normalizeHistoryRows(rawHistory)
         .map((row) => ({ ...row, __dateMs: getHistoryDateMs(row) }))
@@ -289,10 +302,6 @@ const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) 
         }))
         .filter((row) => !!row.quarterKey && row.revenue !== null && Number(row.revenue) > 0) as Array<{ quarterKey: string; revenue: number | null }>;
 
-    if (quarterlyRows.length < 8) {
-        return { available: false, score: 50, adjustment: 0, coverage: 0, avgYoYGrowthPct: null, positiveRatioPct: null };
-    }
-
     const byQuarter = new Map<string, number>();
     quarterlyRows.forEach((row) => byQuarter.set(row.quarterKey, Number(row.revenue)));
     const keys = Array.from(byQuarter.keys()).sort((a, b) => quarterSortValue(a) - quarterSortValue(b));
@@ -316,8 +325,14 @@ const computeFinancialSeasonalitySignals = (rawHistory: any, maxAdjustment = 4) 
     const avgScore = normalizeScore(avgYoYGrowthPct, -12, 20);
     const ratioScore = normalizeScore(positiveRatioPct, 35, 90);
     const score = (avgScore * 0.6) + (ratioScore * 0.4);
-    const adjustment = Math.max(-maxAdjustment, Math.min(maxAdjustment, ((score - 50) / 50) * maxAdjustment));
-    const coverage = Math.min(100, Math.round((yoyList.length / 12) * 100));
+    const quarterCoverage = Math.min(100, Math.round((keys.length / 12) * 100));
+    const yoyCoverage = Math.min(100, Math.round((yoyList.length / 4) * 100));
+    const coverage = Math.round((quarterCoverage * 0.4) + (yoyCoverage * 0.6));
+    const confidenceScale = Math.max(0.2, coverage / 100);
+    const adjustment = Math.max(
+        -maxAdjustment,
+        Math.min(maxAdjustment, (((score - 50) / 50) * maxAdjustment) * confidenceScale)
+    );
 
     return {
         available: true,
@@ -366,7 +381,14 @@ const performFinancialEngineering = (
     const price = safeNum(data.price);
     const eps = safeNum(data.eps || data.earningsPerShare);
     const marketCap = safeNum(data.marketCap || data.marketValue);
-    const netIncome = safeNum(data.netIncome || data.netIncomeCommonStockholders);
+    const topLevelNetIncome = firstPresent(data.netIncome, data.netIncomeCommonStockholders);
+    const historyNetIncome = getLatestHistoryNumber(data.financialHistory || data.fullHistory, HISTORY_NET_INCOME_KEYS);
+    const netIncome = hasValue(topLevelNetIncome)
+        ? safeNum(topLevelNetIncome)
+        : (historyNetIncome !== null ? safeNum(historyNetIncome) : 0);
+    const netIncomeSource = hasValue(topLevelNetIncome)
+        ? 'TOP_LEVEL'
+        : (historyNetIncome !== null ? 'HISTORY_LATEST' : 'MISSING');
     
     const allowRatioDebtFallback = options.allowRatioDebtFallback !== false;
     const rawDebtToEquity = firstPresent(data.debtToEquity);
@@ -537,9 +559,10 @@ const performFinancialEngineering = (
 
     const fundamentalScore = Math.max(0, Math.min(100, baseFundamentalScore + totalFactorAdjustment));
 
-    let economicMoat: 'Wide' | 'Narrow' | 'None' = 'None';
-    if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = 'Wide';
-    else if (roic > 8 && ruleOf40 > 25 && fScore >= 5) economicMoat = 'Narrow';
+    // Placeholder normalization policy: explicit categorical "no moat" is represented as "NONE".
+    let economicMoat: 'WIDE' | 'NARROW' | 'NONE' = 'NONE';
+    if (roic > 15 && ruleOf40 > 40 && fScore >= 7) economicMoat = 'WIDE';
+    else if (roic > 8 && ruleOf40 > 25 && fScore >= 5) economicMoat = 'NARROW';
 
     let missingDataPoints = 0;
     if (!eps && !netIncome) missingDataPoints++;
@@ -574,6 +597,7 @@ const performFinancialEngineering = (
         seasonalityCoverage: seasonalitySignals.coverage || 0,
         seasonalityYoYGrowthPct: seasonalitySignals.avgYoYGrowthPct,
         seasonalityPositiveRatioPct: seasonalitySignals.positiveRatioPct,
+        netIncomeSource,
         regimeAdjustment: Number((regimeAdjustment || 0).toFixed(2)),
         regimeSectorTilt: regimeSignals.tilt,
         qualityFactorScore: Number((qualityFactorScore || 0).toFixed(2)),

@@ -477,6 +477,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const payload = {
         manifest: { 
             version: "11.3.0", 
+            count: filteredList.length,
+            sourceCount: dataToFilter.length,
             regime: activeProposal?.regime || "Manual", 
             filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
             timestamp: new Date().toISOString(), 

@@ -346,6 +346,24 @@ const parseBooleanFlag = (value: any): boolean => {
   return normalized === '1' || normalized === 'true' || normalized === 'yes' || normalized === 'on';
 };
 
+const normalizeEconomicMoat = (value: any): 'WIDE' | 'NARROW' | 'NONE' => {
+  const normalized = String(value ?? '').trim().toUpperCase();
+  if (normalized === 'WIDE') return 'WIDE';
+  if (normalized === 'NARROW') return 'NARROW';
+  return 'NONE';
+};
+
+const normalizeOptionalText = (value: any): string | null => {
+  if (value == null) return null;
+  const text = String(value).trim();
+  if (!text) return null;
+  const upper = text.toUpperCase();
+  if (upper === 'N/A' || upper === 'NA' || upper === 'NULL' || upper === 'UNDEFINED' || upper === 'TBD') {
+    return null;
+  }
+  return text;
+};
+
 const fnv1aHash = (input: string): string => {
   let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -3091,7 +3109,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   radarData: radar,
                   fullHistory: item.priceHistory || item.fullHistory || [], // Map priceHistory to fullHistory
                   sectorScore: item.sectorScore || 50, // Default if missing
-                  economicMoat: aiData.economicMoat || item.economicMoat || "Narrow",
+                  economicMoat: normalizeEconomicMoat(aiData.economicMoat ?? item.economicMoat),
                   // [CRITICAL] Quant authority: preserve expanded Stage 4/5 fields even after AI merge.
                   techMetrics: item.techMetrics || { rawRvol: 0, squeezeState: 'OFF' },
                   ictMetrics: item.ictMetrics || { displacement: 0, smartMoneyFlow: 50, fvgStrength: 0 },
@@ -4224,23 +4242,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
           // [CRITICAL] Save Final Top 6 to Stage 6 Folder (The "Dump")
           const stage6FolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-          const top6AuditTrail = top6Elite.map(item => ({
+          const top6ArchiveCandidates = top6Elite.map((item) => ({
+              ...item,
+              economicMoat: normalizeEconomicMoat(item?.economicMoat),
+              aiFallbackReason: normalizeOptionalText(item?.aiFallbackReason) || 'NONE'
+          }));
+          const top6AuditTrail = top6ArchiveCandidates.map(item => ({
               symbol: item.symbol,
               tradePlanStatus: item.tradePlanStatus || 'VALID',
               tradePlanSource: item.tradePlanSource || 'RAW',
               rawConvictionScore: Number(item.rawConvictionScore ?? item.convictionScore ?? 0),
               gatedConvictionScore: Number(item.convictionScore ?? 0),
-              rawExpectedReturn: item.rawExpectedReturn || item.expectedReturn || 'TBD',
-              gatedExpectedReturn: item.gatedExpectedReturn || item.expectedReturn || 'TBD',
-              aiVerdict: item.aiVerdict || 'N/A',
-              verdictRaw: item.verdictRaw || item.verdict || 'N/A',
-              verdictFinal: item.verdictFinal || item.aiVerdict || 'N/A',
+              rawExpectedReturn: normalizeOptionalText(item.rawExpectedReturn || item.expectedReturn),
+              gatedExpectedReturn: normalizeOptionalText(item.gatedExpectedReturn || item.expectedReturn),
+              aiVerdict: normalizeOptionalText(item.aiVerdict),
+              verdictRaw: normalizeOptionalText(item.verdictRaw || item.verdict),
+              verdictFinal: normalizeOptionalText(item.verdictFinal || item.aiVerdict),
               verdictConflict: Boolean(item.verdictConflict),
               verdictConflictDetail: item.verdictConflictDetail || null,
               stateVerdictConflict: Boolean(item.stateVerdictConflict),
-              finalDecision: item.finalDecision || 'N/A',
-              decisionReason: item.decisionReason || 'N/A',
-              chosenPlanType: item.chosenPlanType || 'N/A',
+              finalDecision: normalizeOptionalText(item.finalDecision),
+              decisionReason: normalizeOptionalText(item.decisionReason),
+              chosenPlanType: normalizeOptionalText(item.chosenPlanType),
               rankRaw: Number.isFinite(Number(item.rankRaw)) ? Number(item.rankRaw) : null,
               rankFinal: Number.isFinite(Number(item.rankFinal)) ? Number(item.rankFinal) : null,
               modelRank: Number.isFinite(Number(item.modelRank)) ? Number(item.modelRank) : null,
@@ -4431,19 +4454,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       tier1ScoreMultiplier: STAGE6_TIER1_SCORE_MULTIPLIER,
                       tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER
                   },
-                  scoreViewDefault: scoreViewMode
+              scoreViewDefault: scoreViewMode
               },
               execution_contract: {
                   generatedAt: new Date().toISOString(),
                   modelTop6: modelTop6Pool.map(toExecutionContractItem),
-                  executablePicks: top6Elite.map(toExecutionContractItem),
+                  executablePicks: top6ArchiveCandidates.map(toExecutionContractItem),
                   watchlistTop: modelTop6Watchlist.map(toExecutionContractItem),
                   decisionCountsPrimary,
                   decisionCountsTop6,
                   decisionReasonCountsPrimary,
                   decisionReasonCountsTop6
               },
-              alpha_candidates: top6Elite,
+              alpha_candidates: top6ArchiveCandidates,
               audit_trail: top6AuditTrail
           };
           const stage6FinalFileName = `STAGE6_ALPHA_FINAL_${getKstTimestamp()}.json`;

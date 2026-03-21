@@ -666,9 +666,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               const price = Number(root.price) || 0;
               
               // [FIX] History-based Change Calculation
-              let prevClose = Number(root.previousClose || root.prevClose || 0);
-              let change = Number(root.change || root.changesPercentage || root.pChange || 0);
-              let changeAmount = Number(root.changeAmount || root.regularMarketChange || 0);
+              let prevClose = Number(root.previousClose || root.prevClose || root.regularMarketPreviousClose || 0);
+              let change = Number(root.change || root.changesPercentage || root.pChange || root.regularMarketChangePercent || 0);
+              let changeAmount = Number(root.changeAmount || root.regularMarketChange);
+              if (!Number.isFinite(changeAmount)) changeAmount = NaN;
 
               // User Request: Use history[1] (Yesterday's Close) as the definitive prevClose
               if (item.history && Array.isArray(item.history) && item.history.length > 1) {
@@ -681,10 +682,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                       // Avoid division by zero
                       change = prevClose !== 0 ? (changeAmount / prevClose) * 100 : 0;
                   }
-              } else if (prevClose === 0 && price > 0) {
-                  // Fallback: Infer prevClose from change % if history is missing
-                  prevClose = price / (1 + (change / 100));
+              } else if (prevClose > 0 && price > 0) {
+                  // Integrity-first: prefer direct market geometry over feed-level delta fields.
+                  changeAmount = price - prevClose;
+                  change = (changeAmount / prevClose) * 100;
               }
+
+              if (!Number.isFinite(changeAmount)) changeAmount = 0;
+              if (!Number.isFinite(change)) change = 0;
 
               // [FIX] Fixed Mapping Helpers
               const toPercent = (val: any) => {
