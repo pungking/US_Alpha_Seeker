@@ -686,6 +686,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   // Integrity-first: prefer direct market geometry over feed-level delta fields.
                   changeAmount = price - prevClose;
                   change = (changeAmount / prevClose) * 100;
+              } else if (Number.isFinite(changeAmount) && price > 0) {
+                  // Use quote delta only when previous close is absent.
+                  prevClose = price - changeAmount;
+                  if (prevClose > 0) {
+                      change = (changeAmount / prevClose) * 100;
+                  }
               }
 
               if (!Number.isFinite(changeAmount)) changeAmount = 0;
@@ -785,6 +791,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   // 4. Growth & Cash
                   revenueGrowth: toPercent(root.revenueGrowth),
                   operatingCashflow: Number(root.operatingCashflow || root.operatingCashFlow || 0),
+                  netIncome: Number(root.netIncome || 0),
+                  netIncomeCommonStockholders: Number(root.netIncomeCommonStockholders || root.netIncome || 0),
 
                   // 5. Dividend
                   dividendRate: Number(root.dividendRate || 0),
@@ -808,6 +816,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   change: parseFloat(change.toFixed(2)),
                   changeAmount: parseFloat(changeAmount.toFixed(2)),
                   prevClose: parseFloat(prevClose.toFixed(2)),
+                  quoteTimestamp: Number(root.quoteTimestamp || 0),
+                  quoteSource: root.quoteSource || null,
+                  netIncomeSource: root.netIncomeSource || null,
+                  netIncomeAsOf: root.netIncomeAsOf || null,
                   dataQuality: (price > 0 ? 'HIGH' : 'LOW') as 'HIGH' | 'MEDIUM' | 'LOW'
               };
           }).filter(item => item !== null) as MasterTicker[];
