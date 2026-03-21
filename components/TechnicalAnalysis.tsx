@@ -133,6 +133,24 @@ interface Props {
   isVisible?: boolean; // [NEW] Added prop
 }
 
+const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'common') return 'common';
+    if (normalized === 'warrant') return 'warrant';
+    if (normalized === 'unit') return 'unit';
+    if (normalized === 'right') return 'right';
+    if (normalized === 'hybrid') return 'hybrid';
+    return 'unknown';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+    const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    if (typeof item?.analysisEligible === 'boolean') {
+        return item.analysisEligible && instrumentType === 'common';
+    }
+    return instrumentType === 'common';
+};
+
 type MarketRegimeState = 'RISK_ON' | 'NEUTRAL' | 'RISK_OFF' | 'UNKNOWN';
 
 interface MarketRegimeSnapshot {
@@ -1839,8 +1857,19 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       await assertDriveOk(stage3ContentRes, `loadStage3.content(${stage3FileId})`);
       const content = await stage3ContentRes.json();
 
-      const universe = content.fundamental_universe || [];
-      const candidates = universe.sort((a: any, b: any) => b.fundamentalScore - a.fundamentalScore).slice(0, 300);
+      const stage3UniverseRaw = Array.isArray(content?.fundamental_universe) ? content.fundamental_universe : [];
+      const stage3InputCount = Number(content?.manifest?.inputCount || stage3UniverseRaw.length);
+      const stage3EligibleUniverse = stage3UniverseRaw.filter(isAnalysisEligibleTicker);
+      const excludedByInstrumentType = Math.max(0, stage3UniverseRaw.length - stage3EligibleUniverse.length);
+      if (excludedByInstrumentType > 0) {
+          addLog(
+              `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 4 analysis.`,
+              "warn"
+          );
+      }
+      const candidates = stage3EligibleUniverse
+          .sort((a: any, b: any) => b.fundamentalScore - a.fundamentalScore)
+          .slice(0, 300);
       if (!candidates.length) {
         addLog("Triggered Stage 3 file contains no candidates.", "err");
         return;
@@ -2603,6 +2632,9 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           manifest: {
               version: "7.5.1",
               count: auditReadyResults.length,
+              inputCount: stage3InputCount,
+              eligibleCount: stage3EligibleUniverse.length,
+              excludedByInstrumentType,
               strategy: "Hybrid_Heuristic_Fusion_ADX_LogRVOL_RS",
               survivalRate,
               sourceStage3File: stage3TriggerFile,

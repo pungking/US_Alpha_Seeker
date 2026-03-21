@@ -94,6 +94,24 @@ interface Props {
   isVisible?: boolean; // [NEW] Added prop
 }
 
+const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'common') return 'common';
+    if (normalized === 'warrant') return 'warrant';
+    if (normalized === 'unit') return 'unit';
+    if (normalized === 'right') return 'right';
+    if (normalized === 'hybrid') return 'hybrid';
+    return 'unknown';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+    const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    if (typeof item?.analysisEligible === 'boolean') {
+        return item.analysisEligible && instrumentType === 'common';
+    }
+    return instrumentType === 'common';
+};
+
 // [KNOWLEDGE BASE] Institutional Grade Definitions
 const ICT_DEFINITIONS: Record<string, { title: string; desc: string; interpretation: string }> = {
     'DISPLACEMENT': {
@@ -692,6 +710,21 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
           return;
       }
 
+      const stage4InputCount = mergedUniverse.length;
+      mergedUniverse = mergedUniverse.filter(isAnalysisEligibleTicker);
+      const excludedByInstrumentType = Math.max(0, stage4InputCount - mergedUniverse.length);
+      if (excludedByInstrumentType > 0) {
+          addLog(
+              `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 5 analysis.`,
+              "warn"
+          );
+      }
+      if (mergedUniverse.length === 0) {
+          addLog("CRITICAL: all Stage 4 candidates were excluded by instrument eligibility gate.", "err");
+          setLoading(false);
+          return;
+      }
+
       addLog(`Data Load Complete. ${mergedUniverse.length} Tickers Loaded.`, "ok");
 
       // [Stage5-B] Contract validation (warn-only): required field completeness check
@@ -1222,6 +1255,9 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         manifest: {
           version: "6.9.0",
           count: finalSurvivors.length,
+          inputCount: stage4InputCount,
+          eligibleCount: mergedUniverse.length,
+          excludedByInstrumentType,
           timestamp: new Date().toISOString(),
           strategy: "Smart_Money_Composite_Wyckoff_Algo_V2",
           scoringContractVersion: "stage5-e-v1",

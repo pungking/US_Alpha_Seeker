@@ -13,6 +13,24 @@ interface Props {
   isVisible?: boolean; // [NEW] Added prop
 }
 
+const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'common') return 'common';
+    if (normalized === 'warrant') return 'warrant';
+    if (normalized === 'unit') return 'unit';
+    if (normalized === 'right') return 'right';
+    if (normalized === 'hybrid') return 'hybrid';
+    return 'unknown';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+    const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    if (typeof item?.analysisEligible === 'boolean') {
+        return item.analysisEligible && instrumentType === 'common';
+    }
+    return instrumentType === 'common';
+};
+
 // [KNOWLEDGE BASE] Quant Metric Definitions
 const QUANT_INSIGHTS: Record<string, { title: string; desc: string; strategy: string }> = {
     'ROE': {
@@ -577,8 +595,22 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
           await assertDriveOk(stage1Res, "executeDeepFilter.downloadStage1");
           const stage1Content = await stage1Res.json();
 
-          const candidates = stage1Content.investable_universe || [];
+          const stage1RawCandidates = Array.isArray(stage1Content?.investable_universe)
+              ? stage1Content.investable_universe
+              : [];
+          const stage1InputCount = Number(stage1Content?.manifest?.inputCount || stage1RawCandidates.length);
+          const candidates = stage1RawCandidates.filter(isAnalysisEligibleTicker);
+          const excludedByInstrumentType = Math.max(0, stage1RawCandidates.length - candidates.length);
           addLog(`Targets Acquired: ${candidates.length} candidates.`, "ok");
+          if (excludedByInstrumentType > 0) {
+              addLog(
+                  `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols from Stage 2 pipeline.`,
+                  "warn"
+              );
+          }
+          if (candidates.length === 0) {
+              throw new Error("Stage 1 eligible universe is empty (instrument gate).");
+          }
           setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
           // Map System setup
@@ -856,6 +888,9 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
               manifest: { 
                   version: "5.6.2", 
                   count: eliteCandidates.length, 
+                  inputCount: stage1InputCount,
+                  eligibleCount: candidates.length,
+                  excludedByInstrumentType,
                   timestamp: new Date().toISOString(),
                   engine: "3-Factor_Quant_Model_Sanitized",
                   aiAudit: "Skipped (Quant-Only Optimization)"

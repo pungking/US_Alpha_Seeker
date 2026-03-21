@@ -78,6 +78,13 @@ interface MasterTicker {
   change: number;
   changeAmount: number;
   prevClose: number;
+  instrumentType: 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown';
+  analysisEligible: boolean;
+  quoteSource?: string | null;
+  netIncomeSource?: string | null;
+  netIncomeAsOf?: string | null;
+  changeSource?: 'QUOTE' | 'MISSING';
+  changeStatus?: 'RECEIVED' | 'MISSING';
   dataQuality: 'HIGH' | 'MEDIUM' | 'LOW';
   
   // Index Signature for dynamic expansion
@@ -107,6 +114,36 @@ const normalizePercent = (val: any): number => {
         return parseFloat((num * 100).toFixed(2));
     }
     return parseFloat(num.toFixed(2));
+};
+
+const normalizeInstrumentType = (value: any): MasterTicker['instrumentType'] => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'common') return 'common';
+    if (normalized === 'warrant') return 'warrant';
+    if (normalized === 'unit') return 'unit';
+    if (normalized === 'right') return 'right';
+    if (normalized === 'hybrid') return 'hybrid';
+    return 'unknown';
+};
+
+const classifyInstrumentType = (symbol: any, name: any, hintedType: any): MasterTicker['instrumentType'] => {
+    const hinted = normalizeInstrumentType(hintedType);
+    if (hinted !== 'unknown') return hinted;
+    const s = String(symbol || '').trim().toUpperCase();
+    const n = String(name || '').trim().toLowerCase();
+    if (s.endsWith('.WS') || s.endsWith('-WS') || / warrant/.test(n)) return 'warrant';
+    if (s.endsWith('.U') || s.endsWith('-U') || / unit/.test(n)) return 'unit';
+    if (s.endsWith('.R') || s.endsWith('-R') || / right/.test(n)) return 'right';
+    if (
+        /preferred|depositary|capital security|baby bond|subordinat|trust preferred|notes/.test(n)
+    ) return 'hybrid';
+    return 'common';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+    const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    if (typeof item?.analysisEligible === 'boolean') return item.analysisEligible && instrumentType === 'common';
+    return instrumentType === 'common';
 };
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
@@ -560,8 +597,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           
           const invalidAssets = assets.filter(a => !a.price || a.price === 0).length;
           const integrityScore = Math.max(0, 100 - (invalidAssets / assets.length * 100));
+          const eligibleUniverse = assets.filter(isAnalysisEligibleTicker);
+          const monitoringUniverse = assets.filter((item) => !isAnalysisEligibleTicker(item));
           setProgress(prev => ({ ...prev, integrity: Math.floor(integrityScore) }));
           addLog(`Data Integrity: ${integrityScore.toFixed(1)}%. Valid Assets: ${assets.length - invalidAssets}`, integrityScore > 90 ? "ok" : "warn");
+          addLog(
+              `Eligibility Gate: input=${assets.length} eligible=${eligibleUniverse.length} excluded=${monitoringUniverse.length} (non-common)`,
+              monitoringUniverse.length > 0 ? "warn" : "ok"
+          );
 
           addLog(`Phase 2: Recording Telemetry to Stage 0...`, "info");
           setProgress(prev => ({ ...prev, phase: 'Commit' }));
@@ -577,10 +620,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   provider: "Drive_V13_Original_Files", 
                   date: new Date().toISOString(), 
                   count: assets.length,
+                  inputCount: assets.length,
+                  eligibleCount: eligibleUniverse.length,
+                  excludedByInstrumentType: monitoringUniverse.length,
                   integrity: integrityScore,
                   note: "Smart Scaler Active: Revenue/ROE/Margins normalized to %. Loaded from Financial_Data_Daily."
               },
-              universe: assets
+              universe: assets,
+              eligible_universe: eligibleUniverse,
+              monitoring_universe: monitoringUniverse
           };
 
           await uploadFile(token, folderId, fileName, payload);
@@ -664,35 +712,26 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               if (!root.symbol) return null;
 
               const price = Number(root.price) || 0;
-              
-              // [FIX] History-based Change Calculation
-              let prevClose = Number(root.previousClose || root.prevClose || root.regularMarketPreviousClose || 0);
-              let change = Number(root.change || root.changesPercentage || root.pChange || root.regularMarketChangePercent || 0);
-              let changeAmount = Number(root.changeAmount || root.regularMarketChange);
-              if (!Number.isFinite(changeAmount)) changeAmount = NaN;
+              const instrumentType = classifyInstrumentType(root.symbol, root.name || root.companyName, root.instrumentType);
+              const analysisEligible = typeof root.analysisEligible === 'boolean'
+                  ? root.analysisEligible && instrumentType === 'common'
+                  : instrumentType === 'common';
 
-              // User Request: Use history[1] (Yesterday's Close) as the definitive prevClose
-              if (item.history && Array.isArray(item.history) && item.history.length > 1) {
-                  const yesterdayClose = Number(item.history[1].close || item.history[1].c || 0);
-                  
-                  // Only override if we have a valid historical close
-                  if (yesterdayClose > 0) {
-                      prevClose = yesterdayClose;
-                      changeAmount = price - prevClose;
-                      // Avoid division by zero
-                      change = prevClose !== 0 ? (changeAmount / prevClose) * 100 : 0;
-                  }
-              } else if (prevClose > 0 && price > 0) {
-                  // Integrity-first: prefer direct market geometry over feed-level delta fields.
-                  changeAmount = price - prevClose;
-                  change = (changeAmount / prevClose) * 100;
-              } else if (Number.isFinite(changeAmount) && price > 0) {
-                  // Use quote delta only when previous close is absent.
-                  prevClose = price - changeAmount;
-                  if (prevClose > 0) {
-                      change = (changeAmount / prevClose) * 100;
-                  }
+              const quotePrevClose = Number(root.regularMarketPreviousClose ?? root.previousClose);
+              const quoteChangeAmount = Number(root.regularMarketChange);
+              const quoteChangePercentRaw = Number(root.regularMarketChangePercent);
+
+              const prevClose = Number.isFinite(quotePrevClose) ? quotePrevClose : 0;
+              let changeAmount = Number.isFinite(quoteChangeAmount) ? quoteChangeAmount : 0;
+              let change = Number.isFinite(quoteChangePercentRaw) ? quoteChangePercentRaw : 0;
+              if (Number.isFinite(change) && Math.abs(change) <= 1 && change !== 0) {
+                  change *= 100;
               }
+              const changeStatus: 'RECEIVED' | 'MISSING' =
+                  Number.isFinite(quoteChangeAmount) && Number.isFinite(quoteChangePercentRaw)
+                      ? 'RECEIVED'
+                      : 'MISSING';
+              const changeSource: 'QUOTE' | 'MISSING' = changeStatus === 'RECEIVED' ? 'QUOTE' : 'MISSING';
 
               if (!Number.isFinite(changeAmount)) changeAmount = 0;
               if (!Number.isFinite(change)) change = 0;
@@ -816,6 +855,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   change: parseFloat(change.toFixed(2)),
                   changeAmount: parseFloat(changeAmount.toFixed(2)),
                   prevClose: parseFloat(prevClose.toFixed(2)),
+                  instrumentType,
+                  analysisEligible,
+                  changeSource,
+                  changeStatus,
                   quoteTimestamp: Number(root.quoteTimestamp || 0),
                   quoteSource: root.quoteSource || null,
                   netIncomeSource: root.netIncomeSource || null,

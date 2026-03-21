@@ -183,6 +183,24 @@ interface Props {
   isVisible?: boolean;
 }
 
+const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'common') return 'common';
+  if (normalized === 'warrant') return 'warrant';
+  if (normalized === 'unit') return 'unit';
+  if (normalized === 'right') return 'right';
+  if (normalized === 'hybrid') return 'hybrid';
+  return 'unknown';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+  const instrumentType = normalizeInstrumentType(item?.instrumentType);
+  if (typeof item?.analysisEligible === 'boolean') {
+    return item.analysisEligible && instrumentType === 'common';
+  }
+  return instrumentType === 'common';
+};
+
 const AUTO_CONTROL_PREFIX = "__AUTO_CONTROL__:";
 const toAutoControlPayload = (code: string) => `${AUTO_CONTROL_PREFIX}${code}`;
 
@@ -960,6 +978,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const finnhubKey = API_CONFIGS.find(c => c.provider === ApiProvider.FINNHUB)?.key;
   const logRef = useRef<HTMLDivElement>(null);
   const stage5SourceRef = useRef<Stage5SourceMeta | null>(null);
+  const stage5EligibilityRef = useRef<{ inputCount: number; eligibleCount: number; excludedByInstrumentType: number }>({
+      inputCount: 0,
+      eligibleCount: 0,
+      excludedByInstrumentType: 0
+  });
   const [stage5LockEnabled, setStage5LockEnabled] = useState(false);
   const [stage5LockFileId, setStage5LockFileId] = useState('');
   const [stage5LockFileName, setStage5LockFileName] = useState('');
@@ -2317,6 +2340,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const loadStage5Data = async () => {
     if (!accessToken) return [];
     stage5SourceRef.current = null;
+    stage5EligibilityRef.current = { inputCount: 0, eligibleCount: 0, excludedByInstrumentType: 0 };
     try {
       const lockOverride = resolveStage5LockOverride();
       if (lockOverride.enabled && !lockOverride.fileId && !lockOverride.fileName) {
@@ -2364,15 +2388,38 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 return [];
             }
 
+            const stage5RawUniverse = content.ict_universe;
+            const stage5EligibleUniverse = stage5RawUniverse.filter(isAnalysisEligibleTicker);
+            const excludedByInstrumentType = Math.max(0, stage5RawUniverse.length - stage5EligibleUniverse.length);
+            stage5EligibilityRef.current = {
+              inputCount: Number(content?.manifest?.inputCount || stage5RawUniverse.length),
+              eligibleCount: stage5EligibleUniverse.length,
+              excludedByInstrumentType
+            };
+            if (excludedByInstrumentType > 0) {
+              addLog(
+                `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 6 analysis.`,
+                "warn"
+              );
+            }
+            if (stage5EligibleUniverse.length === 0) {
+              addLog("Vault Error: Stage 5 lock loaded but all symbols are ineligible (non-common).", "err");
+              return [];
+            }
+
             stage5SourceRef.current = buildStage5LockMeta(latestFile, content, lockMode);
-            setElite50(content.ict_universe);
+            stage5SourceRef.current.count = stage5EligibleUniverse.length;
+            stage5SourceRef.current.symbols = stage5EligibleUniverse
+              .map((item: any) => String(item?.symbol || '').replace(/[^a-zA-Z]/g, '').toUpperCase())
+              .filter(Boolean);
+            setElite50(stage5EligibleUniverse);
             addLog(`Stage 5 Elite Vault Locked: ${latestFile.name}`, "ok");
-            addLog(`Vault Synchronized: ${content.ict_universe.length} Stage 5 leaders loaded.`, "ok");
+            addLog(`Vault Synchronized: ${stage5EligibleUniverse.length} Stage 5 leaders loaded.`, "ok");
             addLog(
               `[STAGE5_LOCK] ${stage5SourceRef.current.fileName} | hash=${stage5SourceRef.current.hash} | symbols=${(stage5SourceRef.current.symbols || []).join(',')}`,
               "info"
             );
-            return content.ict_universe;
+            return stage5EligibleUniverse;
         } else {
             addLog("Vault Warning: Stage 5 file found but empty or invalid format.", "warn");
         }
@@ -4249,6 +4296,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }));
           const top6AuditTrail = top6ArchiveCandidates.map(item => ({
               symbol: item.symbol,
+              instrumentType: normalizeInstrumentType(item?.instrumentType),
+              analysisEligible: isAnalysisEligibleTicker(item),
+              netIncomeSource: normalizeOptionalText(item?.netIncomeSource) || 'MISSING',
+              integrityReasons: Array.isArray(item?.integrityReasons) ? item.integrityReasons : [],
               tradePlanStatus: item.tradePlanStatus || 'VALID',
               tradePlanSource: item.tradePlanSource || 'RAW',
               rawConvictionScore: Number(item.rawConvictionScore ?? item.convictionScore ?? 0),
@@ -4301,6 +4352,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const toExecutionContractItem = (item: any) => ({
               symbol: item?.symbol || 'N/A',
               name: item?.name || 'N/A',
+              instrumentType: normalizeInstrumentType(item?.instrumentType),
+              analysisEligible: isAnalysisEligibleTicker(item),
               sector: item?.sectorTheme || item?.sector || 'N/A',
               aiVerdict: item?.aiVerdict || item?.verdictFinal || item?.finalVerdict || 'N/A',
               finalDecision: item?.finalDecision || 'N/A',
@@ -4396,6 +4449,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               manifest: { 
                   version: "9.9.9", 
                   count: top6Elite.length, 
+                  inputCount: stage5EligibilityRef.current.inputCount || candidates.length,
+                  eligibleCount: stage5EligibilityRef.current.eligibleCount || candidates.length,
+                  excludedByInstrumentType: stage5EligibilityRef.current.excludedByInstrumentType || 0,
                   timestamp: new Date().toISOString(), 
                   strategy: "Neural_Alpha_Sieve", 
                   engine: usedProvider,

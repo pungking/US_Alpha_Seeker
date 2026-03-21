@@ -80,6 +80,24 @@ const hasAbsoluteDebtData = (data: any): boolean => hasValue(firstPresent(
     data?.totalDebtAndCapitalLeaseObligation
 ));
 
+const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
+    const normalized = String(value || '').trim().toLowerCase();
+    if (normalized === 'common') return 'common';
+    if (normalized === 'warrant') return 'warrant';
+    if (normalized === 'unit') return 'unit';
+    if (normalized === 'right') return 'right';
+    if (normalized === 'hybrid') return 'hybrid';
+    return 'unknown';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+    const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    if (typeof item?.analysisEligible === 'boolean') {
+        return item.analysisEligible && instrumentType === 'common';
+    }
+    return instrumentType === 'common';
+};
+
 const normalizeScore = (val: number, min: number, max: number) => {
     if (val <= min) return 0;
     if (val >= max) return 100;
@@ -383,12 +401,16 @@ const performFinancialEngineering = (
     const marketCap = safeNum(data.marketCap || data.marketValue);
     const topLevelNetIncome = firstPresent(data.netIncome, data.netIncomeCommonStockholders);
     const historyNetIncome = getLatestHistoryNumber(data.financialHistory || data.fullHistory, HISTORY_NET_INCOME_KEYS);
+    const sourceHintRaw = String(data.netIncomeSource || '').trim().toUpperCase();
     const netIncome = hasValue(topLevelNetIncome)
         ? safeNum(topLevelNetIncome)
         : (historyNetIncome !== null ? safeNum(historyNetIncome) : 0);
-    const netIncomeSource = hasValue(topLevelNetIncome)
-        ? 'TOP_LEVEL'
-        : (historyNetIncome !== null ? 'HISTORY_LATEST' : 'MISSING');
+    let netIncomeSource: 'INFO' | 'HISTORY' | 'MISSING' = hasValue(topLevelNetIncome)
+        ? 'INFO'
+        : (historyNetIncome !== null ? 'HISTORY' : 'MISSING');
+    if (sourceHintRaw === 'INFO' || sourceHintRaw === 'HISTORY' || sourceHintRaw === 'MISSING') {
+        netIncomeSource = sourceHintRaw as 'INFO' | 'HISTORY' | 'MISSING';
+    }
     
     const allowRatioDebtFallback = options.allowRatioDebtFallback !== false;
     const rawDebtToEquity = firstPresent(data.debtToEquity);
@@ -965,9 +987,23 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 addLog(`[WARN] Latest Stage 2 file was empty. Fallback engaged: ${selectedStage2FileName}`, "warn");
             }
 
-            const candidates = stage2Content.elite_universe || [];
+            const stage2RawCandidates = Array.isArray(stage2Content?.elite_universe)
+                ? stage2Content.elite_universe
+                : [];
+            const stage2InputCount = Number(stage2Content?.manifest?.inputCount || stage2RawCandidates.length);
+            const candidates = stage2RawCandidates.filter(isAnalysisEligibleTicker);
+            const excludedByInstrumentType = Math.max(0, stage2RawCandidates.length - candidates.length);
             addLog(`[OK] Stage 2 Source Locked: ${selectedStage2FileName}`, "ok");
             addLog(`Targets Acquired: ${candidates.length} elite assets.`, "ok");
+            if (excludedByInstrumentType > 0) {
+                addLog(
+                    `Instrument Gate: excluded ${excludedByInstrumentType} non-common symbols before Stage 3 analysis.`,
+                    "warn"
+                );
+            }
+            if (candidates.length === 0) {
+                throw new Error("Stage 2 eligible universe is empty (instrument gate).");
+            }
             setProgress({ current: 0, total: candidates.length, msg: 'Initializing History Vault...' });
 
             const universeBaselines = computeUniverseBaselines(candidates);
@@ -1165,13 +1201,22 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     let integrityPenalty = 0;
                     let isHighGrowthQuality = false;
                     let isCashFlowWarning = false;
+                    const integrityReasons: string[] = [];
                     const opCashflow = safeNum(item.operatingCashflow || item.operatingCashFlow);
                     
                     if (opCashflow <= 0) {
                         integrityPenalty = sector.toLowerCase().includes('financial') ? 6 : 18;
                         isCashFlowWarning = true;
+                        integrityReasons.push('cashflow_non_positive');
                     }
-                    if (analysis.cashflowProxyUsed) integrityPenalty += sector.toLowerCase().includes('financial') ? 3 : 6;
+                    if (analysis.cashflowProxyUsed) {
+                        integrityPenalty += sector.toLowerCase().includes('financial') ? 3 : 6;
+                        integrityReasons.push('cashflow_proxy_used');
+                    }
+                    if (analysis.netIncomeSource === 'MISSING') {
+                        integrityPenalty += 12;
+                        integrityReasons.push('net_income_missing');
+                    }
                     
                     // [NEW] High-Quality-Growth Flag
                     if (safeNum(item.roe) > 15 && safeNum(item.revenueGrowth) > 10) {
@@ -1201,6 +1246,7 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                         lastUpdate: new Date().toISOString(),
                         isDerived: true,
                         isImputed: isImputed,
+                        integrityReasons,
                         auditSource: 'ALGO'
                     });
                 }
@@ -1224,6 +1270,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                 `[5Y_FACTOR] trend=${avgAdj('trendAdjustment').toFixed(2)} seasonality=${avgAdj('seasonalityAdjustment').toFixed(2)} quality=${avgAdj('qualityFactorAdjustment').toFixed(2)} regime=${avgAdj('regimeAdjustment').toFixed(2)}`,
                 "ok"
             );
+            const netIncomeMissingCount = results.filter((item: any) =>
+                Array.isArray(item?.integrityReasons) && item.integrityReasons.includes('net_income_missing')
+            ).length;
+            if (netIncomeMissingCount > 0) {
+                addLog(
+                    `[INTEGRITY] net_income_missing penalty applied to ${netIncomeMissingCount}/${results.length} symbols.`,
+                    "warn"
+                );
+            }
 
             // --- [NEW] SECTOR INTELLIGENCE & MOMENTUM SCORING ---
             
@@ -1297,7 +1352,15 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
             const fileName = `STAGE3_FUNDAMENTAL_FULL_${timestamp}.json`;
 
             const payload = {
-                manifest: { version: "5.8.0", count: eliteCandidates.length, timestamp: new Date().toISOString(), engine: "Pure_Quant_Algorithm" },
+                manifest: {
+                    version: "5.8.0",
+                    count: eliteCandidates.length,
+                    inputCount: stage2InputCount,
+                    eligibleCount: candidates.length,
+                    excludedByInstrumentType,
+                    timestamp: new Date().toISOString(),
+                    engine: "Pure_Quant_Algorithm"
+                },
                 fundamental_universe: eliteCandidates
             };
 

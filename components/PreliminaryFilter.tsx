@@ -25,6 +25,24 @@ interface MasterTicker {
   [key: string]: any;
 }
 
+const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
+  const normalized = String(value || '').trim().toLowerCase();
+  if (normalized === 'common') return 'common';
+  if (normalized === 'warrant') return 'warrant';
+  if (normalized === 'unit') return 'unit';
+  if (normalized === 'right') return 'right';
+  if (normalized === 'hybrid') return 'hybrid';
+  return 'unknown';
+};
+
+const isAnalysisEligibleTicker = (item: any): boolean => {
+  const instrumentType = normalizeInstrumentType(item?.instrumentType);
+  if (typeof item?.analysisEligible === 'boolean') {
+    return item.analysisEligible && instrumentType === 'common';
+  }
+  return instrumentType === 'common';
+};
+
 interface MarketContext {
     vix: number;
     spxChange: number;
@@ -63,6 +81,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
   const [filteredCount, setFilteredCount] = useState(0);
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
+  const [stage0InputCount, setStage0InputCount] = useState(0);
+  const [stage0EligibleCount, setStage0EligibleCount] = useState(0);
+  const [stage0ExcludedCount, setStage0ExcludedCount] = useState(0);
 
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -160,22 +181,35 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           const content = await contentFetch.json();
 
           // CRITICAL: Capture data in local scope to avoid State Race Conditions
-          const data: MasterTicker[] = content.universe || [];
-          setRawUniverse(data); // State update for UI
-          addLog(`Matrix Synced: ${data.length} rich assets loaded.`, "ok");
+          const stage0Universe: MasterTicker[] = Array.isArray(content?.universe) ? content.universe : [];
+          const stage0EligibleUniverse: MasterTicker[] = Array.isArray(content?.eligible_universe)
+            ? content.eligible_universe
+            : stage0Universe.filter(isAnalysisEligibleTicker);
+          const excludedByInstrumentType = Math.max(0, stage0Universe.length - stage0EligibleUniverse.length);
+          setStage0InputCount(stage0Universe.length);
+          setStage0EligibleCount(stage0EligibleUniverse.length);
+          setStage0ExcludedCount(excludedByInstrumentType);
+          setRawUniverse(stage0EligibleUniverse); // State update for UI / downstream filtering
+          addLog(
+            `Matrix Synced: input=${stage0Universe.length} eligible=${stage0EligibleUniverse.length} excluded=${excludedByInstrumentType}`,
+            excludedByInstrumentType > 0 ? "warn" : "ok"
+          );
+          if (stage0EligibleUniverse.length === 0) {
+              throw new Error("Stage 0 eligible universe is empty (instrument gate).");
+          }
 
           // 3. AI Analysis for Thresholds
           addLog("Phase 3: Calculating Optimal Thresholds via AI...", "info");
           addLog("ICT 기반 유니버스 정제 중...", "info"); // [NEW] ICT Log
           
           // CRITICAL: Pass data directly, receive proposal directly
-          const proposal = await runAiAnalysis(data, context);
+          const proposal = await runAiAnalysis(stage0EligibleUniverse, context);
 
           // 4. Auto Commit if requested
           if (autoCommit && proposal) {
               addLog("Auto-Committing AI Proposal...", "signal");
               // Pass EXPLICIT values to commit, don't rely on state
-              await commitPurification(data, proposal.suggestedPrice, proposal.suggestedVolume, proposal);
+              await commitPurification(stage0EligibleUniverse, proposal.suggestedPrice, proposal.suggestedVolume, proposal);
           } else {
               setLoading(false);
               setIsAnalyzing(false);
@@ -427,6 +461,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     // [V11.3 UPDATE] Enhanced Hard Quality Gates
     // Added PE > 0, ROE > 0 AND Target Price > 0 to prevent data poisoning downstream
     const filteredList = dataToFilter.reduce<MasterTicker[]>((acc, s) => {
+        if (!isAnalysisEligibleTicker(s)) return acc;
+
         // [DYNAMIC SCALING] Small Cap Protection Logic
         // If Market Cap <= 300M, lower volume threshold by 40% (0.6 multiplier) to catch "Hidden Gems"
         let effectiveMinVolume = targetVolume;
@@ -467,6 +503,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     
     addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
     addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume} (Scaled for SmallCaps), PE>0, ROE>0`, "info");
+    if (stage0ExcludedCount > 0) {
+        addLog(`Eligibility Contract: excluded non-common ${stage0ExcludedCount} symbols before Stage 1 commit.`, "warn");
+    }
 
     try {
       const folderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder);
@@ -474,11 +513,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         
       const fileName = `STAGE1_PURIFIED_UNIVERSE_${timestamp}.json`;
       
-      const payload = {
+    const payload = {
         manifest: { 
             version: "11.3.0", 
             count: filteredList.length,
             sourceCount: dataToFilter.length,
+            inputCount: stage0InputCount || dataToFilter.length,
+            eligibleCount: stage0EligibleCount || dataToFilter.length,
+            excludedByInstrumentType: stage0ExcludedCount,
             regime: activeProposal?.regime || "Manual", 
             filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
             timestamp: new Date().toISOString(), 
