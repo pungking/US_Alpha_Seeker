@@ -986,6 +986,19 @@ const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 
 
 ## 4. 🔷 MEDIUM/LOW 버그
 
+### 4-STATUS. 2026-03-23 재점검 상태 (완전 완료 / 미완료)
+
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| 4-A UI 불일치 | 미완료 | `filteredCount` 설명/실제 커밋 조건 불일치 등 UI 계약 재정의 필요 |
+| 4-B useEffect 의존성 누락 | **완전 완료** | `components/UniverseGathering.tsx:290`, `components/PreliminaryFilter.tsx:129`, `components/DeepQualityFilter.tsx:480` |
+| 4-C Drive 검색 폴더 범위 미제한 | **완전 완료** | Stage0/1/2 로드 쿼리에 parent folder 제한 추가: `components/PreliminaryFilter.tsx:193-200`, `components/DeepQualityFilter.tsx:585-592`, `components/FundamentalAnalysis.tsx:959-964` |
+| 4-D Perplexity res.ok 체크 순서 | **완전 완료** | `components/PreliminaryFilter.tsx:401-405` (ok 체크 후 json 파싱) |
+| 4-E AnalysisStage enum 불일치 | **완전 완료** | `types.ts:65-66` (`STAGE_1`, `STAGE_2` 명시) |
+| 4-F Vite에서 process.env 미지원 경로 | **완전 완료** | `components/PreliminaryFilter.tsx:424` (`process.env` 제거, config key 사용) |
+| 4-G setGatheredRegistry 과호출 | 미완료 | 대량 수집 루프 내 중간 setState 최소화 리팩터링 필요 |
+| 4-H Stage3/4 추가 버그 묶음 | 미완료 | Median/BB 표본분산/POWER_TREND 조건 통합 등 잔여 |
+
 ### 4-A. UI 불일치 버그
 
 | ID | 파일 | 라인 | 설명 |
@@ -1083,6 +1096,16 @@ setGatheredRegistry(new Map(tempRegistry));  // 26회 불필요한 Map 복사
 ---
 
 ## 5. 🔒 보안 취약점
+
+### 5-STATUS. 2026-03-23 재점검 상태 (완전 완료 / 미완료)
+
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| 5-A 하드코딩 API 키 목록 | 미완료 | 키 하드코딩은 대폭 제거됐으나 `GOOGLE_DRIVE_TARGET.rootFolderId` 하드코딩 잔여(`constants.ts:233`) |
+| 5-B Perplexity 키 이중 하드코딩 | **완전 완료** | `components/PreliminaryFilter.tsx` 내 Perplexity 하드코딩 키 제거됨 |
+| 5-C Telegram Chat ID 완전 하드코딩 | **완전 완료** | `constants.ts:114-117` 환경변수 경로 사용 |
+| 5-D 클라이언트 ID 로컬스토리지 노출 | 미완료 | 토큰/세션 저장 경로 정책 정리 및 마스킹 문서화 필요 |
+| 5-E 보안 수정 방향 | 진행중 | rootFolderId env 전환 + 시크릿 로테이션 체크리스트 마감 필요 |
 
 ### 5-A. constants.ts 하드코딩 API 키 목록 (14개)
 

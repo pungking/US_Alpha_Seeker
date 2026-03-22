@@ -477,7 +477,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         addLog("AUTO-PILOT: Engaging Deep Quality Filter...", "signal");
         executeDeepFilter();
     }
-  }, [autoStart]);
+  }, [autoStart, loading]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -582,7 +582,14 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
 
       try {
           addLog("Phase 1: Loading Stage 1 Purified Universe...", "info");
-          const q = encodeURIComponent(`name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`);
+          const stage1FolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.stage1SubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+          if (!stage1FolderId) {
+              addLog("[WARN] Stage 1 folder not found under root. Falling back to global search.", "warn");
+          }
+          const stage1Query = stage1FolderId
+              ? `name contains 'STAGE1_PURIFIED_UNIVERSE' and '${stage1FolderId}' in parents and trashed = false`
+              : `name contains 'STAGE1_PURIFIED_UNIVERSE' and trashed = false`;
+          const q = encodeURIComponent(stage1Query);
           const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });

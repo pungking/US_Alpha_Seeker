@@ -287,7 +287,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
             addLog("AUTO-PILOT: Critical - Auth Token Missing. Aborting.", "err");
         }
     }
-  }, [autoStart, isActive]);
+  }, [autoStart, isActive, isGathering, accessToken]);
 
   // Search Logic (Local Registry -> External API if needed for search only)
   useEffect(() => {

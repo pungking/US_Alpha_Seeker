@@ -954,7 +954,14 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
 
         try {
             addLog("Phase 2: Loading Stage 2 Elite Universe...", "info");
-            const q = encodeURIComponent(`name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`);
+            const stage2FolderId = await findFolder(accessToken, GOOGLE_DRIVE_TARGET.stage2SubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+            if (!stage2FolderId) {
+                addLog("[WARN] Stage 2 folder not found under root. Falling back to global search.", "warn");
+            }
+            const stage2Query = stage2FolderId
+                ? `name contains 'STAGE2_ELITE_UNIVERSE' and '${stage2FolderId}' in parents and trashed = false`
+                : `name contains 'STAGE2_ELITE_UNIVERSE' and trashed = false`;
+            const q = encodeURIComponent(stage2Query);
             const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=5`, {
                 headers: { 'Authorization': `Bearer ${accessToken}` }
             });

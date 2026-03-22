@@ -126,7 +126,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
         addLog("AUTO-PILOT: Initiating Context-Aware Filtration Sequence...", "signal");
         handleSyncAndAnalyze(true); 
     }
-  }, [autoStart]);
+  }, [autoStart, loading, rawUniverse.length]);
 
   const addLog = (m: string, t: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
@@ -157,6 +157,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const errText = await res.text().catch(() => '');
       throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
   };
+  const findChildFolderId = async (token: string, name: string, parentId: string): Promise<string | null> => {
+      const q = encodeURIComponent(
+          `name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`
+      );
+      const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&pageSize=1`, {
+          headers: { 'Authorization': `Bearer ${token}` }
+      });
+      await assertDriveOk(res, `findChildFolderId(${name})`);
+      const data = await res.json();
+      return data.files?.[0]?.id || null;
+  };
 
   const handleSyncAndAnalyze = async (autoCommit = false) => {
       if (!accessToken) {
@@ -179,7 +190,14 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
 
           // 2. Load Stage 0 Data
           addLog("Phase 2: Retrieving Global Universe from Stage 0...", "info");
-          const q = encodeURIComponent(`name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`);
+          const stage0FolderId = await findChildFolderId(accessToken, GOOGLE_DRIVE_TARGET.targetSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
+          if (!stage0FolderId) {
+              addLog(`[WARN] Stage 0 folder not found under root. Falling back to global search.`, "warn");
+          }
+          const stage0Query = stage0FolderId
+              ? `name contains 'STAGE0_MASTER_UNIVERSE' and '${stage0FolderId}' in parents and trashed = false`
+              : `name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`;
+          const q = encodeURIComponent(stage0Query);
           const listFetch = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
@@ -380,9 +398,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                   });
 
                   const res: any = await Promise.race([perplexityRequest, timeoutPromise(15000, "Perplexity Timeout")]);
+                  if (!res.ok) {
+                      const errText = await res.text().catch(() => '');
+                      throw new Error(`Perplexity API Error: ${res.status} ${errText.slice(0, 120)}`);
+                  }
                   const json = await res.json();
-                  
-                  if (!res.ok) throw new Error(`Perplexity API Error: ${res.status}`);
                   
                   if (json.usage) trackUsage(ApiProvider.PERPLEXITY, json.usage.total_tokens || 0);
 
@@ -401,7 +421,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       try {
           // Explicitly search for Gemini Config
           const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-          const geminiKey = process.env.API_KEY || geminiConfig?.key || "";
+          const geminiKey = geminiConfig?.key || "";
           
           if (geminiKey) {
               const ai = new GoogleGenAI({ apiKey: geminiKey });

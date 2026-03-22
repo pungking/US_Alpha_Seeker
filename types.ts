@@ -62,7 +62,8 @@ export interface EarningsEvent {
 
 export enum AnalysisStage {
   STAGE_0 = 'Universe Gathering',
-  STAGE_2 = 'Quality Filter',
+  STAGE_1 = 'Preliminary Filter',
+  STAGE_2 = 'Deep Quality Filter',
   STAGE_3 = 'Fundamental Analysis',
   STAGE_4 = 'Technical Analysis',
   STAGE_5 = 'ICT Smart Money',
