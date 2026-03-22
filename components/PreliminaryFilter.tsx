@@ -240,7 +240,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 proposal.suggestedPrice,
                 proposal.suggestedVolume,
                 proposal,
-                stage0Counts
+                stage0Counts,
+                stage0FileName || null
               );
           } else {
               setLoading(false);
@@ -473,7 +474,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       explicitPrice?: number, 
       explicitVolume?: number,
       explicitProposal?: AiProposal,
-      explicitStage0Counts?: Stage0CountContract
+      explicitStage0Counts?: Stage0CountContract,
+      explicitStage0File?: string | null
   ) => {
     if (!accessToken) return;
     
@@ -487,6 +489,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       eligibleCount: stage0EligibleCount,
       excludedByInstrumentType: stage0ExcludedCount
     };
+    const sourceStage0File = explicitStage0File ?? stage0SourceFile;
     const manifestInputCount = toNonNegativeInt(stage0Counts.inputCount, dataToFilter.length);
     const manifestEligibleCount = toNonNegativeInt(stage0Counts.eligibleCount, dataToFilter.length);
     const manifestExcludedByInstrumentType = Math.max(
@@ -568,7 +571,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             inputCount: manifestInputCount,
             eligibleCount: manifestEligibleCount,
             excludedByInstrumentType: manifestExcludedByInstrumentType,
-            sourceStage0File: stage0SourceFile,
+            sourceStage0File,
             regime: activeProposal?.regime || "Manual", 
             filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
             timestamp: new Date().toISOString(), 
