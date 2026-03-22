@@ -148,6 +148,74 @@ const isAnalysisEligibleTicker = (item: any): boolean => {
     return instrumentType === 'common';
 };
 
+interface NormalizedQuoteDeltaInput {
+    price: number;
+    prevCloseRaw: number;
+    changeAmountRaw: number;
+    changePercentRaw: number;
+}
+
+interface NormalizedQuoteDelta {
+    prevClose: number;
+    changeAmount: number;
+    changePercent: number;
+    changeStatus: 'RECEIVED' | 'MISSING';
+    changeSource: 'QUOTE' | 'MISSING';
+}
+
+// Keep change% consistent with changeAmount/prevClose while preserving provider data when possible.
+const normalizeQuoteDelta = ({
+    price,
+    prevCloseRaw,
+    changeAmountRaw,
+    changePercentRaw
+}: NormalizedQuoteDeltaInput): NormalizedQuoteDelta => {
+    const hasPrevClose = Number.isFinite(prevCloseRaw) && prevCloseRaw > 0;
+    const hasPrice = Number.isFinite(price);
+    const hasChangeAmount = Number.isFinite(changeAmountRaw);
+    const hasChangePercent = Number.isFinite(changePercentRaw);
+
+    const prevClose = hasPrevClose ? prevCloseRaw : 0;
+    let changeAmount = hasChangeAmount
+        ? changeAmountRaw
+        : (hasPrevClose && hasPrice ? price - prevCloseRaw : 0);
+
+    const derivedPct = hasPrevClose && Number.isFinite(changeAmount)
+        ? (changeAmount / prevCloseRaw) * 100
+        : null;
+
+    let changePercent = 0;
+    if (hasChangePercent) {
+        // Some feeds send percent as -0.95, others as -0.0095. Pick the candidate
+        // closest to the arithmetic identity (changeAmount / prevClose * 100).
+        const direct = changePercentRaw;
+        const scaled = changePercentRaw * 100;
+        if (derivedPct !== null && Number.isFinite(derivedPct)) {
+            const directErr = Math.abs(direct - derivedPct);
+            const scaledErr = Math.abs(scaled - derivedPct);
+            changePercent = scaledErr < directErr ? scaled : direct;
+            if (Math.abs(changePercent - derivedPct) > 0.5) {
+                changePercent = derivedPct;
+            }
+        } else {
+            changePercent = direct;
+        }
+    } else if (derivedPct !== null && Number.isFinite(derivedPct)) {
+        changePercent = derivedPct;
+    }
+
+    if (!Number.isFinite(changeAmount)) changeAmount = 0;
+    if (!Number.isFinite(changePercent)) changePercent = 0;
+
+    return {
+        prevClose,
+        changeAmount,
+        changePercent,
+        changeStatus: hasChangeAmount && hasChangePercent ? 'RECEIVED' : 'MISSING',
+        changeSource: hasChangeAmount && hasChangePercent ? 'QUOTE' : 'MISSING'
+    };
+};
+
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
@@ -354,14 +422,22 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               return parseFloat(num.toFixed(2));
           };
 
+          const price = Number(raw.price ?? raw.regularMarketPrice ?? 0);
+          const normalizedDelta = normalizeQuoteDelta({
+              price,
+              prevCloseRaw: Number(raw.prevClose ?? raw.regularMarketPreviousClose),
+              changeAmountRaw: Number(raw.changeAmount ?? raw.regularMarketChange),
+              changePercentRaw: Number(raw.change ?? raw.regularMarketChangePercent)
+          });
+
           // Map to MasterTicker interface
           return {
               symbol: raw.symbol,
               name: raw.name || raw.shortName || raw.longName || "Unknown",
-              price: raw.price || raw.regularMarketPrice || 0,
-              change: raw.change || raw.regularMarketChangePercent || 0,
-              changeAmount: raw.changeAmount || raw.regularMarketChange || 0,
-              prevClose: raw.prevClose || raw.regularMarketPreviousClose || 0,
+              price,
+              change: parseFloat(normalizedDelta.changePercent.toFixed(2)),
+              changeAmount: parseFloat(normalizedDelta.changeAmount.toFixed(2)),
+              prevClose: parseFloat(normalizedDelta.prevClose.toFixed(2)),
               currency: raw.currency || 'USD',
               marketCap: raw.marketCap || 0,
               volume: raw.volume || raw.averageVolume || 0,
@@ -412,6 +488,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               
               updated: new Date().toISOString(),
               source: 'External_Yahoo',
+              changeSource: normalizedDelta.changeSource,
+              changeStatus: normalizedDelta.changeStatus,
               dataQuality: 'MEDIUM'
           };
       } catch (e) {
@@ -719,24 +797,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   ? root.analysisEligible && instrumentType === 'common'
                   : instrumentType === 'common';
 
-              const quotePrevClose = Number(root.regularMarketPreviousClose ?? root.previousClose);
-              const quoteChangeAmount = Number(root.regularMarketChange);
-              const quoteChangePercentRaw = Number(root.regularMarketChangePercent);
-
-              const prevClose = Number.isFinite(quotePrevClose) ? quotePrevClose : 0;
-              let changeAmount = Number.isFinite(quoteChangeAmount) ? quoteChangeAmount : 0;
-              let change = Number.isFinite(quoteChangePercentRaw) ? quoteChangePercentRaw : 0;
-              if (Number.isFinite(change) && Math.abs(change) <= 1 && change !== 0) {
-                  change *= 100;
-              }
-              const changeStatus: 'RECEIVED' | 'MISSING' =
-                  Number.isFinite(quoteChangeAmount) && Number.isFinite(quoteChangePercentRaw)
-                      ? 'RECEIVED'
-                      : 'MISSING';
-              const changeSource: 'QUOTE' | 'MISSING' = changeStatus === 'RECEIVED' ? 'QUOTE' : 'MISSING';
-
-              if (!Number.isFinite(changeAmount)) changeAmount = 0;
-              if (!Number.isFinite(change)) change = 0;
+              const normalizedDelta = normalizeQuoteDelta({
+                  price,
+                  prevCloseRaw: Number(root.regularMarketPreviousClose ?? root.previousClose ?? root.prevClose),
+                  changeAmountRaw: Number(root.regularMarketChange ?? root.changeAmount),
+                  changePercentRaw: Number(root.regularMarketChangePercent ?? root.change)
+              });
 
               // [FIX] Fixed Mapping Helpers
               const toPercent = (val: any) => {
@@ -854,13 +920,13 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   industry: root.industry || 'Unknown',
 
                   // System Fields
-                  change: parseFloat(change.toFixed(2)),
-                  changeAmount: parseFloat(changeAmount.toFixed(2)),
-                  prevClose: parseFloat(prevClose.toFixed(2)),
+                  change: parseFloat(normalizedDelta.changePercent.toFixed(2)),
+                  changeAmount: parseFloat(normalizedDelta.changeAmount.toFixed(2)),
+                  prevClose: parseFloat(normalizedDelta.prevClose.toFixed(2)),
                   instrumentType,
                   analysisEligible,
-                  changeSource,
-                  changeStatus,
+                  changeSource: normalizedDelta.changeSource,
+                  changeStatus: normalizedDelta.changeStatus,
                   quoteTimestamp: Number(root.quoteTimestamp || 0),
                   quoteSource: root.quoteSource || null,
                   netIncomeSource: root.netIncomeSource || null,
