@@ -145,6 +145,8 @@ const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'r
 
 const isAnalysisEligibleTicker = (item: any): boolean => {
     const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    const lifecycleState = String(item?.symbolLifecycleState || '').trim().toUpperCase();
+    if (lifecycleState === 'RETIRED' || lifecycleState === 'EXCLUDED') return false;
     if (typeof item?.analysisEligible === 'boolean') {
         return item.analysisEligible && instrumentType === 'common';
     }

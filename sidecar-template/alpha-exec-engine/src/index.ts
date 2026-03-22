@@ -47,6 +47,16 @@ type Stage6CandidateSummary = {
   symbol: string;
   instrumentType: "common" | "warrant" | "unit" | "right" | "hybrid" | "unknown";
   analysisEligible: boolean | null;
+  historyTier: "FULL" | "PROVISIONAL" | "ONBOARDING" | "UNKNOWN";
+  symbolLifecycleState:
+    | "ACTIVE"
+    | "PROVISIONAL"
+    | "ONBOARDING"
+    | "RECOVERED"
+    | "STALE"
+    | "RETIRED"
+    | "EXCLUDED"
+    | "UNKNOWN";
   verdict: string;
   expectedReturn: string;
   expectedReturnPct: number | null;
@@ -755,7 +765,9 @@ function mapStage6DecisionReasonToSkip(
   if (!key || key === "n/a") return "stage6_watchlist";
   if (key === "wait_pullback_not_reached") return "stage6_wait_pullback_too_deep";
   if (key === "wait_earnings_data_missing") return "stage6_wait_earnings_data_missing";
+  if (key === "wait_insufficient_history") return "stage6_wait_insufficient_history";
   if (key === "wait_state_verdict_conflict") return "stage6_wait_state_verdict_conflict";
+  if (key === "blocked_symbol_stale") return "stage6_symbol_stale";
   if (key === "blocked_invalid_geometry") return "stage6_invalid_geometry";
   if (key === "blocked_missing_trade_box") return "stage6_invalid_data";
   if (key === "blocked_quality_missing_expected_return") return "stage6_quality_missing_expected_return";
@@ -913,6 +925,26 @@ function normalizeStage6InstrumentType(value: unknown): Stage6CandidateSummary["
   return "unknown";
 }
 
+function normalizeStage6HistoryTier(value: unknown): Stage6CandidateSummary["historyTier"] {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (normalized === "FULL") return "FULL";
+  if (normalized === "PROVISIONAL") return "PROVISIONAL";
+  if (normalized === "ONBOARDING") return "ONBOARDING";
+  return "UNKNOWN";
+}
+
+function normalizeStage6LifecycleState(value: unknown): Stage6CandidateSummary["symbolLifecycleState"] {
+  const normalized = typeof value === "string" ? value.trim().toUpperCase() : "";
+  if (normalized === "ACTIVE") return "ACTIVE";
+  if (normalized === "PROVISIONAL") return "PROVISIONAL";
+  if (normalized === "ONBOARDING") return "ONBOARDING";
+  if (normalized === "RECOVERED") return "RECOVERED";
+  if (normalized === "STALE") return "STALE";
+  if (normalized === "RETIRED") return "RETIRED";
+  if (normalized === "EXCLUDED") return "EXCLUDED";
+  return "UNKNOWN";
+}
+
 function parseCandidateSummariesFromRaw(raw: unknown): Stage6CandidateSummary[] {
   if (!Array.isArray(raw)) return [];
 
@@ -962,6 +994,8 @@ function parseCandidateSummariesFromRaw(raw: unknown): Stage6CandidateSummary[] 
             ? String(getNestedValue(node, ["techMetrics", "trendAlignment"])).trim().toUpperCase()
             : null;
       const instrumentType = normalizeStage6InstrumentType(node.instrumentType);
+      const historyTier = normalizeStage6HistoryTier(node.historyTier);
+      const symbolLifecycleState = normalizeStage6LifecycleState(node.symbolLifecycleState);
       const analysisEligibleRaw = parseBooleanValue(node.analysisEligible);
       const analysisEligible =
         analysisEligibleRaw != null ? analysisEligibleRaw : instrumentType === "common" ? true : null;
@@ -1031,6 +1065,8 @@ function parseCandidateSummariesFromRaw(raw: unknown): Stage6CandidateSummary[] 
         symbol,
         instrumentType,
         analysisEligible,
+        historyTier,
+        symbolLifecycleState,
         verdict,
         expectedReturn: formatExpectedReturnLabel(expectedReturnRaw, expectedReturnPctRaw),
         expectedReturnPct:
@@ -1992,6 +2028,15 @@ function buildDryExecPayloads(
     const isInstrumentIneligible = row.analysisEligible === false || isExplicitlyNonCommon;
     if (isInstrumentIneligible) {
       skipped.push({ symbol: row.symbol, reason: "instrument_type_ineligible" });
+      stage6ContractBlocked += 1;
+      return;
+    }
+    const isLifecycleIneligible =
+      row.symbolLifecycleState === "STALE" ||
+      row.symbolLifecycleState === "RETIRED" ||
+      row.symbolLifecycleState === "EXCLUDED";
+    if (isLifecycleIneligible) {
+      skipped.push({ symbol: row.symbol, reason: "symbol_state_ineligible" });
       stage6ContractBlocked += 1;
       return;
     }

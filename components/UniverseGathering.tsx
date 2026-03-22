@@ -142,6 +142,8 @@ const classifyInstrumentType = (symbol: any, name: any, hintedType: any): Master
 
 const isAnalysisEligibleTicker = (item: any): boolean => {
     const instrumentType = normalizeInstrumentType(item?.instrumentType);
+    const lifecycleState = String(item?.symbolLifecycleState || '').trim().toUpperCase();
+    if (lifecycleState === 'RETIRED' || lifecycleState === 'EXCLUDED') return false;
     if (typeof item?.analysisEligible === 'boolean') return item.analysisEligible && instrumentType === 'common';
     return instrumentType === 'common';
 };

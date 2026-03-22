@@ -47,7 +47,9 @@ interface AlphaCandidate {
     | 'executable_pullback'
     | 'wait_pullback_not_reached'
     | 'wait_earnings_data_missing'
+    | 'wait_insufficient_history'
     | 'wait_state_verdict_conflict'
+    | 'blocked_symbol_stale'
     | 'blocked_invalid_geometry'
     | 'blocked_missing_trade_box'
     | 'blocked_quality_missing_expected_return'
@@ -101,6 +103,17 @@ interface AlphaCandidate {
   chartPattern?: string;
   supportLevel?: number;
   resistanceLevel?: number;
+  historyTier?: 'FULL' | 'PROVISIONAL' | 'ONBOARDING' | 'UNKNOWN';
+  symbolLifecycleState?:
+    | 'ACTIVE'
+    | 'PROVISIONAL'
+    | 'ONBOARDING'
+    | 'RECOVERED'
+    | 'STALE'
+    | 'RETIRED'
+    | 'EXCLUDED'
+    | 'UNKNOWN';
+  historyPeriods?: number | null;
   riskRewardRatio?: string;
   newsSentiment?: string;
   newsScore?: number;
@@ -195,6 +208,8 @@ const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'r
 
 const isAnalysisEligibleTicker = (item: any): boolean => {
   const instrumentType = normalizeInstrumentType(item?.instrumentType);
+  const lifecycleState = String(item?.symbolLifecycleState || '').trim().toUpperCase();
+  if (lifecycleState === 'RETIRED' || lifecycleState === 'EXCLUDED') return false;
   if (typeof item?.analysisEligible === 'boolean') {
     return item.analysisEligible && instrumentType === 'common';
   }
@@ -541,9 +556,17 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "⏳ Reason: wait_earnings_data_missing",
         desc: "실적 일정 데이터가 누락되어 이벤트 리스크를 확정할 수 없어 **보수적으로 대기**합니다."
     },
+    'REASON_WAIT_INSUFFICIENT_HISTORY': {
+        title: "⏳ Reason: wait_insufficient_history",
+        desc: "히스토리 기간이 충분히 쌓이지 않아 신뢰도 기반 품질 검증을 위해 **관찰/대기** 상태로 둡니다."
+    },
     'REASON_WAIT_STATE_VERDICT_CONFLICT': {
         title: "⏳ Reason: wait_state_verdict_conflict",
         desc: "시장 구조 상태(예: DISTRIBUTION)와 AI 매수 평결이 충돌해 **추가 확인 전 대기**합니다."
+    },
+    'REASON_BLOCKED_SYMBOL_STALE': {
+        title: "⛔ Reason: blocked_symbol_stale",
+        desc: "원천 데이터가 stale 상태로 판정되어 실행 계약 무결성을 위해 **자동 차단**했습니다."
     },
     'REASON_BLOCKED_INVALID_GEOMETRY': {
         title: "⛔ Reason: blocked_invalid_geometry",
@@ -811,7 +834,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'executable_pullback') return 'REASON_EXECUTABLE_PULLBACK';
       if (key === 'wait_pullback_not_reached') return 'REASON_WAIT_PULLBACK_NOT_REACHED';
       if (key === 'wait_earnings_data_missing') return 'REASON_WAIT_EARNINGS_DATA_MISSING';
+      if (key === 'wait_insufficient_history') return 'REASON_WAIT_INSUFFICIENT_HISTORY';
       if (key === 'wait_state_verdict_conflict') return 'REASON_WAIT_STATE_VERDICT_CONFLICT';
+      if (key === 'blocked_symbol_stale') return 'REASON_BLOCKED_SYMBOL_STALE';
       if (key === 'blocked_invalid_geometry') return 'REASON_BLOCKED_INVALID_GEOMETRY';
       if (key === 'blocked_missing_trade_box') return 'REASON_BLOCKED_MISSING_TRADE_BOX';
       if (key === 'blocked_quality_missing_expected_return') return 'REASON_BLOCKED_QUALITY_MISSING_ER';
@@ -834,7 +859,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'executable_pullback') return 'Pullback Confirmed';
       if (key === 'wait_pullback_not_reached') return 'Pullback Not Reached';
       if (key === 'wait_earnings_data_missing') return 'Awaiting Earnings Data';
+      if (key === 'wait_insufficient_history') return 'Awaiting History Build-up';
       if (key === 'wait_state_verdict_conflict') return 'Awaiting State Conflict Review';
+      if (key === 'blocked_symbol_stale') return 'Blocked: Symbol Data Stale';
       if (key === 'blocked_invalid_geometry') return 'Blocked: Invalid Geometry';
       if (key === 'blocked_missing_trade_box') return 'Blocked: Missing Trade Box';
       if (key === 'blocked_quality_missing_expected_return') return 'Blocked: Missing Expected Return';
@@ -3378,6 +3405,24 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               : stage6EarningsMissingPolicyRaw === 'allow'
                   ? 'ALLOW'
                   : 'WAIT_PRICE';
+      const stage6OnboardingHistoryPolicyRaw = String(
+          (import.meta as any)?.env?.VITE_STAGE6_ONBOARDING_HISTORY_POLICY ?? 'wait_price'
+      )
+          .trim()
+          .toLowerCase();
+      const STAGE6_ONBOARDING_HISTORY_POLICY: 'WAIT_PRICE' | 'BLOCKED_RISK' | 'ALLOW' =
+          stage6OnboardingHistoryPolicyRaw === 'blocked_risk'
+              ? 'BLOCKED_RISK'
+              : stage6OnboardingHistoryPolicyRaw === 'allow'
+                  ? 'ALLOW'
+                  : 'WAIT_PRICE';
+      const stage6StaleSymbolPolicyRaw = String(
+          (import.meta as any)?.env?.VITE_STAGE6_STALE_SYMBOL_POLICY ?? 'blocked_risk'
+      )
+          .trim()
+          .toLowerCase();
+      const STAGE6_STALE_SYMBOL_POLICY: 'WAIT_PRICE' | 'BLOCKED_RISK' =
+          stage6StaleSymbolPolicyRaw === 'wait_price' ? 'WAIT_PRICE' : 'BLOCKED_RISK';
       const stage6MinStopDistancePctRaw = Number(
           (import.meta as any)?.env?.VITE_STAGE6_MIN_STOP_DISTANCE_PCT ?? 1.5
       );
@@ -3764,10 +3809,47 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               isBullishVerdictForExecution(aiVerdictKey);
           const convictionScore = pickFinite(item?.convictionScore, item?.rawConvictionScore, item?.compositeAlpha);
           const stage6TierInfo = deriveStage6Tier(item);
+          const historyTierRaw = String(item?.historyTier || '').trim().toUpperCase();
+          const historyTier: AlphaCandidate["historyTier"] =
+              historyTierRaw === 'FULL'
+                  ? 'FULL'
+                  : historyTierRaw === 'PROVISIONAL'
+                      ? 'PROVISIONAL'
+                      : historyTierRaw === 'ONBOARDING'
+                          ? 'ONBOARDING'
+                          : 'UNKNOWN';
+          const lifecycleRaw = String(item?.symbolLifecycleState || '').trim().toUpperCase();
+          const lifecycleState: AlphaCandidate["symbolLifecycleState"] =
+              lifecycleRaw === 'ACTIVE'
+                  ? 'ACTIVE'
+                  : lifecycleRaw === 'PROVISIONAL'
+                      ? 'PROVISIONAL'
+                      : lifecycleRaw === 'ONBOARDING'
+                          ? 'ONBOARDING'
+                          : lifecycleRaw === 'RECOVERED'
+                              ? 'RECOVERED'
+                              : lifecycleRaw === 'STALE'
+                                  ? 'STALE'
+                                  : lifecycleRaw === 'RETIRED'
+                                      ? 'RETIRED'
+                                      : lifecycleRaw === 'EXCLUDED'
+                                          ? 'EXCLUDED'
+                                          : 'UNKNOWN';
+          const historyPeriods = pickFinite(item?.historyPeriods);
 
           let finalDecision: AlphaCandidate["finalDecision"] = 'EXECUTABLE_NOW';
           let decisionReason: AlphaCandidate["decisionReason"] = 'executable_pullback';
-          if (isRiskOffVerdict(aiVerdictKey)) {
+          if (lifecycleState === 'STALE' || lifecycleState === 'RETIRED' || lifecycleState === 'EXCLUDED') {
+              finalDecision = STAGE6_STALE_SYMBOL_POLICY === 'WAIT_PRICE' ? 'WAIT_PRICE' : 'BLOCKED_RISK';
+              decisionReason = lifecycleState === 'STALE' ? 'blocked_symbol_stale' : 'wait_insufficient_history';
+          } else if (
+              historyTier === 'ONBOARDING' &&
+              STAGE6_ONBOARDING_HISTORY_POLICY !== 'ALLOW'
+          ) {
+              finalDecision =
+                  STAGE6_ONBOARDING_HISTORY_POLICY === 'BLOCKED_RISK' ? 'BLOCKED_RISK' : 'WAIT_PRICE';
+              decisionReason = 'wait_insufficient_history';
+          } else if (isRiskOffVerdict(aiVerdictKey)) {
               finalDecision = 'BLOCKED_RISK';
               decisionReason = 'blocked_verdict_risk_off';
           } else if (stateVerdictConflict && STAGE6_STATE_VERDICT_POLICY === 'BLOCK') {
@@ -4031,7 +4113,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           "info"
       );
       addLog(
-          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
+          `Decision reasons(primary): pullback_ok=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback=${decisionReasonCountsPrimary.wait_pullback_not_reached || 0} wait_earnings_missing=${decisionReasonCountsPrimary.wait_earnings_data_missing || 0} wait_history=${decisionReasonCountsPrimary.wait_insufficient_history || 0} wait_state_conflict=${decisionReasonCountsPrimary.wait_state_verdict_conflict || 0} stale_blocked=${decisionReasonCountsPrimary.blocked_symbol_stale || 0} invalid_geometry=${decisionReasonCountsPrimary.blocked_invalid_geometry || 0} missing_trade_box=${decisionReasonCountsPrimary.blocked_missing_trade_box || 0} quality_missing_er=${decisionReasonCountsPrimary.blocked_quality_missing_expected_return || 0} quality_conv_floor=${decisionReasonCountsPrimary.blocked_quality_conviction_floor || 0} quality_verdict=${decisionReasonCountsPrimary.blocked_quality_verdict_unusable || 0} stop_tight=${decisionReasonCountsPrimary.blocked_stop_too_tight || 0} stop_wide=${decisionReasonCountsPrimary.blocked_stop_too_wide || 0} target_close=${decisionReasonCountsPrimary.blocked_target_too_close || 0} anchor_gap=${decisionReasonCountsPrimary.blocked_anchor_exec_gap || 0} rr_below_min=${decisionReasonCountsPrimary.blocked_rr_below_min || 0} ev_below_min=${decisionReasonCountsPrimary.blocked_ev_non_positive || 0} earnings_missing_blocked=${decisionReasonCountsPrimary.blocked_earnings_data_missing || 0} earnings_blackout=${decisionReasonCountsPrimary.blocked_earnings_window || 0} state_conflict_blocked=${decisionReasonCountsPrimary.blocked_state_verdict_conflict || 0} risk_off_verdict=${decisionReasonCountsPrimary.blocked_verdict_risk_off || 0}`,
           "info"
       );
       const verdictConflictCountPrimary = primaryPool.filter((item) => Boolean(item.verdictConflict)).length;
@@ -4065,7 +4147,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return acc;
       }, {});
       addLog(
-          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
+          `Execution-only reasons: executable_pullback=${decisionReasonCountsPrimary.executable_pullback || 0} wait_pullback_not_reached=${watchlistReasonCounts.wait_pullback_not_reached || 0} wait_earnings_data_missing=${watchlistReasonCounts.wait_earnings_data_missing || 0} wait_insufficient_history=${watchlistReasonCounts.wait_insufficient_history || 0} wait_state_verdict_conflict=${watchlistReasonCounts.wait_state_verdict_conflict || 0} blocked_symbol_stale=${watchlistReasonCounts.blocked_symbol_stale || 0} blocked_quality_missing_expected_return=${watchlistReasonCounts.blocked_quality_missing_expected_return || 0} blocked_quality_conviction_floor=${watchlistReasonCounts.blocked_quality_conviction_floor || 0} blocked_quality_verdict_unusable=${watchlistReasonCounts.blocked_quality_verdict_unusable || 0} blocked_stop_too_tight=${watchlistReasonCounts.blocked_stop_too_tight || 0} blocked_stop_too_wide=${watchlistReasonCounts.blocked_stop_too_wide || 0} blocked_target_too_close=${watchlistReasonCounts.blocked_target_too_close || 0} blocked_anchor_exec_gap=${watchlistReasonCounts.blocked_anchor_exec_gap || 0} blocked_rr_below_min=${watchlistReasonCounts.blocked_rr_below_min || 0} blocked_invalid_geometry=${watchlistReasonCounts.blocked_invalid_geometry || 0} blocked_missing_trade_box=${watchlistReasonCounts.blocked_missing_trade_box || 0} blocked_ev_non_positive=${watchlistReasonCounts.blocked_ev_non_positive || 0} blocked_earnings_data_missing=${watchlistReasonCounts.blocked_earnings_data_missing || 0} blocked_earnings_window=${watchlistReasonCounts.blocked_earnings_window || 0} blocked_state_verdict_conflict=${watchlistReasonCounts.blocked_state_verdict_conflict || 0}`,
           "info"
       );
       if (hardCutBlocked.length > 0) {
@@ -4298,6 +4380,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               symbol: item.symbol,
               instrumentType: normalizeInstrumentType(item?.instrumentType),
               analysisEligible: isAnalysisEligibleTicker(item),
+              historyTier: normalizeOptionalText(item?.historyTier) || 'UNKNOWN',
+              symbolLifecycleState: normalizeOptionalText(item?.symbolLifecycleState) || 'UNKNOWN',
+              historyPeriods: Number.isFinite(Number(item?.historyPeriods))
+                  ? Number(item.historyPeriods)
+                  : null,
               netIncomeSource: normalizeOptionalText(item?.netIncomeSource) || 'MISSING',
               integrityReasons: Array.isArray(item?.integrityReasons) ? item.integrityReasons : [],
               tradePlanStatus: item.tradePlanStatus || 'VALID',
@@ -4495,6 +4582,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       requireBullishVerdict: STAGE6_REQUIRE_BULLISH_VERDICT,
                       earningsBlackoutDays: STAGE6_EARNINGS_BLACKOUT_DAYS,
                       earningsMissingPolicy: STAGE6_EARNINGS_MISSING_POLICY,
+                      onboardingHistoryPolicy: STAGE6_ONBOARDING_HISTORY_POLICY,
+                      staleSymbolPolicy: STAGE6_STALE_SYMBOL_POLICY,
                       minStopDistancePct: STAGE6_MIN_STOP_DISTANCE_PCT,
                       maxStopDistancePct: STAGE6_MAX_STOP_DISTANCE_PCT,
                       minTargetDistancePct: STAGE6_MIN_TARGET_DISTANCE_PCT,
