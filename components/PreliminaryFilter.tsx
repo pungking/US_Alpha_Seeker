@@ -64,6 +64,12 @@ interface Props {
   onComplete?: () => void;
 }
 
+type Stage0CountContract = {
+  inputCount: number;
+  eligibleCount: number;
+  excludedByInstrumentType: number;
+};
+
 // Markdown Styles
 const MarkdownComponents: any = {
   p: (props: any) => <p className="mb-2 text-slate-300 leading-relaxed text-[11px]" {...props} />,
@@ -86,6 +92,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [stage0InputCount, setStage0InputCount] = useState(0);
   const [stage0EligibleCount, setStage0EligibleCount] = useState(0);
   const [stage0ExcludedCount, setStage0ExcludedCount] = useState(0);
+  const [stage0SourceFile, setStage0SourceFile] = useState<string | null>(null);
 
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -140,6 +147,11 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const timeoutPromise = (ms: number, msg: string) => new Promise((_, reject) => 
       setTimeout(() => reject(new Error(msg)), ms)
   );
+  const toNonNegativeInt = (value: any, fallback = 0): number => {
+      const parsed = Number(value);
+      if (!Number.isFinite(parsed)) return Math.max(0, Math.floor(fallback));
+      return Math.max(0, Math.floor(parsed));
+  };
   const assertDriveOk = async (res: Response, context: string) => {
       if (res.ok) return;
       const errText = await res.text().catch(() => '');
@@ -181,20 +193,32 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           });
           await assertDriveOk(contentFetch, `loadStage0.content(${listRes.files[0].id})`);
           const content = await contentFetch.json();
+          const stage0FileName = String(listRes.files[0]?.name || '');
+          setStage0SourceFile(stage0FileName || null);
 
           // CRITICAL: Capture data in local scope to avoid State Race Conditions
           const stage0Universe: MasterTicker[] = Array.isArray(content?.universe) ? content.universe : [];
           const stage0EligibleUniverse: MasterTicker[] = Array.isArray(content?.eligible_universe)
             ? content.eligible_universe
             : stage0Universe.filter(isAnalysisEligibleTicker);
-          const excludedByInstrumentType = Math.max(0, stage0Universe.length - stage0EligibleUniverse.length);
-          setStage0InputCount(stage0Universe.length);
-          setStage0EligibleCount(stage0EligibleUniverse.length);
-          setStage0ExcludedCount(excludedByInstrumentType);
+          const stage0Manifest = content?.manifest || {};
+          const stage0Counts: Stage0CountContract = {
+            inputCount: toNonNegativeInt(stage0Universe.length, stage0Manifest?.inputCount),
+            eligibleCount: toNonNegativeInt(stage0EligibleUniverse.length, stage0Manifest?.eligibleCount),
+            excludedByInstrumentType: 0
+          };
+          stage0Counts.excludedByInstrumentType = Math.max(
+            0,
+            stage0Counts.inputCount - stage0Counts.eligibleCount
+          );
+          setStage0InputCount(stage0Counts.inputCount);
+          setStage0EligibleCount(stage0Counts.eligibleCount);
+          setStage0ExcludedCount(stage0Counts.excludedByInstrumentType);
           setRawUniverse(stage0EligibleUniverse); // State update for UI / downstream filtering
           addLog(
-            `Matrix Synced: input=${stage0Universe.length} eligible=${stage0EligibleUniverse.length} excluded=${excludedByInstrumentType}`,
-            excludedByInstrumentType > 0 ? "warn" : "ok"
+            `Matrix Synced: input=${stage0Counts.inputCount} eligible=${stage0Counts.eligibleCount} excluded=${stage0Counts.excludedByInstrumentType}` +
+              `${stage0FileName ? ` | source=${stage0FileName}` : ""}`,
+            stage0Counts.excludedByInstrumentType > 0 ? "warn" : "ok"
           );
           if (stage0EligibleUniverse.length === 0) {
               throw new Error("Stage 0 eligible universe is empty (instrument gate).");
@@ -211,7 +235,13 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           if (autoCommit && proposal) {
               addLog("Auto-Committing AI Proposal...", "signal");
               // Pass EXPLICIT values to commit, don't rely on state
-              await commitPurification(stage0EligibleUniverse, proposal.suggestedPrice, proposal.suggestedVolume, proposal);
+              await commitPurification(
+                stage0EligibleUniverse,
+                proposal.suggestedPrice,
+                proposal.suggestedVolume,
+                proposal,
+                stage0Counts
+              );
           } else {
               setLoading(false);
               setIsAnalyzing(false);
@@ -442,7 +472,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       explicitData?: MasterTicker[], 
       explicitPrice?: number, 
       explicitVolume?: number,
-      explicitProposal?: AiProposal
+      explicitProposal?: AiProposal,
+      explicitStage0Counts?: Stage0CountContract
   ) => {
     if (!accessToken) return;
     
@@ -451,6 +482,20 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     const targetPrice = explicitPrice !== undefined ? explicitPrice : minPrice;
     const targetVolume = explicitVolume !== undefined ? explicitVolume : minVolume;
     const activeProposal = explicitProposal || aiProposal;
+    const stage0Counts = explicitStage0Counts || {
+      inputCount: stage0InputCount,
+      eligibleCount: stage0EligibleCount,
+      excludedByInstrumentType: stage0ExcludedCount
+    };
+    const manifestInputCount = toNonNegativeInt(stage0Counts.inputCount, dataToFilter.length);
+    const manifestEligibleCount = toNonNegativeInt(stage0Counts.eligibleCount, dataToFilter.length);
+    const manifestExcludedByInstrumentType = Math.max(
+      0,
+      toNonNegativeInt(
+        stage0Counts.excludedByInstrumentType,
+        Math.max(0, manifestInputCount - manifestEligibleCount)
+      )
+    );
 
     if (!dataToFilter || dataToFilter.length === 0) {
         addLog("Commit Failed: No universe data available.", "err");
@@ -505,8 +550,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
     
     addLog(`Phase 4: Committing ${filteredList.length} assets to Stage 1 Vault...`, "info");
     addLog(`Commit Filters: P>=${targetPrice}, V>=${targetVolume} (Scaled for SmallCaps), PE>0, ROE>0`, "info");
-    if (stage0ExcludedCount > 0) {
-        addLog(`Eligibility Contract: excluded non-common ${stage0ExcludedCount} symbols before Stage 1 commit.`, "warn");
+    if (manifestExcludedByInstrumentType > 0) {
+        addLog(`Eligibility Contract: excluded non-common ${manifestExcludedByInstrumentType} symbols before Stage 1 commit.`, "warn");
     }
 
     try {
@@ -520,9 +565,10 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             version: "11.3.0", 
             count: filteredList.length,
             sourceCount: dataToFilter.length,
-            inputCount: stage0InputCount || dataToFilter.length,
-            eligibleCount: stage0EligibleCount || dataToFilter.length,
-            excludedByInstrumentType: stage0ExcludedCount,
+            inputCount: manifestInputCount,
+            eligibleCount: manifestEligibleCount,
+            excludedByInstrumentType: manifestExcludedByInstrumentType,
+            sourceStage0File: stage0SourceFile,
             regime: activeProposal?.regime || "Manual", 
             filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
             timestamp: new Date().toISOString(), 

@@ -155,6 +155,7 @@ type GuardControlState = {
 type GuardControlGate = {
   enforce: boolean;
   maxAgeMin: number;
+  ageMin: number | null;
   blocked: boolean;
   wouldBlockLive: boolean;
   reason: string;
@@ -446,6 +447,21 @@ function normalizeStage6Verdict(raw: unknown): string {
   if (key === "SELL" || key === "EXIT" || key === "REDUCE" || key === "TRIM") return "PARTIAL_EXIT";
   if (key === "ACCUMULATE" || key === "LONG") return "BUY";
   return key;
+}
+
+function isMissingContractToken(value: unknown): boolean {
+  const normalized = String(value ?? "")
+    .trim()
+    .toUpperCase();
+  return (
+    !normalized ||
+    normalized === "N/A" ||
+    normalized === "NA" ||
+    normalized === "NONE" ||
+    normalized === "NULL" ||
+    normalized === "UNDEFINED" ||
+    normalized === "TBD"
+  );
 }
 
 function runEnvGuard(): EnvCheckResult {
@@ -1557,6 +1573,7 @@ async function resolveGuardControlGate(): Promise<GuardControlGate> {
     return {
       enforce: false,
       maxAgeMin,
+      ageMin: null,
       blocked: false,
       wouldBlockLive: false,
       reason: "disabled",
@@ -1571,6 +1588,7 @@ async function resolveGuardControlGate(): Promise<GuardControlGate> {
     return {
       enforce: true,
       maxAgeMin,
+      ageMin: null,
       blocked: false,
       wouldBlockLive: false,
       reason: "state_missing",
@@ -1599,6 +1617,7 @@ async function resolveGuardControlGate(): Promise<GuardControlGate> {
     return {
       enforce: true,
       maxAgeMin,
+      ageMin,
       blocked: keepHaltConservative,
       wouldBlockLive: lastLevelDangerous,
       reason,
@@ -1612,6 +1631,7 @@ async function resolveGuardControlGate(): Promise<GuardControlGate> {
     return {
       enforce: true,
       maxAgeMin,
+      ageMin,
       blocked: false,
       wouldBlockLive: false,
       reason: "halt_new_entries_false",
@@ -1625,6 +1645,7 @@ async function resolveGuardControlGate(): Promise<GuardControlGate> {
     return {
       enforce: true,
       maxAgeMin,
+      ageMin,
       blocked: false,
       wouldBlockLive: true,
       reason: `non_live_mode(readOnly=${cfg.readOnly},execEnabled=${cfg.execEnabled})`,
@@ -1638,6 +1659,7 @@ async function resolveGuardControlGate(): Promise<GuardControlGate> {
   return {
     enforce: true,
     maxAgeMin,
+    ageMin,
     blocked: true,
     wouldBlockLive: true,
     reason: `guard_control_halt_new_entries(level=${levelLabel})${!liveMode ? ",simulated_live_parity" : ""}`,
@@ -2008,8 +2030,10 @@ function buildDryExecPayloads(
   let stage6ContractBlocked = 0;
 
   actionable.forEach((row) => {
-    const hasBucketSignal = row.executionBucket !== "N/A" || row.executionReason !== "N/A";
-    const hasDecisionSignal = row.finalDecision !== "N/A" || row.decisionReason !== "n/a";
+    const hasBucketSignal =
+      !isMissingContractToken(row.executionBucket) || !isMissingContractToken(row.executionReason);
+    const hasDecisionSignal =
+      !isMissingContractToken(row.finalDecision) || !isMissingContractToken(row.decisionReason);
     const effectiveExecutable =
       row.executionBucket === "EXECUTABLE" || row.finalDecision === "EXECUTABLE_NOW";
     const effectiveWatchlist =
@@ -2045,7 +2069,7 @@ function buildDryExecPayloads(
       skipped.push({
         symbol: row.symbol,
         reason:
-          row.decisionReason && row.decisionReason !== "n/a"
+          row.decisionReason && !isMissingContractToken(row.decisionReason)
             ? mapStage6DecisionReasonToSkip(row.decisionReason)
             : mapStage6ExecutionReasonToSkip(row.executionReason)
       });
@@ -2056,7 +2080,7 @@ function buildDryExecPayloads(
     if (
       stage6ExecutionBucketEnforce &&
       effectiveExecutable &&
-      row.executionReason !== "N/A" &&
+      !isMissingContractToken(row.executionReason) &&
       row.executionReason !== "VALID_EXEC"
     ) {
       skipped.push({
@@ -2407,7 +2431,7 @@ function buildSimulationMessage(
     lines.push(`Entry Guard Reason: ${dryExec.regime.entryGuard.reason}`);
   }
   lines.push(
-    `Guard Control: enforce=${guardControl.enforce} blocked=${guardControl.blocked} wouldBlockLive=${guardControl.wouldBlockLive} level=${guardControl.level != null ? `L${guardControl.level}` : "N/A"} stale=${guardControl.stale} reason=${guardControl.reason} updatedAt=${guardControl.updatedAt ?? "N/A"}`
+    `Guard Control: enforce=${guardControl.enforce} blocked=${guardControl.blocked} wouldBlockLive=${guardControl.wouldBlockLive} level=${guardControl.level != null ? `L${guardControl.level}` : "N/A"} stale=${guardControl.stale} age=${guardControl.ageMin != null ? `${guardControl.ageMin.toFixed(1)}m` : "N/A"} maxAge=${guardControl.maxAgeMin}m reason=${guardControl.reason} updatedAt=${guardControl.updatedAt ?? "N/A"}`
   );
   lines.push(
     `Gate: Conv>=${dryExec.minConviction} (base=${dryExec.minConvictionPolicy.base}, vix+${dryExec.minConvictionPolicy.marketTighten}, quality-${dryExec.minConvictionPolicy.qualityRelief}, sampleCap=${dryExec.minConvictionPolicy.sampleCap ?? "N/A"}) | StopDist ${dryExec.minStopDistancePct}%~${dryExec.maxStopDistancePct}%`
@@ -3438,6 +3462,7 @@ function buildRunModeLabel(dryExec: DryExecBuildResult, guardControl: GuardContr
     `REGIME_VIX_MISMATCH_PCT=${regimeVixMismatchPct}`,
     `GUARD_CONTROL_ENFORCE=${guardControl.enforce}`,
     `GUARD_CONTROL_MAX_AGE_MIN=${guardControl.maxAgeMin}`,
+    `GUARD_CONTROL_AGE_MIN=${guardControl.ageMin != null ? guardControl.ageMin.toFixed(1) : "N/A"}`,
     `GUARD_CONTROL_BLOCKED=${guardControl.blocked}`,
     `GUARD_CONTROL_LEVEL=${guardControl.level != null ? `L${guardControl.level}` : "N/A"}`,
     `GUARD_CONTROL_STALE=${guardControl.stale}`,
@@ -3492,7 +3517,7 @@ async function main() {
   if (guardControl.enforce) {
     const levelLabel = guardControl.level != null ? `L${guardControl.level}` : "N/A";
     console.log(
-      `[GUARD_CONTROL] enforce=true blocked=${guardControl.blocked} wouldBlockLive=${guardControl.wouldBlockLive} reason=${guardControl.reason} level=${levelLabel} maxAgeMin=${guardControl.maxAgeMin} updatedAt=${guardControl.updatedAt ?? "N/A"}`
+      `[GUARD_CONTROL] enforce=true blocked=${guardControl.blocked} wouldBlockLive=${guardControl.wouldBlockLive} stale=${guardControl.stale} ageMin=${guardControl.ageMin != null ? guardControl.ageMin.toFixed(1) : "N/A"} maxAgeMin=${guardControl.maxAgeMin} reason=${guardControl.reason} level=${levelLabel} updatedAt=${guardControl.updatedAt ?? "N/A"}`
     );
   }
   if (guardControl.blocked) {

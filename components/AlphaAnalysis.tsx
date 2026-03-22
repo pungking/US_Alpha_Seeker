@@ -405,6 +405,12 @@ const normalizeOptionalText = (value: any): string | null => {
   return text;
 };
 
+const toNonNegativeInt = (value: any, fallback = 0): number => {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return Math.max(0, Math.floor(fallback));
+  return Math.max(0, Math.floor(parsed));
+};
+
 const fnv1aHash = (input: string): string => {
   let hash = 2166136261;
   for (let i = 0; i < input.length; i++) {
@@ -2394,7 +2400,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const lockMaterial = JSON.stringify({
       id: String(fileMeta?.id || ''),
       name: String(fileMeta?.name || ''),
-      count: Number(content?.manifest?.count || symbols.length || 0),
+      count: toNonNegativeInt(content?.manifest?.count, symbols.length),
       timestamp: content?.manifest?.timestamp || null,
       symbols
     });
@@ -2403,7 +2409,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return {
       fileId: String(fileMeta?.id || ''),
       fileName: String(fileMeta?.name || ''),
-      count: Number(content?.manifest?.count || symbols.length || 0),
+      count: toNonNegativeInt(content?.manifest?.count, symbols.length),
       timestamp: content?.manifest?.timestamp,
       hash,
       symbols,
@@ -2488,7 +2494,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
             const stage5EligibleUniverse = stage5RawUniverse.filter(isAnalysisEligibleTicker);
             const excludedByInstrumentType = Math.max(0, stage5RawUniverse.length - stage5EligibleUniverse.length);
             stage5EligibilityRef.current = {
-              inputCount: Number(content?.manifest?.inputCount || stage5RawUniverse.length),
+              inputCount: toNonNegativeInt(content?.manifest?.inputCount, stage5RawUniverse.length),
               eligibleCount: stage5EligibleUniverse.length,
               excludedByInstrumentType
             };
@@ -4510,16 +4516,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               finalGatePenalty: Number(item.finalGatePenalty || 0)
           }));
           const toExecutionContractItem = (item: any) => ({
-              symbol: item?.symbol || 'N/A',
-              name: item?.name || 'N/A',
+              symbol: normalizeOptionalText(item?.symbol)?.toUpperCase() || 'UNKNOWN',
+              name: normalizeOptionalText(item?.name),
               instrumentType: normalizeInstrumentType(item?.instrumentType),
               analysisEligible: isAnalysisEligibleTicker(item),
-              sector: item?.sectorTheme || item?.sector || 'N/A',
-              aiVerdict: item?.aiVerdict || item?.verdictFinal || item?.finalVerdict || 'N/A',
-              finalDecision: item?.finalDecision || 'N/A',
-              decisionReason: item?.decisionReason || item?.executionReason || 'N/A',
-              executionBucket: item?.executionBucket || 'WATCHLIST',
-              executionReason: item?.executionReason || item?.tradePlanStatusShadow || 'N/A',
+              sector: normalizeOptionalText(item?.sectorTheme || item?.sector),
+              aiVerdict: normalizeOptionalText(item?.aiVerdict || item?.verdictFinal || item?.finalVerdict),
+              finalDecision: normalizeOptionalText(item?.finalDecision),
+              decisionReason: normalizeOptionalText(item?.decisionReason || item?.executionReason),
+              executionBucket:
+                  normalizeOptionalText(item?.executionBucket)?.toUpperCase() || 'WATCHLIST',
+              executionReason: normalizeOptionalText(item?.executionReason || item?.tradePlanStatusShadow),
               entryAnchorPrice: Number.isFinite(Number(item?.entryAnchorPrice))
                   ? Number(item.entryAnchorPrice)
                   : null,
@@ -4558,7 +4565,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       ? Number(item.convictionScore)
                       : null,
               stage6Tier: String(item?.stage6Tier || 'NONE').toUpperCase(),
-              stage6TierReason: item?.stage6TierReason || 'tier_none',
+              stage6TierReason: normalizeOptionalText(item?.stage6TierReason) || 'tier_none',
               stage6TierMultiplier: Number.isFinite(Number(item?.stage6TierMultiplier))
                   ? Number(item.stage6TierMultiplier)
                   : 1,
@@ -4609,9 +4616,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               manifest: { 
                   version: "9.9.9", 
                   count: top6Elite.length, 
-                  inputCount: stage5EligibilityRef.current.inputCount || candidates.length,
-                  eligibleCount: stage5EligibilityRef.current.eligibleCount || candidates.length,
-                  excludedByInstrumentType: stage5EligibilityRef.current.excludedByInstrumentType || 0,
+                  inputCount: toNonNegativeInt(stage5EligibilityRef.current.inputCount, candidates.length),
+                  eligibleCount: toNonNegativeInt(stage5EligibilityRef.current.eligibleCount, candidates.length),
+                  excludedByInstrumentType: toNonNegativeInt(stage5EligibilityRef.current.excludedByInstrumentType, 0),
                   timestamp: new Date().toISOString(), 
                   strategy: "Neural_Alpha_Sieve", 
                   engine: usedProvider,
@@ -4638,7 +4645,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   sourceStage5LockMode: stage5SourceRef.current?.lockMode || 'LATEST',
                   sourceStage5Hash: stage5SourceRef.current?.hash || null,
                   sourceStage5Symbols: stage5SourceRef.current?.symbols || [],
-                  sourceStage5Count: stage5SourceRef.current?.count || candidates.length,
+                  sourceStage5Count: toNonNegativeInt(stage5SourceRef.current?.count, candidates.length),
                   sourceStage5Timestamp: stage5SourceRef.current?.timestamp || null,
                   hardGateRiskOffExcluded: hardCutBlocked.length,
                   hardGateInvalidGeometryExcluded: invalidGeometryBlocked.length,
