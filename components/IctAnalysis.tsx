@@ -94,6 +94,8 @@ interface Props {
   isVisible?: boolean; // [NEW] Added prop
 }
 
+const STAGE5_RECENT_HINT_KEY = 'US_ALPHA_STAGE5_RECENT_HINT';
+
 const normalizeInstrumentType = (value: any): 'common' | 'warrant' | 'unit' | 'right' | 'hybrid' | 'unknown' => {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'common') return 'common';
@@ -1279,6 +1281,23 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
       if (!uploadRes.ok) {
         const errText = await uploadRes.text().catch(() => '');
         throw new Error(`Drive upload failed (${fileName}): HTTP ${uploadRes.status} ${errText.slice(0, 240)}`);
+      }
+      const uploadedMeta = await uploadRes.json().catch(() => null);
+      const uploadedFileId = String(uploadedMeta?.id || '').trim();
+
+      // Persist same-run Stage5 handoff hint so Stage6 can lock the exact file without Drive search race.
+      try {
+        if (typeof window !== 'undefined') {
+          const hint = {
+            fileId: uploadedFileId || undefined,
+            fileName,
+            createdAt: new Date().toISOString()
+          };
+          window.sessionStorage.setItem(STAGE5_RECENT_HINT_KEY, JSON.stringify(hint));
+          (window as any).__LATEST_STAGE5_FILE_HINT = hint;
+        }
+      } catch {
+        // Ignore storage errors; Stage6 can still fall back to Drive latest search.
       }
 
       addLog(`Elite 50 Selection Complete. Vault Synchronized.`, "ok");

@@ -155,7 +155,7 @@ interface Stage5SourceMeta {
   timestamp?: string;
   hash?: string;
   symbols?: string[];
-  lockMode?: 'LATEST' | 'OVERRIDE_ID' | 'OVERRIDE_NAME';
+  lockMode?: 'LATEST' | 'OVERRIDE_ID' | 'OVERRIDE_NAME' | 'AUTO_HINT_ID' | 'AUTO_HINT_NAME';
 }
 
 interface Stage5LockOverrideConfig {
@@ -168,6 +168,12 @@ interface Stage5LockDriveFile {
   id: string;
   name: string;
   createdTime?: string;
+}
+
+interface Stage5RecentHint {
+  fileId?: string;
+  fileName?: string;
+  createdAt?: string;
 }
 
 interface TelegramContractItem {
@@ -373,6 +379,8 @@ const FRAMEWORK_INSIGHTS: Record<string, { title: string; desc: string; strategy
 const STAGE5_LOCK_OVERRIDE_KEY = 'US_ALPHA_STAGE5_LOCK_OVERRIDE';
 const STAGE5_LOCK_FILE_ID_KEY = 'US_ALPHA_STAGE5_LOCK_FILE_ID';
 const STAGE5_LOCK_FILE_NAME_KEY = 'US_ALPHA_STAGE5_LOCK_FILE_NAME';
+const STAGE5_RECENT_HINT_KEY = 'US_ALPHA_STAGE5_RECENT_HINT';
+const STAGE5_RECENT_HINT_MAX_AGE_MS = 45 * 60 * 1000;
 
 const parseBooleanFlag = (value: any): boolean => {
   const normalized = String(value ?? '').trim().toLowerCase();
@@ -913,6 +921,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   const [matrixLoading, setMatrixLoading] = useState(false);
   
   const [elite50, setElite50] = useState<AlphaCandidate[]>([]);
+  const [stage5PrefetchAttempted, setStage5PrefetchAttempted] = useState(false);
   const [resultsCache, setResultsCache] = useState<{ [key in ApiProvider]?: AlphaCandidate[] }>({});
   const [selectedStock, setSelectedStock] = useState<AlphaCandidate | null>(null);
   const [backtestData, setBacktestData] = useState<{ [symbol: string]: BacktestResult }>({});
@@ -1330,16 +1339,34 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   }, [selectedBrain, currentResults, selectedStock, onStockSelected]);
 
   useEffect(() => {
-    if (accessToken && elite50.length === 0) loadStage5Data();
-  }, [accessToken]);
+    let cancelled = false;
+    const prefetchStage5 = async () => {
+      if (!accessToken || elite50.length > 0) return;
+      await loadStage5Data();
+      if (!cancelled) setStage5PrefetchAttempted(true);
+    };
+    prefetchStage5();
+    return () => {
+      cancelled = true;
+    };
+  }, [accessToken, elite50.length]);
 
   useEffect(() => {
-    if (autoStart && autoPhase === 'IDLE' && !loading && elite50.length > 0) {
-        addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
-        setAutoPhase('ENGINE');
-        handleExecuteEngine();
+    if (!autoStart || autoPhase !== 'IDLE' || loading) return;
+
+    if (elite50.length > 0) {
+      addLog("AUTO-PILOT: Initiating Final Alpha Synthesis...", "signal");
+      setAutoPhase('ENGINE');
+      handleExecuteEngine();
+      return;
     }
-  }, [autoStart, autoPhase, loading, elite50]);
+
+    if (stage5PrefetchAttempted) {
+      addLog("AUTO-PILOT ABORT: Stage 5 lock failed (no eligible Stage5 universe).", "err");
+      setAutoPhase('DONE');
+      if (onComplete) onComplete(toAutoControlPayload("STAGE6_FAILED"));
+    }
+  }, [autoStart, autoPhase, loading, elite50.length, stage5PrefetchAttempted, onComplete]);
 
   useEffect(() => {
       // Logic for moving from ENGINE -> MATRIX
@@ -2216,6 +2243,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     return { enabled: true, fileId: fileId || undefined, fileName: fileName || undefined };
   };
 
+  const resolveStage5RecentHint = (): Stage5RecentHint | null => {
+    try {
+      if (typeof window === 'undefined') return null;
+      const raw = window.sessionStorage.getItem(STAGE5_RECENT_HINT_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw) as Stage5RecentHint;
+      const fileId = String(parsed?.fileId || '').trim();
+      const fileName = String(parsed?.fileName || '').trim();
+      const createdAt = String(parsed?.createdAt || '').trim();
+      if (!fileId && !fileName) return null;
+      if (createdAt) {
+        const age = Date.now() - Date.parse(createdAt);
+        if (Number.isFinite(age) && age > STAGE5_RECENT_HINT_MAX_AGE_MS) return null;
+      }
+      return { fileId: fileId || undefined, fileName: fileName || undefined, createdAt: createdAt || undefined };
+    } catch {
+      return null;
+    }
+  };
+
   const persistStage5LockOverride = (config: Stage5LockOverrideConfig) => {
     if (typeof window === 'undefined') return;
 
@@ -2270,7 +2317,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     try {
       const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
       const res = await fetch(
-        `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime)`,
+        `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=20&fields=files(id,name,createdTime)&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
         { headers: { Authorization: `Bearer ${accessToken}` } }
       ).then(r => r.json());
       const files: Stage5LockDriveFile[] = Array.isArray(res?.files) ? res.files : [];
@@ -2381,7 +2428,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         lockMode = 'OVERRIDE_ID';
         addLog(`Stage5 Lock Override: ENABLED (fileId=${lockOverride.fileId})`, "info");
         latestFile = await fetch(
-          `https://www.googleapis.com/drive/v3/files/${lockOverride.fileId}?fields=id,name,createdTime`,
+          `https://www.googleapis.com/drive/v3/files/${lockOverride.fileId}?fields=id,name,createdTime&supportsAllDrives=true`,
           { headers: { 'Authorization': `Bearer ${accessToken}` } }
         ).then(r => r.ok ? r.json() : null);
       } else if (lockOverride.enabled && lockOverride.fileName) {
@@ -2389,21 +2436,43 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
         addLog(`Stage5 Lock Override: ENABLED (fileName=${lockOverride.fileName})`, "info");
         const qByName = encodeURIComponent(`name = '${lockOverride.fileName}' and trashed = false`);
         const listByName = await fetch(
-          `https://www.googleapis.com/drive/v3/files?q=${qByName}&orderBy=createdTime desc&pageSize=1`,
+          `https://www.googleapis.com/drive/v3/files?q=${qByName}&orderBy=createdTime desc&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
           { headers: { 'Authorization': `Bearer ${accessToken}` } }
         ).then(r => r.json());
         latestFile = listByName.files?.[0] || null;
       } else {
-        const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
-        const listRes = await fetch(
-          `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`,
-          { headers: { 'Authorization': `Bearer ${accessToken}` } }
-        ).then(r => r.json());
-        latestFile = listRes.files?.[0] || null;
+        const recentHint = resolveStage5RecentHint();
+        if (recentHint?.fileId) {
+          lockMode = 'AUTO_HINT_ID';
+          addLog(`Stage5 Auto Hint: using same-run fileId=${recentHint.fileId}`, "info");
+          latestFile = await fetch(
+            `https://www.googleapis.com/drive/v3/files/${recentHint.fileId}?fields=id,name,createdTime&supportsAllDrives=true`,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+          ).then(r => (r.ok ? r.json() : null));
+        } else if (recentHint?.fileName) {
+          lockMode = 'AUTO_HINT_NAME';
+          addLog(`Stage5 Auto Hint: using same-run fileName=${recentHint.fileName}`, "info");
+          const qByHint = encodeURIComponent(`name = '${recentHint.fileName}' and trashed = false`);
+          const listByHint = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=${qByHint}&orderBy=createdTime desc&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+          ).then(r => r.json());
+          latestFile = listByHint.files?.[0] || null;
+        }
+
+        if (!latestFile) {
+          const q = encodeURIComponent(`name contains 'STAGE5_ICT_ELITE' and trashed = false`);
+          const listRes = await fetch(
+            `https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1&supportsAllDrives=true&includeItemsFromAllDrives=true&corpora=allDrives`,
+            { headers: { 'Authorization': `Bearer ${accessToken}` } }
+          ).then(r => r.json());
+          latestFile = listRes.files?.[0] || null;
+          lockMode = 'LATEST';
+        }
       }
       
       if (latestFile?.id) {
-        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media`, {
+        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media&supportsAllDrives=true`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
         }).then(r => r.json());
         
@@ -2954,6 +3023,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
     } catch (error: any) {
       addLog(`CRITICAL FAILURE: ${error.message}`, "err");
+      if (autoStart) {
+        setAutoPhase('DONE');
+        if (onComplete) onComplete(toAutoControlPayload("STAGE6_FAILED"));
+      }
     } finally {
       setLoading(false);
       addLog("Analysis Cycle Completed.", "info");
