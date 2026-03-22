@@ -996,8 +996,8 @@ const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 
 | 4-D Perplexity res.ok 체크 순서 | **완전 완료** | `components/PreliminaryFilter.tsx:401-405` (ok 체크 후 json 파싱) |
 | 4-E AnalysisStage enum 불일치 | **완전 완료** | `types.ts:65-66` (`STAGE_1`, `STAGE_2` 명시) |
 | 4-F Vite에서 process.env 미지원 경로 | **완전 완료** | `components/PreliminaryFilter.tsx:424` (`process.env` 제거, config key 사용) |
-| 4-G setGatheredRegistry 과호출 | 미완료 | 대량 수집 루프 내 중간 setState 최소화 리팩터링 필요 |
-| 4-H Stage3/4 추가 버그 묶음 | 미완료 | Median/BB 표본분산/POWER_TREND 조건 통합 등 잔여 |
+| 4-G setGatheredRegistry 과호출 | **완전 완료** | `components/UniverseGathering.tsx` 배치 동기화(5개 실린더마다 + 최종 sync)로 과호출 제거 |
+| 4-H Stage3/4 추가 버그 묶음 | **완전 완료** | `FundamentalAnalysis` median/pbr 보정 + `TechnicalAnalysis` trend/표준편차 통합 + `harvester.py` 순서/주말 판정 보정 |
 
 ### 4-A. UI 불일치 버그
 
@@ -1101,7 +1101,7 @@ setGatheredRegistry(new Map(tempRegistry));  // 26회 불필요한 Map 복사
 
 | 항목 | 상태 | 근거 |
 |---|---|---|
-| 5-A 하드코딩 API 키 목록 | 미완료 | 키 하드코딩은 대폭 제거됐으나 `GOOGLE_DRIVE_TARGET.rootFolderId` 하드코딩 잔여(`constants.ts:233`) |
+| 5-A 하드코딩 API 키 목록 | 미완료(축소) | `rootFolderId`는 env 우선으로 전환됐으나 레거시 fallback 하드코딩이 임시 유지됨 (`constants.ts`) |
 | 5-B Perplexity 키 이중 하드코딩 | **완전 완료** | `components/PreliminaryFilter.tsx` 내 Perplexity 하드코딩 키 제거됨 |
 | 5-C Telegram Chat ID 완전 하드코딩 | **완전 완료** | `constants.ts:114-117` 환경변수 경로 사용 |
 | 5-D 클라이언트 ID 로컬스토리지 노출 | 미완료 | 토큰/세션 저장 경로 정책 정리 및 마스킹 문서화 필요 |

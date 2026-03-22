@@ -609,8 +609,23 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
       if (data.length < period) return 0;
       const slice = data.slice(-period);
       const mean = slice.reduce((a, b) => a + b, 0) / period;
-      const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / period;
+      const denominator = Math.max(1, slice.length - 1); // sample stddev (N-1)
+      const variance = slice.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / denominator;
       return Math.sqrt(variance);
+  };
+
+  const resolveTrendAlignment = (
+      currentPrice: number,
+      sma20: number,
+      sma50: number,
+      sma200: number
+  ): 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' => {
+      if (currentPrice > sma20 && sma20 > sma50 && (sma200 === 0 || sma50 > sma200)) {
+          return 'POWER_TREND';
+      }
+      if (currentPrice > sma50) return 'BULLISH';
+      if (currentPrice < sma50) return 'BEARISH';
+      return 'NEUTRAL';
   };
 
   const calculateAverage = (data: number[], period: number) => {
@@ -1645,26 +1660,21 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   // [HEURISTIC ENGINE] Used when API fails (Rate Limit) - NOW WITH SYNTHETIC CHART
   const generateHeuristicData = (item: any) => {
       const price = item.price || 0;
+      const sma20 = item.twentyDayAverage || ((price + (item.fiftyDayAverage || price)) / 2);
       const sma50 = item.fiftyDayAverage || price;
       const sma200 = item.twoHundredDayAverage || price * 0.9;
       const yearHigh = item.fiftyTwoWeekHigh || price * 1.2;
       const yearLow = item.fiftyTwoWeekLow || price * 0.8;
       const change = item.change || 0;
 
-      let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
+      const trendAlignment = resolveTrendAlignment(price, sma20, sma50, sma200);
       let trendScore = 50;
       
-      if (price > sma50 && sma50 > sma200) {
-          trendAlignment = 'POWER_TREND';
+      if (trendAlignment === 'POWER_TREND') {
           trendScore = 90;
-      } else if (price > sma50) {
-          trendAlignment = 'BULLISH';
+      } else if (trendAlignment === 'BULLISH') {
           trendScore = 70;
-      } else if (price < sma50 && price > sma200) {
-          trendAlignment = 'NEUTRAL';
-          trendScore = 50;
       } else {
-          trendAlignment = 'BEARISH';
           trendScore = 30;
       }
 
@@ -2060,17 +2070,14 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
                       const sma50 = calculateSMA(closes, 50);
                       const sma200 = calculateSMA(closes, 200);
 
-                      let trendAlignment: 'POWER_TREND' | 'BULLISH' | 'NEUTRAL' | 'BEARISH' = 'NEUTRAL';
+                      const trendAlignment = resolveTrendAlignment(currentPrice, sma20, sma50, sma200);
                       let wyckoffPhase: 'ACCUM' | 'MARKUP' | 'DISTRIB' | 'MARKDOWN' = 'ACCUM';
 
-                      if (currentPrice > sma20 && sma20 > sma50 && (sma200 === 0 || sma50 > sma200)) {
-                          trendAlignment = 'POWER_TREND';
+                      if (trendAlignment === 'POWER_TREND') {
                           wyckoffPhase = 'MARKUP';
-                      } else if (currentPrice > sma50) {
-                          trendAlignment = 'BULLISH';
+                      } else if (trendAlignment === 'BULLISH') {
                           wyckoffPhase = 'ACCUM';
-                      } else if (currentPrice < sma50) {
-                          trendAlignment = 'BEARISH';
+                      } else if (trendAlignment === 'BEARISH') {
                           wyckoffPhase = 'MARKDOWN';
                       }
 

@@ -745,6 +745,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
       const cylinders = alphabet; 
       setProgress(prev => ({ ...prev, target: cylinders.length }));
+      const registrySyncBatchSize = 5;
 
       const masterUniverse: any[] = [];
       const tempRegistry = new Map<string, any>();
@@ -764,7 +765,11 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                   
                   masterUniverse.push(...stocks);
                   stocks.forEach(s => tempRegistry.set(s.symbol, s));
-                  setGatheredRegistry(new Map(tempRegistry));
+                  // 4-G: Avoid triggering a full registry state update on every cylinder.
+                  const shouldSyncRegistry = ((i + 1) % registrySyncBatchSize === 0) || i === cylinders.length - 1;
+                  if (shouldSyncRegistry) {
+                      setGatheredRegistry(new Map(tempRegistry));
+                  }
 
                   addLog(`Cylinder ${char}: Fired. ${count} HP added.`, "info");
                   setProgress(prev => ({ ...prev, found: masterUniverse.length, synced: i + 1 }));
@@ -776,6 +781,9 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           }
           await new Promise(r => setTimeout(r, 20));
       }
+
+      // Final sync ensures registry completeness even when last cylinders are missing.
+      setGatheredRegistry(new Map(tempRegistry));
       
       return masterUniverse;
   };

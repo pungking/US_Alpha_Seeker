@@ -112,7 +112,7 @@ const sanitizeData = (item: any) => {
     if (dividendYield > 50) dividendYield = dividendYield / 100;
     if (roe > 200) roe = roe / 100;
     if (operatingMargins > 100) operatingMargins = operatingMargins / 100;
-    if (pbr > 500) pbr = 0; 
+    if (!Number.isFinite(Number(pbr)) || Number(pbr) <= 0 || Number(pbr) > 500) pbr = null;
     return { ...item, dividendYield, roe, operatingMargins, pbr, debtToEquity };
 };
 
@@ -139,7 +139,11 @@ const computeUniverseBaselines = (universe: any[]) => {
     const median = (arr: number[]) => {
         if (!arr.length) return 0;
         const sorted = [...arr].sort((a,b) => a-b);
-        return sorted[Math.floor(sorted.length/2)];
+        const mid = Math.floor(sorted.length / 2);
+        if (sorted.length % 2 === 0 && mid > 0) {
+            return (sorted[mid - 1] + sorted[mid]) / 2;
+        }
+        return sorted[mid];
     };
 
     Object.keys(sectorMap).forEach(s => {
@@ -438,7 +442,9 @@ const performFinancialEngineering = (
         ? 'ABSOLUTE'
         : (allowRatioDebtFallback ? 'RATIO_PROXY' : 'MISSING_ABS_DEBT');
     const pe = safeNum(data.pe || data.per);
-    const pbr = safeNum(data.pbr || data.priceToBook);
+    const rawPbr = firstPresent(data.pbr, data.priceToBook);
+    const pbr = hasValue(rawPbr) ? safeNum(rawPbr) : 0;
+    const validPbr = Number.isFinite(pbr) && pbr > 0 && pbr <= 500 ? pbr : 0;
     
     let sales = safeNum(data.revenue || data.totalRevenue);
     if (sales === 0 && marketCap > 0 && safeNum(data.psr) > 0) {
@@ -483,7 +489,9 @@ const performFinancialEngineering = (
         const multiplier = isFinancial ? 1.0 : 1.5; 
         intrinsicValue = eps * (8.5 + multiplier * g); 
     } else {
-        const bookValue = safeNum(data.bookValuePerShare) || (price / (pbr || 1));
+        const reportedBookValue = safeNum(data.bookValuePerShare);
+        const proxyBookValue = validPbr > 0 ? (price / validPbr) : 0;
+        const bookValue = reportedBookValue > 0 ? reportedBookValue : proxyBookValue;
         const roeFactor = Math.max(0.5, Math.min(3.0, roe / 8));
         intrinsicValue = bookValue * roeFactor;
     }
@@ -522,7 +530,8 @@ const performFinancialEngineering = (
     let valScore = 0;
     if (isFinancial) {
         const peScore = normalizeScore(20 - pe, 0, 15); 
-        const pbrScore = normalizeScore(2.0 - pbr, 0, 1.5);
+        // Invalid/missing PBR should not get an unintended high score.
+        const pbrScore = validPbr > 0 ? normalizeScore(2.0 - validPbr, 0, 1.5) : 50;
         valScore = (peScore * 0.4) + (pbrScore * 0.6);
     } else {
         valScore = normalizeScore(fairValueGap, -20, 80);

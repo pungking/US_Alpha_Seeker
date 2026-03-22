@@ -230,7 +230,8 @@ export const GEMINI_MODELS = {
 export const GOOGLE_DRIVE_TARGET = {
   account: 'InnocentBae@gmail.com',
   rootFolderName: 'US_Alpha_Seeker',
-  rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD', 
+  // 5-A: prefer env-based root folder id. Keep legacy fallback temporarily for safe rollout.
+  rootFolderId: getEnvVar('GDRIVE_ROOT_FOLDER_ID') || getEnvVar('GOOGLE_DRIVE_ROOT_FOLDER_ID') || '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD',
   targetSubFolder: 'Stage0_Universe_Data',
   stage1SubFolder: 'Stage1_Quality_Data',
   stage2SubFolder: 'Stage2_Deep_Quality',
