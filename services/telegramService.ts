@@ -1,6 +1,30 @@
 
 import { TELEGRAM_CONFIG, STRATEGY_CONFIG } from "../constants";
 
+const parseBooleanEnv = (value: unknown): boolean | null => {
+  const normalized = String(value ?? "").trim().toLowerCase();
+  if (!normalized) return null;
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return null;
+};
+
+const shouldPreferTelegramDirect = (): boolean => {
+  const envDecision = parseBooleanEnv((import.meta as any)?.env?.VITE_TELEGRAM_DIRECT_FIRST);
+  if (envDecision !== null) return envDecision;
+
+  if (typeof window === "undefined") return false;
+
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const autoMode = String(params.get("auto") || "").toLowerCase() === "true";
+    const isHeadless = /HeadlessChrome/i.test(window.navigator.userAgent || "");
+    return autoMode || isHeadless;
+  } catch {
+    return false;
+  }
+};
+
 /**
  * Sends a message to the configured Telegram Chat.
  * Automatically handles long messages and retries with plain text if Markdown fails.
@@ -30,6 +54,10 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
   }
   const fullMessage = buildTelegramMessage(reportContent);
   const MAX_LENGTH = 4000;
+  const preferDirect = shouldPreferTelegramDirect();
+  if (preferDirect) {
+    console.log(`[Telegram:${channelTag}] Direct-first mode enabled (automation/headless).`);
+  }
 
   const splitLongSegment = (text: string, maxLen: number): string[] => {
     if (text.length <= maxLen) return [text];
@@ -119,70 +147,92 @@ async function sendTelegramReportToChat(reportContent: string, chatId: string, c
     return packSegments(sections, maxLen);
   };
 
-  // 2. Helper to send chunks with RETRY LOGIC
-  const sendMessageChunk = async (text: string, useMarkdown = true, attempt = 1): Promise<boolean> => {
-    const payload: any = { chat_id: chatId, text: text };
-    if (useMarkdown) payload.parse_mode = 'Markdown';
+  // Helper for fetch with timeout
+  const fetchWithTimeout = (url: string, options: any, timeout = 10000) => {
+    return Promise.race([
+      fetch(url, options),
+      new Promise<Response>((_, reject) => setTimeout(() => reject(new Error("TIMEOUT")), timeout))
+    ]);
+  };
 
-    // Helper for fetch with timeout
-    const fetchWithTimeout = (url: string, options: any, timeout = 10000) => {
-        return Promise.race([
-            fetch(url, options),
-            new Promise<Response>((_, reject) => setTimeout(() => reject(new Error('TIMEOUT')), timeout))
-        ]);
-    };
-
+  const sendViaProxy = async (payload: any): Promise<{ ok: boolean; parseError?: boolean; error?: string }> => {
     try {
-      // ATTEMPT 1: Internal Proxy
       const proxyUrl = `/api/telegram`;
       const res = await fetchWithTimeout(proxyUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: TOKEN, method: 'sendMessage', body: payload })
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ token: TOKEN, method: "sendMessage", body: payload })
       });
 
-      if (res.status === 404) throw new Error("Proxy 404");
-      
+      if (res.status === 404) {
+        return { ok: false, error: "Proxy 404" };
+      }
+
       const json = await res.json();
       if (!res.ok) {
-         console.warn(`[Telegram Proxy:${channelTag}] Failed: ${json.description}`);
-         if (useMarkdown && json.description?.includes('parse')) {
-             return sendMessageChunk(text, false, attempt); // Retry without Markdown
-         }
-         throw new Error(json.description);
+        const description = String(json?.description || "Proxy request failed");
+        return { ok: false, parseError: /parse/i.test(description), error: description };
       }
-      return true;
 
-    } catch (proxyError: any) {
-      // ATTEMPT 2: Direct API Call (Fallback)
-      console.warn(`Telegram Proxy Failed (${channelTag}, ${proxyError.message}), attempting Direct API...`);
-      try {
-          const directUrl = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
-          const res = await fetchWithTimeout(directUrl, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify(payload)
-          });
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, error: String(error?.message || error || "Proxy error") };
+    }
+  };
 
-          const json = await res.json();
-          if (!res.ok) {
-             if (useMarkdown && json.description?.includes('parse')) {
-                 return sendMessageChunk(text, false, attempt);
-             }
-             return false;
-          }
-          return true;
-      } catch (directError: any) {
-          console.error(`Telegram Direct Failed (${channelTag}):`, directError);
-          
-          // Final Retry (Max 2 attempts)
-          if (attempt < 2) {
-              await new Promise(r => setTimeout(r, 2000));
-              return sendMessageChunk(text, useMarkdown, attempt + 1);
-          }
-          return false;
+  const sendViaDirect = async (payload: any): Promise<{ ok: boolean; parseError?: boolean; error?: string }> => {
+    try {
+      const directUrl = `https://api.telegram.org/bot${TOKEN}/sendMessage`;
+      const res = await fetchWithTimeout(directUrl, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload)
+      });
+
+      const json = await res.json();
+      if (!res.ok) {
+        const description = String(json?.description || "Direct request failed");
+        return { ok: false, parseError: /parse/i.test(description), error: description };
+      }
+
+      return { ok: true };
+    } catch (error: any) {
+      return { ok: false, error: String(error?.message || error || "Direct error") };
+    }
+  };
+
+  // 2. Helper to send chunks with RETRY LOGIC
+  const sendMessageChunk = async (text: string, useMarkdown = true, attempt = 1): Promise<boolean> => {
+    const payload: any = { chat_id: chatId, text };
+    if (useMarkdown) payload.parse_mode = "Markdown";
+
+    const order: Array<"direct" | "proxy"> = preferDirect ? ["direct", "proxy"] : ["proxy", "direct"];
+    let lastError = "unknown";
+
+    for (const channel of order) {
+      const result = channel === "direct" ? await sendViaDirect(payload) : await sendViaProxy(payload);
+      if (result.ok) return true;
+
+      if (result.parseError && useMarkdown) {
+        return sendMessageChunk(text, false, attempt);
+      }
+
+      lastError = result.error || lastError;
+      if (channel === "proxy" && preferDirect && lastError === "Proxy 404") {
+        // Expected in automation mode when Vite dev server does not expose /api routes.
+        console.info(`[Telegram:${channelTag}] Proxy unavailable (404). Direct path already attempted.`);
+      } else if (channel === "proxy") {
+        console.warn(`[Telegram Proxy:${channelTag}] Failed: ${lastError}`);
+      } else {
+        console.warn(`[Telegram Direct:${channelTag}] Failed: ${lastError}`);
       }
     }
+
+    if (attempt < 2) {
+      await new Promise(r => setTimeout(r, 2000));
+      return sendMessageChunk(text, useMarkdown, attempt + 1);
+    }
+    return false;
   };
 
   // 3. Split message by logical sections first (then safe fallback splits)
