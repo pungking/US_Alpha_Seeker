@@ -101,3 +101,39 @@
 - 상태 값은 `완료 / 진행 중 / 예정`만 사용한다.
 - 테스트 증적은 파일명+해시+핵심 로그 1~2줄만 연결한다.
 
+---
+
+## 7) Docs 전체 정밀 점검 완료판 (2026-03-23)
+
+### 7-1. 점검 커버리지
+
+- `docs/` 기준 마크다운 문서 전수 인덱싱 완료(총 39개).
+- 상태/잔여/증적 키워드 전수 스캔 완료.
+- 운영 의사결정에 직접 영향이 큰 핵심 문서군은 정밀 확인 완료.
+
+### 7-2. 문서군별 상태
+
+| 문서군 | 대표 문서 | 상태 | 판정 |
+|---|---|---|---|
+| 컨트롤타워/현재판 | `PROGRAM_MASTER_STATUS_BOARD_2026-03-23.md`, `GO_LIVE_REMAINING_WORK_BREAKDOWN_2026-03-23.md` | 최신 기준 반영 중 | 진행 중 |
+| 초정밀 메인 보고서 | `US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` | 5-E/6-6 등 잔여 명시됨 | 진행 중 |
+| 보안 운영 | `SECURITY_ROTATION_RUNBOOK_2026-03-23.md`, `SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` | Runbook 준비 완료, Evidence Run #1~#4 미기입 | 진행 중 |
+| Stage4/5/6 패치 플랜 | `STAGE4_*`, `STAGE5_*`, `STAGE6_*` | 상당수는 완료 기록, 일부는 계획/체크리스트 성격 | 혼재(완료+예정) |
+| Sidecar 운영 가이드 | `SIDECAR_*` 문서군 | 기준/템플릿/런북 다수 존재, 운영 증적 누적 필요 | 진행 중 |
+| 종결 체크리스트 | `H8_H10_AND_SIDECAR_AB_CLOSURE_2026-03-21.md`, `H11_H13_CLOSURE_CHECKLIST_2026-03-21.md` | 종료 판정(PASS) 기록 | 완료 |
+| 추적/우선순위 보조문서 | `US_ALPHA_SEEKER_V2_*` 3종 | 히스토리/보조 근거 성격 | 참조용(유지) |
+
+### 7-3. 운영상 Single Source of Truth (SSOT)
+
+운영 중에는 아래 4개를 SSOT로 사용한다.
+
+1. `docs/PROGRAM_MASTER_STATUS_BOARD_2026-03-23.md` (전체 진행판)
+2. `docs/US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` (기술/결함 원문)
+3. `docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` (5-E 증적)
+4. `docs/GO_LIVE_REMAINING_WORK_BREAKDOWN_2026-03-23.md` (Go/No-Go 잔여율)
+
+### 7-4. 점검 결론
+
+- **완료:** 문서 트리 전수 확인 + 운영 핵심 문서 정밀 검토 완료.
+- **잔여:** Evidence/모니터링 기반으로 상태가 변하는 문서(5-E, 6-6, perf_loop)는 자동화 결과 입력 후 갱신 필요.
+- **주의:** 과거 계획서/템플릿 문서는 “완료 기준”이 아닌 “참조 기준”으로만 사용한다.
