@@ -58,7 +58,8 @@
 
 ## 4) 실행 증적 템플릿
 
-아래 항목을 채워서 운영 로그로 남긴다.
+아래 항목을 채워서 운영 로그로 남긴다.  
+기록 파일: `docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md`
 
 ```md
 ## Security Rotation Evidence
@@ -82,4 +83,3 @@
 - `components/AlphaAnalysis.tsx`
   - Stage5 lock override payload에 `updatedAt` 저장
   - `VITE_STAGE5_LOCK_OVERRIDE_MAX_AGE_MIN` 만료 시 stale lock 자동 제거
-

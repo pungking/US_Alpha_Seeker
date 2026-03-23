@@ -59,8 +59,8 @@
 ## Immediate Next 3 Actions
 
 1. `M-UI-4` fallback 문구 품질 개선 패치 + Stage6 단독 1회 검증.
-2. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 증적 1회 수집.
-3. perf loop 샘플을 자연 증가 방식으로 `>=20`까지 누적(강제 시뮬레이션 금지).
+2. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 증적 1회 수집 (`docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` Run #1).
+3. 오전 7시 스케줄 자동화 결과를 3일 누적 수집하여 6-6 모니터링/`perf_loop`를 자연 누적으로 갱신.
 
 ## Done Criteria (Go-Live Ready)
 
