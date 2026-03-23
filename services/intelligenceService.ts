@@ -420,6 +420,9 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000,
   }
 }
 
+const timeoutAfter = (ms: number, message: string): Promise<never> =>
+  new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
+
 async function runDeterministicBacktest(stock: any): Promise<any | null> {
   try {
       const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -1119,7 +1122,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
           [TASK]
           For EACH stock in the list, provide a structured analysis.
-          You MUST return a JSON object with a "candidates" array containing ${batchCandidates.length} objects.
+          You MUST return a JSON array containing ${batchCandidates.length} objects.
           
           Each object must follow this schema:
           {
@@ -1170,11 +1173,10 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                   config: {
                       responseMimeType: "application/json",
                       responseSchema: ALPHA_SCHEMA,
-                      systemInstruction: SYSTEM_INSTRUCTION,
-                      tools: [{ googleSearch: {} }]
+                      systemInstruction: SYSTEM_INSTRUCTION
                   }
                 }), 1, 2000),
-                timeoutPromise(timeoutMs, `${modelLabel} Timeout`)
+                timeoutAfter(timeoutMs, `${modelLabel} Timeout`)
               ]);
               trackUsage(ApiProvider.GEMINI, guardedResult.usageMetadata?.totalTokenCount || 0);
               const parsed = sanitizeAndParseJson(guardedResult.text);

@@ -711,7 +711,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
               monitoring_universe: monitoringUniverse
           };
 
-          await uploadFile(token, folderId, fileName, payload);
+          const uploadedStage0 = await uploadFile(token, folderId, fileName, payload);
+          try {
+              // Stage0 -> Stage1 handoff hint (same browser session).
+              sessionStorage.setItem('US_ALPHA_STAGE0_FILE_HINT', fileName);
+              if (uploadedStage0?.id) sessionStorage.setItem('US_ALPHA_STAGE0_FILE_ID_HINT', uploadedStage0.id);
+          } catch (_) {}
           setProgress(prev => ({ ...prev, phase: 'Finalized' }));
           addLog(`System: Ready for Launch. Saved ${fileName}`, "ok");
           
@@ -1008,7 +1013,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       return created.id;
   };
 
-  const uploadFile = async (token: string, folderId: string, name: string, content: any) => {
+  const uploadFile = async (
+      token: string,
+      folderId: string,
+      name: string,
+      content: any
+  ): Promise<{ id: string; name: string } | null> => {
       const meta = { name, parents: [folderId], mimeType: 'application/json' };
       const form = new FormData();
       form.append('metadata', new Blob([JSON.stringify(meta)], { type: 'application/json' }));
@@ -1024,9 +1034,10 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       const uploaded = await uploadRes.json().catch(() => null);
       if (!uploaded?.id) {
           addLog(`[WARN] Drive upload 응답에 fileId 누락 (${name})`, "warn");
-          return;
+          return null;
       }
       addLog(`[OK] Drive upload verified: ${name} (${uploaded.id})`, "ok");
+      return { id: uploaded.id, name };
   };
 
   const formatMarketCap = (num: number) => {

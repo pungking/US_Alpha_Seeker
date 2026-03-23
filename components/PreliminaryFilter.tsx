@@ -93,6 +93,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   const [stage0EligibleCount, setStage0EligibleCount] = useState(0);
   const [stage0ExcludedCount, setStage0ExcludedCount] = useState(0);
   const [stage0SourceFile, setStage0SourceFile] = useState<string | null>(null);
+  const [stage0SourceFileId, setStage0SourceFileId] = useState<string | null>(null);
 
   // Filter State
   const [minPrice, setMinPrice] = useState(2.0);
@@ -169,6 +170,64 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       return data.files?.[0]?.id || null;
   };
 
+  const resolveStage0Source = async (
+      token: string,
+      stage0FolderId: string | null
+  ): Promise<{ id: string; name: string; createdTime?: string }> => {
+      const isInStage0Folder = (parents: any): boolean => {
+          if (!stage0FolderId) return true;
+          return Array.isArray(parents) && parents.includes(stage0FolderId);
+      };
+      const isStage0Name = (name: any): boolean => String(name || '').includes('STAGE0_MASTER_UNIVERSE');
+
+      const hintedFileId = sessionStorage.getItem('US_ALPHA_STAGE0_FILE_ID_HINT') || '';
+      if (hintedFileId) {
+          try {
+              const metaRes = await fetch(
+                  `https://www.googleapis.com/drive/v3/files/${hintedFileId}?fields=id,name,createdTime,parents,trashed`,
+                  { headers: { 'Authorization': `Bearer ${token}` } }
+              );
+              if (metaRes.ok) {
+                  const meta = await metaRes.json();
+                  if (!meta?.trashed && isStage0Name(meta?.name) && isInStage0Folder(meta?.parents)) {
+                      return { id: meta.id, name: meta.name, createdTime: meta.createdTime };
+                  }
+              }
+          } catch (_) {}
+      }
+
+      const hintedFileName = sessionStorage.getItem('US_ALPHA_STAGE0_FILE_HINT') || '';
+      if (isStage0Name(hintedFileName)) {
+          const safeName = hintedFileName.replace(/'/g, "\\'");
+          const hintedQuery = stage0FolderId
+              ? `name = '${safeName}' and '${stage0FolderId}' in parents and trashed = false`
+              : `name = '${safeName}' and trashed = false`;
+          const hintedListRes = await fetch(
+              `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(hintedQuery)}&orderBy=createdTime desc&pageSize=1&fields=files(id,name,createdTime,parents)`,
+              { headers: { 'Authorization': `Bearer ${token}` } }
+          );
+          await assertDriveOk(hintedListRes, "loadStage0.hintLookup");
+          const hintedList = await hintedListRes.json();
+          if (hintedList.files?.length) {
+              const f = hintedList.files[0];
+              return { id: f.id, name: f.name, createdTime: f.createdTime };
+          }
+      }
+
+      const latestQuery = stage0FolderId
+          ? `name contains 'STAGE0_MASTER_UNIVERSE' and '${stage0FolderId}' in parents and trashed = false`
+          : `name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`;
+      const latestRes = await fetch(
+          `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(latestQuery)}&orderBy=createdTime desc&pageSize=1&fields=files(id,name,createdTime,parents)`,
+          { headers: { 'Authorization': `Bearer ${token}` } }
+      );
+      await assertDriveOk(latestRes, "loadStage0.latestLookup");
+      const latest = await latestRes.json();
+      if (!latest.files?.length) throw new Error("Stage 0 Data not found. Please run Stage 0 first.");
+      const target = latest.files[0];
+      return { id: target.id, name: target.name, createdTime: target.createdTime };
+  };
+
   const handleSyncAndAnalyze = async (autoCommit = false) => {
       if (!accessToken) {
           addLog("Cloud link required. Check Auth Status.", "warn");
@@ -194,25 +253,17 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
           if (!stage0FolderId) {
               addLog(`[WARN] Stage 0 folder not found under root. Falling back to global search.`, "warn");
           }
-          const stage0Query = stage0FolderId
-              ? `name contains 'STAGE0_MASTER_UNIVERSE' and '${stage0FolderId}' in parents and trashed = false`
-              : `name contains 'STAGE0_MASTER_UNIVERSE' and trashed = false`;
-          const q = encodeURIComponent(stage0Query);
-          const listFetch = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}&orderBy=createdTime desc&pageSize=1`, {
+          const stage0Source = await resolveStage0Source(accessToken, stage0FolderId);
+
+          const contentFetch = await fetch(`https://www.googleapis.com/drive/v3/files/${stage0Source.id}?alt=media`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
-          await assertDriveOk(listFetch, "loadStage0.list");
-          const listRes = await listFetch.json();
-
-          if (!listRes.files?.length) throw new Error("Stage 0 Data not found. Please run Stage 0 first.");
-
-          const contentFetch = await fetch(`https://www.googleapis.com/drive/v3/files/${listRes.files[0].id}?alt=media`, {
-            headers: { 'Authorization': `Bearer ${accessToken}` }
-          });
-          await assertDriveOk(contentFetch, `loadStage0.content(${listRes.files[0].id})`);
+          await assertDriveOk(contentFetch, `loadStage0.content(${stage0Source.id})`);
           const content = await contentFetch.json();
-          const stage0FileName = String(listRes.files[0]?.name || '');
+          const stage0FileName = String(stage0Source?.name || '');
+          const stage0FileId = String(stage0Source?.id || '');
           setStage0SourceFile(stage0FileName || null);
+          setStage0SourceFileId(stage0FileId || null);
 
           // CRITICAL: Capture data in local scope to avoid State Race Conditions
           const stage0Universe: MasterTicker[] = Array.isArray(content?.universe) ? content.universe : [];
@@ -259,7 +310,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
                 proposal.suggestedVolume,
                 proposal,
                 stage0Counts,
-                stage0FileName || null
+                stage0FileName || null,
+                stage0FileId || null
               );
           } else {
               setLoading(false);
@@ -495,7 +547,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       explicitVolume?: number,
       explicitProposal?: AiProposal,
       explicitStage0Counts?: Stage0CountContract,
-      explicitStage0File?: string | null
+      explicitStage0File?: string | null,
+      explicitStage0FileId?: string | null
   ) => {
     if (!accessToken) return;
     
@@ -510,6 +563,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       excludedByInstrumentType: stage0ExcludedCount
     };
     const sourceStage0File = explicitStage0File ?? stage0SourceFile;
+    const sourceStage0FileId = explicitStage0FileId ?? stage0SourceFileId;
     const manifestInputCount = toNonNegativeInt(stage0Counts.inputCount, dataToFilter.length);
     const manifestEligibleCount = toNonNegativeInt(stage0Counts.eligibleCount, dataToFilter.length);
     const manifestExcludedByInstrumentType = Math.max(
@@ -592,6 +646,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             eligibleCount: manifestEligibleCount,
             excludedByInstrumentType: manifestExcludedByInstrumentType,
             sourceStage0File,
+            sourceStage0FileId,
             regime: activeProposal?.regime || "Manual", 
             filters: { minPrice: targetPrice, minVolume: targetVolume, hardGate: "PE>0 && ROE>0 && Target>0" }, 
             timestamp: new Date().toISOString(), 
