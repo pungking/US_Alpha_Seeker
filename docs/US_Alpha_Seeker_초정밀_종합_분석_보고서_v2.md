@@ -1106,8 +1106,8 @@ setGatheredRegistry(new Map(tempRegistry));  // 26회 불필요한 Map 복사
 | 5-A 하드코딩 API 키 목록 | **완전 완료** | `constants.ts`가 env-only 정책으로 전환됨(민감값 하드코딩 폴백 제거, root folder도 env-only) |
 | 5-B Perplexity 키 이중 하드코딩 | **완전 완료** | `components/PreliminaryFilter.tsx` 내 Perplexity 하드코딩 키 제거됨 |
 | 5-C Telegram Chat ID 완전 하드코딩 | **완전 완료** | `constants.ts:114-117` 환경변수 경로 사용 |
-| 5-D 클라이언트 ID 로컬스토리지 노출 | 미완료 | 토큰/세션 저장 경로 정책 정리 및 마스킹 문서화 필요 |
-| 5-E 보안 수정 방향 | 미완료 | 시크릿 로테이션/운영 런북 증적(변경 로그 + 롤백 절차) 문서화 잔여 |
+| 5-D 클라이언트 ID 로컬스토리지 노출 | **완전 완료** | env 우선 + local override clear 동작 + Stage5 lock override TTL 적용 + 운영 정책 문서화 완료 |
+| 5-E 보안 수정 방향 | 미완료 | 런북 문서는 작성됐으나 실제 rotation/rollback 실행 증적(운영 로그) 수집 잔여 |
 
 ### 5-A. constants.ts 하드코딩 API 키 목록 — 재점검 결과
 
@@ -1136,19 +1136,17 @@ setGatheredRegistry(new Map(tempRegistry));  // 26회 불필요한 Map 복사
 
 ### 5-D. 클라이언트 ID 로컬스토리지 노출
 
-- 상태: **미완료**
+- 상태: **완전 완료**
 - 현황:
-  - `components/UniverseGathering.tsx`에서 `gdrive_client_id`를 localStorage로 저장/로드.
-  - 민감 토큰은 sessionStorage로 분리되어 있으나, 클라이언트 ID 저장 정책(보안/운영 편의 트레이드오프) 문서화가 아직 없음.
-- 권장 잔여:
-  - 운영 기본값은 env 우선, localStorage는 override 전용으로 제한.
-  - UI에 "현재 값 출처(env/localStorage)"를 노출해 추적성을 확보.
+  - `components/UniverseGathering.tsx`는 `VITE_GDRIVE_CLIENT_ID`를 우선 사용하고 local override는 보조로만 사용.
+  - Config Modal에서 현재 출처(`ENV/LOCAL/MANUAL/EMPTY`)를 노출하고 `Clear Local Override` 동작 제공.
+  - `components/AlphaAnalysis.tsx`의 Stage5 lock override는 `updatedAt` + TTL(`VITE_STAGE5_LOCK_OVERRIDE_MAX_AGE_MIN`)로 stale lock 자동 해제.
+  - 정책 문서: `docs/SECURITY_ROTATION_RUNBOOK_2026-03-23.md`
 
 ### 5-E. 보안 수정 방향 (잔여)
 
-- 시크릿 로테이션 완료 증적(누가/언제/무엇을 교체했는지) 문서화
-- 로컬 저장소 키(`gdrive_client_id`, stage lock override 등) 보존 기간/삭제 절차 명문화
-- 긴급 롤백 런북(잘못된 env 반영 시 복구 절차) 추가
+- 시크릿 로테이션 완료 증적(누가/언제/무엇을 교체했는지) 실행 로그 수집
+- 긴급 롤백 런북 기준으로 실제 리허설 1회 수행 후 결과 첨부
 
 ---
 
@@ -1775,7 +1773,7 @@ KTB Stage5 compositeAlpha=67.91 (7위)
 | 우선순위 | 항목 | 상태 | 영향 |
 |---------|------|------|------|
 | P0 | M-UI-4 (`buildStructuredOutlookFallback`) 문구 품질 개선 | 미완료 | 텔레그램/리포트 가독성 및 사용자 신뢰도 |
-| P0 | 5-D 로컬 저장 정책 문서화 (`gdrive_client_id`, stage lock override) | 미완료 | 운영 보안/추적성 |
+| P0 | 5-E 운영 증적 수집(rotate/rollback 리허설 로그) | 미완료 | 운영 보안/추적성 |
 | P1 | Sidecar perf loop 표본 `11/20 → >=20/20` 달성 | 미완료 | Paper Trading Go/No-Go 게이트 |
 | P1 | Guard release path 증적 확보(L2 차단 해제 후 payload 생성) | 미완료 | 실전 페이퍼 진입 전 안정성 검증 |
 | P2 | historical 섹션(11-A~11-C) 최신 회차 기준 부록 분리 | 미완료 | 문서 혼선 방지 |

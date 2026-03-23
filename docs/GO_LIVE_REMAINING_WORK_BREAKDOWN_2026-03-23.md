@@ -33,7 +33,7 @@
   - Contract: `checked=6 executable=6 watchlist=0 blocked=0`
   - Stage5 lock 최신화 확인: `STAGE5_ICT_ELITE_50_2026-03-23_12-09-22.json`
 
-## Workstream C: Precision Report Closure (remaining 12%)
+## Workstream C: Precision Report Closure (remaining 8%)
 
 1. Fill closure matrix (C/H tracks)
    - only `완전 완료` and `미완료` (no ambiguous labels)
@@ -59,7 +59,7 @@
 ## Immediate Next 3 Actions
 
 1. `M-UI-4` fallback 문구 품질 개선 패치 + Stage6 단독 1회 검증.
-2. `gdrive_client_id` 로컬 저장 정책(운영 기본값/env 우선/삭제 절차) 문서화.
+2. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 증적 1회 수집.
 3. perf loop 샘플을 자연 증가 방식으로 `>=20`까지 누적(강제 시뮬레이션 금지).
 
 ## Done Criteria (Go-Live Ready)

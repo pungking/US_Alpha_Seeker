@@ -162,6 +162,7 @@ interface Stage5LockOverrideConfig {
   enabled: boolean;
   fileId?: string;
   fileName?: string;
+  updatedAt?: string;
 }
 
 interface Stage5LockDriveFile {
@@ -381,6 +382,11 @@ const STAGE5_LOCK_FILE_ID_KEY = 'US_ALPHA_STAGE5_LOCK_FILE_ID';
 const STAGE5_LOCK_FILE_NAME_KEY = 'US_ALPHA_STAGE5_LOCK_FILE_NAME';
 const STAGE5_RECENT_HINT_KEY = 'US_ALPHA_STAGE5_RECENT_HINT';
 const STAGE5_RECENT_HINT_MAX_AGE_MS = 45 * 60 * 1000;
+const STAGE5_LOCK_OVERRIDE_MAX_AGE_MS = (() => {
+  const rawMinutes = Number((import.meta as any)?.env?.VITE_STAGE5_LOCK_OVERRIDE_MAX_AGE_MIN || 24 * 60);
+  const safeMinutes = Number.isFinite(rawMinutes) && rawMinutes > 0 ? rawMinutes : 24 * 60;
+  return Math.floor(safeMinutes * 60 * 1000);
+})();
 
 const parseBooleanFlag = (value: any): boolean => {
   const normalized = String(value ?? '').trim().toLowerCase();
@@ -2233,6 +2239,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     let storageEnabled = false;
     let storageFileId = '';
     let storageFileName = '';
+    let storageUpdatedAt = '';
 
     try {
       if (typeof window !== 'undefined') {
@@ -2242,6 +2249,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           storageEnabled = parseBooleanFlag(parsed?.enabled);
           storageFileId = String(parsed?.fileId || '').trim();
           storageFileName = String(parsed?.fileName || '').trim();
+          storageUpdatedAt = String(parsed?.updatedAt || '').trim();
+          if (storageEnabled) {
+            const updatedMs = Date.parse(storageUpdatedAt);
+            const stale = !Number.isFinite(updatedMs) || (Date.now() - updatedMs) > STAGE5_LOCK_OVERRIDE_MAX_AGE_MS;
+            if (stale) {
+              storageEnabled = false;
+              storageFileId = '';
+              storageFileName = '';
+              storageUpdatedAt = '';
+              // Reset stale override payload to avoid repeated accidental locks.
+              window.localStorage.removeItem(STAGE5_LOCK_OVERRIDE_KEY);
+              window.localStorage.removeItem(STAGE5_LOCK_FILE_ID_KEY);
+              window.localStorage.removeItem(STAGE5_LOCK_FILE_NAME_KEY);
+              window.sessionStorage.removeItem(STAGE5_LOCK_FILE_ID_KEY);
+              window.sessionStorage.removeItem(STAGE5_LOCK_FILE_NAME_KEY);
+            }
+          }
         }
 
         // Backward-compatible flat keys (local/session)
@@ -2274,7 +2298,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const fileName = storageFileName || envFileName;
 
     if (!enabled) return { enabled: false };
-    return { enabled: true, fileId: fileId || undefined, fileName: fileName || undefined };
+    return { enabled: true, fileId: fileId || undefined, fileName: fileName || undefined, updatedAt: storageUpdatedAt || undefined };
   };
 
   const resolveStage5RecentHint = (): Stage5RecentHint | null => {
@@ -2321,7 +2345,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
     const payload: Stage5LockOverrideConfig = {
       enabled: true,
       fileId: normalizedFileId || undefined,
-      fileName: normalizedFileName || undefined
+      fileName: normalizedFileName || undefined,
+      updatedAt: new Date().toISOString()
     };
 
     window.localStorage.setItem(STAGE5_LOCK_OVERRIDE_KEY, JSON.stringify(payload));

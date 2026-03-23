@@ -225,12 +225,47 @@ const normalizeQuoteDelta = ({
 };
 
 const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatuses, onStockSelected, autoStart, onComplete }) => {
+  const readEnvGdriveClientId = () => {
+    try {
+      const envId = String((import.meta as any)?.env?.VITE_GDRIVE_CLIENT_ID || (import.meta as any)?.env?.GDRIVE_CLIENT_ID || '').trim();
+      return envId;
+    } catch {
+      return '';
+    }
+  };
+
+  const readLocalGdriveClientId = () => {
+    try {
+      if (typeof window === 'undefined') return '';
+      return String(window.localStorage.getItem('gdrive_client_id') || '').trim();
+    } catch {
+      return '';
+    }
+  };
+
+  const resolveInitialGdriveClientId = () => {
+    const envId = readEnvGdriveClientId();
+    if (envId) return envId;
+    const localId = readLocalGdriveClientId();
+    if (localId) return localId;
+    return '';
+  };
+
+  const resolveGdriveClientIdSource = (clientId: string): 'ENV' | 'LOCAL' | 'MANUAL' | 'EMPTY' => {
+    const envId = readEnvGdriveClientId();
+    if (envId && clientId === envId) return 'ENV';
+    const localId = readLocalGdriveClientId();
+    if (localId && clientId === localId) return 'LOCAL';
+    return clientId ? 'MANUAL' : 'EMPTY';
+  };
+
   // --- CORE ENGINE STATE ---
   const [isGathering, setIsGathering] = useState(false);
   const [logs, setLogs] = useState<string[]>(['> Universe_Node v13.5.1: Drive-First Engine Restored.']);
   const [progress, setProgress] = useState({ found: 0, synced: 0, target: 26, elapsed: 0, provider: 'Idle', phase: 'Idle', integrity: 100 });
   const [showConfig, setShowConfig] = useState(false);
-  const [gdriveClientId, setGdriveClientId] = useState(() => localStorage.getItem('gdrive_client_id') || '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com');
+  const [gdriveClientId, setGdriveClientId] = useState(() => resolveInitialGdriveClientId());
+  const [gdriveClientIdSource, setGdriveClientIdSource] = useState<'ENV' | 'LOCAL' | 'MANUAL' | 'EMPTY'>(() => resolveGdriveClientIdSource(resolveInitialGdriveClientId()));
 
   // --- DATA & REGISTRY ---
   const [searchQuery, setSearchQuery] = useState('');
@@ -264,6 +299,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   useEffect(() => {
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [logs]);
+
+  // Keep policy precedence deterministic when config dialog opens.
+  useEffect(() => {
+    if (!showConfig) return;
+    const resolved = resolveInitialGdriveClientId();
+    setGdriveClientId(resolved);
+    setGdriveClientIdSource(resolveGdriveClientIdSource(resolved));
+  }, [showConfig]);
 
   // Elapsed Time & Telemetry Simulation
   useEffect(() => {
@@ -369,6 +412,49 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const addLog = (msg: string, type: 'info' | 'ok' | 'err' | 'warn' | 'signal' = 'info') => {
       const prefixes = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
       setLogs(prev => [...prev, `${prefixes[type]} ${msg}`].slice(-60));
+  };
+
+  const applyGdriveClientIdOverride = () => {
+      const envId = readEnvGdriveClientId();
+      const normalized = String(gdriveClientId || '').trim();
+      if (envId) {
+          // Env value is authoritative in production; keep local override clear to avoid stale confusion.
+          try { window.localStorage.removeItem('gdrive_client_id'); } catch {}
+          setGdriveClientId(envId);
+          setGdriveClientIdSource('ENV');
+          setShowConfig(false);
+          addLog("Env 기반 Client ID가 우선 적용됩니다. 로컬 override 저장을 생략했습니다.", "warn");
+          return;
+      }
+
+      try {
+          if (normalized) {
+              window.localStorage.setItem('gdrive_client_id', normalized);
+              setGdriveClientIdSource('LOCAL');
+              addLog("Infrastructure Persisted Successfully. (source=LOCAL)", "ok");
+          } else {
+              window.localStorage.removeItem('gdrive_client_id');
+              setGdriveClientIdSource('EMPTY');
+              addLog("Empty Client ID detected. Local override cleared.", "warn");
+          }
+      } catch {
+          addLog("LocalStorage 접근 실패: 로컬 override 저장에 실패했습니다.", "warn");
+      }
+      setShowConfig(false);
+  };
+
+  const clearGdriveClientIdOverride = () => {
+      try { window.localStorage.removeItem('gdrive_client_id'); } catch {}
+      const envId = readEnvGdriveClientId();
+      if (envId) {
+          setGdriveClientId(envId);
+          setGdriveClientIdSource('ENV');
+          addLog("Local override cleared. Env Client ID restored.", "ok");
+      } else {
+          setGdriveClientId('');
+          setGdriveClientIdSource('EMPTY');
+          addLog("Local override cleared. Client ID is now empty.", "warn");
+      }
   };
 
   const handleSetTarget = () => {
@@ -1135,9 +1221,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
                             className="w-full bg-black/60 border border-white/10 rounded-2xl px-6 py-4 text-xs font-mono text-blue-400 focus:border-blue-500 outline-none" 
                             placeholder="Enter GDrive Client ID" 
                         />
-                        <p className="text-[9px] text-slate-600 font-medium">Project ID: 741017429020</p>
+                        <p className="text-[9px] text-slate-600 font-medium">Source: {gdriveClientIdSource} (priority: ENV &gt; LOCAL &gt; MANUAL)</p>
                     </div>
-                    <button onClick={() => { localStorage.setItem('gdrive_client_id', gdriveClientId); setShowConfig(false); addLog("Infrastructure Persisted Successfully.", "ok"); }} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all">Apply Changes</button>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <button onClick={applyGdriveClientIdOverride} className="w-full py-4 bg-blue-600 text-white rounded-2xl text-[10px] font-black uppercase tracking-widest shadow-xl shadow-blue-900/20 active:scale-95 transition-all">Apply Changes</button>
+                        <button onClick={clearGdriveClientIdOverride} className="w-full py-4 bg-slate-800 text-slate-200 rounded-2xl text-[10px] font-black uppercase tracking-widest border border-white/10 hover:bg-slate-700 transition-all">Clear Local Override</button>
+                    </div>
                 </div>
             </div>
         )}
