@@ -2,11 +2,11 @@
 
 ## Current Snapshot
 
-- Pipeline core stabilization: 90% complete
-- Data integrity + contracts: 85% complete
-- Sidecar policy/guard: 92% complete
-- Precision report closure: 75% complete
-- Paper trading readiness: 68% complete
+- Pipeline core stabilization: 95% complete
+- Data integrity + contracts: 91% complete
+- Sidecar policy/guard: 95% complete
+- Precision report closure: 88% complete
+- Paper trading readiness: 72% complete
 
 ## Rule (Credit Saving)
 
@@ -15,7 +15,7 @@
   - new Stage6 hash, or
   - code/env policy change.
 
-## Workstream A: Ops Baseline Lock (remaining 5%)
+## Workstream A: Ops Baseline Lock (remaining 3%)
 
 1. Lock default runtime values
    - `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false`
@@ -25,19 +25,15 @@
 3. Evidence
    - 1 run log showing default policy active
 
-## Workstream B: Integration Milestone (remaining 10%)
+## Workstream B: Integration Milestone (remaining 0% - complete)
 
-1. Run one fresh full cycle (new Stage6 hash)
-   - Stage0 -> Stage6 -> Telegram -> Sidecar
-2. Validate contracts
-   - Stage6 PART1/PART2/FINAL consistency
-   - Sidecar `stage6_contract`/`skip_reasons`/`preflight` consistency
-3. Validate lock integrity
-   - Stage6 locked Stage5 file must match latest generated Stage5
-4. Evidence
-   - stage result JSON set + logs zip + sidecar-state zip
+- 완료 증적(2026-03-23):
+  - Stage6 Final: `STAGE6_ALPHA_FINAL_2026-03-23_12-11-31.json`
+  - Hash sync: `770d850001e2` (Stage6/Sidecar 동일)
+  - Contract: `checked=6 executable=6 watchlist=0 blocked=0`
+  - Stage5 lock 최신화 확인: `STAGE5_ICT_ELITE_50_2026-03-23_12-09-22.json`
 
-## Workstream C: Precision Report Closure (remaining 25%)
+## Workstream C: Precision Report Closure (remaining 12%)
 
 1. Fill closure matrix (C/H tracks)
    - only `완전 완료` and `미완료` (no ambiguous labels)
@@ -48,7 +44,7 @@
 4. Output
    - final closure report vNext (single source of truth)
 
-## Workstream D: Paper Trading Readiness (remaining 32%)
+## Workstream D: Paper Trading Readiness (remaining 28%)
 
 1. Guard behavior confirmation
    - L2 block path and release path both evidenced
@@ -62,13 +58,13 @@
 
 ## Immediate Next 3 Actions
 
-1. Commit and push checklist docs (this file + speculative toggle checklist).
-2. Wait for next new Stage6 hash, then execute one integration milestone run.
-3. Generate final precision closure report with evidence links and residual risks.
+1. `M-UI-4` fallback 문구 품질 개선 패치 + Stage6 단독 1회 검증.
+2. `gdrive_client_id` 로컬 저장 정책(운영 기본값/env 우선/삭제 절차) 문서화.
+3. perf loop 샘플을 자연 증가 방식으로 `>=20`까지 누적(강제 시뮬레이션 금지).
 
 ## Done Criteria (Go-Live Ready)
 
-- New-hash milestone run PASS (Stage0~6 + Telegram + Sidecar).
+- New-hash milestone run PASS (Stage0~6 + Telegram + Sidecar). ✅
 - No contract mismatch across Stage6/Sidecar summaries.
 - Perf loop sample >= 20 and gate status not `PENDING_SAMPLE`.
 - Precision closure report finalized with evidence per item.

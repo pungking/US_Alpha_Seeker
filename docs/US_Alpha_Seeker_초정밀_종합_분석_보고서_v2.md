@@ -9,6 +9,8 @@
 > 2026-03-21 업데이트: H11/H13 최종 종료 체크리스트는 `docs/H11_H13_CLOSURE_CHECKLIST_2026-03-21.md`를 기준으로 합니다.
 >
 > 2026-03-21 업데이트: H8/H10 + Sidecar A/B 종료 체크리스트는 `docs/H8_H10_AND_SIDECAR_AB_CLOSURE_2026-03-21.md`를 기준으로 합니다.
+>
+> 2026-03-23 업데이트(재검증): 4-G/4-H/5-A는 코드 기준 완료 상태로 재확인되었습니다. 최신 E2E 기준 해시는 `STAGE6_ALPHA_FINAL_2026-03-23_12-11-31.json` / `770d850001e2`이며 Sidecar 요약과 해시가 일치합니다. 현재 잔여 작업은 **M-UI-4 문구 품질**, **5-D(클라이언트 ID 저장 정책 정리)**, **perf_loop 표본 11/20→20/20 달성**입니다.
 
 ---
 
@@ -990,7 +992,7 @@ const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 
 
 | 항목 | 상태 | 근거 |
 |---|---|---|
-| 4-A UI 불일치 | 미완료 | `filteredCount` 설명/실제 커밋 조건 불일치 등 UI 계약 재정의 필요 |
+| 4-A UI 불일치 | 미완료 | 잔여는 `M-UI-4`(Stage6 structured fallback 문구 품질)만 남음. `M-UI-1/2/3`은 코드 반영 완료 |
 | 4-B useEffect 의존성 누락 | **완전 완료** | `components/UniverseGathering.tsx:290`, `components/PreliminaryFilter.tsx:129`, `components/DeepQualityFilter.tsx:480` |
 | 4-C Drive 검색 폴더 범위 미제한 | **완전 완료** | Stage0/1/2 로드 쿼리에 parent folder 제한 추가: `components/PreliminaryFilter.tsx:193-200`, `components/DeepQualityFilter.tsx:585-592`, `components/FundamentalAnalysis.tsx:959-964` |
 | 4-D Perplexity res.ok 체크 순서 | **완전 완료** | `components/PreliminaryFilter.tsx:401-405` (ok 체크 후 json 파싱) |
@@ -999,14 +1001,14 @@ const zScore = (roe > 15 && rawDebt < 0.5) ? 3.5 : (roe > 5 && rawDebt < 1.0) ? 
 | 4-G setGatheredRegistry 과호출 | **완전 완료** | `components/UniverseGathering.tsx` 배치 동기화(5개 실린더마다 + 최종 sync)로 과호출 제거 |
 | 4-H Stage3/4 추가 버그 묶음 | **완전 완료** | `FundamentalAnalysis` median/pbr 보정 + `TechnicalAnalysis` trend/표준편차 통합 + `harvester.py` 순서/주말 판정 보정 |
 
-### 4-A. UI 불일치 버그
+### 4-A. UI 불일치 버그 (세부 재검증)
 
-| ID | 파일 | 라인 | 설명 |
+| ID | 상태 | 파일 | 근거 |
 |----|------|------|------|
-| M-UI-1 | `PreliminaryFilter.tsx` | L83-90 | UI `filteredCount`는 price+volume만 체크, 실제 커밋은 5개 조건 → 표시 수치가 실제보다 항상 많음 |
-| M-UI-2 | `UniverseGathering.tsx` | L369-376 | WebSocket heartbeat: 5초 이전은 무조건 EXCELLENT, 이후는 무조건 POOR, 'GOOD'/'CRITICAL' 상태 미할당 |
-| M-UI-3 | `DeepQualityFilter.tsx` | L308 | Z-Score Proxy를 "Altman Z-Score (파산위험)"로 표시 — 실제는 단순화된 Proxy |
-| M-UI-4 | `AlphaAnalysis.tsx` | L1940-2037 | `buildStructuredOutlookFallback`이 기계적 보일러플레이트 생성 — 사용자에게 "틀린 답변"으로 인식됨 |
+| M-UI-1 | **완전 완료** | `components/PreliminaryFilter.tsx` | `filteredCount`를 커밋 게이트 조건과 동기화하고, slider pass count를 별도 분리 |
+| M-UI-2 | **완전 완료** | `components/UniverseGathering.tsx` | heartbeat 단계별 `EXCELLENT/GOOD/POOR/CRITICAL` 상태 구간 재배치 |
+| M-UI-3 | **완전 완료** | `components/DeepQualityFilter.tsx` | Distress/Altman 모델 구분 라벨 및 설명 보강(오표시 해소) |
+| M-UI-4 | 미완료 | `components/AlphaAnalysis.tsx` | `buildStructuredOutlookFallback` 문구가 여전히 보일러플레이트 성향(품질 개선 잔여) |
 
 ### 4-B. useEffect 의존성 누락
 
@@ -1101,78 +1103,52 @@ setGatheredRegistry(new Map(tempRegistry));  // 26회 불필요한 Map 복사
 
 | 항목 | 상태 | 근거 |
 |---|---|---|
-| 5-A 하드코딩 API 키 목록 | 미완료(축소) | `rootFolderId`는 env 우선으로 전환됐으나 레거시 fallback 하드코딩이 임시 유지됨 (`constants.ts`) |
+| 5-A 하드코딩 API 키 목록 | **완전 완료** | `constants.ts`가 env-only 정책으로 전환됨(민감값 하드코딩 폴백 제거, root folder도 env-only) |
 | 5-B Perplexity 키 이중 하드코딩 | **완전 완료** | `components/PreliminaryFilter.tsx` 내 Perplexity 하드코딩 키 제거됨 |
 | 5-C Telegram Chat ID 완전 하드코딩 | **완전 완료** | `constants.ts:114-117` 환경변수 경로 사용 |
 | 5-D 클라이언트 ID 로컬스토리지 노출 | 미완료 | 토큰/세션 저장 경로 정책 정리 및 마스킹 문서화 필요 |
-| 5-E 보안 수정 방향 | 진행중 | rootFolderId env 전환 + 시크릿 로테이션 체크리스트 마감 필요 |
+| 5-E 보안 수정 방향 | 미완료 | 시크릿 로테이션/운영 런북 증적(변경 로그 + 롤백 절차) 문서화 잔여 |
 
-### 5-A. constants.ts 하드코딩 API 키 목록 (14개)
+### 5-A. constants.ts 하드코딩 API 키 목록 — 재점검 결과
 
-> **⚠️ 경고: 소스코드에 아래 모든 키가 평문으로 노출되어 있습니다. GitHub 공개 레포라면 즉시 폐기 및 재발급 필요.**
+- 상태: **완전 완료**
+- 근거:
+  - `constants.ts`는 `getEnvVar()` 기반의 env-only 경로로 전환됨.
+  - `GITHUB_DISPATCH_CONFIG.TOKEN`, `TELEGRAM_CONFIG`, `API_CONFIGS[*].key`에 민감값 하드코딩 폴백이 제거됨.
+  - `GOOGLE_DRIVE_TARGET.rootFolderId`도 env-only(`GDRIVE_ROOT_FOLDER_ID` 또는 `GOOGLE_DRIVE_ROOT_FOLDER_ID`)로 전환됨.
+- 보안 원칙:
+  - 본 보고서에서는 과거 민감값 문자열을 재노출하지 않음.
+  - 시크릿 로테이션/폐기는 운영 체크리스트에서 별도 관리.
 
-| 변수 경로 | 환경변수 | 하드코딩 폴백 값 | 라인 |
-|-----------|---------|----------------|------|
-| `GITHUB_DISPATCH_CONFIG.TOKEN` | `getEnvVar('GITHUB_PAT')` | `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` | L45 |
-| `TELEGRAM_CONFIG.TOKEN` | `getEnvVar('TELEGRAM_TOKEN')` | `8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs` | L52 |
-| `TELEGRAM_CONFIG.CHAT_ID` | **(없음, 완전 하드코딩)** | `-1003800785574` | L54 |
-| `TELEGRAM_CONFIG.SIMULATION_CHAT_ID` | `getEnvVar('TELEGRAM_SIMULATION_CHAT_ID')` | `1281749368` | L56 |
-| `API_CONFIGS[RapidAPI].key` | `getEnvVar('RAPID_API_KEY')` | `9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e` | L63 |
-| `API_CONFIGS[Polygon].key` | `getEnvVar('POLYGON_API_KEY')` | `ArKrr9dmI2FxH71B_YTSWk8YXC2AG9KQ` | L68 |
-| `API_CONFIGS[Alpaca].key` | `getEnvVar('ALPACA_KEY')` | `PKHWDYDOEWWLYZKMUG9L` | L73 |
-| `API_CONFIGS[Finnhub].key` | `getEnvVar('FINNHUB_KEY')` | `d2pjjgpr01qnf9nlc7ngd2pjjgpr01qnf9nlc7o0` | L78 |
-| `API_CONFIGS[FMP].key` | `getEnvVar('FMP_KEY')` | `dMhbH7OaYJKXeCCpCp001RQrq55259p7` | L83 |
-| `API_CONFIGS[TwelveData].key` | `getEnvVar('TWELVE_DATA_KEY')` | `5ef1dfe22fe7463688783c6787e8f2bf` | L88 |
-| `API_CONFIGS[AlphaVantage].key` | `getEnvVar('ALPHA_VANTAGE_KEY')` | `8PBTS3IDZM85B3QE` | L93 |
-| `API_CONFIGS[Gemini].key` | `getEnvVar('GEMINI_API_KEY')` | `AIzaSyDDjIqQXQzBo4Grq3e2CICk2HJSmFA9yxc` | L100 |
-| `API_CONFIGS[Perplexity].key` | `getEnvVar('PERPLEXITY_API_KEY')` | `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` | L105 |
-| `API_CONFIGS[GoogleDrive].key` | `getEnvVar('GDRIVE_API_KEY')` | `AIzaSyDr7G8WTVng50RKGb9so8I4HV79eC1C-LY` | L113 |
-| `GOOGLE_DRIVE_TARGET.rootFolderId` | **(없음, 완전 하드코딩)** | `1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD` | L121 |
+### 5-B. Perplexity 키 이중 하드코딩 — 재점검 결과
 
-### 5-B. Perplexity 키 이중 하드코딩
+- 상태: **완전 완료**
+- 근거:
+  - `components/PreliminaryFilter.tsx`는 `API_CONFIGS`에서 로딩한 키만 사용하며, 문자열 하드코딩 fallback이 제거됨.
+  - 키 부재 시에는 즉시 `Perplexity API key missing` 경고/예외 처리.
 
-```typescript
-// PreliminaryFilter.tsx L272 — constants.ts와 동일한 값이 중복 하드코딩
-if (!perplexityKey) {
-    perplexityKey = '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';
-}
-```
+### 5-C. Telegram Chat ID 완전 하드코딩 — 재점검 결과
 
-### 5-C. Telegram Chat ID 완전 하드코딩
-
-```typescript
-// constants.ts L54 — 환경변수 폴백 없이 완전 하드코딩
-CHAT_ID: '-1003800785574',  // 환경변수 없음
-GOOGLE_DRIVE_TARGET.rootFolderId: '1TVqBE5fEIO4fK4Zyid0kloKsM6316UQD',  // L121
-```
+- 상태: **완전 완료**
+- 근거:
+  - `constants.ts`의 `TELEGRAM_CONFIG.CHAT_ID` / `SIMULATION_CHAT_ID` 모두 env 경로 사용.
+  - 운영값은 GitHub Actions/Vercel 변수로만 주입.
 
 ### 5-D. 클라이언트 ID 로컬스토리지 노출
 
-```typescript
-// UniverseGathering.tsx L108
-gdriveClientId = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
-// localStorage에 저장 → XSS 공격 취약
-```
+- 상태: **미완료**
+- 현황:
+  - `components/UniverseGathering.tsx`에서 `gdrive_client_id`를 localStorage로 저장/로드.
+  - 민감 토큰은 sessionStorage로 분리되어 있으나, 클라이언트 ID 저장 정책(보안/운영 편의 트레이드오프) 문서화가 아직 없음.
+- 권장 잔여:
+  - 운영 기본값은 env 우선, localStorage는 override 전용으로 제한.
+  - UI에 "현재 값 출처(env/localStorage)"를 노출해 추적성을 확보.
 
-### 5-E. 보안 수정 방향
+### 5-E. 보안 수정 방향 (잔여)
 
-```typescript
-// constants.ts 전체 개선 방향
-const getRequiredEnvVar = (key: string): string => {
-    const value = import.meta.env[`VITE_${key}`];
-    if (!value) {
-        console.error(`Required env var VITE_${key} is not set`);
-        return '';  // 하드코딩 폴백 제거
-    }
-    return value;
-};
-
-// .env.local (gitignore에 추가)
-VITE_GITHUB_PAT=your_token_here
-VITE_TELEGRAM_TOKEN=your_token_here
-VITE_TELEGRAM_CHAT_ID=your_chat_id_here
-# ... 등 모든 키를 환경변수로 이동
-```
+- 시크릿 로테이션 완료 증적(누가/언제/무엇을 교체했는지) 문서화
+- 로컬 저장소 키(`gdrive_client_id`, stage lock override 등) 보존 기간/삭제 절차 명문화
+- 긴급 롤백 런북(잘못된 env 반영 시 복구 절차) 추가
 
 ---
 
@@ -1670,6 +1646,31 @@ const accessToken = sessionStorage.getItem('gdrive_access_token');
 
 ## 11. 최종 실행 결과 추적
 
+### 11-UPDATE. 2026-03-23 최신 통합 실행 증적
+
+| 항목 | 값 |
+|------|-----|
+| Stage0 | `STAGE0_MASTER_UNIVERSE_2026-03-23_11-54-04.json` |
+| Stage1 | `STAGE1_PURIFIED_UNIVERSE_2026-03-23_11-54-13.json` |
+| Stage2 | `STAGE2_ELITE_UNIVERSE_2026-03-23_11-56-38.json` |
+| Stage3 | `STAGE3_FUNDAMENTAL_FULL_2026-03-23_11-56-52.json` |
+| Stage4 | `STAGE4_TECHNICAL_FULL_2026-03-23_12-09-13.json` |
+| Stage5 | `STAGE5_ICT_ELITE_50_2026-03-23_12-09-22.json` |
+| Stage6 Final | `STAGE6_ALPHA_FINAL_2026-03-23_12-11-31.json` |
+| Stage6 Hash | `770d850001e2` |
+| Sidecar Trigger | `repository_dispatch(stage6_result_created)` |
+| Sidecar Hash Sync | `stage6Hash=770d850001e2` (요약/상태 파일 일치) |
+| Stage6 Contract | `checked=6 executable=6 watchlist=0 blocked=0` |
+| Guard Control | `L2`, `stale=false`, `wouldBlockLive=true` |
+| Dry-run 결과 | `payloads/skipped=0/6`, `preflight=PREFLIGHT_NO_PAYLOAD` |
+
+**해석:**
+- Stage5→Stage6 최신 파일 잠금 경로는 정상(구 해시 잠금 이슈 재발 없음).
+- Sidecar 계약 검증과 hash/file 동기화는 정상.
+- 현재 주문 미발행 원인은 시스템 오류가 아니라 정책성 차단(`guard_control_halt_new_entries`, `simulated_live_parity`, 일부 `conviction_below_floor`)이다.
+
+> 참고: 아래 11-A~11-C는 2026-03-16 기준 historical trace(Conviction Cliff 원인 분석)로 유지한다.
+
 ### 11-A. VEON — executionRank: 1
 
 | 항목 | 값 |
@@ -1757,6 +1758,19 @@ KTB Stage5 compositeAlpha=67.91 (7위)
 ---
 
 ## 12. 수정 우선순위 로드맵
+
+### 12-UPDATE. 2026-03-23 기준 실제 잔여 작업
+
+| 우선순위 | 항목 | 상태 | 영향 |
+|---------|------|------|------|
+| P0 | M-UI-4 (`buildStructuredOutlookFallback`) 문구 품질 개선 | 미완료 | 텔레그램/리포트 가독성 및 사용자 신뢰도 |
+| P0 | 5-D 로컬 저장 정책 문서화 (`gdrive_client_id`, stage lock override) | 미완료 | 운영 보안/추적성 |
+| P1 | Sidecar perf loop 표본 `11/20 → >=20/20` 달성 | 미완료 | Paper Trading Go/No-Go 게이트 |
+| P1 | Guard release path 증적 확보(L2 차단 해제 후 payload 생성) | 미완료 | 실전 페이퍼 진입 전 안정성 검증 |
+| P2 | historical 섹션(11-A~11-C) 최신 회차 기준 부록 분리 | 미완료 | 문서 혼선 방지 |
+
+**현재 결론:**  
+핵심 파이프라인(Stage0~6 + Stage6 lock + Sidecar hash sync)은 정상 복구/유지 상태이며, 잔여는 **품질 고도화 + 운영 증적 수집** 중심이다.
 
 ### Phase 1: 즉시 수정 (1~2일) — Stage 6 정확도 직결
 
