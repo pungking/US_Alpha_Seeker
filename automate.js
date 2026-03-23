@@ -14,7 +14,13 @@ import puppeteer from 'puppeteer';
 const FALLBACK_CLIENT_ID = '741017429020-k7aka3ot8lmba6e3114205nnpp584oiu.apps.googleusercontent.com';
 const DEFAULT_APP_URL = 'http://localhost:3000';
 const SUCCESS_STATUS = "ALL PIPELINES EXECUTED.";
-const FAILURE_MARKERS = ["TELEGRAM SEND FAILED.", "AUTO ABORTED:"];
+const FAILURE_MARKERS = [
+    "TELEGRAM SEND FAILED.",
+    "AUTO ABORTED:",
+    "Fatal Error:",
+    "Missing/invalid GDRIVE_ROOT_FOLDER_ID",
+    "[CONFIG] Missing GDRIVE_ROOT_FOLDER_ID"
+];
 
 async function waitForServer(baseUrl, timeoutMs = 120000, pollMs = 2000) {
     const startedAt = Date.now();
