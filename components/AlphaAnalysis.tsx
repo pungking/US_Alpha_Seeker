@@ -2126,28 +2126,56 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               ? String(entryFeasibleRaw)
               : (typeof entryFeasibleShadowRaw === 'boolean' ? String(entryFeasibleShadowRaw) : 'N/A');
       const tradePlanStatus = String(item?.tradePlanStatus || item?.tradePlanStatusShadow || 'N/A');
+      const finalDecision = String(item?.finalDecision || item?.executionBucket || 'WAIT_PRICE').toUpperCase();
+      const decisionReason = String(item?.decisionReason || item?.executionReason || 'unknown').toLowerCase();
+      const rrRatio = (entryExec > stop && target > entryExec) ? ((target - entryExec) / Math.max(entryExec - stop, 0.0001)) : null;
+      const convictionBand = conviction >= 90 ? '매우 높음' : conviction >= 80 ? '높음' : conviction >= 70 ? '보통' : '보수';
+      const dominantSignal = [
+          { key: 'Fundamental', value: fund },
+          { key: 'Technical', value: tech },
+          { key: 'ICT', value: ict }
+      ].sort((a, b) => b.value - a.value)[0];
+      const dominantSignalText = `${dominantSignal.key}(${dominantSignal.value})`;
+      const decisionReasonLabelMap: Record<string, string> = {
+          executable_pullback: '눌림목 조건 충족',
+          wait_pullback_not_reached: '진입 가격 미도달',
+          wait_earnings_data_missing: '실적 일정 데이터 누락(대기)',
+          blocked_quality_verdict_unusable: 'AI 판정 신뢰 불가',
+          blocked_stop_too_tight: '손절폭 과소',
+          blocked_stop_too_wide: '손절폭 과대',
+          blocked_rr_below_min: '기대 손익비 미달',
+          blocked_earnings_window: '어닝 블랙아웃 구간'
+      };
+      const decisionReasonLabel = decisionReasonLabelMap[decisionReason] || decisionReason.replace(/_/g, ' ');
+      const riskNotes = [
+          `eventRisk=${eventRisk}${daysToEarnings >= 0 ? ` (D-${daysToEarnings})` : ''}`,
+          `dataQuality=${dataQuality}`,
+          `decision=${finalDecision}/${decisionReasonLabel}`
+      ];
+      const catalystLine = reasonList[1] || `${pdZone} 구간에서 ${dominantSignalText} 우위`;
+      const thesisLine = reasonList[2] || `${verdict} 시나리오 유지 조건은 손절(${stop > 0 ? `$${stop.toFixed(1)}` : 'N/A'}) 방어`;
 
       return `## 1. 전설적 투자자 위원회 분석
-- **벤저민 그레이엄 (Value)** : fundamentalScore ${fund} 기준 밸류 안정성 점검, 현재 섹터(${sector}) 내 상대 가치 우위 여부 확인.
-- **피터 린치 (Growth)** : technicalScore ${tech} 및 모멘텀 지속성 기반 성장 탄력 점검.
-- **워렌 버핏 (Moat)** : convictionScore ${conviction}와 비즈니스 지속 가능성으로 경쟁우위(해자) 검증.
-- **윌리엄 오닐 (Momentum)** : ictScore ${ict} 기반 추세 진입 타이밍과 수급 강도 평가.
-- **찰리 멍거 (Quality)** : 데이터 품질 ${dataQuality}, integrity ${integrity}로 신뢰 가능한 품질 투자 여부 점검.
-- **글렌 웰링 (Event)** : 이벤트 리스크 ${eventRisk}${daysToEarnings >= 0 ? ` (D-${daysToEarnings})` : ''}로 단기 변동성 충격 가능성 평가.
-- **캐시 우드 (Innovation)** : 종목 테마/혁신성 반영, 고성장 재평가 가능성 탐색.
-- **글렌 그린버그 (Focus)** : 핵심 근거 집중 검토 — ${reasonList[0] || '핵심 근거 추출 실패'}.
-- **최종 평결 (Verdict)** : ${verdict} (Expected Return: ${expected})
+- **벤저민 그레이엄 (Value)** : fundamentalScore ${fund} 기준으로 섹터(${sector}) 내 상대가치 우위 여부를 확인했습니다.
+- **피터 린치 (Growth)** : technicalScore ${tech}로 단기 모멘텀의 지속 가능성을 점검했습니다.
+- **워렌 버핏 (Moat)** : convictionScore ${conviction} (${convictionBand})와 integrity ${integrity}를 함께 확인했습니다.
+- **윌리엄 오닐 (Momentum)** : ictScore ${ict}, pdZone=${pdZone}를 기반으로 진입 타이밍을 평가했습니다.
+- **찰리 멍거 (Quality)** : 데이터 품질 ${dataQuality} 상태에서 과도한 해석을 피하도록 보수적으로 반영했습니다.
+- **글렌 웰링 (Event)** : ${riskNotes[0]} 조건으로 이벤트 변동성 리스크를 확인했습니다.
+- **캐시 우드 (Innovation)** : 테마/섹터 확장성은 유지하되 레짐(RISK_OFF) 환경을 우선 고려했습니다.
+- **글렌 그린버그 (Focus)** : 핵심 근거는 "${reasonList[0] || '근거 데이터 보강 필요'}"입니다.
+- **최종 평결 (Verdict)** : ${verdict} (Expected Return: ${expected}, dominant=${dominantSignalText})
 
 ## 2. 전문가 3인 성향 분석
-- **보수적 퀀트** : 손절선($${stop.toFixed(1)}) 기준 리스크 통제, 무효화 구간 이탈 시 시나리오 폐기.
-- **공격적 트레이더** : ${isAnchorExecEquivalent(entryExec, entryAnchor) ? `진입 $${entryExec.toFixed(1)} (앵커=실행)` : `진입(실행) $${entryExec.toFixed(1)} / 진입(앵커) $${entryAnchor.toFixed(1)}`} 대비 목표($${target.toFixed(1)})의 보상/위험 기하 구조 확인.
-- **마켓 메이커** : ${pdZone} 구간에서 체결/유동성 리스크와 수급 흡수 가능성 점검.
-- **종합 분석** : 정량 Trade Box(OTE/TARGET/STOP)는 고정하고, 실행 가능성(feasible=${entryFeasible}, status=${tradePlanStatus}, distance=${entryDistancePct})을 별도 관리.
+- **보수적 퀀트** : 손절 ${stop > 0 ? `$${stop.toFixed(1)}` : 'N/A'} 기준으로 무효화 라인을 먼저 고정했습니다.
+- **공격적 트레이더** : ${buildPlanTrajectoryText(entryExec, entryAnchor, target, stop)}${rrRatio ? ` | RR=${rrRatio.toFixed(2)}` : ''} 구조를 확인했습니다.
+- **마켓 메이커** : ${pdZone} 구간에서 체결 리스크와 호가 흡수 가능성을 점검했습니다.
+- **종합 분석** : feasible=${entryFeasible}, status=${tradePlanStatus}, distance=${entryDistancePct}, decision=${finalDecision}/${decisionReasonLabel}
 
 ## 3. The Alpha Thesis: 전략적 투자 시나리오
-- **핵심 논거 (Key Thesis)** : ${reasonList[2] || '핵심 논거 보강 필요'}
-- **상승 촉매 (Catalysts)** : 섹터 모멘텀, 수급 흐름, 이벤트 캘린더(Earnings/Regime) 동시 정렬 여부.
-- **리스크 요인 (Risk Factors)** : 레짐 전환, 변동성 급등, 손절선 하향 이탈.
+- **핵심 논거 (Key Thesis)** : ${thesisLine}
+- **상승 촉매 (Catalysts)** : ${catalystLine}
+- **리스크 요인 (Risk Factors)** : ${riskNotes.join(' | ')}
 - **가격 목표 (Trajectory)** : ${buildPlanTrajectoryText(entryExec, entryAnchor, target, stop)}
 - **실행 가능성 (Execution)** : feasible=${entryFeasible} | status=${tradePlanStatus} | distance=${entryDistancePct}
 

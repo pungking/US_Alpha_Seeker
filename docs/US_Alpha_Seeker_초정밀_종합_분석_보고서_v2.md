@@ -1154,6 +1154,17 @@ setGatheredRegistry(new Map(tempRegistry));  // 26회 불필요한 Map 복사
 
 ## 6. Conviction Score Cliff 루트 코즈 분석
 
+### 6-STATUS. 2026-03-23 재점검 상태 (완전 완료 / 미완료)
+
+| 항목 | 상태 | 근거 |
+|---|---|---|
+| 6-1 Gemini 모델 경로 안정화(C1) | **완전 완료** | `constants.ts`에서 Gemini 모델 체인/alias remap 통합 관리 |
+| 6-2 ICT displacement 전달 오류(C2) | **완전 완료** | `services/intelligenceService.ts`에서 `ictMetrics.displacement` 우선 참조로 수정 |
+| 6-3 slimCandidates 퀀트 컨텍스트 누락(C3) | **완전 완료** | `fundamentalScore/technicalScore/compositeAlpha`를 AI 입력 계약에 포함 |
+| 6-4 AI conviction 단일 대체(C4) | **완전 완료** | `components/AlphaAnalysis.tsx`에서 quant+AI 가중 블렌딩 및 floor 보호 적용 |
+| 6-5 aiVerdict 정규화 불안정(C5) | **완전 완료** | `services/intelligenceService.ts`의 `normalizeAiVerdict` canonical 경로로 통일 |
+| 6-6 Conviction cliff 재발 모니터링 | 미완료 | 신규 해시 기준 추세 관측(연속 3회 이상)과 증적 축적 필요 |
+
 ### 6-A. 문제 현상
 
 퀀트 파이프라인에서 높은 점수를 받은 종목(예: KTB compositeAlpha=92, PDD=96)이 AI 분석 후 크게 낮아지는 현상. 이를 **"Conviction Score Cliff"** 라고 명명한다.
