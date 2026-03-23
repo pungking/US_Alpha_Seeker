@@ -28,10 +28,10 @@
 ## Workstream B: Integration Milestone (remaining 0% - complete)
 
 - 완료 증적(2026-03-23):
-  - Stage6 Final: `STAGE6_ALPHA_FINAL_2026-03-23_12-11-31.json`
-  - Hash sync: `770d850001e2` (Stage6/Sidecar 동일)
-  - Contract: `checked=6 executable=6 watchlist=0 blocked=0`
-  - Stage5 lock 최신화 확인: `STAGE5_ICT_ELITE_50_2026-03-23_12-09-22.json`
+  - Stage6 Final: `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json`
+  - Hash sync: `f1c63f59772d` (Stage6/Sidecar 동일)
+  - Contract: `checked=5 executable=5 watchlist=0 blocked=0`
+  - Stage5 lock 최신화 확인: `STAGE5_ICT_ELITE_50_2026-03-23_15-37-10.json`
 
 ## Workstream C: Precision Report Closure (remaining 8%)
 
@@ -58,8 +58,8 @@
 
 ## Immediate Next 3 Actions
 
-1. `M-UI-4` fallback 문구 품질 개선 패치 + Stage6 단독 1회 검증.
-2. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 증적 1회 수집 (`docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` Run #1).
+1. 운영 기본값 회귀 검증: `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false` 상태로 dry-run 1회 증적 확보.
+2. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 **실행 증적** 1회 완료 (`docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` Run #1).
 3. 오전 7시 스케줄 자동화 결과를 3일 누적 수집하여 6-6 모니터링/`perf_loop`를 자연 누적으로 갱신.
 
 ## Done Criteria (Go-Live Ready)

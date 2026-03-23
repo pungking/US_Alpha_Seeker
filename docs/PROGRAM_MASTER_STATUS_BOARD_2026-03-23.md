@@ -93,6 +93,16 @@
 - 신규 이슈:
 ```
 
+### 5-1. Daily Update (2026-03-23, 수동 자동화 Run #1)
+
+- Stage6 file/hash: `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json` / `f1c63f59772d`
+- Stage6 contract: `checked=5 executable=5 watchlist=0 blocked=0`
+- Sidecar summary: `payloads/skipped=0/5`, `skip_reasons=entry_blocked(4)+conviction_below_floor(1)`
+- Guard control: `L2`, `stale=false`, `reason=guard_control_halt_new_entries(level=L2),simulated_live_parity`
+- 6-6 모니터링: hash/file 동기화 및 계약 검증 정상(재발 징후 없음)
+- perf_loop progress: `11/20` (변화 없음, 자연 누적 대기)
+- 신규 이슈: 운영 기본값 기준에서는 `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false` 회귀 검증 1회 추가 필요
+
 ---
 
 ## 6) 이 문서 사용 규칙

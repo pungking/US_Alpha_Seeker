@@ -1659,19 +1659,19 @@ const accessToken = sessionStorage.getItem('gdrive_access_token');
 
 | 항목 | 값 |
 |------|-----|
-| Stage0 | `STAGE0_MASTER_UNIVERSE_2026-03-23_11-54-04.json` |
-| Stage1 | `STAGE1_PURIFIED_UNIVERSE_2026-03-23_11-54-13.json` |
-| Stage2 | `STAGE2_ELITE_UNIVERSE_2026-03-23_11-56-38.json` |
-| Stage3 | `STAGE3_FUNDAMENTAL_FULL_2026-03-23_11-56-52.json` |
-| Stage4 | `STAGE4_TECHNICAL_FULL_2026-03-23_12-09-13.json` |
-| Stage5 | `STAGE5_ICT_ELITE_50_2026-03-23_12-09-22.json` |
-| Stage6 Final | `STAGE6_ALPHA_FINAL_2026-03-23_12-11-31.json` |
-| Stage6 Hash | `770d850001e2` |
+| Stage0 | `STAGE0_MASTER_UNIVERSE_2026-03-23_15-20-24.json` |
+| Stage1 | `STAGE1_PURIFIED_UNIVERSE_2026-03-23_15-20-29.json` |
+| Stage2 | `STAGE2_ELITE_UNIVERSE_2026-03-23_15-23-10.json` |
+| Stage3 | `STAGE3_FUNDAMENTAL_FULL_2026-03-23_15-23-32.json` |
+| Stage4 | `STAGE4_TECHNICAL_FULL_2026-03-23_15-37-00.json` |
+| Stage5 | `STAGE5_ICT_ELITE_50_2026-03-23_15-37-10.json` |
+| Stage6 Final | `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json` |
+| Stage6 Hash | `f1c63f59772d` |
 | Sidecar Trigger | `repository_dispatch(stage6_result_created)` |
-| Sidecar Hash Sync | `stage6Hash=770d850001e2` (요약/상태 파일 일치) |
-| Stage6 Contract | `checked=6 executable=6 watchlist=0 blocked=0` |
+| Sidecar Hash Sync | `stage6Hash=f1c63f59772d` (요약/상태 파일 일치) |
+| Stage6 Contract | `checked=5 executable=5 watchlist=0 blocked=0` |
 | Guard Control | `L2`, `stale=false`, `wouldBlockLive=true` |
-| Dry-run 결과 | `payloads/skipped=0/6`, `preflight=PREFLIGHT_NO_PAYLOAD` |
+| Dry-run 결과 | `payloads/skipped=0/5`, `preflight=PREFLIGHT_NO_PAYLOAD` |
 
 **해석:**
 - Stage5→Stage6 최신 파일 잠금 경로는 정상(구 해시 잠금 이슈 재발 없음).
