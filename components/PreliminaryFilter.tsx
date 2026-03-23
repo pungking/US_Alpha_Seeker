@@ -87,6 +87,7 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   
   // Data State
   const [rawUniverse, setRawUniverse] = useState<MasterTicker[]>([]);
+  const [sliderPassCount, setSliderPassCount] = useState(0);
   const [filteredCount, setFilteredCount] = useState(0);
   const [marketContext, setMarketContext] = useState<MarketContext | null>(null);
   const [stage0InputCount, setStage0InputCount] = useState(0);
@@ -114,10 +115,25 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
   // Update filtered count when thresholds change
   useEffect(() => {
     if (rawUniverse.length > 0) {
-      // VISUAL ONLY: Shows count based on UI sliders.
-      // NOTE: Actual commit will enforce PE/ROE/Target checks.
-      const count = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume).length;
-      setFilteredCount(count);
+      // 4-A: Keep UI count contract aligned with actual commit gate.
+      const sliderOnlyCount = rawUniverse.filter(s => s.price >= minPrice && s.volume >= minVolume).length;
+      const commitReadyCount = rawUniverse.filter((s) => {
+        if (!isAnalysisEligibleTicker(s)) return false;
+        const marketCap = s.marketCap || 0;
+        const effectiveMinVolume = (marketCap > 0 && marketCap <= 300000000) ? (minVolume * 0.6) : minVolume;
+        return (
+          s.price >= minPrice &&
+          s.volume >= effectiveMinVolume &&
+          ((s.pe > 0) || (s.per > 0)) &&
+          (s.roe > 0) &&
+          (s.targetMeanPrice > 0)
+        );
+      }).length;
+      setSliderPassCount(sliderOnlyCount);
+      setFilteredCount(commitReadyCount);
+    } else {
+      setSliderPassCount(0);
+      setFilteredCount(0);
     }
   }, [minPrice, minVolume, rawUniverse]);
 
@@ -795,8 +811,9 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
               <div className="flex flex-col sm:flex-row items-start sm:items-baseline space-y-2 sm:space-y-0 sm:space-x-6">
                 <span className="text-4xl md:text-6xl font-black text-white italic tracking-tighter">{filteredCount.toLocaleString()}</span>
                 <div className="flex flex-col">
-                   <span className="text-slate-500 text-[10px] uppercase font-bold tracking-widest italic">Purified Assets</span>
-                   <span className="text-emerald-500/40 text-[8px] font-mono mt-1">Passing Filters</span>
+                   <span className="text-slate-500 text-[10px] uppercase font-bold tracking-widest italic">Commit-Ready Assets</span>
+                   <span className="text-emerald-500/40 text-[8px] font-mono mt-1">P/V + PE/ROE/Target Gate</span>
+                   <span className="text-slate-500/70 text-[8px] font-mono mt-1">Slider Preview: {sliderPassCount.toLocaleString()}</span>
                 </div>
               </div>
             </div>

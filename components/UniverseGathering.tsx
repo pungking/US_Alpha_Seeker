@@ -510,10 +510,14 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       const pulseCheck = setInterval(() => {
           heartbeatCount++;
-          if (heartbeatCount > 5) {
+          if (heartbeatCount <= 1) {
+              setConnectionHealth('EXCELLENT');
+          } else if (heartbeatCount <= 3) {
+              setConnectionHealth('GOOD');
+          } else if (heartbeatCount <= 5) {
               setConnectionHealth('POOR');
           } else {
-              setConnectionHealth('EXCELLENT');
+              setConnectionHealth('CRITICAL');
           }
       }, 1000);
       healthCheckRef.current = pulseCheck;
@@ -522,6 +526,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
           if (isCleanedUp) return;
           
           heartbeatCount = 0; // Reset heartbeat
+          setConnectionHealth(source === 'WebSocket' ? 'EXCELLENT' : 'GOOD');
 
           setSearchResult((prev: any) => {
               if (!prev || prev.symbol !== symbol) return prev;
@@ -1137,7 +1142,15 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
              <div className="flex items-center justify-between mb-4">
                  <p className="text-[9px] font-black text-blue-400 uppercase tracking-widest">Global Integrity Validator</p>
                  <div className="flex items-center gap-2">
-                     <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border ${connectionHealth === 'EXCELLENT' ? 'text-emerald-400 border-emerald-500/30' : connectionHealth === 'GOOD' ? 'text-blue-400 border-blue-500/30' : 'text-red-400 border-red-500/30'}`}>
+                     <span className={`text-[8px] font-black uppercase px-1.5 py-0.5 rounded border ${
+                        connectionHealth === 'EXCELLENT'
+                          ? 'text-emerald-400 border-emerald-500/30'
+                          : connectionHealth === 'GOOD'
+                            ? 'text-blue-400 border-blue-500/30'
+                            : connectionHealth === 'POOR'
+                              ? 'text-amber-400 border-amber-500/30'
+                              : 'text-rose-400 border-rose-500/30'
+                     }`}>
                          {connectionHealth} SIGNAL
                      </span>
                      {isLive && <span className="text-[8px] font-black text-emerald-400 animate-pulse uppercase border border-emerald-500/30 bg-emerald-500/10 px-1.5 py-0.5 rounded">● {liveSource || 'LIVE FEED'}</span>}
