@@ -99,6 +99,14 @@ interface EngineTelemetry {
   activeThreads: number;
 }
 
+const normalizeDriveFolderId = (value: any): string | null => {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    if (raw === '.' || raw === '/') return null;
+    if (raw.toUpperCase() === '__SET_ME__') return null;
+    return raw;
+};
+
 // [HELPER] Smart Ratio Normalizer (Auto-Scaling)
 // Handles mixed data sources (e.g., 0.15 vs 15.0)
 const normalizePercent = (val: any): number => {
@@ -737,9 +745,26 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   const mountFinancialEngine = async (token: string) => {
       addLog("Initializing V13 Engine Protocol...", "info");
-      
-      let systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, GOOGLE_DRIVE_TARGET.rootFolderId);
-      
+
+      const configuredRootId = normalizeDriveFolderId(GOOGLE_DRIVE_TARGET.rootFolderId);
+      let systemMapFolderId: string | null = null;
+
+      if (configuredRootId) {
+          try {
+              systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, configuredRootId);
+          } catch (e: any) {
+              const msg = String(e?.message || e || '');
+              // 5-A hardening follow-up: keep run alive with root-scan fallback when env is malformed.
+              if (msg.includes('File not found')) {
+                  addLog(`[WARN] Invalid GDRIVE_ROOT_FOLDER_ID (${configuredRootId}). Falling back to Drive Root scan.`, "warn");
+              } else {
+                  throw e;
+              }
+          }
+      } else {
+          addLog("[WARN] Missing/invalid GDRIVE_ROOT_FOLDER_ID. Falling back to Drive Root scan.", "warn");
+      }
+
       if (!systemMapFolderId) {
           addLog(`'${GOOGLE_DRIVE_TARGET.systemMapSubFolder}' not in Project Root. Scanning Drive Root...`, "warn");
           systemMapFolderId = await findFolder(token, GOOGLE_DRIVE_TARGET.systemMapSubFolder, 'root');
@@ -1002,7 +1027,12 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   const ensureFolder = async (token: string, name: string) => {
-      const q = encodeURIComponent(`name = '${name}' and '${GOOGLE_DRIVE_TARGET.rootFolderId}' in parents and trashed = false`);
+      const rootFolderId = normalizeDriveFolderId(GOOGLE_DRIVE_TARGET.rootFolderId);
+      if (!rootFolderId) {
+          throw new Error("Missing/invalid GDRIVE_ROOT_FOLDER_ID. Set a valid Google Drive folder id (not '.' or '__SET_ME__').");
+      }
+
+      const q = encodeURIComponent(`name = '${name}' and '${rootFolderId}' in parents and trashed = false`);
       const listRes = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, { headers: { 'Authorization': `Bearer ${token}` } });
       await assertDriveOk(listRes, `ensureFolder.list(${name})`);
       const listed = await listRes.json();
@@ -1010,7 +1040,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
       const createRes = await fetch(`https://www.googleapis.com/drive/v3/files`, {
           method: 'POST', headers: { 'Authorization': `Bearer ${token}`, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ name, parents: [GOOGLE_DRIVE_TARGET.rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
+          body: JSON.stringify({ name, parents: [rootFolderId], mimeType: 'application/vnd.google-apps.folder' })
       });
       await assertDriveOk(createRes, `ensureFolder.create(${name})`);
       const created = await createRes.json();
