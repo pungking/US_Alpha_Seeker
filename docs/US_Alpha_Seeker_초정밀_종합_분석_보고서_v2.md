@@ -1659,18 +1659,18 @@ const accessToken = sessionStorage.getItem('gdrive_access_token');
 
 | 항목 | 값 |
 |------|-----|
-| Stage0 | `STAGE0_MASTER_UNIVERSE_2026-03-23_15-20-24.json` |
-| Stage1 | `STAGE1_PURIFIED_UNIVERSE_2026-03-23_15-20-29.json` |
-| Stage2 | `STAGE2_ELITE_UNIVERSE_2026-03-23_15-23-10.json` |
-| Stage3 | `STAGE3_FUNDAMENTAL_FULL_2026-03-23_15-23-32.json` |
-| Stage4 | `STAGE4_TECHNICAL_FULL_2026-03-23_15-37-00.json` |
-| Stage5 | `STAGE5_ICT_ELITE_50_2026-03-23_15-37-10.json` |
-| Stage6 Final | `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json` |
-| Stage6 Hash | `f1c63f59772d` |
+| Stage0 | `STAGE0_MASTER_UNIVERSE_2026-03-23_19-11-30.json` |
+| Stage1 | `STAGE1_PURIFIED_UNIVERSE_2026-03-23_19-11-27.json` |
+| Stage2 | `STAGE2_ELITE_UNIVERSE_2026-03-23_19-12-55.json` |
+| Stage3 | `STAGE3_FUNDAMENTAL_FULL_2026-03-23_19-14-27.json` |
+| Stage4 | `STAGE4_TECHNICAL_FULL_2026-03-23_19-29-28.json` |
+| Stage5 | `STAGE5_ICT_ELITE_50_2026-03-23_19-29-38.json` |
+| Stage6 Final | `STAGE6_ALPHA_FINAL_2026-03-23_19-31-30.json` |
+| Stage6 Hash | `2a168685fa2e` |
 | Sidecar Trigger | `repository_dispatch(stage6_result_created)` |
-| Sidecar Hash Sync | `stage6Hash=f1c63f59772d` (요약/상태 파일 일치) |
+| Sidecar Hash Sync | `stage6Hash=2a168685fa2e` (요약/상태 파일 일치) |
 | Stage6 Contract | `checked=5 executable=5 watchlist=0 blocked=0` |
-| Guard Control | `L2`, `stale=false`, `wouldBlockLive=true` |
+| Guard Control | `L3`, `stale=false`, `wouldBlockLive=true` |
 | Dry-run 결과 | `payloads/skipped=0/5`, `preflight=PREFLIGHT_NO_PAYLOAD` |
 
 **해석:**

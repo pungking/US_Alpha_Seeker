@@ -6,6 +6,10 @@
 - `PENDING`: 실행 전
 - `DONE`: 실행 + 검증 + 증적 링크 완료
 
+주의:
+- 이 문서의 Run 번호(`Run #1~#4`)는 **보안 증적 단계 번호**다.
+- 같은 날 자동화 실행 회차(예: 수동 1회차/2회차)와는 별도로 관리한다.
+
 ---
 
 ## Run #1 (지금 진행)
@@ -18,9 +22,9 @@
 - github_vars_updated: `no`
 - vercel_env_updated: `no`
 - old_key_revoked: `no`
-- validation_run_id: `sourceRun=2026-03-23_15-39-02`
+- validation_run_id: `sourceRun=2026-03-23_19-31-27` (manual automation #2, default policy)
 - rollback_point: `STAGE6 hash 770d850001e2 (prior stable run)`
-- notes: `수동 GitHub 자동화 1회 실행으로 Stage0~6 + Sidecar 검증 완료. 보안 키 실제 교체는 아직 미실행.`
+- notes: `금일 수동 자동화 2회차(최종 기준: 19:31 런) 기준으로 Stage0~6 + Sidecar 계약/해시 동기화 정상, Policy Gate가 BUY/STRONG_BUY only로 복귀됨. 보안 키 실제 교체는 아직 미실행.`
 
 ### Validation Checklist (Run #1)
 
@@ -79,15 +83,15 @@
   - `sidecar-state-23424764725.zip`
   - `sidecar-guard-state-23424877638.zip`
 - stage json set:
-  - `STAGE0_MASTER_UNIVERSE_2026-03-23_15-20-24.json`
-  - `STAGE1_PURIFIED_UNIVERSE_2026-03-23_15-20-29.json`
-  - `STAGE2_ELITE_UNIVERSE_2026-03-23_15-23-10.json`
-  - `STAGE3_FUNDAMENTAL_FULL_2026-03-23_15-23-32.json`
-  - `STAGE4_TECHNICAL_FULL_2026-03-23_15-37-00.json`
-  - `STAGE5_ICT_ELITE_50_2026-03-23_15-37-10.json`
-  - `STAGE6_PART1_SCORED_2026-03-23_15-37-29.json`
-  - `STAGE6_PART2_AI_RESULT_FULL_2026-03-23_15-39-03.json`
-  - `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json` (`stage6Hash=f1c63f59772d`)
+  - `STAGE0_MASTER_UNIVERSE_2026-03-23_19-11-30.json`
+  - `STAGE1_PURIFIED_UNIVERSE_2026-03-23_19-11-27.json`
+  - `STAGE2_ELITE_UNIVERSE_2026-03-23_19-12-55.json`
+  - `STAGE3_FUNDAMENTAL_FULL_2026-03-23_19-14-27.json`
+  - `STAGE4_TECHNICAL_FULL_2026-03-23_19-29-28.json`
+  - `STAGE5_ICT_ELITE_50_2026-03-23_19-29-38.json`
+  - `STAGE6_PART1_SCORED_2026-03-23_19-29-56.json`
+  - `STAGE6_PART2_AI_RESULT_FULL_2026-03-23_19-31-28.json`
+  - `STAGE6_ALPHA_FINAL_2026-03-23_19-31-30.json` (`stage6Hash=2a168685fa2e`)
 - telegram brief:
-  - `TELEGRAM_BRIEF_REPORT_2026-03-23_15-39-10.md`
+  - `TELEGRAM_BRIEF_REPORT_2026-03-23_19-31-39.md`
   - `automation-evidence.zip`

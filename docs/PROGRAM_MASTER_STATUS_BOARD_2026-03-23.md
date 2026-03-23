@@ -93,15 +93,15 @@
 - 신규 이슈:
 ```
 
-### 5-1. Daily Update (2026-03-23, 수동 자동화 Run #1)
+### 5-1. Daily Update (2026-03-23, 수동 자동화 Run #2 / 금일 2회차)
 
-- Stage6 file/hash: `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json` / `f1c63f59772d`
+- Stage6 file/hash: `STAGE6_ALPHA_FINAL_2026-03-23_19-31-30.json` / `2a168685fa2e`
 - Stage6 contract: `checked=5 executable=5 watchlist=0 blocked=0`
-- Sidecar summary: `payloads/skipped=0/5`, `skip_reasons=entry_blocked(4)+conviction_below_floor(1)`
-- Guard control: `L2`, `stale=false`, `reason=guard_control_halt_new_entries(level=L2),simulated_live_parity`
+- Sidecar summary: `payloads/skipped=0/5`, `skip_reasons=entry_blocked(3)+conviction_below_floor(2)`
+- Guard control: `L3`, `stale=false`, `reason=guard_control_halt_new_entries(level=L3),simulated_live_parity`
 - 6-6 모니터링: hash/file 동기화 및 계약 검증 정상(재발 징후 없음)
 - perf_loop progress: `11/20` (변화 없음, 자연 누적 대기)
-- 신규 이슈: 운영 기본값 기준에서는 `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false` 회귀 검증 1회 추가 필요
+- 신규 이슈: 없음(운영 기본값 `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false` 회귀 확인 완료)
 
 ---
 
@@ -127,7 +127,7 @@
 |---|---|---|---|
 | 컨트롤타워/현재판 | `PROGRAM_MASTER_STATUS_BOARD_2026-03-23.md`, `GO_LIVE_REMAINING_WORK_BREAKDOWN_2026-03-23.md` | 최신 기준 반영 중 | 진행 중 |
 | 초정밀 메인 보고서 | `US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` | 5-E/6-6 등 잔여 명시됨 | 진행 중 |
-| 보안 운영 | `SECURITY_ROTATION_RUNBOOK_2026-03-23.md`, `SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` | Runbook 준비 완료, Evidence Run #1~#4 미기입 | 진행 중 |
+| 보안 운영 | `SECURITY_ROTATION_RUNBOOK_2026-03-23.md`, `SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` | Runbook 준비 완료, Evidence Run #1 기입/Run #2~#4 대기 | 진행 중 |
 | Stage4/5/6 패치 플랜 | `STAGE4_*`, `STAGE5_*`, `STAGE6_*` | 상당수는 완료 기록, 일부는 계획/체크리스트 성격 | 혼재(완료+예정) |
 | Sidecar 운영 가이드 | `SIDECAR_*` 문서군 | 기준/템플릿/런북 다수 존재, 운영 증적 누적 필요 | 진행 중 |
 | 종결 체크리스트 | `H8_H10_AND_SIDECAR_AB_CLOSURE_2026-03-21.md`, `H11_H13_CLOSURE_CHECKLIST_2026-03-21.md` | 종료 판정(PASS) 기록 | 완료 |

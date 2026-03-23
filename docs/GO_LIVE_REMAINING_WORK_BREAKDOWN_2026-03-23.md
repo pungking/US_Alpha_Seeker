@@ -15,7 +15,7 @@
   - new Stage6 hash, or
   - code/env policy change.
 
-## Workstream A: Ops Baseline Lock (remaining 3%)
+## Workstream A: Ops Baseline Lock (remaining 0% - complete)
 
 1. Lock default runtime values
    - `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false`
@@ -23,15 +23,19 @@
 2. Confirm no Stage5 override remains
    - Vercel/GitHub/localStorage override keys all clear
 3. Evidence
-   - 1 run log showing default policy active
+   - 수동 자동화 증적(2026-03-23 19:31):
+     - Stage6: `STAGE6_ALPHA_FINAL_2026-03-23_19-31-30.json`
+     - Hash sync: `2a168685fa2e`
+     - Policy Gate: `BUY/STRONG_BUY only`
+     - Sidecar Contract: `checked=5 executable=5 watchlist=0 blocked=0`
 
 ## Workstream B: Integration Milestone (remaining 0% - complete)
 
 - 완료 증적(2026-03-23):
-  - Stage6 Final: `STAGE6_ALPHA_FINAL_2026-03-23_15-39-05.json`
-  - Hash sync: `f1c63f59772d` (Stage6/Sidecar 동일)
+  - Stage6 Final: `STAGE6_ALPHA_FINAL_2026-03-23_19-31-30.json`
+  - Hash sync: `2a168685fa2e` (Stage6/Sidecar 동일)
   - Contract: `checked=5 executable=5 watchlist=0 blocked=0`
-  - Stage5 lock 최신화 확인: `STAGE5_ICT_ELITE_50_2026-03-23_15-37-10.json`
+  - Stage5 lock 최신화 확인: `STAGE5_ICT_ELITE_50_2026-03-23_19-29-38.json`
 
 ## Workstream C: Precision Report Closure (remaining 8%)
 
@@ -58,9 +62,9 @@
 
 ## Immediate Next 3 Actions
 
-1. 운영 기본값 회귀 검증: `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false` 상태로 dry-run 1회 증적 확보.
-2. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 **실행 증적** 1회 완료 (`docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` Run #1).
-3. 오전 7시 스케줄 자동화 결과를 3일 누적 수집하여 6-6 모니터링/`perf_loop`를 자연 누적으로 갱신.
+1. 보안 런북 기준으로 시크릿 로테이션/롤백 리허설 **실행 증적** 1회 완료 (`docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` Run #1).
+2. 오전 7시 스케줄 자동화 결과를 3일 누적 수집하여 6-6 모니터링/`perf_loop`를 자연 누적으로 갱신.
+3. Guard release path(L3/L2 해제 이후 payload 생성) 증적 1회 확보.
 
 ## Done Criteria (Go-Live Ready)
 
