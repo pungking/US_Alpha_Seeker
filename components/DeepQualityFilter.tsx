@@ -453,6 +453,7 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   const [activeInsight, setActiveInsight] = useState<string | null>(null);
   const [logs, setLogs] = useState<string[]>(['> Quality_Node v5.6.2: Resilience Protocol Active.']);
   const logRef = useRef<HTMLDivElement>(null);
+  const autoStartTriggeredRef = useRef(false);
   
   const accessToken = sessionStorage.getItem('gdrive_access_token');
 
@@ -473,7 +474,12 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
   }, []);
 
   useEffect(() => {
-    if (autoStart && !loading) {
+    if (!autoStart) {
+        autoStartTriggeredRef.current = false;
+        return;
+    }
+    if (!loading && !autoStartTriggeredRef.current) {
+        autoStartTriggeredRef.current = true;
         addLog("AUTO-PILOT: Engaging Deep Quality Filter...", "signal");
         executeDeepFilter();
     }

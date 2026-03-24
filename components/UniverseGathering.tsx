@@ -288,6 +288,7 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   const healthCheckRef = useRef<any>(null);
   const searchDebounceRef = useRef<any>(null);
   const wsRef = useRef<WebSocket | null>(null);
+  const autoStartTriggeredRef = useRef(false);
   
   // --- SECURE KEYS ---
   const accessToken = sessionStorage.getItem('gdrive_access_token');
@@ -330,13 +331,19 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
 
   // Auto-Pilot
   useEffect(() => {
-    if (autoStart && isActive && !isGathering) {
-        if (accessToken) {
-            addLog("AUTO-PILOT: Engaging V13 Heavy Engine Ignition (Drive Only)...", "signal");
-            startGathering(accessToken);
-        } else {
-            addLog("AUTO-PILOT: Critical - Auth Token Missing. Aborting.", "err");
-        }
+    if (!autoStart || !isActive) {
+        autoStartTriggeredRef.current = false;
+        return;
+    }
+
+    if (isGathering || autoStartTriggeredRef.current) return;
+
+    if (accessToken) {
+        autoStartTriggeredRef.current = true;
+        addLog("AUTO-PILOT: Engaging V13 Heavy Engine Ignition (Drive Only)...", "signal");
+        startGathering(accessToken);
+    } else {
+        addLog("AUTO-PILOT: Critical - Auth Token Missing. Aborting.", "err");
     }
   }, [autoStart, isActive, isGathering, accessToken]);
 

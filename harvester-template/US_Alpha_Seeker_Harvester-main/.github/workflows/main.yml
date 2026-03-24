@@ -56,3 +56,5 @@ jobs:
           GITHUB_EVENT_NAME: ${{ github.event_name }}
           DAILY_BATCH_MODE: ${{ github.event_name == 'workflow_dispatch' && inputs.batch_mode || 'auto' }}
         run: python harvester.py
+
+        
