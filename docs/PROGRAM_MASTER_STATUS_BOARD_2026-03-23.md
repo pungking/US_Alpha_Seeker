@@ -142,6 +142,10 @@
 3. `docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md` (5-E 증적)
 4. `docs/GO_LIVE_REMAINING_WORK_BREAKDOWN_2026-03-23.md` (Go/No-Go 잔여율)
 
+문서 중요도 체계는 아래 레지스트리로 관리한다.
+
+- `docs/DOC_IMPORTANCE_REGISTRY_2026-03-25.md` (P0~P3 문서 중요도/운영 규칙)
+
 ### 7-4. 점검 결론
 
 - **완료:** 문서 트리 전수 확인 + 운영 핵심 문서 정밀 검토 완료.
