@@ -1,5 +1,8 @@
 # SIDECAR Telegram Severity Standard
 
+Doc-Tier: P1 (Operational)
+
+
 ## Purpose
 - Standardize severity levels so operational alerts are consistent and actionable.
 

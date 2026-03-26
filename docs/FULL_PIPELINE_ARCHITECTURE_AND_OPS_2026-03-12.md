@@ -1,5 +1,8 @@
 # US Alpha Seeker Full Pipeline Architecture & Ops (2026-03-12)
 
+Doc-Tier: P2 (Engineering)
+
+
 ## 1) 문서 목적
 - 현재 운영 중인 전체 파이프라인(수집 -> 분석 -> 주문/시뮬레이션 -> 감시)을 단일 문서로 정리한다.
 - 레포 분리 구조, 트리거 체인, 데이터 계약, 운영 안전정책, 점검 포인트를 명확히 고정한다.

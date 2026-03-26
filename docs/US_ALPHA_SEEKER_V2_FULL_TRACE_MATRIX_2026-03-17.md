@@ -1,5 +1,8 @@
 # US_Alpha_Seeker v2 보고서 전수 검토 트레이스 매트릭스 (상세판)
 
+Doc-Tier: P3 (Archive/Reference)
+
+
 - 원문 기준: `docs/US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` (2,152 lines) 전체 읽기 완료
 - 이 문서는 208줄 요약본의 축약이 아니라, **원문 항목을 빠짐없이 추적하기 위한 상세 트레이스**다.
 - 교차 기준: 원문 보고서 + 현재 코드베이스(`components/`, `services/`, `sidecar-template/alpha-exec-engine/src/`)

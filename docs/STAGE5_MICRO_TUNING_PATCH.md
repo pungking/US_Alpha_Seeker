@@ -1,5 +1,8 @@
 # Stage5 Micro Tuning Patch Plan
 
+Doc-Tier: P2 (Engineering)
+
+
 ## Goal
 - Stage5(`IctAnalysis`)의 점수/리스크 반영을 Stage4 실데이터와 정합되게 보완.
 - 기존 UI/디자인/파이프라인 흐름 유지.

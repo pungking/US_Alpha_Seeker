@@ -1,5 +1,8 @@
 # Sidecar Speculative Buy Toggle Checklist (2026-03-23)
 
+Doc-Tier: P1 (Operational)
+
+
 ## Goal
 
 Validate impact of `ACTIONABLE_INCLUDE_SPECULATIVE_BUY` without changing live guard behavior.

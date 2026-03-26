@@ -1,5 +1,8 @@
 # SIDECAR Golden Contract (Stage6)
 
+Doc-Tier: P2 (Engineering)
+
+
 ## Purpose
 - Freeze one canonical Stage6 contract fixture for sidecar validation.
 - Fail fast before execution if payload shape or critical values drift.

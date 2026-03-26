@@ -1,5 +1,8 @@
 # Stage6 Requirements Master v1.0 (2026-03-14)
 
+Doc-Tier: P2 (Engineering)
+
+
 목적: Stage6 요구사항을 단일 문서로 고정해, 구현/검증/승격 판단 기준을 흔들리지 않게 유지한다.
 
 적용 범위:

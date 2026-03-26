@@ -1,5 +1,8 @@
 # SIDECAR 개발 현황 및 다음 실행 계획 (2026-03-11)
 
+Doc-Tier: P3 (Archive/Reference)
+
+
 ## 1) 현재 기준 상태
 - 분석 엔진(`US_Alpha_Seeker`)과 실행 엔진(sidecar) 분리 원칙 유지.
 - Sidecar는 현재 **Dry-Run + 운영 가드 강화 단계(P3-1)**.

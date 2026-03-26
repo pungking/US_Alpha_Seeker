@@ -1,5 +1,8 @@
 # Security Hardening Checklist (Pre Go-Live) - 2026-03-12
 
+Doc-Tier: P1 (Operational)
+
+
 목적: 테스트/개발이 종료된 뒤, 실운영 전 보안 리스크를 일괄 정리한다.
 
 범위:

@@ -1,5 +1,8 @@
 # US_Alpha_Seeker v2 종합보고서 보완 우선순위 실행계획 (2026-03-17)
 
+Doc-Tier: P3 (Archive/Reference)
+
+
 ## 0) 분석 범위/방법
 
 - 대상 문서: `docs/US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` (총 2,152 lines) 전체.

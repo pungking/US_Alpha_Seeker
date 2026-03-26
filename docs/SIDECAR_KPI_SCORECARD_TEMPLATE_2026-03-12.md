@@ -1,5 +1,8 @@
 # Sidecar KPI Scorecard Template (2026-03-12)
 
+Doc-Tier: P1 (Operational)
+
+
 목적: 관찰/리허설/운영 단계에서 성과를 동일 기준으로 측정하고, 감으로 판단하지 않도록 KPI를 고정한다.
 
 ---

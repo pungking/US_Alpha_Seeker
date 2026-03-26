@@ -1,5 +1,8 @@
 # Stage6 Patch Plan: Label Consistency + Output Contract Stability
 
+Doc-Tier: P2 (Engineering)
+
+
 ## Scope
 - Target only the two requested issues:
   1) Telegram index label consistency (`NASDAQ` vs `NASDAQ100`)

@@ -1,5 +1,8 @@
 # SIDECAR Market Calendar Standard
 
+Doc-Tier: P1 (Operational)
+
+
 ## Purpose
 - Fix one market-time standard so scheduler, guard jobs, and execution decisions are deterministic.
 

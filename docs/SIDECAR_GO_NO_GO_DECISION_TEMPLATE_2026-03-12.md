@@ -1,5 +1,8 @@
 # Sidecar Go/No-Go Decision Template (2026-03-12)
 
+Doc-Tier: P1 (Operational)
+
+
 목적: 3거래일 관찰 종료 후 `active` 전환 여부를 단일 문서로 승인/보류 결정한다.
 
 ---

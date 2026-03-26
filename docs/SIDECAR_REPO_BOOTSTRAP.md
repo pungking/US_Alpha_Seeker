@@ -1,5 +1,8 @@
 # Sidecar Repo Bootstrap Guide (2nd Priority)
 
+Doc-Tier: P2 (Engineering)
+
+
 ## Goal
 - Create a separate private repo (`alpha-exec-engine`) for execution/simulation.
 - Keep `US_Alpha_Seeker` analysis engine untouched.

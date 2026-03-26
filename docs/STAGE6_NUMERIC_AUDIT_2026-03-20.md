@@ -1,5 +1,8 @@
 # STAGE6 Numeric Audit (2026-03-20)
 
+Doc-Tier: P2 (Engineering)
+
+
 ## 목적
 - Stage6 산출값이 **원천 데이터 + 수식 + 자리수(반올림)** 기준으로 정확한지 정밀 검증.
 - 검증 범위: `Part1(12)`, `Part2(12)`, `Final(6)` 전종목.

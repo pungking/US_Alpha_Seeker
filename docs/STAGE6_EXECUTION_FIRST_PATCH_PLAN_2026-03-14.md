@@ -1,5 +1,8 @@
 # Stage6 Execution-First Patch Plan (2026-03-14)
 
+Doc-Tier: P2 (Engineering)
+
+
 목적: Stage5에서 올라온 50개 중 “좋은 종목”과 “지금 실행 가능한 종목”을 분리해,
 Top6가 실전 관점에서 일관되게 해석되도록 Stage6를 재정렬한다.
 

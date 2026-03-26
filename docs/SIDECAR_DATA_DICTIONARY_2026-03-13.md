@@ -1,5 +1,8 @@
 # Sidecar Data Dictionary (2026-03-13)
 
+Doc-Tier: P2 (Engineering)
+
+
 목적: `alpha-exec-engine`의 관찰/운영 데이터 파일을 동일 의미로 해석하기 위한 기준 사전.
 
 적용 범위:

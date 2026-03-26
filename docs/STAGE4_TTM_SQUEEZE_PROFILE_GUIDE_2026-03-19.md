@@ -1,5 +1,8 @@
 # Stage4 TTM Squeeze Profile Guide (H8)
 
+Doc-Tier: P2 (Engineering)
+
+
 작성일: 2026-03-19  
 대상: `components/TechnicalAnalysis.tsx`, `constants.ts`
 

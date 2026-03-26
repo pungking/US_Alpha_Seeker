@@ -1,5 +1,8 @@
 # Sidecar Exec Realism Patch Plan (2026-03-14)
 
+Doc-Tier: P2 (Engineering)
+
+
 목적: 기존 강점(Quant Lock, Risk Gate, Sidecar Safety)을 유지하면서,
 실행 불가능 진입가/판정 충돌/리포트 불일치를 구조적으로 제거한다.
 

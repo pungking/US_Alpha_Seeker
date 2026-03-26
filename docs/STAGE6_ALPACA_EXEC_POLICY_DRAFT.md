@@ -1,5 +1,8 @@
 # US_Alpha_Seeker 자동매매 정책표 (Draft v1.0-rc1)
 
+Doc-Tier: P2 (Engineering)
+
+
 ## 0) 적용 범위
 - 대상: `Stage6 Top6 (alpha_candidates)`
 - 소스 오브 트루스: `STAGE6_ALPHA_FINAL_*.json`

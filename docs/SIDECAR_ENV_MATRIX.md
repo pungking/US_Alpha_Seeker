@@ -1,5 +1,8 @@
 # SIDECAR Environment Matrix
 
+Doc-Tier: P2 (Engineering)
+
+
 ## 목적
 - 실행 엔진(sidecar)에서 필요한 환경변수/시크릿을 표준화한다.
 - 분석 레포와 실행 레포의 시크릿을 분리 운영한다.

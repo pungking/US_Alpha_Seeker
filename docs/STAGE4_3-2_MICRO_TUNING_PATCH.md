@@ -1,5 +1,8 @@
 # Stage4 3-2 Micro Tuning Patch Plan
 
+Doc-Tier: P2 (Engineering)
+
+
 ## Goal
 - Stage4(`TechnicalAnalysis`)의 점수 산식을 감사 가능(auditable)하게 미세조정.
 - 기존 UI/디자인/분석기법/파이프라인 흐름은 유지.

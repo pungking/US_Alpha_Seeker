@@ -1,5 +1,8 @@
 # US Alpha Seeker v2 초정밀 체크리스트 리포트
 
+Doc-Tier: P3 (Archive/Reference)
+
+
 작성일: 2026-03-17  
 기준문서: `docs/US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md`
 

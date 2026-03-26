@@ -1,5 +1,8 @@
 # Sidecar Quiz Validation and VIX Root Cause (2026-03-20)
 
+Doc-Tier: P3 (Archive/Reference)
+
+
 ## 입력 자료
 - `/Users/givet-bsm/Downloads/처음부터 처음 보는 메시지다 생각하오 앞의 내용과 상관없이 오로지 이 메시지에만 대해서.md`
 - Sidecar Dry-Run 메시지/요약 (`STAGE6_ALPHA_FINAL_2026-03-19_22-56-08.json` 기준)

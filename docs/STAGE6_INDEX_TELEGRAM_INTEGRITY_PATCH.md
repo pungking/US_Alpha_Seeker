@@ -1,5 +1,8 @@
 # Stage6 Patch Plan: Index / Telegram Numeric Integrity
 
+Doc-Tier: P2 (Engineering)
+
+
 ## Scope
 - Target only index/telegram numeric integrity.
 - Preserve existing Stage6 logic, UI design, ranking flow, and analysis methods.

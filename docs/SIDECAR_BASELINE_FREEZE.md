@@ -1,5 +1,8 @@
 # SIDECAR Baseline Freeze
 
+Doc-Tier: P2 (Engineering)
+
+
 ## 목적
 - 사이드카 작업 시작 전, 현재 분석 엔진 기준점을 고정한다.
 - 문제 발생 시 동일 상태로 즉시 복구 가능해야 한다.
