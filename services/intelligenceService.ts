@@ -1383,7 +1383,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 hfSentimentLabel: typeof hfAdvisory?.label === 'string' ? hfAdvisory.label : null,
                 hfSentimentScore: Number.isFinite(Number(hfAdvisory?.score)) ? Number(hfAdvisory.score) : null,
                 hfSentimentStatus: typeof hfAdvisory?.status === 'string' ? hfAdvisory.status : 'SKIPPED',
-                hfSentimentReason: typeof hfAdvisory?.reason === 'string' ? hfAdvisory.reason : null,
+                hfSentimentReason:
+                    typeof hfAdvisory?.reason === 'string'
+                        ? hfAdvisory.reason
+                        : hfAdvisoryAudit?.enabled
+                            ? 'NOT_SAMPLED'
+                            : 'DISABLED',
                 hfSentimentTextKind: typeof hfAdvisory?.textKind === 'string' ? hfAdvisory.textKind : null,
                 
                 // --- Critical Safety Overrides (Quant Authority) ---

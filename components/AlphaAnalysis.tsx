@@ -4675,11 +4675,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   : null,
               hfAdvisoryEnabled: Boolean(item?.hfAdvisoryEnabled),
               hfSentimentLabel: normalizeOptionalText(item?.hfSentimentLabel),
-              hfSentimentScore: Number.isFinite(Number(item?.hfSentimentScore))
-                  ? Number(item.hfSentimentScore)
-                  : null,
-              hfSentimentStatus: normalizeOptionalText(item?.hfSentimentStatus),
-              hfSentimentReason: normalizeOptionalText(item?.hfSentimentReason),
+              hfSentimentScore: (() => {
+                  const raw = item?.hfSentimentScore;
+                  if (raw === null || raw === undefined || raw === '') return null;
+                  const parsed = Number(raw);
+                  return Number.isFinite(parsed) ? parsed : null;
+              })(),
+              hfSentimentStatus: (() => {
+                  const status = normalizeOptionalText(item?.hfSentimentStatus);
+                  return status ? status.toUpperCase() : null;
+              })(),
+              hfSentimentReason: (() => {
+                  const reason = normalizeOptionalText(item?.hfSentimentReason);
+                  if (reason) return reason;
+                  const status = normalizeOptionalText(item?.hfSentimentStatus);
+                  if ((status || '').toUpperCase() === 'SKIPPED') {
+                      return Boolean(item?.hfAdvisoryEnabled) ? 'NOT_SAMPLED' : 'DISABLED';
+                  }
+                  return null;
+              })(),
+              hfSentimentTextKind: normalizeOptionalText(item?.hfSentimentTextKind),
               earningsDaysToEvent: Number.isFinite(Number(item?.earningsDaysToEvent))
                   ? Number(item.earningsDaysToEvent)
                   : null,
