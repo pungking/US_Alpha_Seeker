@@ -2100,10 +2100,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           '리스크 요인',
           '가격 목표'
       ].every(k => t.includes(k));
-      return hasSections && hasLegendCommittee && hasExpertPanel && hasThesis;
+      const hasNarrativeFallback = [
+          'QUANT-BACKUP OUTLOOK',
+          '전략적 판단',
+          '지표 해석',
+          '실행 가이드'
+      ].every(k => t.includes(k));
+      const hasExecutionLine = t.includes('실행 가능성');
+      return hasSections && hasExecutionLine && (hasThesis || hasNarrativeFallback || (hasLegendCommittee && hasExpertPanel));
   };
 
   const buildStructuredOutlookFallback = (item: any, rawOutlook: string) => {
+      const symbol = String(item?.symbol || 'N/A');
       const entryExec = Number(item?.entryExecPrice || item?.entryExecPriceShadow || item?.entryPrice || item?.otePrice || item?.supportLevel || 0);
       const entryAnchor = Number(item?.entryAnchorPrice || item?.otePrice || item?.supportLevel || entryExec || 0);
       const target = Number(item?.resistanceLevel || item?.targetPrice || 0);
@@ -2135,6 +2143,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const finalDecision = String(item?.finalDecision || item?.executionBucket || 'WAIT_PRICE').toUpperCase();
       const decisionReason = String(item?.decisionReason || item?.executionReason || 'unknown').toLowerCase();
       const rrRatio = (entryExec > stop && target > entryExec) ? ((target - entryExec) / Math.max(entryExec - stop, 0.0001)) : null;
+      const rrRatioContractRaw = Number(item?.riskRewardRatioValue);
+      const rrRatioContract = Number.isFinite(rrRatioContractRaw) ? rrRatioContractRaw : null;
+      const rrRatioFinal = rrRatioContract ?? rrRatio;
+      const expectedReturnPctRaw = Number(item?.expectedReturnPct);
+      const expectedReturnPct = Number.isFinite(expectedReturnPctRaw) ? expectedReturnPctRaw : null;
       const convictionBand = conviction >= 90 ? '매우 높음' : conviction >= 80 ? '높음' : conviction >= 70 ? '보통' : '보수';
       const dominantSignal = [
           { key: 'Fundamental', value: fund },
@@ -2142,6 +2155,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           { key: 'ICT', value: ict }
       ].sort((a, b) => b.value - a.value)[0];
       const dominantSignalText = `${dominantSignal.key}(${dominantSignal.value})`;
+      const displacementRaw = Number(item?.ictMetrics?.displacement ?? item?.ictMetrics?.smartMoneyFlow ?? 0);
+      const displacement = Number.isFinite(displacementRaw) ? displacementRaw : 0;
+      const trendTone = displacement >= 85 ? '폭발적 추세 구간' : displacement >= 70 ? '강한 추세 구간' : displacement >= 55 ? '완만한 추세 구간' : '추세 확인 구간';
+      const fundamentalTone = fund >= 90 ? '최상위 펀더멘털' : fund >= 80 ? '우량 펀더멘털' : fund >= 70 ? '중립 이상 펀더멘털' : '펀더멘털 보수 점검 필요';
+      const marketState = String(item?.marketState || 'CONSOLIDATION');
+      const executionRankRaw = Number(item?.executionRank);
+      const executionRank = Number.isFinite(executionRankRaw) && executionRankRaw > 0 ? Math.round(executionRankRaw) : null;
+      const rankContext = executionRank ? `Exec Rank #${executionRank}` : 'Exec Rank N/A';
+      const compositeAlphaRaw = Number(item?.compositeAlpha);
+      const compositeAlpha = Number.isFinite(compositeAlphaRaw) ? compositeAlphaRaw : null;
+      const confidenceHeader = compositeAlpha != null
+          ? `${compositeAlpha.toFixed(2)}점 / conviction ${conviction}`
+          : `conviction ${conviction}`;
+      const impliedUpsidePct = entryExec > 0 && target > entryExec ? ((target - entryExec) / entryExec) * 100 : null;
       const decisionReasonLabelMap: Record<string, string> = {
           executable_pullback: '눌림목 조건 충족',
           wait_pullback_not_reached: '진입 가격 미도달',
@@ -2160,32 +2187,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       ];
       const catalystLine = reasonList[1] || `${pdZone} 구간에서 ${dominantSignalText} 우위`;
       const thesisLine = reasonList[2] || `${verdict} 시나리오 유지 조건은 손절(${stop > 0 ? `$${stop.toFixed(1)}` : 'N/A'}) 방어`;
+      const expectedLineParts = [
+          expected ? expected : null,
+          expectedReturnPct != null ? `ER ${expectedReturnPct.toFixed(1)}%` : null,
+          rrRatioFinal != null ? `R/R ${rrRatioFinal.toFixed(2)}:1` : null,
+          impliedUpsidePct != null ? `Upside ${impliedUpsidePct.toFixed(1)}%` : null
+      ].filter(Boolean);
+      const expectedLine = expectedLineParts.length > 0 ? expectedLineParts.join(' | ') : 'N/A';
+      const entryGuide = entryExec > 0
+          ? `${entryExec.toFixed(2)} 기준 ${entryAnchor > 0 ? `${entryAnchor.toFixed(2)} 부근` : '핵심 지지'} 눌림 확인 후 분할 진입`
+          : '유효 진입가 데이터 확인 필요';
 
-      return `## 1. 전설적 투자자 위원회 분석
-- **벤저민 그레이엄 (Value)** : fundamentalScore ${fund} 기준으로 섹터(${sector}) 내 상대가치 우위 여부를 확인했습니다.
-- **피터 린치 (Growth)** : technicalScore ${tech}로 단기 모멘텀의 지속 가능성을 점검했습니다.
-- **워렌 버핏 (Moat)** : convictionScore ${conviction} (${convictionBand})와 integrity ${integrity}를 함께 확인했습니다.
-- **윌리엄 오닐 (Momentum)** : ictScore ${ict}, pdZone=${pdZone}를 기반으로 진입 타이밍을 평가했습니다.
-- **찰리 멍거 (Quality)** : 데이터 품질 ${dataQuality} 상태에서 과도한 해석을 피하도록 보수적으로 반영했습니다.
-- **글렌 웰링 (Event)** : ${riskNotes[0]} 조건으로 이벤트 변동성 리스크를 확인했습니다.
-- **캐시 우드 (Innovation)** : 테마/섹터 확장성은 유지하되 레짐(RISK_OFF) 환경을 우선 고려했습니다.
-- **글렌 그린버그 (Focus)** : 핵심 근거는 "${reasonList[0] || '근거 데이터 보강 필요'}"입니다.
-- **최종 평결 (Verdict)** : ${verdict} (Expected Return: ${expected}, dominant=${dominantSignalText})
-
-## 2. 전문가 3인 성향 분석
-- **보수적 퀀트** : 손절 ${stop > 0 ? `$${stop.toFixed(1)}` : 'N/A'} 기준으로 무효화 라인을 먼저 고정했습니다.
-- **공격적 트레이더** : ${buildPlanTrajectoryText(entryExec, entryAnchor, target, stop)}${rrRatio ? ` | RR=${rrRatio.toFixed(2)}` : ''} 구조를 확인했습니다.
-- **마켓 메이커** : ${pdZone} 구간에서 체결 리스크와 호가 흡수 가능성을 점검했습니다.
-- **종합 분석** : feasible=${entryFeasible}, status=${tradePlanStatus}, distance=${entryDistancePct}, decision=${finalDecision}/${decisionReasonLabel}
-
-## 3. The Alpha Thesis: 전략적 투자 시나리오
+      return `## 1. QUANT-BACKUP OUTLOOK: ${symbol}
+- **전략적 판단 (AI 지연 대응)** : AI 원문 구조가 불완전하여 정량 엔진 검증 데이터로 리포트를 보수 복원했습니다.
+- **신뢰도 스냅샷** : ${confidenceHeader} (${convictionBand}) | ${rankContext}
+- **상태 진단** : marketState=${marketState} | pdZone=${pdZone} | ${trendTone} (displacement=${displacement.toFixed(1)})
+- **최종 판정** : ${verdict} | decision=${finalDecision}/${decisionReasonLabel}
 - **핵심 논거 (Key Thesis)** : ${thesisLine}
-- **상승 촉매 (Catalysts)** : ${catalystLine}
+- **참고 메모** : ${rawPreview}
+
+## 2. 지표 해석 (Narrative)
+- **기술 모멘텀** : technicalScore ${tech}, ictScore ${ict}, dominant=${dominantSignalText}
+- **재무 체력** : fundamentalScore ${fund} (${fundamentalTone}) | sector=${sector}
 - **리스크 요인 (Risk Factors)** : ${riskNotes.join(' | ')}
+- **상승 촉매 (Catalysts)** : ${catalystLine}
+- **데이터 품질 보정** : integrity=${integrity}, quality=${dataQuality}, event=${eventRisk}${daysToEarnings >= 0 ? ` (D-${daysToEarnings})` : ''}
+
+## 3. 실행 가이드 (Trade Box)
+- **진입 전략** : ${entryGuide}
 - **가격 목표 (Trajectory)** : ${buildPlanTrajectoryText(entryExec, entryAnchor, target, stop)}
 - **실행 가능성 (Execution)** : feasible=${entryFeasible} | status=${tradePlanStatus} | distance=${entryDistancePct}
-
-참고 메모: ${rawPreview}`;
+- **기대 수익/손익비** : ${expectedLine}`;
   };
 
   const ensureStructuredOutlook = (outlook: string, item: any) => {
