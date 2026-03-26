@@ -1,5 +1,8 @@
 # Security Rotation Runbook (2026-03-23)
 
+Doc-Tier: P1 (Operational)
+
+
 목적: 5-D/5-E 운영 보안 항목을 실무 기준으로 고정한다.
 
 ## 1) 로컬 저장 정책 (Web App)

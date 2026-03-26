@@ -1,5 +1,8 @@
 # Security Rotation Evidence Log (2026-03-23)
 
+Doc-Tier: P0 (Control Tower)
+
+
 목적: 5-E 항목(시크릿 로테이션/롤백 리허설)의 실행 증적을 일자별로 남긴다.
 
 상태 규칙:

@@ -1,5 +1,8 @@
 # H8/H10 + Sidecar A/B 최종 종료 체크리스트 (2026-03-21)
 
+Doc-Tier: P1 (Operational)
+
+
 ## 목적
 - H8/H10 관련 Stage4 무결성/복구 동작을 **A/B 실측으로 종료 판정**한다.
 - Sidecar Telegram 길이 초과 이슈를 패치 후 **운영 가능한 상태인지** 판정한다.

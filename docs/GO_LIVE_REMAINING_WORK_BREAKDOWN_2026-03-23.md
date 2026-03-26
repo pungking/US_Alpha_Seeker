@@ -1,5 +1,8 @@
 # Go-Live Remaining Work Breakdown (2026-03-23)
 
+Doc-Tier: P0 (Control Tower)
+
+
 ## Current Snapshot
 
 - Pipeline core stabilization: 95% complete

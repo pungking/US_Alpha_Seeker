@@ -1,5 +1,8 @@
 # STAGE6 실행/시뮬레이션 사이드카 구현 체크리스트
 
+Doc-Tier: P1 (Operational)
+
+
 참고: 최신 진행 현황/우선순위 브리핑은 `docs/SIDECAR_DELIVERY_STATUS_2026-03-11.md`를 기준으로 관리한다.
 참고: 확장 항목 반영 검토 리스트는 `docs/SIDECAR_EXPANSION_BACKLOG_2026-03-11.md`를 기준으로 관리한다.
 

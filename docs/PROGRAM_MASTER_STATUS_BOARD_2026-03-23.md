@@ -1,5 +1,8 @@
 # US Alpha Seeker Master Status Board (2026-03-23)
 
+Doc-Tier: P0 (Control Tower)
+
+
 목적: 수집(Harvester) -> 분석(Web App Stage0~6) -> 추적/검증/시뮬(Sidecar) 전체를 한 문서에서 상태 관리한다.
 
 ---

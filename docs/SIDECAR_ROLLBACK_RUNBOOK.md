@@ -1,5 +1,8 @@
 # SIDECAR Rollback Runbook
 
+Doc-Tier: P1 (Operational)
+
+
 ## 목적
 - 실행 엔진(sidecar) 문제 발생 시 5분 내 안정 상태로 복귀한다.
 

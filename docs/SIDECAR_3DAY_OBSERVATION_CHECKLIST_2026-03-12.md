@@ -1,5 +1,8 @@
 # Sidecar 3-Day Observation Checklist (2026-03-12)
 
+Doc-Tier: P1 (Operational)
+
+
 목적: `observe + non-live` 안전모드에서 3거래일 로그를 수집하고, `active` 재진입 전 Go/No-Go 판단 근거를 고정한다.
 
 판정 기준 우선순위:

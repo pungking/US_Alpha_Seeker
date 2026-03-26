@@ -1,5 +1,8 @@
 # Sidecar Active Re-entry Rehearsal Runbook (2026-03-12)
 
+Doc-Tier: P1 (Operational)
+
+
 목적: 3거래일 관찰 후 `GO` 판정 시, `observe -> active` 전환을 단계적으로 검증한다.
 
 ---

@@ -1,5 +1,8 @@
 # US_Alpha_Seeker 초정밀 종합 분석 보고서 v2.0
 
+Doc-Tier: P0 (Control Tower)
+
+
 **분석일**: 2026-03-17 KST | **분석 대상**: US_Alpha_Seeker (3 repos) | **GPT-Codex 검증용**
 
 > 이 보고서는 5개의 정밀 분석 파일을 통합·종합한 최종 보고서입니다.  
