@@ -148,6 +148,7 @@ Doc-Tier: P0 (Control Tower)
 문서 중요도 체계는 아래 레지스트리로 관리한다.
 
 - `docs/DOC_IMPORTANCE_REGISTRY_2026-03-25.md` (P0~P3 문서 중요도/운영 규칙)
+- `docs/DOC_TIER_INDEX_2026-03-26.md` (Tier별 전 문서 인덱스/최종 수정시각)
 
 ### 7-4. 점검 결론
 
