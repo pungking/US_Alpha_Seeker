@@ -25,6 +25,7 @@ Doc-Tier: P0 (Control Tower)
 
 - Stage5 -> Stage6 최신 잠금/해시 동기화 경로 정상화.
 - Stage6 -> Sidecar `stage6Hash`/`stage6_contract` 일치 검증 정상.
+- Sidecar dry-run `repository_dispatch` 트리거 무결성 강제 검증 적용(hash/file mismatch fail-fast).
 - Sidecar Telegram 분할 전송 패치 적용(길이 초과 실패 방지).
 - Stage5 lock override stale TTL 가드 반영.
 - GDrive Client ID 정책 강화(`ENV > LOCAL > MANUAL`) 및 로컬 override 정리 UX 반영.

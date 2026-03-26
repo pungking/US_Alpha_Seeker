@@ -139,7 +139,8 @@ v2 보고서의 핵심 이슈는 다수 **현재 코드에도 그대로 존재**
 
 ### P2-1. 트리거/실행 경로 명확화 (9-B, 9-C)
 - `repository_dispatch` vs `schedule` 경로를 summary에 명시.
-- trigger hash/file/sourceRun mismatch 시 fail-fast 옵션 추가.
+- [x] trigger hash/file mismatch 시 fail-fast 강제 적용(2026-03-26).
+- sourceRun은 감사 로그로 유지(비교 기준 데이터 부재로 fail 대상 제외).
 
 ### P2-2. 타임스탬프/타임존 일관화 (H6)
 - 파일명/로그/요약의 KST/UTC 혼용 제거.
