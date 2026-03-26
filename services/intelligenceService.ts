@@ -1,6 +1,6 @@
 
 import { GoogleGenAI, Type } from "@google/genai";
-import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from "../constants";
+import { API_CONFIGS, GEMINI_MODELS, GOOGLE_DRIVE_TARGET, HUGGINGFACE_CONFIG, STRATEGY_CONFIG } from "../constants";
 import { ApiProvider } from "../types";
 import { fetchPortalIndices } from "./portalIndicesService";
 
@@ -423,6 +423,144 @@ async function fetchWithRetry(fn: () => Promise<any>, retries = 3, delay = 5000,
 const timeoutAfter = (ms: number, message: string): Promise<never> =>
   new Promise((_, reject) => setTimeout(() => reject(new Error(message)), ms));
 
+type HfSmokeAudit = {
+  enabled: boolean;
+  strict: boolean;
+  attempted: boolean;
+  ok: boolean;
+  model: string;
+  latencyMs: number | null;
+  statusCode: number | null;
+  sentimentLabel?: string;
+  sentimentScore?: number;
+  reason?: string;
+};
+
+const inferHttpStatusFromError = (message: string): number | null => {
+  const match = String(message || '').match(/HF_HTTP_(\d{3})/);
+  if (!match) return null;
+  const code = Number(match[1]);
+  return Number.isFinite(code) ? code : null;
+};
+
+async function runHuggingFaceSmokeTest(): Promise<HfSmokeAudit> {
+  const enabled = HUGGINGFACE_CONFIG.ENABLE_SMOKE_TEST;
+  const strict = HUGGINGFACE_CONFIG.SMOKE_STRICT;
+  const model = String(HUGGINGFACE_CONFIG.FINBERT_MODEL || 'ProsusAI/finbert');
+  const startedAt = Date.now();
+
+  if (!enabled) {
+    return {
+      enabled,
+      strict,
+      attempted: false,
+      ok: false,
+      model,
+      latencyMs: 0,
+      statusCode: null,
+      reason: 'disabled'
+    };
+  }
+
+  if (!HUGGINGFACE_CONFIG.API_KEY) {
+    return {
+      enabled,
+      strict,
+      attempted: false,
+      ok: false,
+      model,
+      latencyMs: 0,
+      statusCode: null,
+      reason: 'api_key_missing'
+    };
+  }
+
+  const baseUrl = String(HUGGINGFACE_CONFIG.API_BASE_URL || 'https://api-inference.huggingface.co/models').replace(/\/+$/, '');
+  const endpoint = `${baseUrl}/${model}`;
+  const retries = Math.max(0, Number(HUGGINGFACE_CONFIG.RETRY || 0));
+  const timeoutMs = Math.max(1000, Number(HUGGINGFACE_CONFIG.TIMEOUT_MS || 4500));
+  const smokeText = String(HUGGINGFACE_CONFIG.SMOKE_TEXT || 'Company raised guidance after strong earnings and positive cashflow outlook.');
+
+  try {
+    const { response, payload } = await fetchWithRetry(
+      async () => {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${HUGGINGFACE_CONFIG.API_KEY}`
+          },
+          body: JSON.stringify({
+            inputs: smokeText,
+            options: { wait_for_model: true, use_cache: false }
+          })
+        });
+
+        if (!response.ok) {
+          const bodyText = await response.text();
+          throw new Error(`HF_HTTP_${response.status}:${String(bodyText || '').slice(0, 180)}`);
+        }
+
+        const payload = await response.json();
+        return { response, payload };
+      },
+      retries,
+      1000,
+      timeoutMs
+    );
+
+    const latencyMs = Date.now() - startedAt;
+    const labels = Array.isArray(payload?.[0]) ? payload[0] : (Array.isArray(payload) ? payload : []);
+    const top = Array.isArray(labels)
+      ? labels
+          .filter((entry: any) => entry && typeof entry === 'object')
+          .sort((a: any, b: any) => Number(b?.score || 0) - Number(a?.score || 0))[0]
+      : null;
+    const sentimentLabel = top?.label ? String(top.label) : undefined;
+    const sentimentScore = Number.isFinite(Number(top?.score)) ? Number(top.score) : undefined;
+
+    const result: HfSmokeAudit = {
+      enabled,
+      strict,
+      attempted: true,
+      ok: true,
+      model,
+      latencyMs,
+      statusCode: Number(response?.status || 200),
+      sentimentLabel,
+      sentimentScore
+    };
+    const scoreText = sentimentScore == null ? 'N/A' : sentimentScore.toFixed(3);
+    console.info(`[HF_SMOKE] ok model=${model} status=${result.statusCode} latency=${latencyMs}ms label=${sentimentLabel || 'N/A'} score=${scoreText}`);
+    return result;
+  } catch (error: any) {
+    const latencyMs = Date.now() - startedAt;
+    const message = String(error?.message || error || 'unknown_error');
+    const statusCode = inferHttpStatusFromError(message);
+    const reason =
+      message.includes('API_TIMEOUT')
+        ? 'timeout'
+        : statusCode === 401
+          ? 'unauthorized'
+          : statusCode === 429
+            ? 'rate_limited'
+            : statusCode && statusCode >= 500
+              ? 'provider_error'
+              : 'request_failed';
+    console.warn(`[HF_SMOKE] fail model=${model} reason=${reason} status=${statusCode ?? 'N/A'} latency=${latencyMs}ms`);
+    return {
+      enabled,
+      strict,
+      attempted: true,
+      ok: false,
+      model,
+      latencyMs,
+      statusCode,
+      reason
+    };
+  }
+}
+
 async function runDeterministicBacktest(stock: any): Promise<any | null> {
   try {
       const polygonKey = API_CONFIGS.find(c => c.provider === ApiProvider.POLYGON)?.key;
@@ -629,6 +767,17 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   const config = API_CONFIGS.find(c => c.provider === provider);
   const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
+
+  const hfSmokeAudit = await runHuggingFaceSmokeTest();
+  const mergeAudit = (base?: any) => ({ ...(base || {}), hfSmoke: hfSmokeAudit });
+  if (hfSmokeAudit.enabled && hfSmokeAudit.strict && !hfSmokeAudit.ok) {
+    return {
+      data: null,
+      error: `HF_SMOKE_STRICT_FAIL:${hfSmokeAudit.reason || 'unknown'}`,
+      usedProvider: 'HF_SMOKE_BLOCKED',
+      audit: mergeAudit()
+    };
+  }
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
@@ -1222,7 +1371,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
       if (!forcePerplexityFallback && hasAnySuccess && allProcessedCandidates.length > 0) {
           const hydratedData = hydrateAndValidate(allProcessedCandidates, 'GEMINI_BATCH');
-          return { data: hydratedData, usedProvider: 'GEMINI_BATCH' };
+          return { data: hydratedData, usedProvider: 'GEMINI_BATCH', audit: mergeAudit() };
       }
 
       // If ALL batches failed, proceed to Perplexity Fallback
@@ -1237,7 +1386,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 const pResult = await executePerplexityAnalysis();
                 if (pResult.data) {
                     const hydratedData = hydrateAndValidate(pResult.data, 'PERPLEXITY_FALLBACK');
-                    return { data: hydratedData, usedProvider: 'PERPLEXITY_FALLBACK', error: null, audit: pResult.audit };
+                    return { data: hydratedData, usedProvider: 'PERPLEXITY_FALLBACK', error: null, audit: mergeAudit(pResult.audit) };
                 }
                 throw new Error(pResult.error || "Perplexity Fallback Failed");
              } catch (pError: any) {
@@ -1270,7 +1419,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                  }));
                  // Even fallback data should be hydrated
                  const hydratedFallback = hydrateAndValidate(fallbackData, 'FALLBACK_RECOVERY');
-                 return { data: hydratedFallback, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED" };
+                 return { data: hydratedFallback, usedProvider: 'FALLBACK_RECOVERY', error: "ALL_AI_FAILED", audit: mergeAudit() };
              }
     }
 
@@ -1278,14 +1427,14 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         const result = await executePerplexityAnalysis();
         if (result.data) {
             const hydratedData = hydrateAndValidate(result.data, 'PERPLEXITY');
-            return { data: hydratedData, usedProvider: 'PERPLEXITY', error: null, audit: result.audit };
+            return { data: hydratedData, usedProvider: 'PERPLEXITY', error: null, audit: mergeAudit(result.audit) };
         }
         if (result.error) {
             trackUsage(ApiProvider.PERPLEXITY, 0, true, result.error);
         }
-        return result;
+        return { ...result, audit: mergeAudit((result as any)?.audit) };
     }
-    return { data: null, error: "INVALID_PROVIDER" };
+    return { data: null, error: "INVALID_PROVIDER", audit: mergeAudit() };
   } catch (error: any) {
 
 
@@ -1301,7 +1450,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
         aiFallbackReason: 'RUNTIME_EXCEPTION',
         aiProvider: 'ERROR_FALLBACK'
     }));
-    return { data: fallbackData, error: error.message };   
+    return { data: fallbackData, error: error.message, audit: mergeAudit() };   
   }
 }
 

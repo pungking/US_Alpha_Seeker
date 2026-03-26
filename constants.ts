@@ -28,6 +28,13 @@ const getEnvVar = (key: string): string => {
                 TWELVE_DATA_KEY: process.env.TWELVE_DATA_KEY,
                 ALPHA_VANTAGE_KEY: process.env.ALPHA_VANTAGE_KEY,
                 HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
+                HUGGINGFACE_API_BASE_URL: process.env.HUGGINGFACE_API_BASE_URL,
+                HUGGINGFACE_FINBERT_MODEL: process.env.HUGGINGFACE_FINBERT_MODEL,
+                HUGGINGFACE_SUMMARY_MODEL: process.env.HUGGINGFACE_SUMMARY_MODEL,
+                HUGGINGFACE_ENABLE_SMOKE_TEST: process.env.HUGGINGFACE_ENABLE_SMOKE_TEST,
+                HUGGINGFACE_SMOKE_STRICT: process.env.HUGGINGFACE_SMOKE_STRICT,
+                HUGGINGFACE_TIMEOUT_MS: process.env.HUGGINGFACE_TIMEOUT_MS,
+                HUGGINGFACE_RETRY: process.env.HUGGINGFACE_RETRY,
                 GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
@@ -182,7 +189,12 @@ export const HUGGINGFACE_CONFIG = {
   API_KEY: getEnvVar('HUGGINGFACE_API_KEY'),
   API_BASE_URL: getEnvVar('HUGGINGFACE_API_BASE_URL') || 'https://api-inference.huggingface.co/models',
   FINBERT_MODEL: getEnvVar('HUGGINGFACE_FINBERT_MODEL') || 'ProsusAI/finbert',
-  SUMMARY_MODEL: getEnvVar('HUGGINGFACE_SUMMARY_MODEL') || 'facebook/bart-large-cnn'
+  SUMMARY_MODEL: getEnvVar('HUGGINGFACE_SUMMARY_MODEL') || 'facebook/bart-large-cnn',
+  ENABLE_SMOKE_TEST: parseBooleanEnv(['HUGGINGFACE_ENABLE_SMOKE_TEST'], false),
+  SMOKE_STRICT: parseBooleanEnv(['HUGGINGFACE_SMOKE_STRICT'], false),
+  TIMEOUT_MS: Math.max(1000, Math.floor(parseNumberEnv(['HUGGINGFACE_TIMEOUT_MS'], 4500))),
+  RETRY: Math.max(0, Math.floor(parseNumberEnv(['HUGGINGFACE_RETRY'], 1))),
+  SMOKE_TEXT: getEnvVar('HUGGINGFACE_SMOKE_TEXT') || 'Company raised guidance after strong earnings and positive cashflow outlook.'
 } as const;
 
 // [C1 FIX] Centralized Gemini model contract to avoid per-file drift.
