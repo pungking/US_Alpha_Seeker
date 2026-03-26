@@ -7,10 +7,10 @@ Doc-Tier: P0 (Control Tower)
 ## Summary
 
 - P0 (Control Tower): 6
-- P1 (Operational): 13
+- P1 (Operational): 14
 - P2 (Engineering): 17
 - P3 (Archive/Reference): 6
-- Total: 42
+- Total: 43
 
 ## Index
 
@@ -24,6 +24,7 @@ Doc-Tier: P0 (Control Tower)
 | P0 (Control Tower) | `US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` | 2026-03-26 09:17 | `docs/US_Alpha_Seeker_초정밀_종합_분석_보고서_v2.md` |
 | P1 (Operational) | `H11_H13_CLOSURE_CHECKLIST_2026-03-21.md` | 2026-03-26 09:17 | `docs/H11_H13_CLOSURE_CHECKLIST_2026-03-21.md` |
 | P1 (Operational) | `H8_H10_AND_SIDECAR_AB_CLOSURE_2026-03-21.md` | 2026-03-26 09:17 | `docs/H8_H10_AND_SIDECAR_AB_CLOSURE_2026-03-21.md` |
+| P1 (Operational) | `HUGGINGFACE_INTEGRATION_MASTER_PAPER_2026-03-27.md` | 2026-03-27 00:29 | `docs/HUGGINGFACE_INTEGRATION_MASTER_PAPER_2026-03-27.md` |
 | P1 (Operational) | `SECURITY_HARDENING_CHECKLIST_PRE_GO_LIVE_2026-03-12.md` | 2026-03-26 09:25 | `docs/SECURITY_HARDENING_CHECKLIST_PRE_GO_LIVE_2026-03-12.md` |
 | P1 (Operational) | `SECURITY_ROTATION_RUNBOOK_2026-03-23.md` | 2026-03-26 09:17 | `docs/SECURITY_ROTATION_RUNBOOK_2026-03-23.md` |
 | P1 (Operational) | `SIDECAR_3DAY_OBSERVATION_CHECKLIST_2026-03-12.md` | 2026-03-26 09:17 | `docs/SIDECAR_3DAY_OBSERVATION_CHECKLIST_2026-03-12.md` |
