@@ -4673,6 +4673,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               expectedReturnPct: Number.isFinite(Number(item?.expectedReturnPct))
                   ? Number(item.expectedReturnPct)
                   : null,
+              hfAdvisoryEnabled: Boolean(item?.hfAdvisoryEnabled),
+              hfSentimentLabel: normalizeOptionalText(item?.hfSentimentLabel),
+              hfSentimentScore: Number.isFinite(Number(item?.hfSentimentScore))
+                  ? Number(item.hfSentimentScore)
+                  : null,
+              hfSentimentStatus: normalizeOptionalText(item?.hfSentimentStatus),
+              hfSentimentReason: normalizeOptionalText(item?.hfSentimentReason),
               earningsDaysToEvent: Number.isFinite(Number(item?.earningsDaysToEvent))
                   ? Number(item.earningsDaysToEvent)
                   : null,

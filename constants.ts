@@ -35,6 +35,8 @@ const getEnvVar = (key: string): string => {
                 HUGGINGFACE_SMOKE_STRICT: process.env.HUGGINGFACE_SMOKE_STRICT,
                 HUGGINGFACE_TIMEOUT_MS: process.env.HUGGINGFACE_TIMEOUT_MS,
                 HUGGINGFACE_RETRY: process.env.HUGGINGFACE_RETRY,
+                HUGGINGFACE_ENABLE_ADVISORY: process.env.HUGGINGFACE_ENABLE_ADVISORY,
+                HUGGINGFACE_ADVISORY_MAX_CANDIDATES: process.env.HUGGINGFACE_ADVISORY_MAX_CANDIDATES,
                 GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
@@ -194,6 +196,8 @@ export const HUGGINGFACE_CONFIG = {
   SMOKE_STRICT: parseBooleanEnv(['HUGGINGFACE_SMOKE_STRICT'], false),
   TIMEOUT_MS: Math.max(1000, Math.floor(parseNumberEnv(['HUGGINGFACE_TIMEOUT_MS'], 4500))),
   RETRY: Math.max(0, Math.floor(parseNumberEnv(['HUGGINGFACE_RETRY'], 1))),
+  ENABLE_ADVISORY: parseBooleanEnv(['HUGGINGFACE_ENABLE_ADVISORY'], false),
+  ADVISORY_MAX_CANDIDATES: Math.max(1, Math.floor(parseNumberEnv(['HUGGINGFACE_ADVISORY_MAX_CANDIDATES'], 6))),
   SMOKE_TEXT: getEnvVar('HUGGINGFACE_SMOKE_TEXT') || 'Company raised guidance after strong earnings and positive cashflow outlook.'
 } as const;
 

@@ -436,6 +436,37 @@ type HfSmokeAudit = {
   reason?: string;
 };
 
+type HfInferenceSnapshot = {
+  statusCode: number;
+  latencyMs: number;
+  sentimentLabel?: string;
+  sentimentScore?: number;
+};
+
+type HfAdvisoryItem = {
+  symbol: string;
+  status: 'OK' | 'FAILED' | 'SKIPPED';
+  label?: string;
+  score?: number;
+  textKind?: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK';
+  reason?: string;
+  statusCode?: number | null;
+  latencyMs?: number | null;
+};
+
+type HfAdvisoryAudit = {
+  enabled: boolean;
+  attempted: boolean;
+  ok: boolean;
+  model: string;
+  maxCandidates: number;
+  processed: number;
+  succeeded: number;
+  failed: number;
+  reason?: string;
+  items: Record<string, HfAdvisoryItem>;
+};
+
 const inferHttpStatusFromError = (message: string): number | null => {
   const match = String(message || '').match(/HF_HTTP_(\d{3})/);
   if (!match) return null;
@@ -443,11 +474,97 @@ const inferHttpStatusFromError = (message: string): number | null => {
   return Number.isFinite(code) ? code : null;
 };
 
+const buildHfEndpoint = (model: string): string => {
+  const baseUrl = String(HUGGINGFACE_CONFIG.API_BASE_URL || 'https://router.huggingface.co/hf-inference/models').replace(/\/+$/, '');
+  return `${baseUrl}/${model}`;
+};
+
+const extractTopSentiment = (payload: any): { label?: string; score?: number } => {
+  const labels = Array.isArray(payload?.[0]) ? payload[0] : (Array.isArray(payload) ? payload : []);
+  const top = Array.isArray(labels)
+    ? labels
+        .filter((entry: any) => entry && typeof entry === 'object')
+        .sort((a: any, b: any) => Number(b?.score || 0) - Number(a?.score || 0))[0]
+    : null;
+  const label = top?.label ? String(top.label) : undefined;
+  const score = Number.isFinite(Number(top?.score)) ? Number(top.score) : undefined;
+  return { label, score };
+};
+
+const inferHfFailureReason = (message: string, statusCode: number | null): string => {
+  if (message.includes('API_TIMEOUT')) return 'timeout';
+  if (statusCode === 401) return 'unauthorized';
+  if (statusCode === 429) return 'rate_limited';
+  if (statusCode && statusCode >= 500) return 'provider_error';
+  return 'request_failed';
+};
+
+const normalizeAdvisorySymbol = (value: any): string =>
+  String(value || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
+
+const resolveHfAdvisoryText = (item: any): { text: string; textKind: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK' } => {
+  const headlineText = String(item?.newsSentiment || '').trim();
+  if (headlineText && !/^no recent news\.?$/i.test(headlineText)) {
+    return { text: headlineText.slice(0, 1200), textKind: 'HEADLINE' };
+  }
+
+  const description = String(item?.description || '').trim();
+  if (description) {
+    return { text: description.slice(0, 1200), textKind: 'DESCRIPTION' };
+  }
+
+  const symbol = normalizeAdvisorySymbol(item?.symbol) || 'UNKNOWN';
+  const sector = String(item?.sectorTheme || item?.sector || 'Unknown Sector').trim();
+  const marketState = String(item?.marketState || 'Unknown').trim();
+  const fallbackText = `${symbol} in ${sector}. Market state ${marketState}.`;
+  return { text: fallbackText, textKind: 'FALLBACK' };
+};
+
+async function runHuggingFaceInference(inputText: string, model: string): Promise<HfInferenceSnapshot> {
+  const endpoint = buildHfEndpoint(model);
+  const retries = Math.max(0, Number(HUGGINGFACE_CONFIG.RETRY || 0));
+  const timeoutMs = Math.max(1000, Number(HUGGINGFACE_CONFIG.TIMEOUT_MS || 4500));
+  const startedAt = Date.now();
+  const { response, payload } = await fetchWithRetry(
+    async () => {
+      const response = await fetch(endpoint, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${HUGGINGFACE_CONFIG.API_KEY}`
+        },
+        body: JSON.stringify({
+          inputs: inputText,
+          options: { wait_for_model: true, use_cache: false }
+        })
+      });
+
+      if (!response.ok) {
+        const bodyText = await response.text();
+        throw new Error(`HF_HTTP_${response.status}:${String(bodyText || '').slice(0, 180)}`);
+      }
+      const payload = await response.json();
+      return { response, payload };
+    },
+    retries,
+    1000,
+    timeoutMs
+  );
+
+  const latencyMs = Date.now() - startedAt;
+  const { label, score } = extractTopSentiment(payload);
+  return {
+    statusCode: Number(response?.status || 200),
+    latencyMs,
+    sentimentLabel: label,
+    sentimentScore: score
+  };
+}
+
 async function runHuggingFaceSmokeTest(): Promise<HfSmokeAudit> {
   const enabled = HUGGINGFACE_CONFIG.ENABLE_SMOKE_TEST;
   const strict = HUGGINGFACE_CONFIG.SMOKE_STRICT;
   const model = String(HUGGINGFACE_CONFIG.FINBERT_MODEL || 'ProsusAI/finbert');
-  const startedAt = Date.now();
 
   if (!enabled) {
     return {
@@ -475,49 +592,12 @@ async function runHuggingFaceSmokeTest(): Promise<HfSmokeAudit> {
     };
   }
 
-  const baseUrl = String(HUGGINGFACE_CONFIG.API_BASE_URL || 'https://router.huggingface.co/hf-inference/models').replace(/\/+$/, '');
-  const endpoint = `${baseUrl}/${model}`;
-  const retries = Math.max(0, Number(HUGGINGFACE_CONFIG.RETRY || 0));
-  const timeoutMs = Math.max(1000, Number(HUGGINGFACE_CONFIG.TIMEOUT_MS || 4500));
   const smokeText = String(HUGGINGFACE_CONFIG.SMOKE_TEXT || 'Company raised guidance after strong earnings and positive cashflow outlook.');
 
   try {
-    const { response, payload } = await fetchWithRetry(
-      async () => {
-        const response = await fetch(endpoint, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${HUGGINGFACE_CONFIG.API_KEY}`
-          },
-          body: JSON.stringify({
-            inputs: smokeText,
-            options: { wait_for_model: true, use_cache: false }
-          })
-        });
-
-        if (!response.ok) {
-          const bodyText = await response.text();
-          throw new Error(`HF_HTTP_${response.status}:${String(bodyText || '').slice(0, 180)}`);
-        }
-
-        const payload = await response.json();
-        return { response, payload };
-      },
-      retries,
-      1000,
-      timeoutMs
-    );
-
-    const latencyMs = Date.now() - startedAt;
-    const labels = Array.isArray(payload?.[0]) ? payload[0] : (Array.isArray(payload) ? payload : []);
-    const top = Array.isArray(labels)
-      ? labels
-          .filter((entry: any) => entry && typeof entry === 'object')
-          .sort((a: any, b: any) => Number(b?.score || 0) - Number(a?.score || 0))[0]
-      : null;
-    const sentimentLabel = top?.label ? String(top.label) : undefined;
-    const sentimentScore = Number.isFinite(Number(top?.score)) ? Number(top.score) : undefined;
+    const inference = await runHuggingFaceInference(smokeText, model);
+    const sentimentLabel = inference.sentimentLabel;
+    const sentimentScore = inference.sentimentScore;
 
     const result: HfSmokeAudit = {
       enabled,
@@ -525,40 +605,120 @@ async function runHuggingFaceSmokeTest(): Promise<HfSmokeAudit> {
       attempted: true,
       ok: true,
       model,
-      latencyMs,
-      statusCode: Number(response?.status || 200),
+      latencyMs: inference.latencyMs,
+      statusCode: inference.statusCode,
       sentimentLabel,
       sentimentScore
     };
     const scoreText = sentimentScore == null ? 'N/A' : sentimentScore.toFixed(3);
-    console.info(`[HF_SMOKE] ok model=${model} status=${result.statusCode} latency=${latencyMs}ms label=${sentimentLabel || 'N/A'} score=${scoreText}`);
+    console.info(`[HF_SMOKE] ok model=${model} status=${result.statusCode} latency=${inference.latencyMs}ms label=${sentimentLabel || 'N/A'} score=${scoreText}`);
     return result;
   } catch (error: any) {
-    const latencyMs = Date.now() - startedAt;
     const message = String(error?.message || error || 'unknown_error');
     const statusCode = inferHttpStatusFromError(message);
-    const reason =
-      message.includes('API_TIMEOUT')
-        ? 'timeout'
-        : statusCode === 401
-          ? 'unauthorized'
-          : statusCode === 429
-            ? 'rate_limited'
-            : statusCode && statusCode >= 500
-              ? 'provider_error'
-              : 'request_failed';
-    console.warn(`[HF_SMOKE] fail model=${model} reason=${reason} status=${statusCode ?? 'N/A'} latency=${latencyMs}ms`);
+    const reason = inferHfFailureReason(message, statusCode);
+    console.warn(`[HF_SMOKE] fail model=${model} reason=${reason} status=${statusCode ?? 'N/A'} latency=N/A`);
     return {
       enabled,
       strict,
       attempted: true,
       ok: false,
       model,
-      latencyMs,
+      latencyMs: null,
       statusCode,
       reason
     };
   }
+}
+
+async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudit> {
+  const enabled = HUGGINGFACE_CONFIG.ENABLE_ADVISORY;
+  const model = String(HUGGINGFACE_CONFIG.FINBERT_MODEL || 'ProsusAI/finbert');
+  const maxCandidates = Math.max(1, Number(HUGGINGFACE_CONFIG.ADVISORY_MAX_CANDIDATES || 6));
+  const emptyAudit: HfAdvisoryAudit = {
+    enabled,
+    attempted: false,
+    ok: false,
+    model,
+    maxCandidates,
+    processed: 0,
+    succeeded: 0,
+    failed: 0,
+    reason: 'disabled',
+    items: {}
+  };
+
+  if (!enabled) {
+    console.info(`[HF_ADVISORY] skipped reason=disabled model=${model}`);
+    return emptyAudit;
+  }
+  if (!HUGGINGFACE_CONFIG.API_KEY) {
+    console.warn(`[HF_ADVISORY] skipped reason=api_key_missing model=${model}`);
+    return { ...emptyAudit, attempted: false, reason: 'api_key_missing' };
+  }
+
+  const ordered = [...(Array.isArray(candidates) ? candidates : [])]
+    .filter((item: any) => normalizeAdvisorySymbol(item?.symbol))
+    .sort((a: any, b: any) => Number(b?.compositeAlpha || 0) - Number(a?.compositeAlpha || 0))
+    .slice(0, maxCandidates);
+
+  if (ordered.length === 0) {
+    console.info(`[HF_ADVISORY] skipped reason=no_candidates model=${model}`);
+    return { ...emptyAudit, attempted: false, reason: 'no_candidates' };
+  }
+
+  const items: Record<string, HfAdvisoryItem> = {};
+  let succeeded = 0;
+  let failed = 0;
+
+  for (const item of ordered) {
+    const symbol = normalizeAdvisorySymbol(item?.symbol);
+    const { text, textKind } = resolveHfAdvisoryText(item);
+    try {
+      const inference = await runHuggingFaceInference(text, model);
+      items[symbol] = {
+        symbol,
+        status: 'OK',
+        label: inference.sentimentLabel,
+        score: inference.sentimentScore,
+        textKind,
+        statusCode: inference.statusCode,
+        latencyMs: inference.latencyMs
+      };
+      succeeded += 1;
+      const scoreText = inference.sentimentScore == null ? 'N/A' : inference.sentimentScore.toFixed(3);
+      console.info(`[HF_ADVISORY] ok symbol=${symbol} label=${inference.sentimentLabel || 'N/A'} score=${scoreText} kind=${textKind}`);
+    } catch (error: any) {
+      const message = String(error?.message || error || 'unknown_error');
+      const statusCode = inferHttpStatusFromError(message);
+      const reason = inferHfFailureReason(message, statusCode);
+      items[symbol] = {
+        symbol,
+        status: 'FAILED',
+        reason,
+        textKind,
+        statusCode,
+        latencyMs: null
+      };
+      failed += 1;
+      console.warn(`[HF_ADVISORY] fail symbol=${symbol} reason=${reason} status=${statusCode ?? 'N/A'} kind=${textKind}`);
+    }
+  }
+
+  const processed = ordered.length;
+  const ok = processed > 0 && failed === 0;
+  console.info(`[HF_ADVISORY] summary model=${model} processed=${processed} ok=${succeeded} fail=${failed}`);
+  return {
+    enabled,
+    attempted: true,
+    ok,
+    model,
+    maxCandidates,
+    processed,
+    succeeded,
+    failed,
+    items
+  };
 }
 
 async function runDeterministicBacktest(stock: any): Promise<any | null> {
@@ -769,7 +929,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const hfSmokeAudit = await runHuggingFaceSmokeTest();
-  const mergeAudit = (base?: any) => ({ ...(base || {}), hfSmoke: hfSmokeAudit });
+  let hfAdvisoryAudit: HfAdvisoryAudit | null = null;
+  const mergeAudit = (base?: any) => ({
+    ...(base || {}),
+    hfSmoke: hfSmokeAudit,
+    ...(hfAdvisoryAudit ? { hfAdvisory: hfAdvisoryAudit } : {})
+  });
   if (hfSmokeAudit.enabled && hfSmokeAudit.strict && !hfSmokeAudit.ok) {
     return {
       data: null,
@@ -778,6 +943,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       audit: mergeAudit()
     };
   }
+  hfAdvisoryAudit = await runHuggingFaceAdvisory(candidates);
+  const hfAdvisoryItems = hfAdvisoryAudit.items || {};
 
   const today = new Date().toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric' });
   
@@ -1181,6 +1348,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
 
             const cleanOrgSymbol = String(original.symbol).replace(/[^a-zA-Z]/g, '').toUpperCase();
             const aiItem = aiMap.get(cleanOrgSymbol) || {};
+            const hfAdvisory = hfAdvisoryItems?.[cleanOrgSymbol];
             const normalizedVerdict = normalizeAiVerdict(
                 aiItem.aiVerdict ?? aiItem.verdictFinal ?? aiItem.finalVerdict ?? aiItem.verdict
             );
@@ -1211,6 +1379,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 aiFallbackDetected: fallbackCheck.isFallback,
                 aiFallbackReason: fallbackCheck.reasons.join('|') || 'NONE',
                 aiProvider: providerName,
+                hfAdvisoryEnabled: Boolean(hfAdvisoryAudit?.enabled),
+                hfSentimentLabel: typeof hfAdvisory?.label === 'string' ? hfAdvisory.label : null,
+                hfSentimentScore: Number.isFinite(Number(hfAdvisory?.score)) ? Number(hfAdvisory.score) : null,
+                hfSentimentStatus: typeof hfAdvisory?.status === 'string' ? hfAdvisory.status : 'SKIPPED',
+                hfSentimentReason: typeof hfAdvisory?.reason === 'string' ? hfAdvisory.reason : null,
+                hfSentimentTextKind: typeof hfAdvisory?.textKind === 'string' ? hfAdvisory.textKind : null,
                 
                 // --- Critical Safety Overrides (Quant Authority) ---
                 supportLevel: original.supportLevel || original.otePrice || (original.price * 0.95),
