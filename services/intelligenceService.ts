@@ -1349,6 +1349,21 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
             const cleanOrgSymbol = String(original.symbol).replace(/[^a-zA-Z]/g, '').toUpperCase();
             const aiItem = aiMap.get(cleanOrgSymbol) || {};
             const hfAdvisory = hfAdvisoryItems?.[cleanOrgSymbol];
+            const hfSentimentStatus =
+                typeof hfAdvisory?.status === 'string'
+                    ? String(hfAdvisory.status).trim().toUpperCase()
+                    : 'SKIPPED';
+            const hfSentimentReason = (() => {
+                if (typeof hfAdvisory?.reason === 'string' && hfAdvisory.reason.trim()) {
+                    return hfAdvisory.reason.trim();
+                }
+                if (hfSentimentStatus === 'OK') return null;
+                if (hfSentimentStatus === 'SKIPPED') {
+                    return hfAdvisoryAudit?.enabled ? 'NOT_SAMPLED' : 'DISABLED';
+                }
+                if (hfSentimentStatus === 'FAILED') return 'INFERENCE_FAILED';
+                return null;
+            })();
             const normalizedVerdict = normalizeAiVerdict(
                 aiItem.aiVerdict ?? aiItem.verdictFinal ?? aiItem.finalVerdict ?? aiItem.verdict
             );
@@ -1382,13 +1397,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 hfAdvisoryEnabled: Boolean(hfAdvisoryAudit?.enabled),
                 hfSentimentLabel: typeof hfAdvisory?.label === 'string' ? hfAdvisory.label : null,
                 hfSentimentScore: Number.isFinite(Number(hfAdvisory?.score)) ? Number(hfAdvisory.score) : null,
-                hfSentimentStatus: typeof hfAdvisory?.status === 'string' ? hfAdvisory.status : 'SKIPPED',
-                hfSentimentReason:
-                    typeof hfAdvisory?.reason === 'string'
-                        ? hfAdvisory.reason
-                        : hfAdvisoryAudit?.enabled
-                            ? 'NOT_SAMPLED'
-                            : 'DISABLED',
+                hfSentimentStatus,
+                hfSentimentReason,
                 hfSentimentTextKind: typeof hfAdvisory?.textKind === 'string' ? hfAdvisory.textKind : null,
                 
                 // --- Critical Safety Overrides (Quant Authority) ---
