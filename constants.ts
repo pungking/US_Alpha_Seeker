@@ -187,7 +187,7 @@ export const API_CONFIGS: ApiConfig[] = [
 // [HF READY] Keep Hugging Face settings isolated until service integration is enabled.
 export const HUGGINGFACE_CONFIG = {
   API_KEY: getEnvVar('HUGGINGFACE_API_KEY'),
-  API_BASE_URL: getEnvVar('HUGGINGFACE_API_BASE_URL') || 'https://api-inference.huggingface.co/models',
+  API_BASE_URL: getEnvVar('HUGGINGFACE_API_BASE_URL') || 'https://router.huggingface.co/hf-inference/models',
   FINBERT_MODEL: getEnvVar('HUGGINGFACE_FINBERT_MODEL') || 'ProsusAI/finbert',
   SUMMARY_MODEL: getEnvVar('HUGGINGFACE_SUMMARY_MODEL') || 'facebook/bart-large-cnn',
   ENABLE_SMOKE_TEST: parseBooleanEnv(['HUGGINGFACE_ENABLE_SMOKE_TEST'], false),

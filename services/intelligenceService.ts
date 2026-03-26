@@ -475,7 +475,7 @@ async function runHuggingFaceSmokeTest(): Promise<HfSmokeAudit> {
     };
   }
 
-  const baseUrl = String(HUGGINGFACE_CONFIG.API_BASE_URL || 'https://api-inference.huggingface.co/models').replace(/\/+$/, '');
+  const baseUrl = String(HUGGINGFACE_CONFIG.API_BASE_URL || 'https://router.huggingface.co/hf-inference/models').replace(/\/+$/, '');
   const endpoint = `${baseUrl}/${model}`;
   const retries = Math.max(0, Number(HUGGINGFACE_CONFIG.RETRY || 0));
   const timeoutMs = Math.max(1000, Number(HUGGINGFACE_CONFIG.TIMEOUT_MS || 4500));
