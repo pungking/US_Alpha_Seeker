@@ -492,6 +492,34 @@ const SIGNAL_DEFINITIONS: Record<string, { title: string; desc: string }> = {
         title: "🤝 Cross-Check",
         desc: "서로 다른 알고리즘을 가진 두 AI 전문가(Gemini & Sonar)가 **'동시에 합격점'**을 준 종목으로, 데이터 신뢰도가 가장 높습니다."
     },
+    'HF_SENTIMENT_POSITIVE': {
+        title: "🤗 HF Sentiment: Positive",
+        desc: "Hugging Face(FinBERT) 감성 분석에서 **긍정 시그널**이 확인되었습니다. 텍스트 기반 모멘텀 보강 요소로만 사용하며 단독 매수 근거로는 쓰지 않습니다."
+    },
+    'HF_SENTIMENT_NEUTRAL': {
+        title: "🤗 HF Sentiment: Neutral",
+        desc: "Hugging Face(FinBERT) 감성 분석이 **중립**으로 판정되었습니다. 가점/감점 없이 기존 Stage6 정량 규칙을 그대로 따릅니다."
+    },
+    'HF_SENTIMENT_NEGATIVE': {
+        title: "🤗 HF Sentiment: Negative",
+        desc: "Hugging Face(FinBERT) 감성 분석에서 **부정 시그널**이 확인되었습니다. 리스크 경계 신호로 해석하며, 품질/집행 게이트를 우선합니다."
+    },
+    'HF_SENTIMENT_SKIPPED': {
+        title: "🤗 HF Sentiment: Skipped",
+        desc: "HF Advisory 샘플링 대상에서 제외되었거나 해당 런에서 분석을 건너뛴 상태입니다. 데이터 오류가 아니라 비용/샘플 정책에 따른 정상 케이스입니다."
+    },
+    'HF_SENTIMENT_FAILED': {
+        title: "🤗 HF Sentiment: Failed",
+        desc: "HF 추론 호출이 실패한 상태입니다(네트워크/한도/응답 오류 등). Stage6 핵심 게이트는 계속 작동하며 HF만 보조신호에서 제외됩니다."
+    },
+    'HF_DISABLED': {
+        title: "🤗 HF Sentiment: Disabled",
+        desc: "현재 런에서 HF Advisory 기능이 비활성화되어 있습니다. Stage6는 기본 AI/정량 규칙으로만 실행됩니다."
+    },
+    'HF_BLEND': {
+        title: "🧪 HF Blend Delta",
+        desc: "Blend 모드가 켜진 경우 HF 감성(긍/부정 + 신뢰도)을 Execution/AQ 점수에 **소폭 가중(Δ)** 합니다. 하드게이트를 대체하지 않고 순위 미세조정에만 사용합니다."
+    },
     'VALUE': {
         title: "💰 Value",
         desc: "실적 대비 주가가 저평가되어 **'가격 방어력'**이 뛰어난 종목입니다. 하락장에서도 상대적으로 안전한 가치 투자를 지향합니다."
@@ -898,6 +926,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'blocked_state_verdict_conflict') return 'Blocked: State/Verdict Conflict';
       if (key === 'blocked_verdict_risk_off') return 'Blocked: Risk-Off Verdict';
       return 'n/a';
+  };
+  const getHfSignalKey = (status?: string | null, label?: string | null, advisoryEnabled?: boolean): string => {
+      if (!advisoryEnabled) return 'HF_DISABLED';
+      const statusKey = String(status || '').trim().toUpperCase();
+      const labelKey = String(label || '').trim().toLowerCase();
+      if (statusKey === 'FAILED') return 'HF_SENTIMENT_FAILED';
+      if (statusKey === 'SKIPPED') return 'HF_SENTIMENT_SKIPPED';
+      if (statusKey !== 'OK') return 'HF_SENTIMENT_SKIPPED';
+      if (labelKey === 'positive') return 'HF_SENTIMENT_POSITIVE';
+      if (labelKey === 'negative') return 'HF_SENTIMENT_NEGATIVE';
+      return 'HF_SENTIMENT_NEUTRAL';
   };
   const getTradePlanStatusLabel = (status?: string | null) => {
       const key = String(status || '').trim().toUpperCase();
@@ -3683,6 +3722,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               .map((v) => String(v || '').trim().toUpperCase().replace(/[\s-]+/g, '_'))
               .filter(Boolean)
       );
+      const HF_BLEND_ENABLED = parseBooleanFlag(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_ENABLED ?? 'false'
+      );
+      const hfBlendWeightRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_WEIGHT ?? 0.25
+      );
+      const HF_BLEND_WEIGHT =
+          Number.isFinite(hfBlendWeightRaw) && hfBlendWeightRaw >= 0
+              ? Math.min(hfBlendWeightRaw, 1)
+              : 0.25;
+      const hfBlendMaxDeltaRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ?? 8
+      );
+      const HF_BLEND_MAX_DELTA =
+          Number.isFinite(hfBlendMaxDeltaRaw) && hfBlendMaxDeltaRaw >= 0
+              ? Math.min(hfBlendMaxDeltaRaw, 25)
+              : 8;
       const isBullishVerdictForExecution = (verdict: string | null | undefined) => {
           const key = toVerdictKey(verdict);
           if (!key || key === 'NA' || key === 'N/A' || key === 'NONE' || key === 'NULL' || key === 'UNDEFINED' || key === 'TBD') {
@@ -3877,6 +3933,105 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               integrityNorm * 0.10 +
               quantNorm * 0.15;
           return Number(toScore(score, 0, 100).toFixed(1));
+      };
+      const computeHfBlendAdjustment = (item: any): {
+          applied: boolean;
+          deltaExecution: number;
+          deltaQuality: number;
+          reason: string;
+          status: string;
+          label: string | null;
+          score: number | null;
+      } => {
+          const advisoryEnabled = Boolean(item?.hfAdvisoryEnabled);
+          const status = String(item?.hfSentimentStatus || (advisoryEnabled ? 'SKIPPED' : 'DISABLED'))
+              .trim()
+              .toUpperCase();
+          const labelRaw = String(item?.hfSentimentLabel || '').trim().toLowerCase();
+          const label = labelRaw || null;
+          const scoreRaw = Number(item?.hfSentimentScore);
+          const score = Number.isFinite(scoreRaw) ? scoreRaw : null;
+          if (!HF_BLEND_ENABLED) {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: 'blend_disabled',
+                  status,
+                  label,
+                  score
+              };
+          }
+          if (!advisoryEnabled) {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: 'advisory_disabled',
+                  status,
+                  label,
+                  score
+              };
+          }
+          if (status !== 'OK') {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: status === 'FAILED' ? 'hf_failed' : 'hf_skipped',
+                  status,
+                  label,
+                  score
+              };
+          }
+          if (score == null) {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: 'score_missing',
+                  status,
+                  label,
+                  score
+              };
+          }
+          if (label !== 'positive' && label !== 'negative') {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: label === 'neutral' ? 'neutral_no_adjust' : 'label_unknown',
+                  status,
+                  label,
+                  score
+              };
+          }
+          const confidence = Math.max(0, Math.min(1, Math.abs(score - 0.5) * 2));
+          const direction = label === 'positive' ? 1 : -1;
+          const rawDelta = direction * HF_BLEND_MAX_DELTA * HF_BLEND_WEIGHT * confidence;
+          const deltaExecution = Number(
+              Math.max(-HF_BLEND_MAX_DELTA, Math.min(HF_BLEND_MAX_DELTA, rawDelta)).toFixed(2)
+          );
+          if (Math.abs(deltaExecution) < 0.05) {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: 'delta_too_small',
+                  status,
+                  label,
+                  score
+              };
+          }
+          return {
+              applied: true,
+              deltaExecution,
+              deltaQuality: Number((deltaExecution * 0.6).toFixed(2)),
+              reason: `label_${label}`,
+              status,
+              label,
+              score
+          };
       };
       const deriveExecutionContractFields = (item: AlphaCandidate) => {
           const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
@@ -4173,6 +4328,21 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
       const scoredCandidates = finalData.map((item) => {
           const executionContract = deriveExecutionContractFields(item);
+          const hfBlend = computeHfBlendAdjustment(item);
+          const executionScoreBase = Number.isFinite(Number(executionContract.executionScore))
+              ? Number(executionContract.executionScore)
+              : null;
+          const qualityScoreBase = Number.isFinite(Number(executionContract.qualityScore))
+              ? Number(executionContract.qualityScore)
+              : null;
+          const executionScoreBlended =
+              executionScoreBase == null
+                  ? null
+                  : Number(toScore(executionScoreBase + hfBlend.deltaExecution, 0, 100).toFixed(1));
+          const qualityScoreBlended =
+              qualityScoreBase == null
+                  ? null
+                  : Number(toScore(qualityScoreBase + hfBlend.deltaQuality, 0, 100).toFixed(1));
           return {
               ...item,
               modelRank: modelRankMap.get(normalizeContractSymbol(item?.symbol)) ?? null,
@@ -4197,9 +4367,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               verdictConflict: executionContract.verdictConflict,
               verdictConflictDetail: executionContract.verdictConflictDetail,
               stateVerdictConflict: executionContract.stateVerdictConflict,
-              executionScore: executionContract.executionScore,
-              executionReadinessScore: executionContract.executionReadinessScore,
-              qualityScore: executionContract.qualityScore,
+              executionScore: executionScoreBlended,
+              executionReadinessScore: executionScoreBlended,
+              qualityScore: qualityScoreBlended,
+              executionScoreBase,
+              qualityScoreBase,
+              hfBlendApplied: hfBlend.applied,
+              hfBlendDeltaExecution: hfBlend.deltaExecution,
+              hfBlendDeltaQuality: hfBlend.deltaQuality,
+              hfBlendReason: hfBlend.reason,
+              hfBlendStatus: hfBlend.status,
+              hfBlendLabel: hfBlend.label,
+              hfBlendScore: hfBlend.score,
               stage6Tier: executionContract.stage6Tier,
               stage6TierReason: executionContract.stage6TierReason,
               stage6TierMultiplier: executionContract.stage6TierMultiplier,
@@ -4213,6 +4392,18 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               targetMeanPrice: executionContract.mirroredTarget ?? item.targetMeanPrice ?? 0
           };
       });
+      const hfBlendAppliedCount = scoredCandidates.filter((item) => Boolean(item?.hfBlendApplied)).length;
+      const hfBlendPositiveCount = scoredCandidates.filter((item) => Number(item?.hfBlendDeltaExecution) > 0).length;
+      const hfBlendNegativeCount = scoredCandidates.filter((item) => Number(item?.hfBlendDeltaExecution) < 0).length;
+      const hfBlendNetDeltaExecution = Number(
+          scoredCandidates
+              .reduce((acc, item) => acc + (Number.isFinite(Number(item?.hfBlendDeltaExecution)) ? Number(item.hfBlendDeltaExecution) : 0), 0)
+              .toFixed(2)
+      );
+      addLog(
+          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA}`,
+          HF_BLEND_ENABLED ? 'info' : 'warn'
+      );
 
       const hardCutBlocked = scoredCandidates.filter(item => isRiskOffVerdict(item.aiVerdict));
       const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
@@ -4578,6 +4769,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               qualityScore: Number.isFinite(Number(item.qualityScore))
                   ? Number(item.qualityScore)
                   : null,
+              executionScoreBase: Number.isFinite(Number(item.executionScoreBase))
+                  ? Number(item.executionScoreBase)
+                  : null,
+              qualityScoreBase: Number.isFinite(Number(item.qualityScoreBase))
+                  ? Number(item.qualityScoreBase)
+                  : null,
+              hfBlendApplied: Boolean(item.hfBlendApplied),
+              hfBlendDeltaExecution: Number.isFinite(Number(item.hfBlendDeltaExecution))
+                  ? Number(item.hfBlendDeltaExecution)
+                  : null,
+              hfBlendDeltaQuality: Number.isFinite(Number(item.hfBlendDeltaQuality))
+                  ? Number(item.hfBlendDeltaQuality)
+                  : null,
+              hfBlendReason: normalizeOptionalText(item.hfBlendReason),
               stopDistancePct: Number.isFinite(Number(item.stopDistancePct))
                   ? Number(item.stopDistancePct)
                   : null,
@@ -4641,6 +4846,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               modelRank: Number.isFinite(Number(item?.modelRank)) ? Number(item.modelRank) : null,
               executionRank: Number.isFinite(Number(item?.executionRank)) ? Number(item.executionRank) : null,
               qualityScore: Number.isFinite(Number(item?.qualityScore)) ? Number(item.qualityScore) : null,
+              executionScoreBase: Number.isFinite(Number(item?.executionScoreBase)) ? Number(item.executionScoreBase) : null,
+              qualityScoreBase: Number.isFinite(Number(item?.qualityScoreBase)) ? Number(item.qualityScoreBase) : null,
+              hfBlendApplied: Boolean(item?.hfBlendApplied),
+              hfBlendDeltaExecution: Number.isFinite(Number(item?.hfBlendDeltaExecution))
+                  ? Number(item.hfBlendDeltaExecution)
+                  : null,
+              hfBlendDeltaQuality: Number.isFinite(Number(item?.hfBlendDeltaQuality))
+                  ? Number(item.hfBlendDeltaQuality)
+                  : null,
+              hfBlendReason: normalizeOptionalText(item?.hfBlendReason),
               convictionScore: Number.isFinite(Number(item?.convictionScore))
                   ? Number(item.convictionScore)
                   : null,
@@ -4784,7 +4999,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       tier2IctScoreMin: STAGE6_TIER2_ICT_SCORE_MIN,
                       tier2TrendKeys: Array.from(STAGE6_TIER2_TREND_KEYS),
                       tier1ScoreMultiplier: STAGE6_TIER1_SCORE_MULTIPLIER,
-                      tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER
+                      tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER,
+                      hfBlendEnabled: HF_BLEND_ENABLED,
+                      hfBlendWeight: HF_BLEND_WEIGHT,
+                      hfBlendMaxDelta: HF_BLEND_MAX_DELTA
+                  },
+                  hfBlendSummary: {
+                      enabled: HF_BLEND_ENABLED,
+                      applied: hfBlendAppliedCount,
+                      positive: hfBlendPositiveCount,
+                      negative: hfBlendNegativeCount,
+                      netDeltaExecution: hfBlendNetDeltaExecution
                   },
               scoreViewDefault: scoreViewMode
               },
@@ -5499,6 +5724,66 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                 const showDiscount = item.isConfirmedDiscount === true;
                 const showHyperGrowth = (item.revenueGrowth ?? 0) >= 50;
                 const showGem = item.isConfirmedGem === true;
+                const hfAdvisoryEnabledCard = Boolean(item?.hfAdvisoryEnabled);
+                const hfStatusCard = String(item?.hfSentimentStatus || (hfAdvisoryEnabledCard ? 'SKIPPED' : 'DISABLED'))
+                    .trim()
+                    .toUpperCase();
+                const hfLabelCard = String(item?.hfSentimentLabel || '')
+                    .trim()
+                    .toLowerCase();
+                const hfScoreRawCard = Number(item?.hfSentimentScore);
+                const hfScoreCard = Number.isFinite(hfScoreRawCard) ? hfScoreRawCard : null;
+                const hfSignalKey = getHfSignalKey(hfStatusCard, hfLabelCard, hfAdvisoryEnabledCard);
+                const hfBadgeMeta = (() => {
+                    if (!hfAdvisoryEnabledCard) {
+                        return {
+                            text: 'HF OFF',
+                            className: 'bg-slate-500/20 text-slate-200 border-slate-500/30 hover:bg-slate-500/35'
+                        };
+                    }
+                    if (hfStatusCard === 'FAILED') {
+                        return {
+                            text: 'HF FAIL',
+                            className: 'bg-orange-500/20 text-orange-200 border-orange-500/30 hover:bg-orange-500/35'
+                        };
+                    }
+                    if (hfStatusCard === 'SKIPPED') {
+                        return {
+                            text: 'HF SKIP',
+                            className: 'bg-zinc-500/20 text-zinc-200 border-zinc-500/30 hover:bg-zinc-500/35'
+                        };
+                    }
+                    const scoreText = hfScoreCard == null ? 'N/A' : hfScoreCard.toFixed(2);
+                    if (hfLabelCard === 'positive') {
+                        return {
+                            text: `HF POS ${scoreText}`,
+                            className: 'bg-emerald-500/20 text-emerald-200 border-emerald-500/30 hover:bg-emerald-500/35'
+                        };
+                    }
+                    if (hfLabelCard === 'negative') {
+                        return {
+                            text: `HF NEG ${scoreText}`,
+                            className: 'bg-rose-500/20 text-rose-200 border-rose-500/30 hover:bg-rose-500/35'
+                        };
+                    }
+                    return {
+                        text: `HF NEU ${scoreText}`,
+                        className: 'bg-sky-500/20 text-sky-200 border-sky-500/30 hover:bg-sky-500/35'
+                    };
+                })();
+                const hfBlendDeltaExecutionRaw = Number(item?.hfBlendDeltaExecution);
+                const hfBlendDeltaExecutionCard = Number.isFinite(hfBlendDeltaExecutionRaw) ? hfBlendDeltaExecutionRaw : null;
+                const showHfBlendBadge =
+                    Boolean(item?.hfBlendApplied) &&
+                    hfBlendDeltaExecutionCard != null &&
+                    Math.abs(hfBlendDeltaExecutionCard) > 0;
+                const hfBlendBadgeText = hfBlendDeltaExecutionCard == null
+                    ? 'HF Δ0.0'
+                    : `HF Δ${hfBlendDeltaExecutionCard > 0 ? '+' : ''}${hfBlendDeltaExecutionCard.toFixed(1)}`;
+                const hfBlendBadgeClass =
+                    hfBlendDeltaExecutionCard != null && hfBlendDeltaExecutionCard >= 0
+                        ? 'bg-cyan-500/20 text-cyan-200 border-cyan-500/30 hover:bg-cyan-500/35'
+                        : 'bg-fuchsia-500/20 text-fuchsia-200 border-fuchsia-500/30 hover:bg-fuchsia-500/35';
 
                 // [NEW] Alpha Conviction & Visual Effects
                 // Formula: (ICT Score * 0.4) + (Fundamental Score * 0.3) + (Technical Score * 0.2) + (AI Conviction * 0.1)
@@ -5673,6 +5958,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     className="text-[7px] px-1.5 py-0.5 rounded-sm bg-amber-500/20 text-amber-200 border border-amber-500/30 font-black tracking-tight whitespace-nowrap cursor-help hover:bg-amber-500/40 transition-colors"
                                 >
                                     AI CONSENSUS
+                                </span>
+                             )}
+                             <span
+                                onClick={(e) => handleSignalClick(e, hfSignalKey)}
+                                className={`text-[7px] px-1.5 py-0.5 rounded-sm border font-black tracking-tight whitespace-nowrap cursor-help transition-colors ${hfBadgeMeta.className}`}
+                             >
+                                {hfBadgeMeta.text}
+                             </span>
+                             {showHfBlendBadge && (
+                                <span
+                                    onClick={(e) => handleSignalClick(e, 'HF_BLEND')}
+                                    className={`text-[7px] px-1.5 py-0.5 rounded-sm border font-black tracking-tight whitespace-nowrap cursor-help transition-colors ${hfBlendBadgeClass}`}
+                                >
+                                    {hfBlendBadgeText}
                                 </span>
                              )}
                         </div>

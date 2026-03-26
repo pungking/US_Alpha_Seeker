@@ -37,6 +37,9 @@ const getEnvVar = (key: string): string => {
                 HUGGINGFACE_RETRY: process.env.HUGGINGFACE_RETRY,
                 HUGGINGFACE_ENABLE_ADVISORY: process.env.HUGGINGFACE_ENABLE_ADVISORY,
                 HUGGINGFACE_ADVISORY_MAX_CANDIDATES: process.env.HUGGINGFACE_ADVISORY_MAX_CANDIDATES,
+                HUGGINGFACE_BLEND_ENABLED: process.env.HUGGINGFACE_BLEND_ENABLED,
+                HUGGINGFACE_BLEND_WEIGHT: process.env.HUGGINGFACE_BLEND_WEIGHT,
+                HUGGINGFACE_BLEND_MAX_DELTA: process.env.HUGGINGFACE_BLEND_MAX_DELTA,
                 GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
@@ -198,6 +201,9 @@ export const HUGGINGFACE_CONFIG = {
   RETRY: Math.max(0, Math.floor(parseNumberEnv(['HUGGINGFACE_RETRY'], 1))),
   ENABLE_ADVISORY: parseBooleanEnv(['HUGGINGFACE_ENABLE_ADVISORY'], false),
   ADVISORY_MAX_CANDIDATES: Math.max(1, Math.floor(parseNumberEnv(['HUGGINGFACE_ADVISORY_MAX_CANDIDATES'], 6))),
+  BLEND_ENABLED: parseBooleanEnv(['HUGGINGFACE_BLEND_ENABLED'], false),
+  BLEND_WEIGHT: Math.max(0, Math.min(1, parseNumberEnv(['HUGGINGFACE_BLEND_WEIGHT'], 0.25))),
+  BLEND_MAX_DELTA: Math.max(0, Math.min(25, parseNumberEnv(['HUGGINGFACE_BLEND_MAX_DELTA'], 8))),
   SMOKE_TEXT: getEnvVar('HUGGINGFACE_SMOKE_TEXT') || 'Company raised guidance after strong earnings and positive cashflow outlook.'
 } as const;
 
