@@ -27,6 +27,7 @@ const getEnvVar = (key: string): string => {
                 FMP_KEY: process.env.FMP_KEY,
                 TWELVE_DATA_KEY: process.env.TWELVE_DATA_KEY,
                 ALPHA_VANTAGE_KEY: process.env.ALPHA_VANTAGE_KEY,
+                HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
                 GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
@@ -48,6 +49,7 @@ const getEnvVar = (key: string): string => {
             if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
             if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || readDefinedProcessEnv('API_KEY');
             if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
+            if (key === 'HUGGINGFACE_API_KEY') return import.meta.env.HUGGINGFACE_API_KEY || readDefinedProcessEnv('HUGGINGFACE_API_KEY');
             if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
             if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
             if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
@@ -174,6 +176,14 @@ export const API_CONFIGS: ApiConfig[] = [
     category: 'Infrastructure' 
   }
 ];
+
+// [HF READY] Keep Hugging Face settings isolated until service integration is enabled.
+export const HUGGINGFACE_CONFIG = {
+  API_KEY: getEnvVar('HUGGINGFACE_API_KEY'),
+  API_BASE_URL: getEnvVar('HUGGINGFACE_API_BASE_URL') || 'https://api-inference.huggingface.co/models',
+  FINBERT_MODEL: getEnvVar('HUGGINGFACE_FINBERT_MODEL') || 'ProsusAI/finbert',
+  SUMMARY_MODEL: getEnvVar('HUGGINGFACE_SUMMARY_MODEL') || 'facebook/bart-large-cnn'
+} as const;
 
 // [C1 FIX] Centralized Gemini model contract to avoid per-file drift.
 const normalizeGeminiModel = (model: string, fallback: string): string => {
