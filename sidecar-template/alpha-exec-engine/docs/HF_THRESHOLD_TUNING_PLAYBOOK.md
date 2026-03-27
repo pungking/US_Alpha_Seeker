@@ -47,9 +47,11 @@ perf_loop_latest_kpi:
 
 hf_soft_gate:
 hf_payload_probe:
+hf_payload_probe_forced:
 hf_shadow:
 hf_shadow_trend:
 hf_tuning_phase:
+hf_tuning_advice:
 hf_tuning_comment:
 hf_alert:
 hf_marker_audit:
@@ -61,9 +63,11 @@ notes:
 Minimum lines to capture:
 - `hf_soft_gate`
 - `hf_payload_probe`
+- `hf_payload_probe_forced`
 - `hf_shadow`
 - `hf_shadow_trend`
 - `hf_tuning_phase`
+- `hf_tuning_advice`
 - `hf_tuning_comment`
 - `hf_alert`
 - `hf_marker_audit`
@@ -93,6 +97,14 @@ Minimum lines to capture:
   - `PASS_SIZE_REDUCED`: tighten + size reduction observed as expected.
   - `WARN_SIZE_REDUCE_EXPECTED`: tighten happened but size reduction did not.
 
+### hf_payload_probe_forced
+- Manual drill lane (`payload_probe=true` + `payload_probe_mode`) for blocked-market sessions.
+- Reads base dry-exec path before guard/preflight squash.
+- Key checks:
+  - `active=true`, `modified=true`
+  - `baseApplied > 0` (HF adjustment observed)
+  - tighten drill + size reduction enabled -> `baseSizeReduced > 0`
+
 ### hf_shadow_trend
 - Rolling trend across recent runs.
 - Watch these first:
@@ -108,6 +120,14 @@ Minimum lines to capture:
   - `OBSERVE_ONLY`: sample too small (`progress < 20/20`) -> collect runs first.
   - `REVIEW_ONLY`: enough sample but alert/noise condition present -> tune/review before freeze.
   - `FREEZE_READY`: gate stable + HF stable -> freeze baseline and monitor.
+
+### hf_tuning_advice
+- Suggestion-only parameter recommendation (no auto-apply).
+- Typical outputs:
+  - `status=HOLD`: keep collecting evidence.
+  - `status=ADJUST`: tune exactly one variable.
+  - `status=FREEZE`: freeze baseline.
+- Follow the suggested `variable/current/suggested` first, then re-run 2~3 observations.
 
 ### hf_tuning_comment
 - Final operator recommendation synthesized for the current run.
