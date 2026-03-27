@@ -3728,12 +3728,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendEnabledRawLegacy = String(
           (import.meta as any)?.env?.HUGGINGFACE_BLEND_ENABLED ?? ''
       ).trim();
+      const hfBlendEnabledRawProcess = String(
+          (process as any)?.env?.VITE_HUGGINGFACE_BLEND_ENABLED ??
+              (process as any)?.env?.HUGGINGFACE_BLEND_ENABLED ??
+              ''
+      ).trim();
       const HF_BLEND_ENABLED = parseBooleanFlag(
-          hfBlendEnabledRawVite || hfBlendEnabledRawLegacy || 'false'
+          hfBlendEnabledRawVite || hfBlendEnabledRawLegacy || hfBlendEnabledRawProcess || 'false'
       );
       const hfBlendWeightRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_WEIGHT ??
+              (process as any)?.env?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
+              (process as any)?.env?.HUGGINGFACE_BLEND_WEIGHT ??
               0.25
       );
       const HF_BLEND_WEIGHT =
@@ -3743,6 +3750,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendMaxDeltaRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_MAX_DELTA ??
+              (process as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
+              (process as any)?.env?.HUGGINGFACE_BLEND_MAX_DELTA ??
               8
       );
       const HF_BLEND_MAX_DELTA =
@@ -4411,7 +4420,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               .toFixed(2)
       );
       addLog(
-          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA}`,
+          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA}`,
           HF_BLEND_ENABLED ? 'info' : 'warn'
       );
 
