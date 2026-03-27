@@ -4581,11 +4581,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const primaryPool = scoredCandidates.filter(item => !isRiskOffVerdict(item.aiVerdict));
       const modelTop6Pool = primaryPool.slice(0, 6);
       const executablePool = primaryPool.filter(item => item.executionBucket === 'EXECUTABLE');
-      const executableSortedPool = [...executablePool].sort((a, b) => {
-          const aScoreRaw = Number(a.executionScore);
-          const bScoreRaw = Number(b.executionScore);
-          const aScore = Number.isFinite(aScoreRaw) ? aScoreRaw : Number.NEGATIVE_INFINITY;
-          const bScore = Number.isFinite(bScoreRaw) ? bScoreRaw : Number.NEGATIVE_INFINITY;
+      const resolveExecutionSortScore = (item: any, useBase: boolean): number => {
+          const primaryRaw = Number(useBase ? item?.executionScoreBase : item?.executionScore);
+          if (Number.isFinite(primaryRaw)) return primaryRaw;
+          const fallbackRaw = Number(useBase ? item?.executionScore : item?.executionScoreBase);
+          if (Number.isFinite(fallbackRaw)) return fallbackRaw;
+          return Number.NEGATIVE_INFINITY;
+      };
+      const sortByExecutionScore = (a: any, b: any, useBase: boolean) => {
+          const aScore = resolveExecutionSortScore(a, useBase);
+          const bScore = resolveExecutionSortScore(b, useBase);
           if (aScore !== bScore) return bScore - aScore;
           const modelA = Number(a.modelRank);
           const modelB = Number(b.modelRank);
@@ -4593,6 +4598,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const modelSafeB = Number.isFinite(modelB) ? modelB : Number.POSITIVE_INFINITY;
           if (modelSafeA !== modelSafeB) return modelSafeA - modelSafeB;
           return String(a.symbol || '').localeCompare(String(b.symbol || ''));
+      };
+      const executableSortedPool = [...executablePool].sort((a, b) => {
+          return sortByExecutionScore(a, b, false);
+      });
+      const executableSortedPoolNoBlend = [...executablePool].sort((a, b) => {
+          return sortByExecutionScore(a, b, true);
       });
       const watchlistPool = primaryPool.filter(item => item.executionBucket === 'WATCHLIST');
       const invalidGeometryBlocked = watchlistPool.filter(item => item.executionReason === 'INVALID_GEOMETRY');
@@ -4609,6 +4620,78 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }, {});
 
       let top6Elite = executableSortedPool.slice(0, 6);
+      const top6EliteNoBlend = executableSortedPoolNoBlend.slice(0, 6);
+      const executionRankWithBlendMap = new Map<string, number>();
+      executableSortedPool.forEach((item, idx) => {
+          const symbolKey = normalizeContractSymbol(item?.symbol);
+          if (symbolKey && !executionRankWithBlendMap.has(symbolKey)) executionRankWithBlendMap.set(symbolKey, idx + 1);
+      });
+      const executionRankNoBlendMap = new Map<string, number>();
+      executableSortedPoolNoBlend.forEach((item, idx) => {
+          const symbolKey = normalizeContractSymbol(item?.symbol);
+          if (symbolKey && !executionRankNoBlendMap.has(symbolKey)) executionRankNoBlendMap.set(symbolKey, idx + 1);
+      });
+      const toSymbolList = (rows: any[]) =>
+          rows
+              .map((row) => normalizeContractSymbol(row?.symbol))
+              .filter((symbol): symbol is string => Boolean(symbol));
+      const withBlendSymbols = toSymbolList(top6Elite);
+      const noBlendSymbols = toSymbolList(top6EliteNoBlend);
+      const withBlendSet = new Set(withBlendSymbols);
+      const noBlendSet = new Set(noBlendSymbols);
+      const enteredSymbols = withBlendSymbols.filter((symbol) => !noBlendSet.has(symbol));
+      const removedSymbols = noBlendSymbols.filter((symbol) => !withBlendSet.has(symbol));
+      const withBlendRankLocal = new Map<string, number>();
+      withBlendSymbols.forEach((symbol, idx) => withBlendRankLocal.set(symbol, idx + 1));
+      const noBlendRankLocal = new Map<string, number>();
+      noBlendSymbols.forEach((symbol, idx) => noBlendRankLocal.set(symbol, idx + 1));
+      const overlapSymbols = withBlendSymbols.filter((symbol) => noBlendSet.has(symbol));
+      const rankShifts = overlapSymbols
+          .map((symbol) => {
+              const withRank = withBlendRankLocal.get(symbol);
+              const noRank = noBlendRankLocal.get(symbol);
+              if (!Number.isFinite(Number(withRank)) || !Number.isFinite(Number(noRank))) return null;
+              return Math.abs(Number(withRank) - Number(noRank));
+          })
+          .filter((value): value is number => Number.isFinite(Number(value)));
+      const rankShiftCount = rankShifts.filter((value) => value > 0).length;
+      const maxAbsRankShift =
+          rankShifts.length > 0 ? Math.max(...rankShifts.map((value) => Number(value))) : 0;
+      const avgAbsRankShift =
+          rankShifts.length > 0
+              ? Number(
+                    (
+                        rankShifts.reduce((acc, value) => acc + Number(value), 0) /
+                        Math.max(rankShifts.length, 1)
+                    ).toFixed(2)
+                )
+              : 0;
+      const summarizeDecisionCounts = (rows: any[]) =>
+          rows.reduce<Record<string, number>>((acc, row) => {
+              const key = String(row?.finalDecision || 'UNKNOWN').toUpperCase();
+              acc[key] = (acc[key] || 0) + 1;
+              return acc;
+          }, {});
+      const hfBlendShadowSummary = {
+          enabled: HF_BLEND_ENABLED,
+          selectionSize: Math.min(6, executablePool.length),
+          executableUniverse: executablePool.length,
+          withBlendSymbols,
+          withoutBlendSymbols: noBlendSymbols,
+          overlapCount: overlapSymbols.length,
+          enteredSymbols,
+          removedSymbols,
+          rankShiftCount,
+          maxAbsRankShift,
+          avgAbsRankShift,
+          changed: enteredSymbols.length > 0 || removedSymbols.length > 0 || rankShiftCount > 0,
+          decisionCountsWithBlend: summarizeDecisionCounts(top6Elite),
+          decisionCountsWithoutBlend: summarizeDecisionCounts(top6EliteNoBlend)
+      };
+      addLog(
+          `[HF_BLEND_SHADOW] enabled=${HF_BLEND_ENABLED} selected=${hfBlendShadowSummary.selectionSize} universe=${hfBlendShadowSummary.executableUniverse} overlap=${hfBlendShadowSummary.overlapCount} entered=${hfBlendShadowSummary.enteredSymbols.length} removed=${hfBlendShadowSummary.removedSymbols.length} rankShift=${hfBlendShadowSummary.rankShiftCount} maxShift=${hfBlendShadowSummary.maxAbsRankShift} avgShift=${hfBlendShadowSummary.avgAbsRankShift}`,
+          HF_BLEND_ENABLED ? "info" : "warn"
+      );
       const modelTop6SymbolSet = new Set(
           modelTop6Pool.map((item) => normalizeContractSymbol(item?.symbol)).filter((symbol): symbol is string => Boolean(symbol))
       );
@@ -4831,9 +4914,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const symbolKey = normalizeContractSymbol(item?.symbol);
           const executionRank =
               item.executionBucket === 'EXECUTABLE' ? (executionRankMap.get(symbolKey) ?? null) : null;
+          const executionRankWithBlend =
+              item.executionBucket === 'EXECUTABLE' ? (executionRankWithBlendMap.get(symbolKey) ?? null) : null;
+          const executionRankNoBlend =
+              item.executionBucket === 'EXECUTABLE' ? (executionRankNoBlendMap.get(symbolKey) ?? null) : null;
+          const executionRankShift =
+              executionRankWithBlend != null && executionRankNoBlend != null
+                  ? executionRankWithBlend - executionRankNoBlend
+                  : null;
           return {
               ...item,
-              executionRank
+              executionRank,
+              hfBlendShadowRankWithBlend: executionRankWithBlend,
+              hfBlendShadowRankNoBlend: executionRankNoBlend,
+              hfBlendShadowRankShift: executionRankShift
           };
       });
       if (ENTRY_FEASIBILITY_VERDICT_ENFORCE) {
@@ -4955,6 +5049,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ? Number(item.hfBlendDeltaQuality)
                   : null,
               hfBlendReason: normalizeOptionalText(item.hfBlendReason),
+              hfBlendShadowRankWithBlend: Number.isFinite(Number(item.hfBlendShadowRankWithBlend))
+                  ? Number(item.hfBlendShadowRankWithBlend)
+                  : null,
+              hfBlendShadowRankNoBlend: Number.isFinite(Number(item.hfBlendShadowRankNoBlend))
+                  ? Number(item.hfBlendShadowRankNoBlend)
+                  : null,
+              hfBlendShadowRankShift: Number.isFinite(Number(item.hfBlendShadowRankShift))
+                  ? Number(item.hfBlendShadowRankShift)
+                  : null,
               stopDistancePct: Number.isFinite(Number(item.stopDistancePct))
                   ? Number(item.stopDistancePct)
                   : null,
@@ -5028,6 +5131,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ? Number(item.hfBlendDeltaQuality)
                   : null,
               hfBlendReason: normalizeOptionalText(item?.hfBlendReason),
+              hfBlendShadowRankWithBlend: Number.isFinite(Number(item?.hfBlendShadowRankWithBlend))
+                  ? Number(item.hfBlendShadowRankWithBlend)
+                  : null,
+              hfBlendShadowRankNoBlend: Number.isFinite(Number(item?.hfBlendShadowRankNoBlend))
+                  ? Number(item.hfBlendShadowRankNoBlend)
+                  : null,
+              hfBlendShadowRankShift: Number.isFinite(Number(item?.hfBlendShadowRankShift))
+                  ? Number(item.hfBlendShadowRankShift)
+                  : null,
               convictionScore: Number.isFinite(Number(item?.convictionScore))
                   ? Number(item.convictionScore)
                   : null,
@@ -5190,6 +5302,20 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       positive: hfBlendPositiveCount,
                       negative: hfBlendNegativeCount,
                       netDeltaExecution: hfBlendNetDeltaExecution
+                  },
+                  hfBlendShadowSummary: {
+                      enabled: hfBlendShadowSummary.enabled,
+                      selectionSize: hfBlendShadowSummary.selectionSize,
+                      executableUniverse: hfBlendShadowSummary.executableUniverse,
+                      overlapCount: hfBlendShadowSummary.overlapCount,
+                      entered: hfBlendShadowSummary.enteredSymbols.length,
+                      removed: hfBlendShadowSummary.removedSymbols.length,
+                      rankShiftCount: hfBlendShadowSummary.rankShiftCount,
+                      maxAbsRankShift: hfBlendShadowSummary.maxAbsRankShift,
+                      avgAbsRankShift: hfBlendShadowSummary.avgAbsRankShift,
+                      changed: hfBlendShadowSummary.changed,
+                      withBlendSymbols: hfBlendShadowSummary.withBlendSymbols,
+                      withoutBlendSymbols: hfBlendShadowSummary.withoutBlendSymbols
                   },
               scoreViewDefault: scoreViewMode
               },
