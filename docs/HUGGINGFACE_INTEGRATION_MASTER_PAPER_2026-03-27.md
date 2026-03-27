@@ -13,9 +13,10 @@ Doc-Tier: P1 (Operational)
 
 ## 1) Executive Summary
 
-- 현재 HF는 "연결 검증 + 안정성 가드(smoke/strict)"까지 적용되었고, 점수 반영(분석 로직 반영)은 아직 미적용 상태다.
+- 현재 HF는 "연결 검증 + 안정성 가드(smoke/strict) + Advisory + Blend"까지 적용되었고, Stage6 실행 점수에 제한 반영이 동작 중이다.
 - 로컬 기준 HF 연결은 정상(라우터 엔드포인트, 인증, 추론 응답 확인)이며, 기존 `api-inference.huggingface.co`는 종료되어 `router.huggingface.co` 사용이 필수다.
 - 운영 전환은 `Advisory -> Blend` 2단계로 진행하며, 기본값은 항상 보수적으로 유지한다.
+- 최신 운영 검증에서 `HF_BLEND enabled=true` 및 실제 적용(`applied>0`, `netDeltaExecution != 0`)이 확인되었다.
 
 ---
 
@@ -33,12 +34,19 @@ Doc-Tier: P1 (Operational)
 4. GitHub Actions 스케줄 워크플로우 환경변수 매핑 반영
 5. 로컬 실측 검증 완료
    - `curl` 기준 `router` endpoint 200 응답 확인
+6. Advisory/Blend 반영 완료
+   - 후보별 `hfSentimentStatus/Label/Score` 기록
+   - Blend 적용 시 `hfBlendApplied`, `hfBlendDeltaExecution`, `hfBlendReason` 저장
+   - `manifest.hfBlendSummary` 집계 저장
+7. 운영/백엔드 경로 반영 완료
+   - Stage6 로그에 `[HF_BLEND] enabled=... rawVite=... rawLegacy=... rawProcess=...` 출력
+   - 스케줄 워크플로우(`.github/workflows/schedule.yml`)에 `HUGGINGFACE_BLEND_*` 매핑 반영
 
 ### 2.2 아직 미적용
 
-1. HF 점수의 실제 분석 반영(Advisory/Blend)
-2. 서버 경유(proxy) 강제 구조(클라이언트 직접 호출 최소화)
-3. HF 결과 기반 텔레그램 리포트 강화(운영용 해석 문구)
+1. 서버 경유(proxy) 강제 구조(클라이언트 직접 호출 최소화)
+2. HF 결과 기반 텔레그램 리포트 강화(운영용 해석 문구)
+3. 런별 모니터링 자동 리포트(5~10런 집계 자동화)
 
 ---
 
@@ -53,6 +61,12 @@ Doc-Tier: P1 (Operational)
 주의:
 - `VITE_*`는 클라이언트 번들 노출 가능성이 있으므로 Production에서는 최소화한다.
 - Vercel에서 smoke를 끌 경우 HF 관련 네트워크/콘솔 로그가 안 나오는 것이 정상이다.
+
+추가 정책(현재 고정값):
+- `HUGGINGFACE_ENABLE_ADVISORY=true`
+- `HUGGINGFACE_BLEND_ENABLED=true`
+- `HUGGINGFACE_BLEND_WEIGHT=0.25`
+- `HUGGINGFACE_BLEND_MAX_DELTA=8`
 
 ---
 
@@ -70,6 +84,7 @@ Doc-Tier: P1 (Operational)
 완료 기준:
 - 3회 이상 실행에서 누락 없이 HF audit 필드 수집
 - 기존 Top6/Executable 결과 변동 0 (Advisory이므로)
+- 상태: **완료**
 
 ### Phase B - Blend Mode (다음 단계)
 
@@ -83,6 +98,40 @@ Doc-Tier: P1 (Operational)
 완료 기준:
 - 5~10회 관측에서 결과 변동 추적표 확보
 - 주요 왜곡(과도한 rank jump, watchlist->exec 급변) 미발생
+- 상태: **진행 중(운영 관측 누적 단계)**
+
+---
+
+## 4-A) Track 3 운영 정책 고정 (신규)
+
+### A. `SMOKE_STRICT` 승격 규칙
+
+- 기본값: `false` 유지
+- `true` 승격 조건(모두 충족):
+  1. 최근 10런에서 HF smoke 성공률 95% 이상
+  2. 최근 10런에서 HF timeout/retry exhaustion으로 인한 Stage6 실패 0회
+  3. 운영 시간대(스케줄 런)에서 3일 연속 안정성 확인
+- 강등 규칙:
+  - 위 조건 중 하나라도 이탈하면 즉시 `SMOKE_STRICT=false`로 복귀
+
+### B. Blend Weight 조정 규칙
+
+- 시작 기준선: `weight=0.25`, `maxDelta=8`
+- 조정 단위:
+  - 10런 단위로만 검토
+  - 1회 조정폭은 `±0.05` 이내
+- 허용 범위:
+  - `0.15 <= weight <= 0.35`
+  - `maxDelta`는 운영 중 고정(기본 8), 긴급 조정 외 변경 금지
+
+### C. 장애 폴백 규칙
+
+- HF 상태 `FAILED/SKIPPED/DISABLED`는 Blend 미적용(`blend_disabled` or status reason)
+- HF 장애 시에도 Stage6 핵심 게이트는 지속 동작(비차단)
+- 장애 확산 시 우선순위:
+  1. `BLEND_ENABLED=false`
+  2. `ENABLE_ADVISORY=true` 유지
+  3. 필요 시 `ENABLE_ADVISORY=false`로 축소
 
 ---
 
@@ -118,9 +167,11 @@ No-Go 조건:
 
 Daily/Run 단위:
 - [ ] GitHub Actions 로그에 `[HF_SMOKE] ok|fail` 확인
+- [ ] Stage6 로그에 `[HF_BLEND] enabled=... rawVite=... rawLegacy=... rawProcess=...` 확인
 - [ ] Stage6 성공/실패 원인에서 HF strict block 여부 확인
 - [ ] Vercel은 smoke OFF 유지 확인
 - [ ] API key/timeout/retry 정책값 드리프트 점검
+- [ ] `hfBlendSummary(applied/positive/negative/netDeltaExecution)` 기록
 
 주간:
 - [ ] Advisory 관측 리포트 갱신
@@ -135,8 +186,11 @@ Daily/Run 단위:
 - `HUGGINGFACE_SUMMARY_MODEL=facebook/bart-large-cnn`
 - `HUGGINGFACE_ENABLE_SMOKE_TEST=true` (Local/GHA), `false` (Vercel)
 - `HUGGINGFACE_SMOKE_STRICT=false`
-- `HUGGINGFACE_ENABLE_ADVISORY=false` (기본 OFF, 단계적 활성화)
+- `HUGGINGFACE_ENABLE_ADVISORY=true`
 - `HUGGINGFACE_ADVISORY_MAX_CANDIDATES=6`
+- `HUGGINGFACE_BLEND_ENABLED=true`
+- `HUGGINGFACE_BLEND_WEIGHT=0.25`
+- `HUGGINGFACE_BLEND_MAX_DELTA=8`
 - `HUGGINGFACE_TIMEOUT_MS=4500`
 - `HUGGINGFACE_RETRY=1`
 
@@ -146,3 +200,4 @@ Daily/Run 단위:
 
 - 2026-03-27: 본 마스터 페이퍼 신규 작성
 - 2026-03-27: 현재 상태를 "Smoke/Guard 완료, Analysis 반영 미적용"으로 확정
+- 2026-03-27: Advisory/Blend 운영 반영 상태로 갱신, Track 3 정책(`SMOKE_STRICT` 승격/Blend 조정/폴백 규칙) 고정
