@@ -465,6 +465,7 @@ type HfAdvisoryAudit = {
   processed: number;
   succeeded: number;
   failed: number;
+  skipped: number;
   reason?: string;
   items: Record<string, HfAdvisoryItem>;
 };
@@ -504,22 +505,53 @@ const inferHfFailureReason = (message: string, statusCode: number | null): strin
 const normalizeAdvisorySymbol = (value: any): string =>
   String(value || '').replace(/[^a-zA-Z]/g, '').toUpperCase();
 
-const resolveHfAdvisoryText = (item: any): { text: string; textKind: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK' } => {
+const HF_SENTIMENT_LABEL_SET = new Set([
+  'positive',
+  'neutral',
+  'negative',
+  'bullish',
+  'bearish',
+  'ext positive',
+  'ext. positive',
+  'ext negative',
+  'ext. negative'
+]);
+
+const isLikelyHeadlineDigest = (text: string): boolean => {
+  const normalized = String(text || '').trim();
+  if (!normalized) return false;
+  if (/^no recent news\.?$/i.test(normalized)) return false;
+  const lowered = normalized.toLowerCase().replace(/\s+/g, ' ').trim();
+  if (HF_SENTIMENT_LABEL_SET.has(lowered)) return false;
+  if (lowered.length < 24) return false;
+  const hasStructuredDelimiter = lowered.includes('|') || /\[[^\]]+\]\s*/.test(normalized);
+  const hasSentenceSignal = /[.!?]\s/.test(normalized) || normalized.split(/\s+/).length >= 8;
+  return hasStructuredDelimiter || hasSentenceSignal;
+};
+
+const resolveHfAdvisoryText = (
+  item: any,
+  requireHeadline: boolean
+): { text: string; textKind: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK'; hasHeadlineSource: boolean } => {
   const headlineText = String(item?.newsSentiment || '').trim();
-  if (headlineText && !/^no recent news\.?$/i.test(headlineText)) {
-    return { text: headlineText.slice(0, 1200), textKind: 'HEADLINE' };
+  if (isLikelyHeadlineDigest(headlineText)) {
+    return { text: headlineText.slice(0, 1200), textKind: 'HEADLINE', hasHeadlineSource: true };
+  }
+
+  if (requireHeadline) {
+    return { text: '', textKind: 'FALLBACK', hasHeadlineSource: false };
   }
 
   const description = String(item?.description || '').trim();
   if (description) {
-    return { text: description.slice(0, 1200), textKind: 'DESCRIPTION' };
+    return { text: description.slice(0, 1200), textKind: 'DESCRIPTION', hasHeadlineSource: false };
   }
 
   const symbol = normalizeAdvisorySymbol(item?.symbol) || 'UNKNOWN';
   const sector = String(item?.sectorTheme || item?.sector || 'Unknown Sector').trim();
   const marketState = String(item?.marketState || 'Unknown').trim();
   const fallbackText = `${symbol} in ${sector}. Market state ${marketState}.`;
-  return { text: fallbackText, textKind: 'FALLBACK' };
+  return { text: fallbackText, textKind: 'FALLBACK', hasHeadlineSource: false };
 };
 
 const extractHfHeadlineMeta = (text: string, textKind: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK'): {
@@ -664,6 +696,7 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
   const enabled = HUGGINGFACE_CONFIG.ENABLE_ADVISORY;
   const model = String(HUGGINGFACE_CONFIG.FINBERT_MODEL || 'ProsusAI/finbert');
   const maxCandidates = Math.max(1, Number(HUGGINGFACE_CONFIG.ADVISORY_MAX_CANDIDATES || 6));
+  const requireHeadline = Boolean(HUGGINGFACE_CONFIG.ADVISORY_REQUIRE_HEADLINE);
   const emptyAudit: HfAdvisoryAudit = {
     enabled,
     attempted: false,
@@ -673,6 +706,7 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
     processed: 0,
     succeeded: 0,
     failed: 0,
+    skipped: 0,
     reason: 'disabled',
     items: {}
   };
@@ -699,10 +733,26 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
   const items: Record<string, HfAdvisoryItem> = {};
   let succeeded = 0;
   let failed = 0;
+  let skipped = 0;
 
   for (const item of ordered) {
     const symbol = normalizeAdvisorySymbol(item?.symbol);
-    const { text, textKind } = resolveHfAdvisoryText(item);
+    const { text, textKind, hasHeadlineSource } = resolveHfAdvisoryText(item, requireHeadline);
+    if (requireHeadline && !hasHeadlineSource) {
+      items[symbol] = {
+        symbol,
+        status: 'SKIPPED',
+        reason: 'NO_HEADLINE_SOURCE',
+        textKind,
+        articleCount: null,
+        newestAgeHours: null,
+        statusCode: null,
+        latencyMs: null
+      };
+      skipped += 1;
+      console.info(`[HF_ADVISORY] skip symbol=${symbol} reason=no_headline_source requireHeadline=true`);
+      continue;
+    }
     const headlineMeta = extractHfHeadlineMeta(text, textKind);
     try {
       const inference = await runHuggingFaceInference(text, model);
@@ -742,8 +792,18 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
   }
 
   const processed = ordered.length;
-  const ok = processed > 0 && failed === 0;
-  console.info(`[HF_ADVISORY] summary model=${model} processed=${processed} ok=${succeeded} fail=${failed}`);
+  const ok = succeeded > 0 && failed === 0;
+  const reason =
+    failed > 0
+      ? 'partial_failure'
+      : succeeded > 0
+        ? undefined
+        : skipped > 0
+          ? 'no_headline_source'
+          : 'no_success';
+  console.info(
+    `[HF_ADVISORY] summary model=${model} processed=${processed} ok=${succeeded} fail=${failed} skipped=${skipped} requireHeadline=${requireHeadline}`
+  );
   return {
     enabled,
     attempted: true,
@@ -753,6 +813,8 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
     processed,
     succeeded,
     failed,
+    skipped,
+    reason,
     items
   };
 }
