@@ -5800,6 +5800,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     Boolean(item?.hfBlendApplied) &&
                     hfBlendDeltaExecutionCard != null &&
                     Math.abs(hfBlendDeltaExecutionCard) > 0;
+                const hfBlendReasonCard = String(item?.hfBlendReason || '')
+                    .trim()
+                    .toLowerCase();
+                const hfBlendReasonLabel = hfBlendReasonCard === 'blend_positive'
+                    ? 'positive sentiment boost'
+                    : hfBlendReasonCard === 'blend_negative'
+                        ? 'negative sentiment haircut'
+                        : hfBlendReasonCard === 'blend_zero'
+                            ? 'neutral sentiment'
+                            : hfBlendReasonCard === 'blend_disabled'
+                                ? 'blend disabled'
+                                : hfBlendReasonCard === 'advisory_disabled'
+                                    ? 'advisory disabled'
+                                    : hfBlendReasonCard === 'status_failed'
+                                        ? 'hf status failed'
+                                        : hfBlendReasonCard === 'status_skipped'
+                                            ? 'hf status skipped'
+                                            : hfBlendReasonCard === 'status_disabled'
+                                                ? 'hf status disabled'
+                                                : 'blend adjustment';
                 const hfBlendBadgeText = hfBlendDeltaExecutionCard == null
                     ? 'HF Δ0.0'
                     : `HF Δ${hfBlendDeltaExecutionCard > 0 ? '+' : ''}${hfBlendDeltaExecutionCard.toFixed(1)}`;
@@ -5995,6 +6015,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                     className={`text-[7px] px-1.5 py-0.5 rounded-sm border font-black tracking-tight whitespace-nowrap cursor-help transition-colors ${hfBlendBadgeClass}`}
                                 >
                                     {hfBlendBadgeText}
+                                </span>
+                             )}
+                             {showHfBlendBadge && (
+                                <span className="text-[8px] px-1.5 py-0.5 rounded-sm bg-white/5 text-slate-300 border border-white/10 font-bold tracking-tight whitespace-nowrap">
+                                    {hfBlendReasonLabel}
                                 </span>
                              )}
                         </div>
