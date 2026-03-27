@@ -3728,9 +3728,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendEnabledRawLegacy = String(
           (import.meta as any)?.env?.HUGGINGFACE_BLEND_ENABLED ?? ''
       ).trim();
+      const processEnvRef =
+          (globalThis as any)?.process && (globalThis as any).process.env
+              ? (globalThis as any).process.env
+              : null;
       const hfBlendEnabledRawProcess = String(
-          (process as any)?.env?.VITE_HUGGINGFACE_BLEND_ENABLED ??
-              (process as any)?.env?.HUGGINGFACE_BLEND_ENABLED ??
+          processEnvRef?.VITE_HUGGINGFACE_BLEND_ENABLED ??
+              processEnvRef?.HUGGINGFACE_BLEND_ENABLED ??
               ''
       ).trim();
       const HF_BLEND_ENABLED = parseBooleanFlag(
@@ -3739,8 +3743,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendWeightRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_WEIGHT ??
-              (process as any)?.env?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
-              (process as any)?.env?.HUGGINGFACE_BLEND_WEIGHT ??
+              processEnvRef?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
+              processEnvRef?.HUGGINGFACE_BLEND_WEIGHT ??
               0.25
       );
       const HF_BLEND_WEIGHT =
@@ -3750,8 +3754,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendMaxDeltaRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_MAX_DELTA ??
-              (process as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
-              (process as any)?.env?.HUGGINGFACE_BLEND_MAX_DELTA ??
+              processEnvRef?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
+              processEnvRef?.HUGGINGFACE_BLEND_MAX_DELTA ??
               8
       );
       const HF_BLEND_MAX_DELTA =
