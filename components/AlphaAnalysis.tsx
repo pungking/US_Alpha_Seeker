@@ -3762,6 +3762,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(hfBlendMaxDeltaRaw) && hfBlendMaxDeltaRaw >= 0
               ? Math.min(hfBlendMaxDeltaRaw, 25)
               : 8;
+      const hfBlendPositiveScaleRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_POSITIVE_SCALE ??
+              (import.meta as any)?.env?.HUGGINGFACE_BLEND_POSITIVE_SCALE ??
+              processEnvRef?.VITE_HUGGINGFACE_BLEND_POSITIVE_SCALE ??
+              processEnvRef?.HUGGINGFACE_BLEND_POSITIVE_SCALE ??
+              1.0
+      );
+      const HF_BLEND_POSITIVE_SCALE =
+          Number.isFinite(hfBlendPositiveScaleRaw) && hfBlendPositiveScaleRaw >= 0
+              ? Math.min(hfBlendPositiveScaleRaw, 3)
+              : 1.0;
+      const hfBlendNegativeScaleRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
+              (import.meta as any)?.env?.HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
+              processEnvRef?.VITE_HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
+              processEnvRef?.HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
+              1.2
+      );
+      const HF_BLEND_NEGATIVE_SCALE =
+          Number.isFinite(hfBlendNegativeScaleRaw) && hfBlendNegativeScaleRaw >= 0
+              ? Math.min(hfBlendNegativeScaleRaw, 4)
+              : 1.2;
       const hfEarningsWindowEnabledRaw = String(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
               (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
@@ -4125,7 +4147,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           const confidence = Math.max(0, Math.min(1, Math.abs(score - 0.5) * 2));
           const direction = label === 'positive' ? 1 : -1;
-          const rawDelta = direction * HF_BLEND_MAX_DELTA * HF_BLEND_WEIGHT * confidence;
+          const asymmetryScale = label === 'positive' ? HF_BLEND_POSITIVE_SCALE : HF_BLEND_NEGATIVE_SCALE;
+          const rawDelta = direction * HF_BLEND_MAX_DELTA * HF_BLEND_WEIGHT * confidence * asymmetryScale;
           let deltaExecution = Number(
               Math.max(-HF_BLEND_MAX_DELTA, Math.min(HF_BLEND_MAX_DELTA, rawDelta)).toFixed(2)
           );
@@ -4550,7 +4573,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               .toFixed(2)
       );
       addLog(
-          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA} minArticles=${HF_BLEND_MIN_ARTICLE_COUNT} maxNewsAgeH=${HF_BLEND_MAX_NEWS_AGE_HOURS} newsCountLow=${hfBlendNewsCountLow} newsStale=${hfBlendNewsStale} earningsWindowEnabled=${HF_EARNINGS_WINDOW_ENABLED} earningsBlockDays=${HF_EARNINGS_WINDOW_BLOCK_DAYS} earningsReduceDays=${HF_EARNINGS_WINDOW_REDUCE_DAYS} earningsReduceFactor=${HF_EARNINGS_WINDOW_REDUCE_FACTOR} earningsBlocked=${hfBlendEarningsBlocked} earningsReduced=${hfBlendEarningsReduced}`,
+          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA} posScale=${HF_BLEND_POSITIVE_SCALE} negScale=${HF_BLEND_NEGATIVE_SCALE} minArticles=${HF_BLEND_MIN_ARTICLE_COUNT} maxNewsAgeH=${HF_BLEND_MAX_NEWS_AGE_HOURS} newsCountLow=${hfBlendNewsCountLow} newsStale=${hfBlendNewsStale} earningsWindowEnabled=${HF_EARNINGS_WINDOW_ENABLED} earningsBlockDays=${HF_EARNINGS_WINDOW_BLOCK_DAYS} earningsReduceDays=${HF_EARNINGS_WINDOW_REDUCE_DAYS} earningsReduceFactor=${HF_EARNINGS_WINDOW_REDUCE_FACTOR} earningsBlocked=${hfBlendEarningsBlocked} earningsReduced=${hfBlendEarningsReduced}`,
           HF_BLEND_ENABLED ? 'info' : 'warn'
       );
 
@@ -5157,7 +5180,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                       tier2ScoreMultiplier: STAGE6_TIER2_SCORE_MULTIPLIER,
                       hfBlendEnabled: HF_BLEND_ENABLED,
                       hfBlendWeight: HF_BLEND_WEIGHT,
-                      hfBlendMaxDelta: HF_BLEND_MAX_DELTA
+                      hfBlendMaxDelta: HF_BLEND_MAX_DELTA,
+                      hfBlendPositiveScale: HF_BLEND_POSITIVE_SCALE,
+                      hfBlendNegativeScale: HF_BLEND_NEGATIVE_SCALE
                   },
                   hfBlendSummary: {
                       enabled: HF_BLEND_ENABLED,

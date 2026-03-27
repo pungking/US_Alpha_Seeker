@@ -41,6 +41,8 @@ const getEnvVar = (key: string): string => {
                 HUGGINGFACE_BLEND_ENABLED: process.env.HUGGINGFACE_BLEND_ENABLED,
                 HUGGINGFACE_BLEND_WEIGHT: process.env.HUGGINGFACE_BLEND_WEIGHT,
                 HUGGINGFACE_BLEND_MAX_DELTA: process.env.HUGGINGFACE_BLEND_MAX_DELTA,
+                HUGGINGFACE_BLEND_POSITIVE_SCALE: process.env.HUGGINGFACE_BLEND_POSITIVE_SCALE,
+                HUGGINGFACE_BLEND_NEGATIVE_SCALE: process.env.HUGGINGFACE_BLEND_NEGATIVE_SCALE,
                 GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
@@ -206,6 +208,8 @@ export const HUGGINGFACE_CONFIG = {
   BLEND_ENABLED: parseBooleanEnv(['HUGGINGFACE_BLEND_ENABLED'], false),
   BLEND_WEIGHT: Math.max(0, Math.min(1, parseNumberEnv(['HUGGINGFACE_BLEND_WEIGHT'], 0.25))),
   BLEND_MAX_DELTA: Math.max(0, Math.min(25, parseNumberEnv(['HUGGINGFACE_BLEND_MAX_DELTA'], 8))),
+  BLEND_POSITIVE_SCALE: Math.max(0, Math.min(3, parseNumberEnv(['HUGGINGFACE_BLEND_POSITIVE_SCALE'], 1))),
+  BLEND_NEGATIVE_SCALE: Math.max(0, Math.min(4, parseNumberEnv(['HUGGINGFACE_BLEND_NEGATIVE_SCALE'], 1.2))),
   SMOKE_TEXT: getEnvVar('HUGGINGFACE_SMOKE_TEXT') || 'Company raised guidance after strong earnings and positive cashflow outlook.'
 } as const;
 
