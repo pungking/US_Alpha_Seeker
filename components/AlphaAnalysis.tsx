@@ -3762,6 +3762,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(hfBlendMaxDeltaRaw) && hfBlendMaxDeltaRaw >= 0
               ? Math.min(hfBlendMaxDeltaRaw, 25)
               : 8;
+      const hfBlendMinArticleCountRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
+              (import.meta as any)?.env?.HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
+              processEnvRef?.VITE_HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
+              processEnvRef?.HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
+              2
+      );
+      const HF_BLEND_MIN_ARTICLE_COUNT =
+          Number.isFinite(hfBlendMinArticleCountRaw) && hfBlendMinArticleCountRaw >= 0
+              ? Math.min(Math.round(hfBlendMinArticleCountRaw), 20)
+              : 2;
+      const hfBlendMaxNewsAgeHoursRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
+              (import.meta as any)?.env?.HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
+              processEnvRef?.VITE_HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
+              processEnvRef?.HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
+              24
+      );
+      const HF_BLEND_MAX_NEWS_AGE_HOURS =
+          Number.isFinite(hfBlendMaxNewsAgeHoursRaw) && hfBlendMaxNewsAgeHoursRaw >= 0
+              ? Math.min(hfBlendMaxNewsAgeHoursRaw, 240)
+              : 24;
       const isBullishVerdictForExecution = (verdict: string | null | undefined) => {
           const key = toVerdictKey(verdict);
           if (!key || key === 'NA' || key === 'N/A' || key === 'NONE' || key === 'NULL' || key === 'UNDEFINED' || key === 'TBD') {
@@ -3974,6 +3996,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const label = labelRaw || null;
           const scoreRaw = Number(item?.hfSentimentScore);
           const score = Number.isFinite(scoreRaw) ? scoreRaw : null;
+          const articleCountRaw = Number(item?.hfSentimentArticleCount);
+          const articleCount = Number.isFinite(articleCountRaw) ? Math.max(0, Math.round(articleCountRaw)) : null;
+          const newestAgeHoursRaw = Number(item?.hfSentimentNewestAgeHours);
+          const newestAgeHours = Number.isFinite(newestAgeHoursRaw) ? Math.max(0, newestAgeHoursRaw) : null;
           if (!HF_BLEND_ENABLED) {
               return {
                   applied: false,
@@ -4013,6 +4039,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   deltaExecution: 0,
                   deltaQuality: 0,
                   reason: 'score_missing',
+                  status,
+                  label,
+                  score
+              };
+          }
+          if (articleCount == null || articleCount < HF_BLEND_MIN_ARTICLE_COUNT) {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: 'news_count_low',
+                  status,
+                  label,
+                  score
+              };
+          }
+          if (newestAgeHours == null || newestAgeHours > HF_BLEND_MAX_NEWS_AGE_HOURS) {
+              return {
+                  applied: false,
+                  deltaExecution: 0,
+                  deltaQuality: 0,
+                  reason: 'news_stale',
                   status,
                   label,
                   score
@@ -4418,13 +4466,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendAppliedCount = scoredCandidates.filter((item) => Boolean(item?.hfBlendApplied)).length;
       const hfBlendPositiveCount = scoredCandidates.filter((item) => Number(item?.hfBlendDeltaExecution) > 0).length;
       const hfBlendNegativeCount = scoredCandidates.filter((item) => Number(item?.hfBlendDeltaExecution) < 0).length;
+      const hfBlendNewsCountLow = scoredCandidates.filter((item) => String(item?.hfBlendReason || '') === 'news_count_low').length;
+      const hfBlendNewsStale = scoredCandidates.filter((item) => String(item?.hfBlendReason || '') === 'news_stale').length;
       const hfBlendNetDeltaExecution = Number(
           scoredCandidates
               .reduce((acc, item) => acc + (Number.isFinite(Number(item?.hfBlendDeltaExecution)) ? Number(item.hfBlendDeltaExecution) : 0), 0)
               .toFixed(2)
       );
       addLog(
-          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA}`,
+          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA} minArticles=${HF_BLEND_MIN_ARTICLE_COUNT} maxNewsAgeH=${HF_BLEND_MAX_NEWS_AGE_HOURS} newsCountLow=${hfBlendNewsCountLow} newsStale=${hfBlendNewsStale}`,
           HF_BLEND_ENABLED ? 'info' : 'warn'
       );
 
@@ -4933,6 +4983,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   return null;
               })(),
               hfSentimentTextKind: normalizeOptionalText(item?.hfSentimentTextKind),
+              hfSentimentArticleCount: Number.isFinite(Number(item?.hfSentimentArticleCount))
+                  ? Math.max(0, Math.round(Number(item.hfSentimentArticleCount)))
+                  : null,
+              hfSentimentNewestAgeHours: Number.isFinite(Number(item?.hfSentimentNewestAgeHours))
+                  ? Number(Number(item.hfSentimentNewestAgeHours).toFixed(2))
+                  : null,
               earningsDaysToEvent: Number.isFinite(Number(item?.earningsDaysToEvent))
                   ? Number(item.earningsDaysToEvent)
                   : null,
@@ -5819,6 +5875,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                                             ? 'hf status skipped'
                                             : hfBlendReasonCard === 'status_disabled'
                                                 ? 'hf status disabled'
+                                                : hfBlendReasonCard === 'news_count_low'
+                                                    ? 'news count low'
+                                                    : hfBlendReasonCard === 'news_stale'
+                                                        ? 'news stale'
                                                 : 'blend adjustment';
                 const hfBlendBadgeText = hfBlendDeltaExecutionCard == null
                     ? 'HF Δ0.0'

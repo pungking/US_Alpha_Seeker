@@ -449,6 +449,8 @@ type HfAdvisoryItem = {
   label?: string;
   score?: number;
   textKind?: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK';
+  articleCount?: number | null;
+  newestAgeHours?: number | null;
   reason?: string;
   statusCode?: number | null;
   latencyMs?: number | null;
@@ -518,6 +520,33 @@ const resolveHfAdvisoryText = (item: any): { text: string; textKind: 'HEADLINE' 
   const marketState = String(item?.marketState || 'Unknown').trim();
   const fallbackText = `${symbol} in ${sector}. Market state ${marketState}.`;
   return { text: fallbackText, textKind: 'FALLBACK' };
+};
+
+const extractHfHeadlineMeta = (text: string, textKind: 'HEADLINE' | 'DESCRIPTION' | 'FALLBACK'): {
+  articleCount: number | null;
+  newestAgeHours: number | null;
+} => {
+  if (textKind !== 'HEADLINE') return { articleCount: null, newestAgeHours: null };
+  const parts = String(text || '')
+    .split('|')
+    .map((part) => String(part || '').trim())
+    .filter(Boolean);
+  const articleCount = parts.length > 0 ? parts.length : null;
+  const now = Date.now();
+  let newestAgeHours: number | null = null;
+  for (const part of parts) {
+    const m = part.match(/^\[(.+?)\]\s*/);
+    if (!m?.[1]) continue;
+    const ts = Date.parse(m[1]);
+    if (!Number.isFinite(ts)) continue;
+    const hours = Math.max(0, (now - ts) / 3600000);
+    if (!Number.isFinite(hours)) continue;
+    if (newestAgeHours == null || hours < newestAgeHours) newestAgeHours = hours;
+  }
+  return {
+    articleCount,
+    newestAgeHours: newestAgeHours == null ? null : Number(newestAgeHours.toFixed(2))
+  };
 };
 
 async function runHuggingFaceInference(inputText: string, model: string): Promise<HfInferenceSnapshot> {
@@ -674,6 +703,7 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
   for (const item of ordered) {
     const symbol = normalizeAdvisorySymbol(item?.symbol);
     const { text, textKind } = resolveHfAdvisoryText(item);
+    const headlineMeta = extractHfHeadlineMeta(text, textKind);
     try {
       const inference = await runHuggingFaceInference(text, model);
       items[symbol] = {
@@ -682,12 +712,16 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
         label: inference.sentimentLabel,
         score: inference.sentimentScore,
         textKind,
+        articleCount: headlineMeta.articleCount,
+        newestAgeHours: headlineMeta.newestAgeHours,
         statusCode: inference.statusCode,
         latencyMs: inference.latencyMs
       };
       succeeded += 1;
       const scoreText = inference.sentimentScore == null ? 'N/A' : inference.sentimentScore.toFixed(3);
-      console.info(`[HF_ADVISORY] ok symbol=${symbol} label=${inference.sentimentLabel || 'N/A'} score=${scoreText} kind=${textKind}`);
+      console.info(
+        `[HF_ADVISORY] ok symbol=${symbol} label=${inference.sentimentLabel || 'N/A'} score=${scoreText} kind=${textKind} articles=${headlineMeta.articleCount ?? 'N/A'} newestAgeH=${headlineMeta.newestAgeHours ?? 'N/A'}`
+      );
     } catch (error: any) {
       const message = String(error?.message || error || 'unknown_error');
       const statusCode = inferHttpStatusFromError(message);
@@ -697,6 +731,8 @@ async function runHuggingFaceAdvisory(candidates: any[]): Promise<HfAdvisoryAudi
         status: 'FAILED',
         reason,
         textKind,
+        articleCount: headlineMeta.articleCount,
+        newestAgeHours: headlineMeta.newestAgeHours,
         statusCode,
         latencyMs: null
       };
@@ -1400,6 +1436,12 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
                 hfSentimentStatus,
                 hfSentimentReason,
                 hfSentimentTextKind: typeof hfAdvisory?.textKind === 'string' ? hfAdvisory.textKind : null,
+                hfSentimentArticleCount: Number.isFinite(Number(hfAdvisory?.articleCount))
+                    ? Number(hfAdvisory.articleCount)
+                    : null,
+                hfSentimentNewestAgeHours: Number.isFinite(Number(hfAdvisory?.newestAgeHours))
+                    ? Number(hfAdvisory.newestAgeHours)
+                    : null,
                 
                 // --- Critical Safety Overrides (Quant Authority) ---
                 supportLevel: original.supportLevel || original.otePrice || (original.price * 0.95),
