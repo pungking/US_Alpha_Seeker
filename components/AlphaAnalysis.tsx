@@ -3762,6 +3762,47 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           Number.isFinite(hfBlendMaxDeltaRaw) && hfBlendMaxDeltaRaw >= 0
               ? Math.min(hfBlendMaxDeltaRaw, 25)
               : 8;
+      const hfEarningsWindowEnabledRaw = String(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
+              (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
+              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
+              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
+              'true'
+      ).trim();
+      const HF_EARNINGS_WINDOW_ENABLED = parseBooleanFlag(hfEarningsWindowEnabledRaw || 'true');
+      const hfEarningsWindowBlockDaysRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
+              (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
+              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
+              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
+              1
+      );
+      const HF_EARNINGS_WINDOW_BLOCK_DAYS =
+          Number.isFinite(hfEarningsWindowBlockDaysRaw) && hfEarningsWindowBlockDaysRaw >= 0
+              ? Math.min(Math.round(hfEarningsWindowBlockDaysRaw), 30)
+              : 1;
+      const hfEarningsWindowReduceDaysRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
+              (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
+              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
+              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
+              3
+      );
+      const HF_EARNINGS_WINDOW_REDUCE_DAYS =
+          Number.isFinite(hfEarningsWindowReduceDaysRaw) && hfEarningsWindowReduceDaysRaw >= HF_EARNINGS_WINDOW_BLOCK_DAYS
+              ? Math.min(Math.round(hfEarningsWindowReduceDaysRaw), 60)
+              : Math.max(HF_EARNINGS_WINDOW_BLOCK_DAYS, 3);
+      const hfEarningsWindowReduceFactorRaw = Number(
+          (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
+              (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
+              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
+              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
+              0.3
+      );
+      const HF_EARNINGS_WINDOW_REDUCE_FACTOR =
+          Number.isFinite(hfEarningsWindowReduceFactorRaw) && hfEarningsWindowReduceFactorRaw >= 0
+              ? Math.min(hfEarningsWindowReduceFactorRaw, 1)
+              : 0.3;
       const hfBlendMinArticleCountRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
@@ -4000,6 +4041,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const articleCount = Number.isFinite(articleCountRaw) ? Math.max(0, Math.round(articleCountRaw)) : null;
           const newestAgeHoursRaw = Number(item?.hfSentimentNewestAgeHours);
           const newestAgeHours = Number.isFinite(newestAgeHoursRaw) ? Math.max(0, newestAgeHoursRaw) : null;
+          const earningsDaysRaw = readCanonicalEarningsDaysToEvent(item as AlphaCandidate);
+          const earningsAbsDays =
+              Number.isFinite(Number(earningsDaysRaw)) && earningsDaysRaw != null
+                  ? Math.abs(Number(earningsDaysRaw))
+                  : null;
           if (!HF_BLEND_ENABLED) {
               return {
                   applied: false,
@@ -4080,15 +4126,37 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const confidence = Math.max(0, Math.min(1, Math.abs(score - 0.5) * 2));
           const direction = label === 'positive' ? 1 : -1;
           const rawDelta = direction * HF_BLEND_MAX_DELTA * HF_BLEND_WEIGHT * confidence;
-          const deltaExecution = Number(
+          let deltaExecution = Number(
               Math.max(-HF_BLEND_MAX_DELTA, Math.min(HF_BLEND_MAX_DELTA, rawDelta)).toFixed(2)
           );
+          if (HF_EARNINGS_WINDOW_ENABLED && earningsAbsDays != null) {
+              if (earningsAbsDays <= HF_EARNINGS_WINDOW_BLOCK_DAYS) {
+                  return {
+                      applied: false,
+                      deltaExecution: 0,
+                      deltaQuality: 0,
+                      reason: 'earnings_window_blocked',
+                      status,
+                      label,
+                      score
+                  };
+              }
+              if (earningsAbsDays <= HF_EARNINGS_WINDOW_REDUCE_DAYS) {
+                  deltaExecution = Number((deltaExecution * HF_EARNINGS_WINDOW_REDUCE_FACTOR).toFixed(2));
+              }
+          }
           if (Math.abs(deltaExecution) < 0.05) {
               return {
                   applied: false,
                   deltaExecution: 0,
                   deltaQuality: 0,
-                  reason: 'delta_too_small',
+                  reason:
+                      HF_EARNINGS_WINDOW_ENABLED &&
+                      earningsAbsDays != null &&
+                      earningsAbsDays > HF_EARNINGS_WINDOW_BLOCK_DAYS &&
+                      earningsAbsDays <= HF_EARNINGS_WINDOW_REDUCE_DAYS
+                          ? 'earnings_window_reduced'
+                          : 'delta_too_small',
                   status,
                   label,
                   score
@@ -4098,7 +4166,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               applied: true,
               deltaExecution,
               deltaQuality: Number((deltaExecution * 0.6).toFixed(2)),
-              reason: `label_${label}`,
+              reason:
+                  HF_EARNINGS_WINDOW_ENABLED &&
+                  earningsAbsDays != null &&
+                  earningsAbsDays > HF_EARNINGS_WINDOW_BLOCK_DAYS &&
+                  earningsAbsDays <= HF_EARNINGS_WINDOW_REDUCE_DAYS
+                      ? `earnings_window_reduced_label_${label}`
+                      : `label_${label}`,
               status,
               label,
               score
@@ -4468,13 +4542,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendNegativeCount = scoredCandidates.filter((item) => Number(item?.hfBlendDeltaExecution) < 0).length;
       const hfBlendNewsCountLow = scoredCandidates.filter((item) => String(item?.hfBlendReason || '') === 'news_count_low').length;
       const hfBlendNewsStale = scoredCandidates.filter((item) => String(item?.hfBlendReason || '') === 'news_stale').length;
+      const hfBlendEarningsBlocked = scoredCandidates.filter((item) => String(item?.hfBlendReason || '') === 'earnings_window_blocked').length;
+      const hfBlendEarningsReduced = scoredCandidates.filter((item) => String(item?.hfBlendReason || '').includes('earnings_window_reduced')).length;
       const hfBlendNetDeltaExecution = Number(
           scoredCandidates
               .reduce((acc, item) => acc + (Number.isFinite(Number(item?.hfBlendDeltaExecution)) ? Number(item.hfBlendDeltaExecution) : 0), 0)
               .toFixed(2)
       );
       addLog(
-          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA} minArticles=${HF_BLEND_MIN_ARTICLE_COUNT} maxNewsAgeH=${HF_BLEND_MAX_NEWS_AGE_HOURS} newsCountLow=${hfBlendNewsCountLow} newsStale=${hfBlendNewsStale}`,
+          `[HF_BLEND] enabled=${HF_BLEND_ENABLED} rawVite=${hfBlendEnabledRawVite || 'empty'} rawLegacy=${hfBlendEnabledRawLegacy || 'empty'} rawProcess=${hfBlendEnabledRawProcess || 'empty'} applied=${hfBlendAppliedCount}/${scoredCandidates.length} up=${hfBlendPositiveCount} down=${hfBlendNegativeCount} netDelta=${hfBlendNetDeltaExecution} weight=${HF_BLEND_WEIGHT} maxDelta=${HF_BLEND_MAX_DELTA} minArticles=${HF_BLEND_MIN_ARTICLE_COUNT} maxNewsAgeH=${HF_BLEND_MAX_NEWS_AGE_HOURS} newsCountLow=${hfBlendNewsCountLow} newsStale=${hfBlendNewsStale} earningsWindowEnabled=${HF_EARNINGS_WINDOW_ENABLED} earningsBlockDays=${HF_EARNINGS_WINDOW_BLOCK_DAYS} earningsReduceDays=${HF_EARNINGS_WINDOW_REDUCE_DAYS} earningsReduceFactor=${HF_EARNINGS_WINDOW_REDUCE_FACTOR} earningsBlocked=${hfBlendEarningsBlocked} earningsReduced=${hfBlendEarningsReduced}`,
           HF_BLEND_ENABLED ? 'info' : 'warn'
       );
 
@@ -5863,6 +5939,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     ? 'positive sentiment boost'
                     : hfBlendReasonCard === 'blend_negative'
                         ? 'negative sentiment haircut'
+                        : hfBlendReasonCard === 'earnings_window_blocked'
+                            ? 'earnings window blocked'
+                            : hfBlendReasonCard.includes('earnings_window_reduced')
+                                ? 'earnings window reduced'
                         : hfBlendReasonCard === 'blend_zero'
                             ? 'neutral sentiment'
                             : hfBlendReasonCard === 'blend_disabled'
