@@ -300,6 +300,39 @@ async function getAccessToken() {
         await new Promise((resolve) => setTimeout(resolve, 800));
         await page.screenshot({ path: 'alpha_report_success.png', fullPage: false });
     } else {
+        const failureDiag = await page.evaluate(() => {
+            const win = window;
+            const bodyText = String(document.body?.innerText || "");
+            const lines = bodyText
+                .split(/\r?\n/)
+                .map((line) => line.trim())
+                .filter(Boolean);
+            const keys = [
+                "CRITICAL FAILURE:",
+                "AutoPilot Failed:",
+                "AI Coverage Failure:",
+                "AI Synthesis Unavailable",
+                "Stage 5 Data Not Found",
+                "Drive upload failed",
+                "TELEGRAM_CONTRACT_MISMATCH",
+                "Brief Gen Failed:",
+                "AUTO ABORTED:",
+                "NO CANDIDATES",
+                "AI FAILED NO REPORT",
+                "INTEGRITY GATE BLOCKED"
+            ];
+            const matched = lines.filter((line) => keys.some((key) => line.includes(key)));
+            const progress = win.__AUTO_PROGRESS || null;
+            const dispatch = win.__STAGE6_DISPATCH_INFO || null;
+            const done = typeof win.__AUTO_DONE === "string" ? win.__AUTO_DONE : "";
+            return {
+                done,
+                progress,
+                dispatch,
+                matched: matched.slice(-12)
+            };
+        });
+
         const normalized = String(finalState || '');
         const statusLine =
             normalized
@@ -307,6 +340,22 @@ async function getAccessToken() {
                 .find((line) => line.includes(SUCCESS_STATUS) || FAILURE_MARKERS.some((marker) => line.includes(marker))) ||
             normalized.slice(0, 200);
         console.error(`❌ PIPELINE TERMINATED: ${statusLine}`);
+        if (failureDiag?.progress) {
+            console.error(
+                `[AUTO_STATE] stage=${failureDiag.progress.stageId}(${failureDiag.progress.stageLabel}) status="${failureDiag.progress.status}"`
+            );
+        }
+        if (failureDiag?.dispatch) {
+            console.error(
+                `[AUTO_STATE] dispatch stage6File=${failureDiag.dispatch.stage6File || "N/A"} ` +
+                `stage6Hash=${String(failureDiag.dispatch.stage6Hash || "N/A").slice(0, 12)}`
+            );
+        } else {
+            console.error("[AUTO_STATE] dispatch stage6File=N/A stage6Hash=N/A");
+        }
+        if (Array.isArray(failureDiag?.matched) && failureDiag.matched.length > 0) {
+            failureDiag.matched.forEach((line) => console.error(`[AUTO_DIAG] ${line}`));
+        }
         await page.evaluate(() => window.scrollTo(0, 0));
         await page.screenshot({ path: 'alpha_report_warning.png', fullPage: false });
         process.exitCode = 1;
