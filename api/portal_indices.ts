@@ -45,7 +45,8 @@ export default async function handler(req: any, res: any) {
   // --- STRATEGY B: RAPID API CNBC (Reliable Proxy - NEW) ---
   const fetchRapidCNBC = async () => {
     try {
-        const RAPID_KEY = process.env.RAPID_API_KEY || '9732bdf9b4msh26c34f61e9a7fc4p1eca3ajsncd56ae81b71e'; // Fallback for local dev if env missing
+        const RAPID_KEY = String(process.env.RAPID_API_KEY || '').trim();
+        if (!RAPID_KEY) throw new Error('RapidAPI key missing');
         const RAPID_HOST = 'cnbc.p.rapidapi.com';
         const symbols = ".IXIC|.NDX|.SPX|.DJI|.VIX|AAPL|NVDA|TSLA|MSFT";
         
