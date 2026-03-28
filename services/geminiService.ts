@@ -5,7 +5,7 @@ import { ApiProvider } from "../types";
 
 const getApiKey = () => {
   const config = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);
-  return process.env.API_KEY || config?.key || "";
+  return config?.key || "";
 };
 
 async function fetchWithRetry(fn: () => Promise<any>, retries = 2, delay = 5000): Promise<any> {

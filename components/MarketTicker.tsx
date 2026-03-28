@@ -108,8 +108,9 @@ const MarketTicker: React.FC = () => {
   const alpacaSecret =
     // @ts-ignore
     (typeof import.meta !== 'undefined' && import.meta.env?.VITE_ALPACA_SECRET) ||
-    // Guarded access to avoid process reference errors in Vite browser runtime.
-    (typeof process !== 'undefined' && process.env?.ALPACA_SECRET ? process.env.ALPACA_SECRET : '') ||
+    // Legacy support for non-prefixed local builds.
+    // @ts-ignore
+    (typeof import.meta !== 'undefined' && import.meta.env?.ALPACA_SECRET) ||
     '';
 
   // [PRESERVED] Index Order: NASDAQ Comp First, then NASDAQ 100

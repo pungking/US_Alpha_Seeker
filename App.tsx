@@ -263,7 +263,7 @@ const App: React.FC = () => {
   const refreshApiStatuses = useCallback(async () => {
     const hasGdriveToken = !!sessionStorage.getItem('gdrive_access_token');
     setIsGdriveConnected(hasGdriveToken);
-    let geminiActive = !!process.env.API_KEY;
+    let geminiActive = !!API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI)?.key;
     if (window.aistudio && !geminiActive) geminiActive = await window.aistudio.hasSelectedApiKey();
     if (!geminiActive) {
       const geminiConfig = API_CONFIGS.find(c => c.provider === ApiProvider.GEMINI);

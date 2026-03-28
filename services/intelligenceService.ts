@@ -944,7 +944,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
   }
 
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const prompt = `
@@ -965,7 +965,7 @@ export async function runAiBacktest(stock: any, provider: ApiProvider): Promise<
 
   try {
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      const ai = new GoogleGenAI({ apiKey: config?.key || "" });
       const result = await fetchWithRetry(() => ai.models.generateContent({
         model: GEMINI_MODELS.FAST,
         contents: prompt,
@@ -1023,7 +1023,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
   }
 
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = config?.key;
   if (!apiKey) return { data: null, error: "API_KEY_MISSING" };
 
   const hfSmokeAudit = await runHuggingFaceSmokeTest();
@@ -1525,7 +1525,7 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
     };
 
     if (provider === ApiProvider.GEMINI) {
-      const ai = new GoogleGenAI({ apiKey: process.env.API_KEY || config?.key || "" });
+      const ai = new GoogleGenAI({ apiKey: config?.key || "" });
       
       // [NEW] Batch Processing Implementation (25 items per batch)
       const BATCH_SIZE = 25;
@@ -1978,7 +1978,7 @@ export async function analyzePipelineStatus(data: {
   recommendedData?: any[];
 }, provider: ApiProvider): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = config?.key;
   if (!apiKey) return "AUDIT_ERROR: API Key Missing";
 
   const isPortfolio = data.mode === 'PORTFOLIO';
@@ -2126,7 +2126,7 @@ export async function generateTelegramBrief(
   contractContext?: TelegramBriefContractContext
 ): Promise<string> {
   const config = API_CONFIGS.find(c => c.provider === provider);
-  const apiKey = (provider === ApiProvider.GEMINI) ? (process.env.API_KEY || config?.key) : config?.key;
+  const apiKey = config?.key;
   if (!apiKey) return "TELEGRAM_GEN_ERROR: API Key Missing";
 
   const dateOptions: Intl.DateTimeFormatOptions = { year: 'numeric', month: 'long', day: 'numeric', weekday: 'long' };
