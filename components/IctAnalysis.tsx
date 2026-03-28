@@ -3,6 +3,7 @@ import React, { useState, useEffect, useRef } from 'react';
 import { Radar, RadarChart, PolarGrid, PolarAngleAxis, PolarRadiusAxis, ResponsiveContainer, Tooltip as RechartsTooltip } from 'recharts';
 import { GOOGLE_DRIVE_TARGET, STRATEGY_CONFIG } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
+import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 
 interface IctScoredTicker {
   symbol: string;
@@ -587,12 +588,6 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
     const p = { info: '>', ok: '[OK]', err: '[ERR]', warn: '[WARN]', signal: '[AUTO]' };
     setLogs(prev => [...prev, `${p[t]} ${m}`].slice(-40));
   };
-  const assertDriveOk = async (res: Response, context: string) => {
-    if (res.ok) return;
-    const errText = await res.text().catch(() => '');
-    throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
-  };
-
   const formatTime = (seconds: number) => {
     if (seconds <= 0) return "--:--";
     const mins = Math.floor(seconds / 60);
@@ -673,7 +668,8 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
                       headers: { 'Authorization': `Bearer ${accessToken}` }
                   });
                   await assertDriveOk(contentRes, `loadStage4.content(${fileMeta.id})`);
-                  const content = await contentRes.json();
+                  const contentText = await contentRes.text();
+                  const content = parseDriveJsonText(contentText);
                   const rows = Array.isArray(content?.technical_universe) ? content.technical_universe : [];
                   if (rows.length === 0) continue;
 
@@ -1360,9 +1356,10 @@ const IctAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSelected, 
         headers: { 'Authorization': `Bearer ${token}` }
       });
       await assertDriveOk(dataRes, `loadLatestJsonFromFolder.content(${latest.id})`);
-      const data = await dataRes.json();
+      const dataText = await dataRes.text();
+      const data = parseDriveJsonText<T>(dataText);
 
-      return { data: data as T, name: latest.name || fileName };
+      return { data, name: latest.name || fileName };
     } catch {
       return { data: null, name: null };
     }
