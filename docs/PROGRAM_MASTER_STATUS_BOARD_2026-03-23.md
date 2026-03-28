@@ -2,6 +2,8 @@
 
 Doc-Tier: P0 (Control Tower)
 
+Last Audit Update: 2026-03-28
+
 
 목적: 수집(Harvester) -> 분석(Web App Stage0~6) -> 추적/검증/시뮬(Sidecar) 전체를 한 문서에서 상태 관리한다.
 
@@ -55,7 +57,7 @@ Doc-Tier: P0 (Control Tower)
 | G-2 | 6-6 Conviction cliff 모니터링 | 미완 | 신규 해시 3회 이상에서 급락 재발 없음/원인 추적 가능 |
 | G-3 | perf_loop 샘플 | 미완 (`11/20`) | `>=20/20`, `PENDING_SAMPLE` 해제 |
 | G-4 | Guard release path | 미완 | L2 차단/해제 양쪽 로그+요약 증적 확보 |
-| G-5 | 최종 Closure 문서 | 미완 | 완료/미완만 남긴 단일 SSOT 문서 확정 |
+| G-5 | 최종 Closure 문서 | 진행중 | `docs/DOC_REMEDIATION_AUDIT_2026-03-28.md` 기준 전수 분류 + 미보완 문서 정리 완료 |
 
 ---
 
@@ -107,6 +109,18 @@ Doc-Tier: P0 (Control Tower)
 - perf_loop progress: `11/20` (변화 없음, 자연 누적 대기)
 - 신규 이슈: 없음(운영 기본값 `ACTIONABLE_INCLUDE_SPECULATIVE_BUY=false` 회귀 확인 완료)
 
+### 5-2. Daily Update (2026-03-28, sidecar 일반+Probe 검증)
+
+- Stage6 file/hash: `STAGE6_ALPHA_FINAL_2026-03-27_19-44-16.json` / `b762c619ae24`
+- Stage6 contract: `checked=1 executable=1 watchlist=0 blocked=0`
+- Sidecar summary:
+  - 일반런 `hf_daily_verdict=HOLD`, `hf_payload_probe=PENDING_NO_PAYLOAD`
+  - Probe런 `hf_daily_verdict=HOLD`, `hf_payload_probe=PASS_FORCED_SIZE_REDUCED`
+- Guard control: `L3`, `stale=false`, `reason=guard_control_halt_new_entries(level=L3),simulated_live_parity`
+- 품질/감사: `hf_marker_audit` all `ok`, `hf_alert=false`, `requiredMissing=perfGateGo,freezeFrozen`
+- perf_loop progress: `11/20` (변화 없음, 성숙도 누적 대기)
+- 신규 이슈: 없음(코드 회귀 징후 없음)
+
 ---
 
 ## 6) 이 문서 사용 규칙
@@ -121,9 +135,9 @@ Doc-Tier: P0 (Control Tower)
 
 ### 7-1. 점검 커버리지
 
-- `docs/` 기준 마크다운 문서 전수 인덱싱 완료(총 39개).
-- 상태/잔여/증적 키워드 전수 스캔 완료.
-- 운영 의사결정에 직접 영향이 큰 핵심 문서군은 정밀 확인 완료.
+- `docs/` + `sidecar-template/alpha-exec-engine/docs` + `sidecar-template/alpha-exec-engine/README.md` 전수 점검 완료(총 48개).
+- 상태/잔여/증적 키워드 스캔 및 `[ ]/[x]` 기반 분류 완료.
+- 결과 문서: `docs/DOC_REMEDIATION_AUDIT_2026-03-28.md` (보완완료/진행중/미보완 전수 테이블).
 
 ### 7-2. 문서군별 상태
 
