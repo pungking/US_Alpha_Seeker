@@ -602,7 +602,8 @@ const DeepQualityFilter: React.FC<Props> = ({ autoStart, onComplete, onStockSele
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
           await assertDriveOk(stage1Res, "executeDeepFilter.downloadStage1");
-          const stage1Content = await stage1Res.json();
+          const stage1Text = await stage1Res.text();
+          const stage1Content = parseDriveJsonText(stage1Text);
 
           const stage1RawCandidates = Array.isArray(stage1Content?.investable_universe)
               ? stage1Content.investable_universe
