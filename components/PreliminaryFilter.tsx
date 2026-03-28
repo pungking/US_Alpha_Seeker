@@ -8,6 +8,7 @@ import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
+import { assertDriveOk } from '../services/driveJsonUtils';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
 interface MasterTicker {
@@ -168,11 +169,6 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
       const parsed = Number(value);
       if (!Number.isFinite(parsed)) return Math.max(0, Math.floor(fallback));
       return Math.max(0, Math.floor(parsed));
-  };
-  const assertDriveOk = async (res: Response, context: string) => {
-      if (res.ok) return;
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
   };
   const findChildFolderId = async (token: string, name: string, parentId: string): Promise<string | null> => {
       const q = encodeURIComponent(
