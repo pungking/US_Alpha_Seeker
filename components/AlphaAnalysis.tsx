@@ -10,6 +10,7 @@ import { sendTelegramReport, sendSimulationTelegramReport, buildTelegramMessage 
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { enforceStageDriveRetention } from '../services/driveRetentionService';
+import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 
 declare global {
   interface Window {
@@ -2602,9 +2603,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       }
       
       if (latestFile?.id) {
-        const content = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media&supportsAllDrives=true`, {
+        const contentRes = await fetch(`https://www.googleapis.com/drive/v3/files/${latestFile.id}?alt=media&supportsAllDrives=true`, {
             headers: { 'Authorization': `Bearer ${accessToken}` }
-        }).then(r => r.json());
+        });
+        await assertDriveOk(contentRes, `loadStage5.content(${latestFile.id})`);
+        const contentText = await contentRes.text();
+        const content = parseDriveJsonText(contentText);
         
         if (content && Array.isArray(content.ict_universe) && content.ict_universe.length > 0) {
             // [VALIDATION] Check for critical fields to prevent "Data Missing" UI
@@ -2671,10 +2675,9 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
   const downloadFile = async (token: string, fileId: string) => {
       const res = await fetch(`https://www.googleapis.com/drive/v3/files/${fileId}?alt=media`, { headers: { 'Authorization': `Bearer ${token}` } });
+      await assertDriveOk(res, `downloadFile(${fileId})`);
       const text = await res.text();
-      // Handle NaN/Infinity in JSON
-      const safeText = text.replace(/:\s*NaN/g, ': null').replace(/:\s*Infinity/g, ': null').replace(/:\s*-Infinity/g, ': null');
-      return JSON.parse(safeText);
+      return parseDriveJsonText(text);
   };
 
   const enrichCandidatesWithDriveData = async (candidates: any[], token: string) => {
