@@ -7,7 +7,7 @@ on:
 
 concurrency:
   group: sidecar-market-guard-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   market-guard:
