@@ -981,7 +981,8 @@ const FundamentalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSe
                     headers: { 'Authorization': `Bearer ${accessToken}` }
                 });
                 await assertDriveOk(candidateRes, `loadStage2.content(${file.id})`);
-                const candidateContent = await candidateRes.json();
+                const candidateText = await candidateRes.text();
+                const candidateContent = parseDriveJsonText(candidateText);
 
                 const candidateUniverse = Array.isArray(candidateContent?.elite_universe) ? candidateContent.elite_universe : [];
                 if (candidateUniverse.length > 0) {
