@@ -8,7 +8,7 @@ import { ApiProvider } from '../types';
 import { trackUsage, removeCitations } from '../services/intelligenceService';
 import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
-import { assertDriveOk } from '../services/driveJsonUtils';
+import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 
 // [STAGE 0 -> 1 DATA STRUCTURE]
 interface MasterTicker {
@@ -271,7 +271,8 @@ const PreliminaryFilter: React.FC<Props> = ({ autoStart, onComplete }) => {
             headers: { 'Authorization': `Bearer ${accessToken}` }
           });
           await assertDriveOk(contentFetch, `loadStage0.content(${stage0Source.id})`);
-          const content = await contentFetch.json();
+          const contentText = await contentFetch.text();
+          const content = parseDriveJsonText(contentText);
           const stage0FileName = String(stage0Source?.name || '');
           const stage0FileId = String(stage0Source?.id || '');
           setStage0SourceFile(stage0FileName || null);
