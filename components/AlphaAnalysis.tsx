@@ -3728,23 +3728,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendEnabledRawLegacy = String(
           (import.meta as any)?.env?.HUGGINGFACE_BLEND_ENABLED ?? ''
       ).trim();
-      const processEnvRef =
-          (globalThis as any)?.process && (globalThis as any).process.env
-              ? (globalThis as any).process.env
-              : null;
-      const hfBlendEnabledRawProcess = String(
-          processEnvRef?.VITE_HUGGINGFACE_BLEND_ENABLED ??
-              processEnvRef?.HUGGINGFACE_BLEND_ENABLED ??
-              ''
-      ).trim();
       const HF_BLEND_ENABLED = parseBooleanFlag(
-          hfBlendEnabledRawVite || hfBlendEnabledRawLegacy || hfBlendEnabledRawProcess || 'false'
+          hfBlendEnabledRawVite || hfBlendEnabledRawLegacy || 'false'
       );
       const hfBlendWeightRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_WEIGHT ??
-              processEnvRef?.VITE_HUGGINGFACE_BLEND_WEIGHT ??
-              processEnvRef?.HUGGINGFACE_BLEND_WEIGHT ??
               0.25
       );
       const HF_BLEND_WEIGHT =
@@ -3754,8 +3743,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendMaxDeltaRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_MAX_DELTA ??
-              processEnvRef?.VITE_HUGGINGFACE_BLEND_MAX_DELTA ??
-              processEnvRef?.HUGGINGFACE_BLEND_MAX_DELTA ??
               8
       );
       const HF_BLEND_MAX_DELTA =
@@ -3765,8 +3752,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendPositiveScaleRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_POSITIVE_SCALE ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_POSITIVE_SCALE ??
-              processEnvRef?.VITE_HUGGINGFACE_BLEND_POSITIVE_SCALE ??
-              processEnvRef?.HUGGINGFACE_BLEND_POSITIVE_SCALE ??
               1.0
       );
       const HF_BLEND_POSITIVE_SCALE =
@@ -3776,8 +3761,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendNegativeScaleRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
-              processEnvRef?.VITE_HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
-              processEnvRef?.HUGGINGFACE_BLEND_NEGATIVE_SCALE ??
               1.2
       );
       const HF_BLEND_NEGATIVE_SCALE =
@@ -3787,16 +3770,12 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfEarningsWindowEnabledRaw = String(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
               (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
-              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
-              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_ENABLED ??
               'true'
       ).trim();
       const HF_EARNINGS_WINDOW_ENABLED = parseBooleanFlag(hfEarningsWindowEnabledRaw || 'true');
       const hfEarningsWindowBlockDaysRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
               (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
-              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
-              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_BLOCK_DAYS ??
               1
       );
       const HF_EARNINGS_WINDOW_BLOCK_DAYS =
@@ -3806,8 +3785,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfEarningsWindowReduceDaysRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
               (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
-              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
-              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_DAYS ??
               3
       );
       const HF_EARNINGS_WINDOW_REDUCE_DAYS =
@@ -3817,8 +3794,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfEarningsWindowReduceFactorRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
               (import.meta as any)?.env?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
-              processEnvRef?.VITE_HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
-              processEnvRef?.HUGGINGFACE_EARNINGS_WINDOW_REDUCE_FACTOR ??
               0.3
       );
       const HF_EARNINGS_WINDOW_REDUCE_FACTOR =
@@ -3828,8 +3803,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendMinArticleCountRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
-              processEnvRef?.VITE_HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
-              processEnvRef?.HUGGINGFACE_BLEND_MIN_ARTICLE_COUNT ??
               2
       );
       const HF_BLEND_MIN_ARTICLE_COUNT =
@@ -3839,8 +3812,6 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       const hfBlendMaxNewsAgeHoursRaw = Number(
           (import.meta as any)?.env?.VITE_HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
               (import.meta as any)?.env?.HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
-              processEnvRef?.VITE_HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
-              processEnvRef?.HUGGINGFACE_BLEND_MAX_NEWS_AGE_HOURS ??
               24
       );
       const HF_BLEND_MAX_NEWS_AGE_HOURS =
