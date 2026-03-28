@@ -1861,7 +1861,8 @@ const TechnicalAnalysis: React.FC<Props> = ({ autoStart, onComplete, onStockSele
         headers: { 'Authorization': `Bearer ${accessToken}` }
       });
       await assertDriveOk(stage3ContentRes, `loadStage3.content(${stage3FileId})`);
-      const content = await stage3ContentRes.json();
+      const contentText = await stage3ContentRes.text();
+      const content = parseDriveJsonText(contentText);
 
       const stage3UniverseRaw = Array.isArray(content?.fundamental_universe) ? content.fundamental_universe : [];
       const stage3InputCount = Number(content?.manifest?.inputCount || stage3UniverseRaw.length);
