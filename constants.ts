@@ -128,10 +128,10 @@ export const GITHUB_DISPATCH_CONFIG = {
 };
 
 export const TELEGRAM_CONFIG = {
-  TOKEN: getEnvVar('TELEGRAM_TOKEN') || process.env.TELEGRAM_TOKEN || '',
-  CHAT_ID: getEnvVar('TELEGRAM_CHAT_ID') || process.env.TELEGRAM_CHAT_ID || '',
+  TOKEN: getEnvVar('TELEGRAM_TOKEN'),
+  CHAT_ID: getEnvVar('TELEGRAM_CHAT_ID'),
   // [SIMULATION CHANNEL] Backtest/simulation execution events are routed here.
-  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID') || process.env.TELEGRAM_SIMULATION_CHAT_ID || ''
+  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID')
 };
 
 export const API_CONFIGS: ApiConfig[] = [
