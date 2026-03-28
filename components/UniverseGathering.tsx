@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { ApiProvider, ApiStatus } from '../types';
 import { GOOGLE_DRIVE_TARGET, API_CONFIGS } from '../constants';
 import { formatKstFilenameTimestamp } from '../services/timeService';
+import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
 
 declare global {
   interface Window {
@@ -1077,12 +1078,6 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
   };
 
   // --- DRIVE UTILS ---
-  const assertDriveOk = async (res: Response, context: string) => {
-      if (res.ok) return;
-      const errText = await res.text().catch(() => '');
-      throw new Error(`Drive ${context} failed: HTTP ${res.status} ${errText.slice(0, 240)}`);
-  };
-
   const findFolder = async (token: string, name: string, parentId = 'root') => {
       const q = encodeURIComponent(`name = '${name}' and mimeType = 'application/vnd.google-apps.folder' and '${parentId}' in parents and trashed = false`);
       const res = await fetch(`https://www.googleapis.com/drive/v3/files?q=${q}`, {
@@ -1109,14 +1104,8 @@ const UniverseGathering: React.FC<Props> = ({ onAuthSuccess, isActive, apiStatus
       });
       await assertDriveOk(res, `downloadFile(${fileId})`);
       
-      // [FIX] Handle non-standard JSON (NaN, Infinity) from Python/Pandas dumps
       const text = await res.text();
-      const safeText = text
-        .replace(/:\s*NaN/g, ': null')
-        .replace(/:\s*Infinity/g, ': null')
-        .replace(/:\s*-Infinity/g, ': null');
-        
-      return JSON.parse(safeText);
+      return parseDriveJsonText(text);
   };
 
   const ensureFolder = async (token: string, name: string) => {
