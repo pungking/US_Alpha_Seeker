@@ -1,3 +1,7 @@
 .env.vercel.example
 .env
 .env.local
+
+# Build artifacts
+dist/
+build/
