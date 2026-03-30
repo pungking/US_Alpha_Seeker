@@ -44,3 +44,15 @@ Set in GitHub (Secrets/Variables):
 Optional GitHub variables:
 - `NOTION_GHA_SYNC_ENABLED=true|false` (default: `true`)
 - `NOTION_GHA_SYNC_REQUIRED=true|false` (default: `false`, if `true` then sync failure fails workflow)
+
+## Notion Workspace Operations
+
+Recommended schema/view cleanup and extension plan:
+
+- `docs/NOTION_WORKSPACE_TUNEUP_CHECKLIST.md`
+
+This document includes:
+- what to keep vs archive,
+- which Daily Snapshot columns to add for readability,
+- production vs test view filters,
+- and optional next-phase DB expansions.
