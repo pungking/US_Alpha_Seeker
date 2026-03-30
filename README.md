@@ -32,3 +32,15 @@ Required server envs:
 
 Optional client toggle:
 - `VITE_NOTION_SYNC_ENABLED=true|false` (default: `true`)
+
+## Optional: GitHub Automation -> Notion Sync
+
+GitHub Actions (`.github/workflows/schedule.yml`) can also write a run-level snapshot into the same Notion Daily Snapshot DB.
+
+Set in GitHub (Secrets/Variables):
+- `NOTION_TOKEN` (secret)
+- `NOTION_DB_DAILY_SNAPSHOT` (variable or secret)
+
+Optional GitHub variables:
+- `NOTION_GHA_SYNC_ENABLED=true|false` (default: `true`)
+- `NOTION_GHA_SYNC_REQUIRED=true|false` (default: `false`, if `true` then sync failure fails workflow)
