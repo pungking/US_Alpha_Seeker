@@ -11,6 +11,7 @@ import { fetchPortalIndices } from '../services/portalIndicesService';
 import { formatKstFilenameTimestamp } from '../services/timeService';
 import { enforceStageDriveRetention } from '../services/driveRetentionService';
 import { assertDriveOk, parseDriveJsonText } from '../services/driveJsonUtils';
+import { syncPipelineToNotion, type NotionSyncCandidate } from '../services/notionSyncService';
 
 declare global {
   interface Window {
@@ -3169,6 +3170,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
   // [NEW] Stage 2: AI Analysis
   const runStage2 = async (candidates: AlphaCandidate[]) => {
       addLog("STAGE 2: AI Alpha Synthesis...", "signal");
+      const stage2StartedAt = Date.now();
       
       let response: any = { data: [] };
       let usedProvider = selectedBrain;
@@ -4957,6 +4959,10 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return refreshed || top6Elite[0];
       });
       
+      let stage6FinalFileNameForSync = '';
+      let stage6FinalHashForSync = '';
+      let top6ArchiveCandidates = top6Elite.map((item) => ({ ...item }));
+
       // Archive Stage 2 Result (Full AI Result)
       if (accessToken) {
           // Save Full AI Result to Report Folder
@@ -4966,7 +4972,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
           // [CRITICAL] Save Final Top 6 to Stage 6 Folder (The "Dump")
           const stage6FolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
-          const top6ArchiveCandidates = top6Elite.map((item) => ({
+          top6ArchiveCandidates = top6Elite.map((item) => ({
               ...item,
               economicMoat: normalizeEconomicMoat(item?.economicMoat),
               aiFallbackReason: normalizeOptionalText(item?.aiFallbackReason) || 'NONE'
@@ -5311,6 +5317,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           const stage6HashAlgo = (globalThis as any)?.crypto?.subtle ? 'sha256' : 'fnv1a32_fallback';
           const stage6FinalHash = await sha256Hex(finalPayloadJson);
           await uploadFile(accessToken, stage6FolderId, stage6FinalFileName, finalPayload, finalPayloadJson);
+          stage6FinalFileNameForSync = stage6FinalFileName;
+          stage6FinalHashForSync = stage6FinalHash;
           (window as any).__STAGE6_DISPATCH_INFO = {
               stage6File: stage6FinalFileName,
               stage6Hash: stage6FinalHash,
@@ -5380,6 +5388,71 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   );
               }
           }
+      }
+
+      const mapToNotionCandidate = (item: any): NotionSyncCandidate => ({
+          symbol: String(item?.symbol || '').toUpperCase(),
+          name: item?.name,
+          sector: item?.sectorTheme || item?.sector,
+          price: Number.isFinite(Number(item?.price)) ? Number(item.price) : undefined,
+          changePct: Number.isFinite(Number(item?.changePercent)) ? Number(item.changePercent) : undefined,
+          marketCap: Number.isFinite(Number(item?.marketCap)) ? Number(item.marketCap) : undefined,
+          volume: Number.isFinite(Number(item?.volume)) ? Number(item.volume) : undefined,
+          compositeAlpha: Number.isFinite(Number(item?.compositeAlpha)) ? Number(item.compositeAlpha) : undefined,
+          qualityScore: Number.isFinite(Number(item?.qualityScore)) ? Number(item.qualityScore) : undefined,
+          fundamentalScore: Number.isFinite(Number(item?.fundamentalScore)) ? Number(item.fundamentalScore) : undefined,
+          technicalScore: Number.isFinite(Number(item?.technicalScore ?? item?.ictScore))
+              ? Number(item.technicalScore ?? item.ictScore)
+              : undefined,
+          convictionScore: Number.isFinite(Number(item?.convictionScore)) ? Number(item.convictionScore) : undefined,
+          expectedReturnPct: Number.isFinite(Number(item?.expectedReturnPct)) ? Number(item.expectedReturnPct) : undefined,
+          aiVerdict: item?.aiVerdict,
+          investmentOutlook: item?.investmentOutlook,
+          selectionReasons: Array.isArray(item?.selectionReasons) ? item.selectionReasons : [],
+          finalDecision: item?.finalDecision,
+          decisionReason: item?.decisionReason || item?.executionReason,
+          executionBucket: item?.executionBucket,
+          entryPrice: Number.isFinite(Number(item?.entryExecPrice ?? item?.entryPrice))
+              ? Number(item.entryExecPrice ?? item.entryPrice)
+              : undefined,
+          targetPrice: Number.isFinite(Number(item?.targetPrice)) ? Number(item.targetPrice) : undefined,
+          stopLoss: Number.isFinite(Number(item?.stopLoss)) ? Number(item.stopLoss) : undefined
+      });
+
+      // Notion sync is best-effort: do not block pipeline completion.
+      try {
+          const runDurationSec = Number(((Date.now() - stage2StartedAt) / 1000).toFixed(2));
+          const notionResult = await syncPipelineToNotion({
+              runId: stage6FinalRunIdRef.current || getKstTimestamp(),
+              runDateIso: new Date().toISOString(),
+              engine: String(usedProvider || selectedBrain),
+              stage6File: stage6FinalFileNameForSync || undefined,
+              stage6Hash: stage6FinalHashForSync || undefined,
+              marketPulse: (window as any).latestMarketPulse,
+              stageCounts: {
+                  stage1: candidates.length,
+                  stage2: candidates.length,
+                  stage3: candidates.length,
+                  stage4: candidates.length,
+                  stage5: toNonNegativeInt(stage5EligibilityRef.current.eligibleCount, candidates.length),
+                  stage6: top6Elite.length,
+                  finalPicks: top6Elite.length,
+                  runDurationSec
+              },
+              executablePicks: top6ArchiveCandidates.map(mapToNotionCandidate),
+              watchlist: modelTop6Watchlist.map(mapToNotionCandidate)
+          });
+
+          if (notionResult.ok) {
+              const detailText = notionResult.details
+                  ? ` daily=${notionResult.details.dailySnapshot ?? 0} scores=${notionResult.details.stockScores ?? 0} ai=${notionResult.details.aiAnalysis ?? 0} watchlist=${notionResult.details.watchlist ?? 0}`
+                  : '';
+              addLog(`[NOTION_SYNC] OK ${notionResult.message}${detailText}`, "ok");
+          } else {
+              addLog(`[NOTION_SYNC] ${notionResult.skipped ? "SKIP" : "WARN"} ${notionResult.message}`, "warn");
+          }
+      } catch (syncError: any) {
+          addLog(`[NOTION_SYNC] WARN ${syncError?.message || syncError}`, "warn");
       }
 
       return top6Elite;
