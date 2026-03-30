@@ -87,3 +87,61 @@ Create two table views:
 - Do not delete databases during tuning.
 - Archive old views/pages first, then prune after 2+ weeks of stable automation.
 - Treat `Summary` as machine log; use dedicated columns for dashboard-style reading.
+
+---
+
+## 6) Optional Env Pointers (Project / Work List)
+
+If you want to anchor automation to a specific Notion project page + work-list database,
+keep these IDs in env as references:
+
+- `NOTION_PROJECT` = Notion project page ID (example: `ae7aec5b2d1a4f409933d893312cf1c6`)
+- `NOTION_WORK_LIST` = Notion work-list database ID (example: `cb0c6f8d60414300a6e89a4a62ea15b8`)
+
+Naming tip (recommended for long-term clarity):
+- `NOTION_PROJECT_PAGE_ID`
+- `NOTION_WORK_LIST_DB_ID`
+
+Both naming styles are fine as long as the team uses one standard consistently.
+
+---
+
+## 7) Notion AI Work Order (copy/paste)
+
+Use this prompt in Notion AI inside your Project page:
+
+```md
+You are organizing an ops workspace for automated trading pipeline monitoring.
+
+Context:
+- Project page ID: {{NOTION_PROJECT}}
+- Work-list DB ID: {{NOTION_WORK_LIST}}
+- Existing core DBs: Daily Snapshot / Stock Scores / AI Alpha Analysis / Portfolio Watchlist
+
+Please do the following:
+1) In Work List DB, ensure these properties exist:
+   - Name (title)
+   - Status (select: Backlog, In Progress, Blocked, Done)
+   - Priority (select: P0, P1, P2, P3)
+   - Area (select: Sidecar, Market Guard, Harvester, Notion Sync, Security, Infra)
+   - Owner (people or text)
+   - Due Date (date)
+   - Run Key (text)
+   - Workflow (text)
+   - Evidence Link (url)
+   - Notes (text)
+
+2) Create views:
+   - `01_Active`: Status is Backlog/In Progress/Blocked, sort by Priority then Due Date
+   - `02_Blocked`: Status is Blocked
+   - `03_Done_Recent`: Status is Done, sort by Last edited desc
+   - `99_Automation`: Area in (Sidecar, Market Guard, Harvester)
+
+3) In the Project page, add linked views for:
+   - Daily Snapshot (latest runs)
+   - Work List (01_Active)
+   - Guard Action Log (recent 7 days, if exists)
+   - HF Tuning Tracker (latest, if exists)
+
+4) Keep existing data intact; do not delete old rows. Only add/update schema and views.
+```

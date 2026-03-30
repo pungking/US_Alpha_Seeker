@@ -30,6 +30,10 @@ Required server envs:
 - `NOTION_DB_AI_ALPHA_ANALYSIS`
 - `NOTION_DB_WATCHLIST`
 
+Optional workspace pointers (for ops linking/manual workflows):
+- `NOTION_PROJECT` (project page ID)
+- `NOTION_WORK_LIST` (work-list database ID)
+
 Optional client toggle:
 - `VITE_NOTION_SYNC_ENABLED=true|false` (default: `true`)
 
