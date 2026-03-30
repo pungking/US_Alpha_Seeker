@@ -37,6 +37,18 @@ Optional workspace pointers (for ops linking/manual workflows):
 Optional client toggle:
 - `VITE_NOTION_SYNC_ENABLED=true|false` (default: `true`)
 
+## Optional: Performance Dashboard API (Simulation/Live)
+
+Web UI panel `Trading Performance Board` reads from `/api/performance_dashboard`.
+
+Source priority:
+1. local state file (`sidecar-template/alpha-exec-engine/state/performance-dashboard.json`)
+2. Notion DB latest row (`NOTION_DB_PERFORMANCE_DASHBOARD`)
+
+Required server envs for Notion fallback:
+- `NOTION_TOKEN`
+- `NOTION_DB_PERFORMANCE_DASHBOARD`
+
 ## Optional: GitHub Automation -> Notion Sync
 
 GitHub Actions (`.github/workflows/schedule.yml`) can also write a run-level snapshot into the same Notion Daily Snapshot DB.

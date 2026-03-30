@@ -13,6 +13,7 @@ import TechnicalAnalysis from './components/TechnicalAnalysis';
 import IctAnalysis from './components/IctAnalysis';
 import AlphaAnalysis from './components/AlphaAnalysis';
 import MarketTicker from './components/MarketTicker';
+import PerformanceDashboard from './components/PerformanceDashboard';
 import LegalDocs from './components/LegalDocs';
 import RenderGuard from './components/RenderGuard';
 import { analyzePipelineStatus, archiveReport } from './services/intelligenceService';
@@ -563,6 +564,9 @@ const App: React.FC = () => {
         </div>
         <RenderGuard label="Market Ticker">
           <MarketTicker />
+        </RenderGuard>
+        <RenderGuard label="Performance Dashboard">
+          <PerformanceDashboard />
         </RenderGuard>
       </div>
 
