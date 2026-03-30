@@ -11,6 +11,9 @@ import {
 import { fetchPerformanceDashboard, type PerformanceDashboardPayload } from "../services/performanceDashboardService";
 
 type DashboardView = "SIMULATION" | "LIVE";
+interface PerformanceDashboardProps {
+  isVisible?: boolean;
+}
 
 const fmt = (value: unknown, digits = 2) => {
   const n = Number(value);
@@ -44,7 +47,7 @@ const metricCard = (label: string, value: string, accent = "text-emerald-300") =
   </div>
 );
 
-const PerformanceDashboard: React.FC = () => {
+const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible = true }) => {
   const [payload, setPayload] = useState<PerformanceDashboardPayload | null>(null);
   const [view, setView] = useState<DashboardView>("SIMULATION");
   const [loading, setLoading] = useState(false);
@@ -64,10 +67,13 @@ const PerformanceDashboard: React.FC = () => {
   }, []);
 
   useEffect(() => {
+    if (!isVisible) return;
     refresh();
     const timer = window.setInterval(refresh, 60_000);
     return () => window.clearInterval(timer);
-  }, [refresh]);
+  }, [isVisible, refresh]);
+
+  if (!isVisible) return null;
 
   const chartRows = useMemo(() => {
     const rows = payload?.simulation?.chartSeries || [];
@@ -114,8 +120,8 @@ const PerformanceDashboard: React.FC = () => {
       </div>
 
       {error ? (
-        <div className="rounded-xl border border-rose-500/30 bg-rose-950/30 px-3 py-2 text-[10px] text-rose-200">
-          Dashboard load failed: {error}
+        <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3 py-2 text-[10px] text-amber-200">
+          데이터 소스가 아직 연결되지 않았습니다. 먼저 `dry-run`/`market-guard` 1회 실행 후 다시 확인해주세요.
         </div>
       ) : null}
 
@@ -223,4 +229,3 @@ const PerformanceDashboard: React.FC = () => {
 };
 
 export default PerformanceDashboard;
-

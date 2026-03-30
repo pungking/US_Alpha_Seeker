@@ -565,9 +565,6 @@ const App: React.FC = () => {
         <RenderGuard label="Market Ticker">
           <MarketTicker />
         </RenderGuard>
-        <RenderGuard label="Performance Dashboard">
-          <PerformanceDashboard />
-        </RenderGuard>
       </div>
 
       <nav className="flex space-x-2 overflow-x-auto no-scrollbar py-1">
@@ -665,6 +662,11 @@ const App: React.FC = () => {
               onComplete={(report) => handleStageComplete(6, report)}
               isVisible={currentStage === 6}
             />
+          </RenderGuard>
+        </div>
+        <div className="w-full h-full" style={{ display: currentStage === 7 ? 'block' : 'none' }}>
+          <RenderGuard label="Stage 7">
+            <PerformanceDashboard isVisible={currentStage === 7} />
           </RenderGuard>
         </div>
       </main>

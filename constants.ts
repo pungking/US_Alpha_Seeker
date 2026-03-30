@@ -298,7 +298,8 @@ export const STAGES_FLOW = [
   { id: 3, label: '3: Funds' },
   { id: 4, label: '4: Techs' },
   { id: 5, label: '5: ICT' },
-  { id: 6, label: '6: Alpha' }
+  { id: 6, label: '6: Alpha' },
+  { id: 7, label: '7: Performance' }
 ];
 
 /**

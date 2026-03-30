@@ -105,6 +105,35 @@ const parseSeries = (raw: string) => {
     .filter((row) => row.at);
 };
 
+const emptyDashboard = (reason: string, message: string) => ({
+  source: "unavailable",
+  generatedAt: new Date().toISOString(),
+  runKey: "N/A",
+  kind: "N/A",
+  status: "N/A",
+  summary: `${reason}: ${message}`,
+  simulation: {
+    batchId: "N/A",
+    totalRows: null,
+    filledRows: null,
+    openRows: null,
+    closedRows: null,
+    winRatePct: null,
+    avgClosedReturnPct: null,
+    avgClosedR: null,
+    topWinners: "N/A",
+    topLosers: "N/A",
+    chartSeries: []
+  },
+  live: {
+    available: false,
+    positionCount: null,
+    totalUnrealizedPl: null,
+    totalReturnPct: null,
+    equity: null
+  }
+});
+
 const dashboardFromNotionPage = (page: Json) => {
   const properties = page?.properties || {};
   const generatedAt = propToText(pickProp(properties, ["Time", "Date", "Generated At"])) || page?.last_edited_time;
@@ -197,9 +226,13 @@ export default async function handler(req: any, res: any) {
   const notionToken = String(process.env.NOTION_TOKEN || "").trim();
   const databaseId = String(process.env.NOTION_DB_PERFORMANCE_DASHBOARD || "").trim();
   if (!notionToken || !databaseId) {
-    res.status(503).json({
-      error: "dashboard_source_missing",
-      message: "Set NOTION_TOKEN + NOTION_DB_PERFORMANCE_DASHBOARD or provide local state/performance-dashboard.json"
+    res.status(200).json({
+      ok: true,
+      warning: "dashboard_source_missing",
+      data: emptyDashboard(
+        "dashboard_source_missing",
+        "Run sidecar dry-run/market-guard once, or set NOTION_TOKEN + NOTION_DB_PERFORMANCE_DASHBOARD."
+      )
     });
     return;
   }
@@ -214,15 +247,19 @@ export default async function handler(req: any, res: any) {
     });
     const first = Array.isArray(query?.results) && query.results.length > 0 ? query.results[0] : null;
     if (!first) {
-      res.status(404).json({ error: "dashboard_not_found", message: "No rows in NOTION_DB_PERFORMANCE_DASHBOARD yet." });
+      res.status(200).json({
+        ok: true,
+        warning: "dashboard_not_found",
+        data: emptyDashboard("dashboard_not_found", "No rows in NOTION_DB_PERFORMANCE_DASHBOARD yet.")
+      });
       return;
     }
     res.status(200).json({ ok: true, data: dashboardFromNotionPage(first) });
   } catch (error: any) {
-    res.status(500).json({
-      error: "dashboard_fetch_failed",
-      message: shortText(error?.message || error, 400)
+    res.status(200).json({
+      ok: true,
+      warning: "dashboard_fetch_failed",
+      data: emptyDashboard("dashboard_fetch_failed", shortText(error?.message || error, 240))
     });
   }
 }
-
