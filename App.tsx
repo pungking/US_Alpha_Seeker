@@ -672,6 +672,7 @@ const App: React.FC = () => {
       </main>
 
       {/* Detail Section */}
+      {currentStage !== 7 && (
       <section className={`glass-panel p-6 md:p-8 lg:p-12 rounded-[32px] md:rounded-[48px] border-t-4 shadow-2xl relative overflow-hidden transition-all duration-500 hover:shadow-emerald-900/20 ${selectedStock ? 'border-t-emerald-600' : 'border-t-slate-700 opacity-80'}`}>
         <div className="absolute top-0 right-0 p-12 opacity-[0.05] pointer-events-none">
            <svg className="w-80 h-80 text-emerald-500" fill="currentColor" viewBox="0 0 24 24"><path d="M12 2L1 21h22L12 2zm0 3.45l8.27 14.3H3.73L12 5.45z"/></svg>
@@ -732,6 +733,7 @@ const App: React.FC = () => {
           )}
         </div>
       </section>
+      )}
     </div>
   );
 };

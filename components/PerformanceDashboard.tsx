@@ -14,6 +14,7 @@ type DashboardView = "SIMULATION" | "LIVE";
 interface PerformanceDashboardProps {
   isVisible?: boolean;
 }
+const CACHE_KEY = "US_ALPHA_PERF_DASHBOARD_CACHE_V1";
 
 const fmt = (value: unknown, digits = 2) => {
   const n = Number(value);
@@ -40,6 +41,26 @@ const splitList = (raw?: string) =>
     .filter(Boolean)
     .slice(0, 5);
 
+const readCache = (): PerformanceDashboardPayload | null => {
+  try {
+    const raw = localStorage.getItem(CACHE_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object") return null;
+    return parsed as PerformanceDashboardPayload;
+  } catch {
+    return null;
+  }
+};
+
+const writeCache = (payload: PerformanceDashboardPayload) => {
+  try {
+    localStorage.setItem(CACHE_KEY, JSON.stringify(payload));
+  } catch {
+    // noop
+  }
+};
+
 const metricCard = (label: string, value: string, accent = "text-emerald-300") => (
   <div className="glass-panel rounded-xl border border-white/10 px-3 py-3">
     <div className="text-[8px] uppercase tracking-[0.22em] text-slate-500">{label}</div>
@@ -52,15 +73,27 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
   const [view, setView] = useState<DashboardView>("SIMULATION");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string>("");
+  const [isCached, setIsCached] = useState(false);
 
   const refresh = useCallback(async () => {
     setLoading(true);
     setError("");
     try {
       const next = await fetchPerformanceDashboard();
+      if (next?.source !== "unavailable") {
+        writeCache(next);
+      }
       setPayload(next);
+      setIsCached(false);
     } catch (e: any) {
-      setError(String(e?.message || e || "dashboard_load_failed"));
+      const cached = readCache();
+      if (cached) {
+        setPayload(cached);
+        setIsCached(true);
+        setError("Live source unavailable. Showing cached snapshot.");
+      } else {
+        setError(String(e?.message || e || "dashboard_load_failed"));
+      }
     } finally {
       setLoading(false);
     }
@@ -68,6 +101,11 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
   useEffect(() => {
     if (!isVisible) return;
+    const cached = readCache();
+    if (cached) {
+      setPayload(cached);
+      setIsCached(true);
+    }
     refresh();
     const timer = window.setInterval(refresh, 60_000);
     return () => window.clearInterval(timer);
@@ -94,6 +132,7 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
           <div className="mt-1 text-[10px] text-slate-400">
             source={payload?.source || "N/A"} | updated={payload ? shortTime(payload.generatedAt) : "N/A"} | run=
             {payload?.runKey || "N/A"}
+            {isCached ? " | cache=ON" : ""}
           </div>
         </div>
         <div className="flex items-center gap-2">
@@ -121,7 +160,9 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
 
       {error ? (
         <div className="rounded-xl border border-amber-500/25 bg-amber-950/20 px-3 py-2 text-[10px] text-amber-200">
-          데이터 소스가 아직 연결되지 않았습니다. 먼저 `dry-run`/`market-guard` 1회 실행 후 다시 확인해주세요.
+          {error.includes("cached")
+            ? "실시간 소스를 불러오지 못해 캐시 데이터를 표시 중입니다."
+            : "데이터 소스가 아직 연결되지 않았습니다. 먼저 dry-run/market-guard 1회 실행 후 다시 확인해주세요."}
         </div>
       ) : null}
 
