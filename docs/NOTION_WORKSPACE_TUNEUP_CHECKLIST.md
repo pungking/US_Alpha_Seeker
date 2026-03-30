@@ -4,7 +4,7 @@ This checklist is for manual Notion changes while code-based sync remains automa
 
 ## 1) Keep / Archive Decision
 
-## Keep (recommended)
+### Keep (recommended)
 - `📅 Daily Snapshot` (run-level ops timeline; now receives sidecar dry-run + market-guard rows)
 - `📊 Stock Scores` (stage scoring history)
 - `🧠 AI Alpha Analysis` (model interpretation and signal rationale)
@@ -77,7 +77,7 @@ Create two table views:
   - Optional formula/tag: `Signal Strength` from confidence buckets.
 
 - `🎯 Portfolio Watchlist`
-  - Keep `Ticker`, `Status`, `Entry`, `Target`, `Stop`, `Alpha Signal`, `Notes`.
+  - Keep `Ticker`, `Status`, `Entry Price`, `Target Price`, `Stop Loss`, `Alpha Signal`, `Notes`.
   - Suggested statuses: `Watching`, `Position Open`, `Exited`, `Rejected`.
 
 ---
@@ -87,4 +87,3 @@ Create two table views:
 - Do not delete databases during tuning.
 - Archive old views/pages first, then prune after 2+ weeks of stable automation.
 - Treat `Summary` as machine log; use dedicated columns for dashboard-style reading.
-
