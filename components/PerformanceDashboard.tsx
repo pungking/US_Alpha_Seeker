@@ -111,8 +111,6 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
     return () => window.clearInterval(timer);
   }, [isVisible, refresh]);
 
-  if (!isVisible) return null;
-
   const chartRows = useMemo(() => {
     const rows = payload?.simulation?.chartSeries || [];
     return rows.map((row, idx) => ({
@@ -122,6 +120,8 @@ const PerformanceDashboard: React.FC<PerformanceDashboardProps> = ({ isVisible =
       avgR: Number.isFinite(Number(row.avgR)) ? Number(row.avgR) : null
     }));
   }, [payload?.simulation?.chartSeries]);
+
+  if (!isVisible) return null;
 
   return (
     <section className="glass-panel rounded-[28px] border border-cyan-500/20 p-5 md:p-6">
