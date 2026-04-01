@@ -171,3 +171,4 @@
 실행용 체크리스트/역할분담은 아래 문서를 기준으로 운영합니다.
 
 - `docs/P0_EXECUTION_HANDOFF_2026-04-02.md`
+- `docs/MCP_COLLAB_SETUP_PLAYBOOK_2026-04-02.md`

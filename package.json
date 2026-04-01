@@ -8,7 +8,8 @@
     "dev": "vite",
     "build": "vite build",
     "preview": "vite preview",
-    "automate": "node automate.js"
+    "automate": "node automate.js",
+    "mcp:check": "node scripts/check-mcp-config.mjs"
   },
   "dependencies": {
     "react": "^19.2.3",

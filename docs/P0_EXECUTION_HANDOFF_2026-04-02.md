@@ -17,6 +17,7 @@
 - 퍼센트 이상치 백필 스크립트 반영/검증 경로 정리 완료
 - MCP 확장 방향 문서화 완료
   - `docs/MCP_ONLINE_AUTOMATION_BLUEPRINT_2026-04-02.md`
+  - `docs/MCP_COLLAB_SETUP_PLAYBOOK_2026-04-02.md`
 
 ## 사용자(운영자)가 해야 하는 것
 

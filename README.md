@@ -72,3 +72,26 @@ This document includes:
 - which Daily Snapshot columns to add for readability,
 - production vs test view filters,
 - and optional next-phase DB expansions.
+
+## Optional: MCP Collaboration Setup
+
+For smoother Codex+operator collaboration, keep the active MCP config and optional online MCP template separate.
+
+- Active config (currently used):
+  - `.vscode/mcp.json` (Notion + Google Drive)
+- Optional online MCP template:
+  - `.vscode/mcp.online.template.json` (GitHub/Vercel/Telegram/Perplexity placeholders)
+- Optional env template:
+  - `.vscode/mcp.env.example`
+
+Quick validation:
+
+1. export env vars from your local `.env`/shell (or copy from `.vscode/mcp.env.example`)
+2. run:
+   - `npm run mcp:check`
+3. if you want hard-fail on unresolved placeholders:
+   - `MCP_CHECK_STRICT=true npm run mcp:check`
+
+Detailed runbook:
+
+- `docs/MCP_COLLAB_SETUP_PLAYBOOK_2026-04-02.md`

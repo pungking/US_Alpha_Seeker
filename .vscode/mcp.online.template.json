@@ -1,0 +1,21 @@
+{
+  "servers": {
+    "github-mcp": {
+      "type": "http",
+      "url": "${MCP_GITHUB_SSE_URL}"
+    },
+    "vercel-mcp": {
+      "type": "http",
+      "url": "${MCP_VERCEL_SSE_URL}"
+    },
+    "telegram-mcp": {
+      "type": "http",
+      "url": "${MCP_TELEGRAM_SSE_URL}"
+    },
+    "perplexity-mcp": {
+      "type": "http",
+      "url": "${MCP_PERPLEXITY_SSE_URL}"
+    }
+  },
+  "inputs": []
+}
