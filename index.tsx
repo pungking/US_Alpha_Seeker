@@ -11,6 +11,16 @@ if (!rootElement) {
 
 initSentryClient();
 
+if (typeof window !== "undefined") {
+  const qs = new URLSearchParams(window.location.search);
+  if (qs.get("sentrySmoke") === "1") {
+    const smokeId = `SENTRY_FRONT_SMOKE_${Date.now()}`;
+    setTimeout(() => {
+      throw new Error(smokeId);
+    }, 0);
+  }
+}
+
 const root = ReactDOM.createRoot(rootElement);
 root.render(
   <React.StrictMode>
