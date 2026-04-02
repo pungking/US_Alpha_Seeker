@@ -1,6 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
-import { captureApiError, withSentryApi } from "./_sentry";
+import { captureApiError, withSentryApi } from "./_sentry.js";
 
 type Json = Record<string, any>;
 

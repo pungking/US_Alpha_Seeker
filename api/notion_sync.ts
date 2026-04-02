@@ -1,4 +1,4 @@
-import { captureApiError, withSentryApi } from "./_sentry";
+import { captureApiError, withSentryApi } from "./_sentry.js";
 type Json = Record<string, any>;
 
 const NOTION_VERSION = "2022-06-28";

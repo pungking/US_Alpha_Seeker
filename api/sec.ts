@@ -1,5 +1,5 @@
 
-import { captureApiError, withSentryApi } from "./_sentry";
+import { captureApiError, withSentryApi } from "./_sentry.js";
 
 const handler = async (req: any, res: any) => {
   // SEC EDGAR Proxy
