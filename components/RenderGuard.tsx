@@ -1,4 +1,5 @@
 import React from 'react';
+import { captureClientException } from '../services/sentryClient';
 
 interface Props {
   label: string;
@@ -21,6 +22,11 @@ class RenderGuard extends React.Component<Props, State> {
 
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error(`[RenderGuard:${this.props.label}]`, error, info);
+    captureClientException(error, {
+      boundary: 'RenderGuard',
+      label: this.props.label,
+      componentStack: info?.componentStack || ''
+    });
   }
 
   render() {

@@ -22,6 +22,8 @@
     "mcp:ops:daily": "npm run mcp:sync:ops && MCP_CHECK_STRICT=true npm run mcp:check && npm run mcp:health"
   },
   "dependencies": {
+    "@sentry/node": "^10.17.0",
+    "@sentry/react": "^10.17.0",
     "react": "^19.2.3",
     "react-dom": "^19.2.3",
     "@google/genai": "^1.38.0",

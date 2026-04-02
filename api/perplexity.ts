@@ -1,5 +1,7 @@
 
-export default async function handler(req: any, res: any) {
+import { captureApiError, withSentryApi } from "./_sentry";
+
+const handler = async (req: any, res: any) => {
   // Vercel Serverless Function for Proxying Perplexity API
   // This handles CORS by making the request from the server side
 
@@ -60,6 +62,13 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json(data);
   } catch (error: any) {
     console.error('Proxy Error:', error);
+    captureApiError(error, {
+      source: 'perplexity_proxy',
+      method: req?.method || 'UNKNOWN',
+      model: String(model || 'sonar')
+    });
     return res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
-}
+};
+
+export default withSentryApi(handler);

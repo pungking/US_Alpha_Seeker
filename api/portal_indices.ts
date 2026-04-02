@@ -1,5 +1,7 @@
 
-export default async function handler(req: any, res: any) {
+import { captureApiError, withSentryApi } from "./_sentry";
+
+const handler = async (req: any, res: any) => {
   // Portal Proxy v4.1: Enhanced Index Coverage (NDX + IXIC)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -196,6 +198,12 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json(data);
 
   } catch (error: any) {
+    captureApiError(error, {
+      source: 'portal_indices',
+      method: req?.method || 'UNKNOWN'
+    });
     return res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
-}
+};
+
+export default withSentryApi(handler);

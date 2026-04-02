@@ -49,6 +49,21 @@ Required server envs for Notion fallback:
 - `NOTION_TOKEN`
 - `NOTION_DB_PERFORMANCE_DASHBOARD`
 
+## Optional: Sentry Runtime Observability (Phase A)
+
+Minimal runtime capture is now wired for:
+- Frontend render/runtime exceptions (React)
+- API routes (`/api/notion_sync`, `/api/performance_dashboard`, `/api/telegram`, `/api/perplexity`, `/api/portal_indices`, `/api/yahoo`, `/api/nasdaq`, `/api/msn`, `/api/sec`)
+
+Required envs:
+- Frontend: `VITE_SENTRY_DSN`
+- API/server: `SENTRY_DSN`
+
+Recommended envs:
+- `VITE_SENTRY_ENVIRONMENT`, `SENTRY_ENVIRONMENT`
+- `VITE_SENTRY_RELEASE`, `SENTRY_RELEASE`
+- `VITE_SENTRY_TRACES_SAMPLE_RATE`, `SENTRY_TRACES_SAMPLE_RATE`
+
 ## Optional: GitHub Automation -> Notion Sync
 
 GitHub Actions (`.github/workflows/schedule.yml`) can also write a run-level snapshot into the same Notion Daily Snapshot DB.

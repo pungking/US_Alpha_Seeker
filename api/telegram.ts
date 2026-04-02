@@ -1,5 +1,6 @@
+import { captureApiError, withSentryApi } from "./_sentry";
 
-export default async function handler(req: any, res: any) {
+const handler = async (req: any, res: any) => {
   // Set CORS headers
   res.setHeader('Access-Control-Allow-Credentials', true);
   res.setHeader('Access-Control-Allow-Origin', '*');
@@ -34,6 +35,13 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json(data);
   } catch (error: any) {
     console.error("Telegram Proxy Error:", error);
+    captureApiError(error, {
+      source: "telegram_proxy",
+      method: req?.method || "UNKNOWN",
+      telegramMethod: String(req?.body?.method || "")
+    });
     return res.status(500).json({ error: error.message });
   }
-}
+};
+
+export default withSentryApi(handler);

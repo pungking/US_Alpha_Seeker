@@ -1,5 +1,7 @@
 
-export default async function handler(req: any, res: any) {
+import { captureApiError, withSentryApi } from "./_sentry";
+
+const handler = async (req: any, res: any) => {
   // SEC EDGAR Proxy
   // Mode 1: Listing (No params) -> https://www.sec.gov/files/company_tickers.json
   // Mode 2: Detail (cik) -> https://data.sec.gov/submissions/CIK##########.json
@@ -118,6 +120,14 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('SEC Proxy Error:', error);
+    captureApiError(error, {
+      source: 'sec_proxy',
+      method: req?.method || 'UNKNOWN',
+      action: String(req?.query?.action || ''),
+      cik: String(req?.query?.cik || '')
+    });
     return res.status(500).json({ error: error.message });
   }
-}
+};
+
+export default withSentryApi(handler);

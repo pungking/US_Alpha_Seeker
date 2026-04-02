@@ -1,7 +1,8 @@
 
+import { withSentryApi } from "./_sentry";
 import crypto from 'crypto';
 
-export default async function handler(req: any, res: any) {
+const handler = async (req: any, res: any) => {
   // "The Trinity" - MSN Secret Protocol v7.2 (Permissive Parser)
   
   res.setHeader('Access-Control-Allow-Credentials', true);
@@ -140,4 +141,6 @@ export default async function handler(req: any, res: any) {
   }
   
   return res.status(400).json({ error: 'Invalid Mode' });
-}
+};
+
+export default withSentryApi(handler);

@@ -1,3 +1,4 @@
+import { captureApiError, withSentryApi } from "./_sentry";
 type Json = Record<string, any>;
 
 const NOTION_VERSION = "2022-06-28";
@@ -130,7 +131,7 @@ const dateProp = (value: string) => ({
   date: { start: value }
 });
 
-export default async function handler(req: any, res: any) {
+const handler = async (req: any, res: any) => {
   res.setHeader("Access-Control-Allow-Credentials", true);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "POST,OPTIONS");
@@ -283,10 +284,17 @@ export default async function handler(req: any, res: any) {
     });
   } catch (error: any) {
     console.error("[NOTION_SYNC] failed:", error);
+    captureApiError(error, {
+      source: "notion_sync",
+      method: req?.method || "UNKNOWN",
+      runId: shortText(req?.body?.runId || "", 80),
+      stage6File: shortText(req?.body?.stage6File || "", 160)
+    });
     res.status(500).json({
       error: "notion_sync_failed",
       message: String(error?.message || error)
     });
   }
-}
+};
 
+export default withSentryApi(handler);

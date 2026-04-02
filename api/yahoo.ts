@@ -1,5 +1,7 @@
 
-export default async function handler(req: any, res: any) {
+import { captureApiError, withSentryApi } from "./_sentry";
+
+const handler = async (req: any, res: any) => {
   // Yahoo Finance Proxy v5.0: "Polymer" Strategy
   // Features: Rotational User-Agents, Dual Endpoint Fallback (v10 -> v7)
   
@@ -86,6 +88,12 @@ export default async function handler(req: any, res: any) {
       
     } catch (error: any) {
       console.error("Yahoo Deep Scan Error:", error);
+      captureApiError(error, {
+        source: 'yahoo_proxy_deep',
+        method: req?.method || 'UNKNOWN',
+        symbols: String(symbols || ''),
+        modules: String(modules || '')
+      });
       return res.status(500).json({ error: error.message });
     }
   }
@@ -116,6 +124,13 @@ export default async function handler(req: any, res: any) {
     return res.status(200).json(mappedData);
 
   } catch (error: any) {
+    captureApiError(error, {
+      source: 'yahoo_proxy',
+      method: req?.method || 'UNKNOWN',
+      symbols: String(symbols || '')
+    });
     return res.status(500).json({ error: 'Internal Server Error', details: error.message });
   }
-}
+};
+
+export default withSentryApi(handler);

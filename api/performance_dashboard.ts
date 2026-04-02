@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { captureApiError, withSentryApi } from "./_sentry";
 
 type Json = Record<string, any>;
 
@@ -199,7 +200,7 @@ const tryReadLocalState = () => {
   return null;
 };
 
-export default async function handler(req: any, res: any) {
+const handler = async (req: any, res: any) => {
   res.setHeader("Access-Control-Allow-Credentials", true);
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET,OPTIONS");
@@ -256,10 +257,18 @@ export default async function handler(req: any, res: any) {
     }
     res.status(200).json({ ok: true, data: dashboardFromNotionPage(first) });
   } catch (error: any) {
+    captureApiError(error, {
+      source: "performance_dashboard",
+      method: req?.method || "UNKNOWN",
+      hasNotionToken: Boolean(notionToken),
+      hasDatabaseId: Boolean(databaseId)
+    });
     res.status(200).json({
       ok: true,
       warning: "dashboard_fetch_failed",
       data: emptyDashboard("dashboard_fetch_failed", shortText(error?.message || error, 240))
     });
   }
-}
+};
+
+export default withSentryApi(handler);

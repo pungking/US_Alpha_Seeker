@@ -1,5 +1,7 @@
 
-export default async function handler(req: any, res: any) {
+import { captureApiError, withSentryApi } from "./_sentry";
+
+const handler = async (req: any, res: any) => {
   // "The Holy Grail" - TradingView Scanner Proxy v9.5 (Stealth Mode)
   // Strategy: User-Agent Rotation to bypass soft blocks.
   
@@ -154,7 +156,13 @@ export default async function handler(req: any, res: any) {
 
   } catch (error: any) {
     console.error('TV Proxy Fatal Error:', error.message);
+    captureApiError(error, {
+      source: 'nasdaq_proxy',
+      method: req?.method || 'UNKNOWN'
+    });
     // Return empty array to allow failover
     return res.status(200).json([]); 
   }
-}
+};
+
+export default withSentryApi(handler);
