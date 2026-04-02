@@ -16,12 +16,18 @@
 ## 2) 현재 파일 구성
 
 - 활성 MCP 설정: `.vscode/mcp.json`
+- 베이스 설정: `.vscode/mcp.base.json`
   - Notion MCP
   - Google Drive MCP
+- 프로필 템플릿:
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry)
+  - `.vscode/mcp.profile.research.template.json` (Perplexity)
 - 온라인 MCP 템플릿: `.vscode/mcp.online.template.json`
-  - GitHub/Vercel/Telegram/Perplexity command + token placeholder
+  - GitHub/Vercel/Telegram/Sentry/Perplexity command + token placeholder
 - MCP env 템플릿: `.vscode/mcp.env.example`
 - 설정 점검 스크립트: `scripts/check-mcp-config.mjs`
+- 프로필 동기화 스크립트: `scripts/sync-mcp-profile.mjs`
+- 스모크/헬스 스크립트: `scripts/mcp-smoke.mjs`
 
 ---
 
@@ -37,20 +43,28 @@ npm run mcp:check
 - `.vscode/mcp.json` JSON 파싱 성공
 - placeholder env 누락이 있으면 메시지로 확인 가능
 
-### Step B. 온라인 MCP 확장 시
+### Step B. 프로필별 MCP 구성
 
 1. `.vscode/mcp.env.example` 기준으로 각 서버별 `*_COMMAND_PACKAGE`, `*_TOKEN` 값 준비
-2. 해당 값을 shell env 또는 `.env`에 주입
-3. 자동 병합 실행:
+2. 해당 값을 `.env` 또는 `.vscode/mcp.env(.local)`에 주입
+3. 프로필 동기화 실행:
 
 ```bash
-npm run mcp:sync
+npm run mcp:sync:ops
 ```
 
-4. 재검증:
+다른 프로필:
+
+```bash
+npm run mcp:sync:research
+npm run mcp:sync:full
+```
+
+4. 재검증 및 스모크:
 
 ```bash
 npm run mcp:check
+npm run mcp:smoke
 ```
 
 엄격 검사(누락 시 exit 1):
@@ -65,11 +79,18 @@ MCP_CHECK_STRICT=true npm run mcp:check
 npm run mcp:sync:all
 ```
 
+헬스 알림(실패 시 Telegram):
+
+```bash
+npm run mcp:health
+```
+
 토큰 변수는 기존 앱 변수명을 재사용:
 
 - GitHub: `GITHUB_TOKEN`
 - Vercel: `VERCEL_TOKEN`
 - Telegram: `TELEGRAM_TOKEN`
+- Sentry: `SENTRY_ACCESS_TOKEN`
 - Perplexity: `PERPLEXITY_API_KEY`
 
 Telegram MCP 라우팅 기본값:
@@ -83,7 +104,8 @@ Telegram MCP 라우팅 기본값:
 1. GitHub MCP
 2. Vercel MCP
 3. Telegram MCP
-4. Perplexity MCP (리서치 보조 전용)
+4. Sentry MCP
+5. Perplexity MCP (리서치 보조 전용)
 
 주의:
 - Perplexity 결과를 매매 의사결정에 자동 반영하지 않음
@@ -111,13 +133,14 @@ MCP는 협업/진단 계층.
 ### 케이스: `npm run mcp:check`에서 placeholder 누락
 
 - 해당 변수(`MCP_*`)를 shell env로 export
-- 또는 `npm run mcp:sync` 재실행(해당 env 없는 서버는 자동 skip)
+- 또는 `.env`/`.vscode/mcp.env.local`에 값 주입 후 `npm run mcp:sync:ops` 재실행
 
 ### 케이스: MCP 연결 실패/timeout
 
 - command package 이름/버전 재확인
 - 토큰/권한 확인
-- 서버별 heartbeat 테스트 후 다시 연결
+- `npm run mcp:smoke`로 누락 env/구성 실패 먼저 정리
+- `npm run mcp:health`로 실패 알림 경로(Telegram) 검증
 
 ---
 

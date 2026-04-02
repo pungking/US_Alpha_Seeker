@@ -10,8 +10,15 @@
     "preview": "vite preview",
     "automate": "node automate.js",
     "mcp:check": "node scripts/check-mcp-config.mjs",
+    "mcp:smoke": "node scripts/mcp-smoke.mjs",
+    "mcp:health": "MCP_SMOKE_NOTIFY_ON=fail node scripts/mcp-smoke.mjs",
+    "mcp:health:always": "MCP_SMOKE_NOTIFY_ON=always node scripts/mcp-smoke.mjs",
     "mcp:sync": "node scripts/sync-mcp-online.mjs",
-    "mcp:sync:all": "MCP_SYNC_INCLUDE_UNRESOLVED=true node scripts/sync-mcp-online.mjs"
+    "mcp:sync:all": "MCP_SYNC_INCLUDE_UNRESOLVED=true node scripts/sync-mcp-online.mjs",
+    "mcp:sync:profile": "node scripts/sync-mcp-profile.mjs",
+    "mcp:sync:ops": "MCP_PROFILE=ops node scripts/sync-mcp-profile.mjs",
+    "mcp:sync:research": "MCP_PROFILE=research node scripts/sync-mcp-profile.mjs",
+    "mcp:sync:full": "MCP_PROFILE=full node scripts/sync-mcp-profile.mjs"
   },
   "dependencies": {
     "react": "^19.2.3",

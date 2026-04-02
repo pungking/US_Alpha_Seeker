@@ -44,16 +44,6 @@
       "env": {
         "SENTRY_ACCESS_TOKEN": "${SENTRY_ACCESS_TOKEN}"
       }
-    },
-    "perplexity-mcp": {
-      "command": "npx",
-      "args": [
-        "-y",
-        "${MCP_PERPLEXITY_COMMAND_PACKAGE}"
-      ],
-      "env": {
-        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
-      }
     }
   },
   "inputs": []

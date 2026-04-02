@@ -75,15 +75,20 @@ This document includes:
 
 ## Optional: MCP Collaboration Setup
 
-For smoother Codex+operator collaboration, keep the active MCP config and optional online MCP template separate.
+For smoother Codex+operator collaboration, keep the active MCP config and profile templates separate.
 
-- Active config (currently used):
-  - `.vscode/mcp.json` (Notion + Google Drive)
-- Optional online MCP template:
-  - `.vscode/mcp.online.template.json` (GitHub/Vercel/Telegram/Perplexity command+token placeholders)
+- Active config:
+  - `.vscode/mcp.json`
+- Base config:
+  - `.vscode/mcp.base.json` (Notion + Google Drive)
+- Profile templates:
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry)
+  - `.vscode/mcp.profile.research.template.json` (Perplexity)
+- Optional all-in-one template:
+  - `.vscode/mcp.online.template.json`
 - Optional env template:
   - `.vscode/mcp.env.example`
-  - token vars reuse existing names where possible: `GITHUB_TOKEN`, `VERCEL_TOKEN`, `TELEGRAM_TOKEN`, `PERPLEXITY_API_KEY`
+  - token vars reuse existing names where possible: `GITHUB_TOKEN`, `VERCEL_TOKEN`, `TELEGRAM_TOKEN`, `SENTRY_ACCESS_TOKEN`, `PERPLEXITY_API_KEY`
   - telegram routing defaults can use `TELEGRAM_SIMULATION_CHAT_ID`
 
 Quick validation:
@@ -94,12 +99,30 @@ Quick validation:
 3. if you want hard-fail on unresolved placeholders:
    - `MCP_CHECK_STRICT=true npm run mcp:check`
 
-Optional auto-merge online MCP template into active config:
+Profile sync (recommended):
+
+- ops profile:
+  - `npm run mcp:sync:ops`
+- research profile:
+  - `npm run mcp:sync:research`
+- full profile:
+  - `npm run mcp:sync:full`
+
+Optional online template merge:
 
 - safe mode (only servers with resolved env vars are merged):
   - `npm run mcp:sync`
 - force include all template servers (even unresolved placeholders):
   - `npm run mcp:sync:all`
+
+Smoke/health checks:
+
+- local smoke test (no notify):
+  - `npm run mcp:smoke`
+- send Telegram alert on failure:
+  - `npm run mcp:health`
+- send Telegram status always:
+  - `npm run mcp:health:always`
 
 Detailed runbook:
 

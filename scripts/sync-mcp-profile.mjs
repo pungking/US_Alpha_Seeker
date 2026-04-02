@@ -2,15 +2,21 @@ import fs from "node:fs";
 import path from "node:path";
 
 const CWD = process.cwd();
-const MAIN_CONFIG_PATH = path.join(CWD, ".vscode", "mcp.json");
-const TEMPLATE_CONFIG_PATH = path.join(CWD, ".vscode", "mcp.online.template.json");
+const OUTPUT_CONFIG_PATH = path.join(CWD, ".vscode", "mcp.json");
+const BASE_CONFIG_PATH = path.join(CWD, ".vscode", "mcp.base.json");
+const PROFILE_TEMPLATES = {
+  ops: [path.join(CWD, ".vscode", "mcp.profile.ops.template.json")],
+  research: [path.join(CWD, ".vscode", "mcp.profile.research.template.json")],
+  full: [
+    path.join(CWD, ".vscode", "mcp.profile.ops.template.json"),
+    path.join(CWD, ".vscode", "mcp.profile.research.template.json")
+  ]
+};
 const ENV_FILE_CANDIDATES = [
   path.join(CWD, ".env"),
   path.join(CWD, ".vscode", "mcp.env"),
   path.join(CWD, ".vscode", "mcp.env.local")
 ];
-
-const parseJson = (filePath) => JSON.parse(fs.readFileSync(filePath, "utf8"));
 
 const parseDotEnv = (filePath) => {
   const out = {};
@@ -31,7 +37,7 @@ const parseDotEnv = (filePath) => {
   return out;
 };
 
-const mergeEnv = () => {
+const buildEnvMap = () => {
   const map = {};
   for (const filePath of ENV_FILE_CANDIDATES) {
     const chunk = parseDotEnv(filePath);
@@ -47,6 +53,7 @@ const mergeEnv = () => {
 };
 
 const env = (envMap, name, fallback = "") => String(envMap[name] ?? fallback).trim();
+const parseJson = (filePath) => JSON.parse(fs.readFileSync(filePath, "utf8"));
 
 const walkStrings = (value, fn) => {
   if (typeof value === "string") return fn(value);
@@ -77,66 +84,69 @@ const extractPlaceholders = (value) => {
 };
 
 const main = () => {
-  if (!fs.existsSync(MAIN_CONFIG_PATH)) {
-    throw new Error(`missing ${path.relative(CWD, MAIN_CONFIG_PATH)}`);
-  }
-  if (!fs.existsSync(TEMPLATE_CONFIG_PATH)) {
-    throw new Error(`missing ${path.relative(CWD, TEMPLATE_CONFIG_PATH)}`);
+  if (!fs.existsSync(BASE_CONFIG_PATH)) {
+    throw new Error(`missing ${path.relative(CWD, BASE_CONFIG_PATH)}`);
   }
 
-  const mainConfig = parseJson(MAIN_CONFIG_PATH);
-  const templateConfig = parseJson(TEMPLATE_CONFIG_PATH);
-  const envMap = mergeEnv();
+  const envMap = buildEnvMap();
+  const profile = env(envMap, "MCP_PROFILE", "ops").toLowerCase();
+  const templatePaths = PROFILE_TEMPLATES[profile];
+  if (!templatePaths) {
+    throw new Error(`unknown MCP_PROFILE=${profile}; use ops|research|full`);
+  }
+
   const includeUnresolved = (() => {
     const raw = env(envMap, "MCP_SYNC_INCLUDE_UNRESOLVED", "false").toLowerCase();
     return ["1", "true", "yes", "on"].includes(raw);
   })();
 
-  const baseServers = mainConfig?.servers && typeof mainConfig.servers === "object" ? mainConfig.servers : {};
-  const templateServers =
-    templateConfig?.servers && typeof templateConfig.servers === "object" ? templateConfig.servers : {};
-
+  const baseConfig = parseJson(BASE_CONFIG_PATH);
+  const baseServers = baseConfig?.servers && typeof baseConfig.servers === "object" ? baseConfig.servers : {};
   const nextServers = { ...baseServers };
   const added = [];
   const skipped = [];
 
-  for (const [name, serverDef] of Object.entries(templateServers)) {
-    const placeholders = extractPlaceholders(serverDef);
-    const missing = placeholders.filter((key) => !String(envMap[key] ?? "").trim());
-    if (missing.length > 0 && !includeUnresolved) {
-      skipped.push({ name, reason: `missing_env(${missing.join(",")})` });
+  for (const templatePath of templatePaths) {
+    if (!fs.existsSync(templatePath)) {
+      skipped.push({ name: path.relative(CWD, templatePath), reason: "missing_template" });
       continue;
     }
-    // Keep placeholders in config to avoid writing secrets to disk.
-    nextServers[name] = JSON.parse(JSON.stringify(serverDef));
-    added.push(name);
+    const templateConfig = parseJson(templatePath);
+    const templateServers =
+      templateConfig?.servers && typeof templateConfig.servers === "object" ? templateConfig.servers : {};
+    for (const [name, serverDef] of Object.entries(templateServers)) {
+      const placeholders = extractPlaceholders(serverDef);
+      const missing = placeholders.filter((key) => !String(envMap[key] ?? "").trim());
+      if (missing.length > 0 && !includeUnresolved) {
+        skipped.push({ name, reason: `missing_env(${missing.join(",")})` });
+        continue;
+      }
+      // Keep placeholders in config to avoid writing secrets to disk.
+      nextServers[name] = JSON.parse(JSON.stringify(serverDef));
+      added.push(name);
+    }
   }
 
-  const next = {
-    ...mainConfig,
+  const output = {
+    ...baseConfig,
     servers: nextServers
   };
-  fs.writeFileSync(MAIN_CONFIG_PATH, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  fs.writeFileSync(OUTPUT_CONFIG_PATH, `${JSON.stringify(output, null, 2)}\n`, "utf8");
 
   console.log(
-    `[MCP_SYNC] updated ${path.relative(CWD, MAIN_CONFIG_PATH)} includeUnresolved=${
-      includeUnresolved ? "true" : "false"
-    }`
+    `[MCP_PROFILE_SYNC] profile=${profile} includeUnresolved=${includeUnresolved ? "true" : "false"} updated ${path.relative(
+      CWD,
+      OUTPUT_CONFIG_PATH
+    )}`
   );
   if (added.length > 0) {
-    console.log(`[MCP_SYNC] added_or_updated: ${added.join(", ")}`);
+    console.log(`[MCP_PROFILE_SYNC] added_or_updated: ${added.join(", ")}`);
   } else {
-    console.log("[MCP_SYNC] added_or_updated: none");
-  }
-  const loadedEnvSources = ENV_FILE_CANDIDATES
-    .filter((filePath) => fs.existsSync(filePath))
-    .map((filePath) => path.relative(CWD, filePath));
-  if (loadedEnvSources.length > 0) {
-    console.log(`[MCP_SYNC] env sources: ${loadedEnvSources.join(", ")}`);
+    console.log("[MCP_PROFILE_SYNC] added_or_updated: none");
   }
   if (skipped.length > 0) {
     for (const row of skipped) {
-      console.log(`[MCP_SYNC] skipped ${row.name}: ${row.reason}`);
+      console.log(`[MCP_PROFILE_SYNC] skipped ${row.name}: ${row.reason}`);
     }
   }
 };
