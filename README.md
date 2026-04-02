@@ -123,6 +123,8 @@ Smoke/health checks:
   - `npm run mcp:health`
 - send Telegram status always:
   - `npm run mcp:health:always`
+- one-shot daily ops routine:
+  - `npm run mcp:ops:daily`
 
 Detailed runbook:
 

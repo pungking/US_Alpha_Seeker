@@ -18,7 +18,8 @@
     "mcp:sync:profile": "node scripts/sync-mcp-profile.mjs",
     "mcp:sync:ops": "MCP_PROFILE=ops node scripts/sync-mcp-profile.mjs",
     "mcp:sync:research": "MCP_PROFILE=research node scripts/sync-mcp-profile.mjs",
-    "mcp:sync:full": "MCP_PROFILE=full node scripts/sync-mcp-profile.mjs"
+    "mcp:sync:full": "MCP_PROFILE=full node scripts/sync-mcp-profile.mjs",
+    "mcp:ops:daily": "npm run mcp:sync:ops && MCP_CHECK_STRICT=true npm run mcp:check && npm run mcp:health"
   },
   "dependencies": {
     "react": "^19.2.3",
