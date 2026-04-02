@@ -1,6 +1,6 @@
 {
   "servers": {
-    "makenotion/notion-mcp-server": {
+    "notion-mcp-remote": {
       "type": "http",
       "url": "https://mcp.notion.com/sse",
       "gallery": "https://api.mcp.github.com",

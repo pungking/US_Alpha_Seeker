@@ -10,12 +10,20 @@ const toNumber = (value: unknown, fallback: number): number => {
   return Number.isFinite(n) ? n : fallback;
 };
 
+// Use static import.meta.env access so Vite can safely inline values in production builds.
+const CLIENT_ENV: Record<string, string> = {
+  VITE_SENTRY_DSN: String(import.meta.env.VITE_SENTRY_DSN ?? ""),
+  VITE_SENTRY_ENVIRONMENT: String(import.meta.env.VITE_SENTRY_ENVIRONMENT ?? ""),
+  VITE_SENTRY_RELEASE: String(import.meta.env.VITE_SENTRY_RELEASE ?? ""),
+  VITE_APP_RELEASE: String(import.meta.env.VITE_APP_RELEASE ?? ""),
+  VITE_SENTRY_TRACES_SAMPLE_RATE: String(import.meta.env.VITE_SENTRY_TRACES_SAMPLE_RATE ?? ""),
+  VITE_SENTRY_REPLAY_SAMPLE_RATE: String(import.meta.env.VITE_SENTRY_REPLAY_SAMPLE_RATE ?? ""),
+  VITE_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE: String(import.meta.env.VITE_SENTRY_REPLAY_ON_ERROR_SAMPLE_RATE ?? ""),
+  MODE: String(import.meta.env.MODE ?? "")
+};
+
 const readClientEnv = (key: string): string => {
-  try {
-    return String(((import.meta as any)?.env?.[key] ?? "") || "").trim();
-  } catch {
-    return "";
-  }
+  return String(CLIENT_ENV[key] ?? "").trim();
 };
 
 const computeRelease = (): string | undefined => {
