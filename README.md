@@ -126,6 +126,18 @@ Smoke/health checks:
 - one-shot daily ops routine:
   - `npm run mcp:ops:daily`
 
+Optional GitHub Actions daily automation:
+
+- workflow: `.github/workflows/mcp-ops-daily.yml`
+- schedule: daily `00:15 UTC` (`09:15 KST`)
+- required secrets/vars:
+  - `MCP_GITHUB_TOKEN` (or fallback `GITHUB_PAT` / `SIDECAR_DISPATCH_TOKEN`)
+  - `VERCEL_TOKEN`
+  - `TELEGRAM_TOKEN`
+  - `TELEGRAM_SIMULATION_CHAT_ID` (secret or repo variable)
+  - `SENTRY_ACCESS_TOKEN`
+  - `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, `GDRIVE_REFRESH_TOKEN`
+
 Detailed runbook:
 
 - `docs/MCP_COLLAB_SETUP_PLAYBOOK_2026-04-02.md`

@@ -1,0 +1,56 @@
+name: MCP Ops Daily
+
+on:
+  schedule:
+    # Daily at 00:15 UTC (09:15 KST)
+    - cron: "15 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: mcp-ops-daily-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  mcp-ops-daily:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      # MCP package defaults
+      MCP_GITHUB_COMMAND_PACKAGE: mcp-remote
+      MCP_GITHUB_URL: https://api.githubcopilot.com/mcp/
+      MCP_VERCEL_COMMAND_PACKAGE: mcp-remote
+      MCP_VERCEL_URL: https://mcp.vercel.com
+      MCP_TELEGRAM_COMMAND_PACKAGE: "@iqai/mcp-telegram"
+      MCP_SENTRY_COMMAND_PACKAGE: "@sentry/mcp-server"
+
+      # Tokens / secrets
+      GITHUB_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
+      SENTRY_ACCESS_TOKEN: ${{ secrets.SENTRY_ACCESS_TOKEN }}
+
+      # Base MCP placeholders (google-drive in mcp.base.json)
+      GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+      GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+      GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Run MCP ops daily routine
+        run: npm run mcp:ops:daily
+
+      - name: Upload MCP smoke report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-smoke-report
+          path: state/mcp-smoke-report.json
+          if-no-files-found: ignore
