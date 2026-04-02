@@ -79,6 +79,19 @@
       "env": {
         "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
       }
+    },
+    "obsidian-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "${MCP_OBSIDIAN_COMMAND_PACKAGE}"
+      ],
+      "env": {
+        "OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
+        "OBSIDIAN_BASE_URL": "${OBSIDIAN_BASE_URL}",
+        "OBSIDIAN_VERIFY_SSL": "${OBSIDIAN_VERIFY_SSL}",
+        "OBSIDIAN_ENABLE_CACHE": "${OBSIDIAN_ENABLE_CACHE}"
+      }
     }
   },
   "inputs": []

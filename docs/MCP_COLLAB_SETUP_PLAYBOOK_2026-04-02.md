@@ -153,3 +153,48 @@ MCP는 협업/진단 계층.
 2. GitHub MCP → Vercel MCP 순으로 붙이기
 3. 붙일 때마다 `npm run mcp:check` 결과를 기록
 4. `perf_loop 20/20` 달성 전까지는 Trade Plane 설정 고정 유지
+
+---
+
+## 8) Playwright / Obsidian / GitHub CLI 빠른 셋업
+
+### Playwright MCP (권장: 즉시 활성)
+
+- 이 저장소 템플릿에는 `playwright-mcp`가 이미 반영되어 있음
+- 별도 토큰은 필요 없음
+- 반영 확인:
+
+```bash
+npm run mcp:sync
+npm run mcp:check
+npm run mcp:smoke
+```
+
+### Obsidian MCP (선택: 로컬 지식베이스 운영 시)
+
+- Notion과 역할이 다름:
+  - Notion: 운영 DB/뷰/협업
+  - Obsidian: 개인 로컬 Markdown 지식베이스
+- 필요 변수:
+  - `MCP_OBSIDIAN_COMMAND_PACKAGE` (기본: `obsidian-mcp-server`)
+  - `OBSIDIAN_API_KEY`
+  - `OBSIDIAN_BASE_URL` (기본: `http://127.0.0.1:27123`)
+  - `OBSIDIAN_VERIFY_SSL`, `OBSIDIAN_ENABLE_CACHE`
+
+### GitHub CLI (`gh`) (선택: 터미널 PR/이슈 작업 시)
+
+- GitHub MCP와 별개 도구:
+  - GitHub MCP: Codex용 MCP 연결
+  - `gh`: 터미널 수동/스크립트 작업 도구
+- 설치 후 인증:
+
+```bash
+gh --version
+gh auth login --hostname github.com --git-protocol https --web
+```
+
+- 토큰으로 인증하려면:
+
+```bash
+printf '%s' "$GITHUB_TOKEN" | gh auth login --with-token
+```
