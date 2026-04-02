@@ -12,10 +12,17 @@ const handler = async (req: any, res: any) => {
     return;
   }
 
-  const { token, method, body } = req.body;
+  // Guard against null/invalid JSON body to avoid runtime destructuring errors.
+  const payload = req?.body && typeof req.body === "object" ? req.body : {};
+  const token = typeof payload.token === "string" ? payload.token.trim() : "";
+  const method = typeof payload.method === "string" ? payload.method.trim() : "";
+  const body = payload.body ?? {};
 
   if (!token || !method) {
-    return res.status(400).json({ error: 'Missing parameters' });
+    return res.status(400).json({
+      error: "missing_parameters",
+      message: "token and method are required"
+    });
   }
 
   try {
