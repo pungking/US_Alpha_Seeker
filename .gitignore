@@ -1,6 +1,7 @@
 .env.vercel.example
 .env
 .env.local
+node_modules/
 
 # Build artifacts
 dist/
