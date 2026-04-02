@@ -19,7 +19,7 @@
   - Notion MCP
   - Google Drive MCP
 - 온라인 MCP 템플릿: `.vscode/mcp.online.template.json`
-  - GitHub/Vercel/Telegram/Perplexity placeholder
+  - GitHub/Vercel/Telegram/Perplexity command + token placeholder
 - MCP env 템플릿: `.vscode/mcp.env.example`
 - 설정 점검 스크립트: `scripts/check-mcp-config.mjs`
 
@@ -39,9 +39,14 @@ npm run mcp:check
 
 ### Step B. 온라인 MCP 확장 시
 
-1. `.vscode/mcp.online.template.json`에서 필요한 서버만 선택
-2. 선택한 서버 블록을 `.vscode/mcp.json`으로 복사
-3. 해당 `MCP_*_SSE_URL` 값을 shell env 또는 VSCode env에 주입
+1. `.vscode/mcp.env.example` 기준으로 각 서버별 `*_COMMAND_PACKAGE`, `*_TOKEN` 값 준비
+2. 해당 값을 shell env 또는 `.env`에 주입
+3. 자동 병합 실행:
+
+```bash
+npm run mcp:sync
+```
+
 4. 재검증:
 
 ```bash
@@ -53,6 +58,23 @@ npm run mcp:check
 ```bash
 MCP_CHECK_STRICT=true npm run mcp:check
 ```
+
+강제 전체 병합(권장 X, placeholder 포함):
+
+```bash
+npm run mcp:sync:all
+```
+
+토큰 변수는 기존 앱 변수명을 재사용:
+
+- GitHub: `GITHUB_TOKEN`
+- Vercel: `VERCEL_TOKEN`
+- Telegram: `TELEGRAM_TOKEN`
+- Perplexity: `PERPLEXITY_API_KEY`
+
+Telegram MCP 라우팅 기본값:
+
+- `TELEGRAM_SIMULATION_CHAT_ID`를 MCP 템플릿에서 기본 chat id로 사용
 
 ---
 
@@ -89,11 +111,11 @@ MCP는 협업/진단 계층.
 ### 케이스: `npm run mcp:check`에서 placeholder 누락
 
 - 해당 변수(`MCP_*`)를 shell env로 export
-- 또는 `.vscode/mcp.json`에서 아직 쓰지 않는 서버 블록 제거
+- 또는 `npm run mcp:sync` 재실행(해당 env 없는 서버는 자동 skip)
 
 ### 케이스: MCP 연결 실패/timeout
 
-- URL 정확성 재확인 (`.../sse`)
+- command package 이름/버전 재확인
 - 토큰/권한 확인
 - 서버별 heartbeat 테스트 후 다시 연결
 

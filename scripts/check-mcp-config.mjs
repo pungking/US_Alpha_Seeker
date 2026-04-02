@@ -4,8 +4,39 @@ import path from "node:path";
 const CWD = process.cwd();
 const DEFAULT_CONFIG_PATH = path.join(CWD, ".vscode", "mcp.json");
 const OPTIONAL_TEMPLATE_PATH = path.join(CWD, ".vscode", "mcp.online.template.json");
+const DEFAULT_ENV_PATH = path.join(CWD, ".env");
 
-const env = (name, fallback = "") => String(process.env[name] ?? fallback).trim();
+const parseDotEnv = (filePath) => {
+  const out = {};
+  if (!fs.existsSync(filePath)) return out;
+  const lines = fs.readFileSync(filePath, "utf8").split(/\r?\n/);
+  for (const lineRaw of lines) {
+    const line = String(lineRaw || "").trim();
+    if (!line || line.startsWith("#")) continue;
+    const idx = line.indexOf("=");
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx).trim();
+    let value = line.slice(idx + 1).trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    if (key) out[key] = value;
+  }
+  return out;
+};
+
+const buildEnvMap = () => {
+  const map = parseDotEnv(DEFAULT_ENV_PATH);
+  for (const [key, value] of Object.entries(process.env)) {
+    if (value == null) continue;
+    map[key] = String(value);
+  }
+  return map;
+};
+
+const ENV_MAP = buildEnvMap();
+
+const env = (name, fallback = "") => String(ENV_MAP[name] ?? fallback).trim();
 const boolFromEnv = (name, fallback = false) => {
   const raw = env(name);
   if (!raw) return fallback;
@@ -79,6 +110,9 @@ const main = () => {
   const strict = boolFromEnv("MCP_CHECK_STRICT", false);
   const configPath = env("MCP_CONFIG_PATH", DEFAULT_CONFIG_PATH);
   const templatePath = env("MCP_TEMPLATE_PATH", OPTIONAL_TEMPLATE_PATH);
+  if (fs.existsSync(DEFAULT_ENV_PATH)) {
+    console.log(`[MCP_CHECK] env source includes ${path.relative(CWD, DEFAULT_ENV_PATH)}`);
+  }
 
   const mainConfig = parseJsonFile(configPath);
   if (!mainConfig.ok) {

@@ -1,21 +1,67 @@
 {
-	"servers": {
-		"makenotion/notion-mcp-server": {
-			"type": "http",
-			"url": "https://mcp.notion.com/sse",
-			"gallery": "https://api.mcp.github.com",
-			"version": "1.0.0"
-		}
-		,
-		"google-drive": {
-			"command": "npx",
-			"args": ["@piotr-agier/google-drive-mcp"],
-			"env": {
-				"GOOGLE_DRIVE_CLIENT_ID": "${GDRIVE_CLIENT_ID}",
-				"GOOGLE_DRIVE_CLIENT_SECRET": "${GDRIVE_CLIENT_SECRET}",
-				"GOOGLE_DRIVE_REFRESH_TOKEN": "${GDRIVE_REFRESH_TOKEN}"
-			}
-		}
-	},
-	"inputs": []
+  "servers": {
+    "makenotion/notion-mcp-server": {
+      "type": "http",
+      "url": "https://mcp.notion.com/sse",
+      "gallery": "https://api.mcp.github.com",
+      "version": "1.0.0"
+    },
+    "google-drive": {
+      "command": "npx",
+      "args": [
+        "@piotr-agier/google-drive-mcp"
+      ],
+      "env": {
+        "GOOGLE_DRIVE_CLIENT_ID": "${GDRIVE_CLIENT_ID}",
+        "GOOGLE_DRIVE_CLIENT_SECRET": "${GDRIVE_CLIENT_SECRET}",
+        "GOOGLE_DRIVE_REFRESH_TOKEN": "${GDRIVE_REFRESH_TOKEN}"
+      }
+    },
+    "github-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://api.githubcopilot.com/mcp/"
+      ],
+      "env": {
+        "GITHUB_TOKEN": "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"
+      }
+    },
+    "vercel-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "https://mcp.vercel.com"
+      ],
+      "env": {
+        "VERCEL_TOKEN": "vcp_0MxsWGXXsleCeYa31dKXQY3NrOXGL48KmYAojCJInqyzKEc8cz29V5ul"
+      }
+    },
+    "telegram-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@iqai/mcp-telegram"
+      ],
+      "env": {
+        "TELEGRAM_BOT_TOKEN": "8468786480:AAFytUe-qHOfhsagEwTwDxn0l5vSxQbKmzs",
+        "TELEGRAM_CHAT_ID": "1281749368",
+        "TELEGRAM_DEFAULT_CHAT_ID": "1281749368",
+        "TELEGRAM_SIMULATION_CHAT_ID": "1281749368"
+      }
+    },
+    "perplexity-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@perplexity-ai/mcp-server"
+      ],
+      "env": {
+        "PERPLEXITY_API_KEY": "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"
+      }
+    }
+  },
+  "inputs": []
 }

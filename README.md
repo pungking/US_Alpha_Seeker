@@ -80,9 +80,11 @@ For smoother Codex+operator collaboration, keep the active MCP config and option
 - Active config (currently used):
   - `.vscode/mcp.json` (Notion + Google Drive)
 - Optional online MCP template:
-  - `.vscode/mcp.online.template.json` (GitHub/Vercel/Telegram/Perplexity placeholders)
+  - `.vscode/mcp.online.template.json` (GitHub/Vercel/Telegram/Perplexity command+token placeholders)
 - Optional env template:
   - `.vscode/mcp.env.example`
+  - token vars reuse existing names where possible: `GITHUB_TOKEN`, `VERCEL_TOKEN`, `TELEGRAM_TOKEN`, `PERPLEXITY_API_KEY`
+  - telegram routing defaults can use `TELEGRAM_SIMULATION_CHAT_ID`
 
 Quick validation:
 
@@ -91,6 +93,13 @@ Quick validation:
    - `npm run mcp:check`
 3. if you want hard-fail on unresolved placeholders:
    - `MCP_CHECK_STRICT=true npm run mcp:check`
+
+Optional auto-merge online MCP template into active config:
+
+- safe mode (only servers with resolved env vars are merged):
+  - `npm run mcp:sync`
+- force include all template servers (even unresolved placeholders):
+  - `npm run mcp:sync:all`
 
 Detailed runbook:
 
