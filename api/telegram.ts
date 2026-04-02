@@ -1,4 +1,4 @@
-import { captureApiError, withSentryApi } from "./_sentry.js";
+import { captureApiError, withSentryApi } from "../services/sentryApiNode.js";
 
 const handler = async (req: any, res: any) => {
   // Set CORS headers

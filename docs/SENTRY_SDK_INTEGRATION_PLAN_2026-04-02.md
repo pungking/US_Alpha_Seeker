@@ -91,7 +91,7 @@ Acceptance:
 
 ## 4) API-side Sentry helper
 
-New file: `api/_sentry.ts`
+New file: `services/sentryApiNode.js`
 
 Responsibilities:
 - lazy init `@sentry/node` once per lambda runtime

@@ -1,5 +1,5 @@
 
-import { withSentryApi } from "./_sentry.js";
+import { withSentryApi } from "../services/sentryApiNode.js";
 import crypto from 'crypto';
 
 const handler = async (req: any, res: any) => {

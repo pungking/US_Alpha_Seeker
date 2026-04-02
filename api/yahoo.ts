@@ -1,5 +1,5 @@
 
-import { captureApiError, withSentryApi } from "./_sentry.js";
+import { captureApiError, withSentryApi } from "../services/sentryApiNode.js";
 
 const handler = async (req: any, res: any) => {
   // Yahoo Finance Proxy v5.0: "Polymer" Strategy

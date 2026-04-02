@@ -1,5 +1,5 @@
-import * as Sentry from "@sentry/node";
-
+let sentryModule = null;
+let loadAttempted = false;
 let initialized = false;
 
 const env = (name, fallback = "") => String(process.env[name] ?? fallback).trim();
@@ -9,10 +9,25 @@ const toNumber = (value, fallback) => {
   return Number.isFinite(n) ? n : fallback;
 };
 
-const initServerSentry = () => {
-  if (initialized) return true;
+const loadSentry = async () => {
+  if (loadAttempted) return sentryModule;
+  loadAttempted = true;
+  try {
+    sentryModule = await import("@sentry/node");
+  } catch (error) {
+    // Sentry dependency/load errors should never crash API handlers.
+    sentryModule = null;
+  }
+  return sentryModule;
+};
+
+const initServerSentry = async () => {
+  const Sentry = await loadSentry();
+  if (!Sentry) return null;
+  if (initialized) return Sentry;
+
   const dsn = env("SENTRY_DSN");
-  if (!dsn) return false;
+  if (!dsn) return null;
 
   Sentry.init({
     dsn,
@@ -21,7 +36,7 @@ const initServerSentry = () => {
     tracesSampleRate: toNumber(env("SENTRY_TRACES_SAMPLE_RATE", "0.05"), 0.05)
   });
   initialized = true;
-  return true;
+  return Sentry;
 };
 
 const normalizeError = (error) => {
@@ -29,22 +44,28 @@ const normalizeError = (error) => {
   return new Error(String(error));
 };
 
-export const captureApiError = (error, context = {}) => {
-  if (!initServerSentry()) return;
-  Sentry.withScope((scope) => {
-    for (const [key, value] of Object.entries(context)) {
-      if (value == null) continue;
-      scope.setExtra(key, value);
-    }
-    Sentry.captureException(normalizeError(error));
-  });
+export const captureApiError = async (error, context = {}) => {
+  try {
+    const Sentry = await initServerSentry();
+    if (!Sentry) return;
+
+    Sentry.withScope((scope) => {
+      for (const [key, value] of Object.entries(context)) {
+        if (value == null) continue;
+        scope.setExtra(key, value);
+      }
+      Sentry.captureException(normalizeError(error));
+    });
+  } catch {
+    // No-op: never block API response path on observability failures.
+  }
 };
 
 export const withSentryApi = (handler) => async (req, res) => {
   try {
     return await handler(req, res);
   } catch (error) {
-    captureApiError(error, {
+    await captureApiError(error, {
       source: "api_wrapper",
       method: req?.method || "UNKNOWN",
       url: req?.url || ""

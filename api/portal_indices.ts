@@ -1,5 +1,5 @@
 
-import { captureApiError, withSentryApi } from "./_sentry.js";
+import { captureApiError, withSentryApi } from "../services/sentryApiNode.js";
 
 const handler = async (req: any, res: any) => {
   // Portal Proxy v4.1: Enhanced Index Coverage (NDX + IXIC)
