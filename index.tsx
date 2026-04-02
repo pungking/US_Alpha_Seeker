@@ -9,11 +9,14 @@ if (!rootElement) {
   throw new Error("Could not find root element to mount to");
 }
 
-initSentryClient();
+const sentryClientReady = initSentryClient();
 
 if (typeof window !== "undefined") {
   const qs = new URLSearchParams(window.location.search);
   if (qs.get("sentrySmoke") === "1") {
+    if (!sentryClientReady) {
+      console.warn("[SENTRY_SMOKE_SKIP] sentry_client_not_initialized (check VITE_SENTRY_DSN)");
+    }
     const smokeId = `SENTRY_FRONT_SMOKE_${Date.now()}`;
     const smokeContext = {
       source: "url_smoke",
@@ -31,7 +34,7 @@ if (typeof window !== "undefined") {
     void flushClientEvents(3000).then((ok) => {
       console.info(`[SENTRY_SMOKE_FLUSH] ${smokeId} ok=${ok}`);
     });
-    console.info(`[SENTRY_SMOKE_SENT] ${smokeId}`);
+    console.info(`[SENTRY_SMOKE_SENT] ${smokeId} initialized=${sentryClientReady}`);
   }
 }
 

@@ -45,6 +45,27 @@
         "SENTRY_ACCESS_TOKEN": "${SENTRY_ACCESS_TOKEN}"
       }
     },
+    "playwright-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "@playwright/mcp@latest",
+        "--headless"
+      ]
+    },
+    "obsidian-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "${MCP_OBSIDIAN_COMMAND_PACKAGE}"
+      ],
+      "env": {
+        "OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
+        "OBSIDIAN_BASE_URL": "${OBSIDIAN_BASE_URL}",
+        "OBSIDIAN_VERIFY_SSL": "${OBSIDIAN_VERIFY_SSL}",
+        "OBSIDIAN_ENABLE_CACHE": "${OBSIDIAN_ENABLE_CACHE}"
+      }
+    },
     "perplexity-mcp": {
       "command": "npx",
       "args": [

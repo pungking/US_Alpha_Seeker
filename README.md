@@ -97,13 +97,14 @@ For smoother Codex+operator collaboration, keep the active MCP config and profil
 - Base config:
   - `.vscode/mcp.base.json` (Notion + Google Drive)
 - Profile templates:
-  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry)
-  - `.vscode/mcp.profile.research.template.json` (Perplexity)
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright)
+  - `.vscode/mcp.profile.research.template.json` (Perplexity/Obsidian optional)
 - Optional all-in-one template:
   - `.vscode/mcp.online.template.json`
 - Optional env template:
   - `.vscode/mcp.env.example`
   - token vars reuse existing names where possible: `GITHUB_TOKEN`, `VERCEL_TOKEN`, `TELEGRAM_TOKEN`, `SENTRY_ACCESS_TOKEN`, `PERPLEXITY_API_KEY`
+  - optional Obsidian vars: `MCP_OBSIDIAN_COMMAND_PACKAGE`, `OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`
   - telegram routing defaults can use `TELEGRAM_SIMULATION_CHAT_ID`
 
 Quick validation:

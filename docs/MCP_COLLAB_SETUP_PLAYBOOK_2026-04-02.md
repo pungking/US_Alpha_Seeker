@@ -20,10 +20,10 @@
   - Notion MCP
   - Google Drive MCP
 - 프로필 템플릿:
-  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry)
-  - `.vscode/mcp.profile.research.template.json` (Perplexity)
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright)
+  - `.vscode/mcp.profile.research.template.json` (Perplexity + Obsidian optional)
 - 온라인 MCP 템플릿: `.vscode/mcp.online.template.json`
-  - GitHub/Vercel/Telegram/Sentry/Perplexity command + token placeholder
+  - GitHub/Vercel/Telegram/Sentry/Playwright/Perplexity/Obsidian command + token placeholder
 - MCP env 템플릿: `.vscode/mcp.env.example`
 - 설정 점검 스크립트: `scripts/check-mcp-config.mjs`
 - 프로필 동기화 스크립트: `scripts/sync-mcp-profile.mjs`
@@ -92,6 +92,7 @@ npm run mcp:health
 - Telegram: `TELEGRAM_TOKEN`
 - Sentry: `SENTRY_ACCESS_TOKEN`
 - Perplexity: `PERPLEXITY_API_KEY`
+- Obsidian(optional): `OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`
 
 Telegram MCP 라우팅 기본값:
 
@@ -105,7 +106,9 @@ Telegram MCP 라우팅 기본값:
 2. Vercel MCP
 3. Telegram MCP
 4. Sentry MCP
-5. Perplexity MCP (리서치 보조 전용)
+5. Playwright MCP (UI 재현/검증)
+6. Perplexity MCP (리서치 보조 전용)
+7. Obsidian MCP (선택: 로컬 지식베이스 운영 시)
 
 주의:
 - Perplexity 결과를 매매 의사결정에 자동 반영하지 않음
