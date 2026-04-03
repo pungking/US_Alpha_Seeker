@@ -20,10 +20,10 @@
   - Notion MCP
   - Google Drive MCP
 - 프로필 템플릿:
-  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright)
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright/Grafana/PagerDuty/Cloudflare)
   - `.vscode/mcp.profile.research.template.json` (Perplexity + Obsidian optional)
 - 온라인 MCP 템플릿: `.vscode/mcp.online.template.json`
-  - GitHub/Vercel/Telegram/Sentry/Playwright/Perplexity/Obsidian command + token placeholder
+  - GitHub/Vercel/Telegram/Sentry/Playwright/Grafana/PagerDuty/Cloudflare/Perplexity/Obsidian command + token placeholder
 - MCP env 템플릿: `.vscode/mcp.env.example`
 - 설정 점검 스크립트: `scripts/check-mcp-config.mjs`
 - 프로필 동기화 스크립트: `scripts/sync-mcp-profile.mjs`
@@ -92,6 +92,9 @@ npm run mcp:health
 - Telegram: `TELEGRAM_TOKEN`
 - Sentry: `SENTRY_ACCESS_TOKEN`
 - Perplexity: `PERPLEXITY_API_KEY`
+- Grafana: `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN`
+- PagerDuty: `PAGERDUTY_USER_API_KEY`, `PAGERDUTY_API_HOST`
+- Cloudflare: `MCP_CLOUDFLARE_COMMAND_PACKAGE`, `MCP_CLOUDFLARE_URL` (optional: `CLOUDFLARE_API_TOKEN`)
 - Obsidian(optional): `OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`
 
 Telegram MCP 라우팅 기본값:
@@ -107,8 +110,11 @@ Telegram MCP 라우팅 기본값:
 3. Telegram MCP
 4. Sentry MCP
 5. Playwright MCP (UI 재현/검증)
-6. Perplexity MCP (리서치 보조 전용)
-7. Obsidian MCP (선택: 로컬 지식베이스 운영 시)
+6. Grafana MCP (관측/대시보드 질의, 기본 read-only 권장)
+7. PagerDuty MCP (인시던트 운영 연계, 기본 read-only 권장)
+8. Cloudflare MCP (MCP gateway/edge 운영 보조)
+9. Perplexity MCP (리서치 보조 전용)
+10. Obsidian MCP (선택: 로컬 지식베이스 운영 시)
 
 주의:
 - Perplexity 결과를 매매 의사결정에 자동 반영하지 않음
@@ -154,6 +160,11 @@ MCP는 협업/진단 계층.
 3. 붙일 때마다 `npm run mcp:check` 결과를 기록
 4. `perf_loop 20/20` 달성 전까지는 Trade Plane 설정 고정 유지
 
+추가 운영 팁(중복/효율):
+- 기본은 `mcp:sync:ops`로만 운용(실전 운영 집중)
+- 리서치가 필요한 세션에만 `mcp:sync:research`로 전환
+- `mcp:sync:full`은 점검/마이그레이션 같은 특수 상황에만 사용
+
 ---
 
 ## 8) Playwright / Obsidian / GitHub CLI 빠른 셋업
@@ -197,4 +208,53 @@ gh auth login --hostname github.com --git-protocol https --web
 
 ```bash
 printf '%s' "$GITHUB_TOKEN" | gh auth login --with-token
+```
+
+### Grafana MCP (운영 관측 강화, 권장)
+
+- 템플릿 기본값은 안전하게 read-only 모드(`--disable-write`)로 설정됨
+- 필요 변수:
+  - `MCP_GRAFANA_COMMAND` (권장: `uvx`)
+  - `MCP_GRAFANA_COMMAND_PACKAGE` (권장: `mcp-grafana`)
+  - `GRAFANA_URL` (예: `https://<stack>.grafana.net`)
+  - `GRAFANA_SERVICE_ACCOUNT_TOKEN` (Grafana service account token)
+- 반영:
+
+```bash
+npm run mcp:sync:ops
+npm run mcp:check
+npm run mcp:smoke
+```
+
+### PagerDuty MCP (인시던트 자동화 연계, 권장)
+
+- 템플릿 기본값은 read-only(쓰기 툴 비활성)로 운영
+- 필요 변수:
+  - `MCP_PAGERDUTY_COMMAND` (권장: `uvx`)
+  - `MCP_PAGERDUTY_COMMAND_PACKAGE` (권장: `pagerduty-mcp`)
+  - `PAGERDUTY_USER_API_KEY`
+  - `PAGERDUTY_API_HOST` (기본: `https://api.pagerduty.com`, EU 계정이면 `https://api.eu.pagerduty.com`)
+- 반영:
+
+```bash
+npm run mcp:sync:ops
+npm run mcp:check
+npm run mcp:smoke
+```
+
+### Cloudflare MCP (게이트웨이/엣지 운영 보조, 선택)
+
+- remote MCP bridge 방식(`mcp-remote`)으로 연결
+- 필요 변수:
+  - `MCP_CLOUDFLARE_COMMAND_PACKAGE` (권장: `mcp-remote`)
+  - `MCP_CLOUDFLARE_URL` (Cloudflare MCP endpoint URL)
+- 인증:
+  - 기본: OAuth 로그인(권장, 토큰 없이 사용 가능)
+  - 자동화/CI: `CLOUDFLARE_API_TOKEN` 사용 가능
+- 반영:
+
+```bash
+npm run mcp:sync:ops
+npm run mcp:check
+npm run mcp:smoke
 ```

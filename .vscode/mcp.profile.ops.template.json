@@ -52,6 +52,35 @@
         "@playwright/mcp@latest",
         "--headless"
       ]
+    },
+    "grafana-mcp": {
+      "command": "${MCP_GRAFANA_COMMAND}",
+      "args": [
+        "${MCP_GRAFANA_COMMAND_PACKAGE}",
+        "--disable-write"
+      ],
+      "env": {
+        "GRAFANA_URL": "${GRAFANA_URL}",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
+      }
+    },
+    "pagerduty-mcp": {
+      "command": "${MCP_PAGERDUTY_COMMAND}",
+      "args": [
+        "${MCP_PAGERDUTY_COMMAND_PACKAGE}"
+      ],
+      "env": {
+        "PAGERDUTY_USER_API_KEY": "${PAGERDUTY_USER_API_KEY}",
+        "PAGERDUTY_API_HOST": "${PAGERDUTY_API_HOST}"
+      }
+    },
+    "cloudflare-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "${MCP_CLOUDFLARE_COMMAND_PACKAGE}",
+        "${MCP_CLOUDFLARE_URL}"
+      ]
     }
   },
   "inputs": []

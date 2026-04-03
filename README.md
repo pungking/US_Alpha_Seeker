@@ -97,13 +97,16 @@ For smoother Codex+operator collaboration, keep the active MCP config and profil
 - Base config:
   - `.vscode/mcp.base.json` (Notion + Google Drive)
 - Profile templates:
-  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright)
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright/Grafana/PagerDuty/Cloudflare)
   - `.vscode/mcp.profile.research.template.json` (Perplexity/Obsidian optional)
 - Optional all-in-one template:
   - `.vscode/mcp.online.template.json`
 - Optional env template:
   - `.vscode/mcp.env.example`
   - token vars reuse existing names where possible: `GITHUB_TOKEN`, `VERCEL_TOKEN`, `TELEGRAM_TOKEN`, `SENTRY_ACCESS_TOKEN`, `PERPLEXITY_API_KEY`
+  - Grafana vars (recommended read-only MCP): `MCP_GRAFANA_COMMAND=uvx`, `MCP_GRAFANA_COMMAND_PACKAGE=mcp-grafana`, `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN`
+  - PagerDuty vars (recommended read-only MCP): `MCP_PAGERDUTY_COMMAND=uvx`, `MCP_PAGERDUTY_COMMAND_PACKAGE=pagerduty-mcp`, `PAGERDUTY_USER_API_KEY`, `PAGERDUTY_API_HOST=https://api.pagerduty.com`
+  - Cloudflare vars (remote MCP bridge): `MCP_CLOUDFLARE_COMMAND_PACKAGE=mcp-remote`, `MCP_CLOUDFLARE_URL` (optional: `CLOUDFLARE_API_TOKEN`)
   - optional Obsidian vars: `MCP_OBSIDIAN_COMMAND_PACKAGE`, `OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`
   - telegram routing defaults can use `TELEGRAM_SIMULATION_CHAT_ID`
 
@@ -123,6 +126,12 @@ Profile sync (recommended):
   - `npm run mcp:sync:research`
 - full profile:
   - `npm run mcp:sync:full`
+
+Profile strategy (efficiency):
+
+- Day-to-day ops: use `mcp:sync:ops` (focus on execution/observability MCPs only)
+- Research/docs sessions: use `mcp:sync:research`
+- `mcp:sync:full` only when you intentionally need everything in one session
 
 Optional online template merge:
 

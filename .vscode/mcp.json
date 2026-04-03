@@ -70,28 +70,34 @@
         "--headless"
       ]
     },
-    "perplexity-mcp": {
-      "command": "npx",
+    "grafana-mcp": {
+      "command": "${MCP_GRAFANA_COMMAND}",
       "args": [
-        "-y",
-        "${MCP_PERPLEXITY_COMMAND_PACKAGE}"
+        "${MCP_GRAFANA_COMMAND_PACKAGE}",
+        "--disable-write"
       ],
       "env": {
-        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+        "GRAFANA_URL": "${GRAFANA_URL}",
+        "GRAFANA_SERVICE_ACCOUNT_TOKEN": "${GRAFANA_SERVICE_ACCOUNT_TOKEN}"
       }
     },
-    "obsidian-mcp": {
+    "pagerduty-mcp": {
+      "command": "${MCP_PAGERDUTY_COMMAND}",
+      "args": [
+        "${MCP_PAGERDUTY_COMMAND_PACKAGE}"
+      ],
+      "env": {
+        "PAGERDUTY_USER_API_KEY": "${PAGERDUTY_USER_API_KEY}",
+        "PAGERDUTY_API_HOST": "${PAGERDUTY_API_HOST}"
+      }
+    },
+    "cloudflare-mcp": {
       "command": "npx",
       "args": [
         "-y",
-        "${MCP_OBSIDIAN_COMMAND_PACKAGE}"
-      ],
-      "env": {
-        "OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
-        "OBSIDIAN_BASE_URL": "${OBSIDIAN_BASE_URL}",
-        "OBSIDIAN_VERIFY_SSL": "${OBSIDIAN_VERIFY_SSL}",
-        "OBSIDIAN_ENABLE_CACHE": "${OBSIDIAN_ENABLE_CACHE}"
-      }
+        "${MCP_CLOUDFLARE_COMMAND_PACKAGE}",
+        "${MCP_CLOUDFLARE_URL}"
+      ]
     }
   },
   "inputs": []
