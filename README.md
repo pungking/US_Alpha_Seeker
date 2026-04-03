@@ -163,6 +163,24 @@ Optional GitHub Actions daily automation:
   - `SENTRY_ACCESS_TOKEN`
   - `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, `GDRIVE_REFRESH_TOKEN`
 
+Optional master control-plane scaffold (manual-only):
+
+- workflow:
+  - `.github/workflows/master-control-plane.yml`
+- reusable lanes:
+  - `.github/workflows/reusable-control-collect.yml`
+  - `.github/workflows/reusable-control-validate.yml`
+  - `.github/workflows/reusable-control-promote.yml`
+  - `.github/workflows/reusable-control-incident.yml`
+- design/runbook:
+  - `docs/MASTER_WORKFLOW_CONTROL_PLANE_2026-04-03.md`
+- safety defaults:
+  - no auto live promotion
+  - promotion lane is gated by sample threshold (`20/20` default)
+  - promotion action is limited to `validation_pack` dispatch request
+
 Detailed runbook:
 
 - `docs/MCP_COLLAB_SETUP_PLAYBOOK_2026-04-02.md`
+- `docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md`
+- `docs/MASTER_WORKFLOW_CONTROL_PLANE_2026-04-03.md`

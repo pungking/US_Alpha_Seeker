@@ -1,0 +1,138 @@
+name: Reusable Control - Promote
+
+on:
+  workflow_call:
+    inputs:
+      allow_promote:
+        description: "Operator approval flag for promotion lane"
+        required: false
+        type: boolean
+        default: false
+      promotion_mode:
+        description: "Promotion action mode (safe default: hold)"
+        required: false
+        type: string
+        default: "hold"
+      sample_progress_current:
+        description: "Current sample progress"
+        required: false
+        type: number
+        default: 0
+      sample_progress_required:
+        description: "Required sample threshold"
+        required: false
+        type: number
+        default: 20
+      sidecar_repo:
+        description: "Target sidecar repo (owner/repo)"
+        required: false
+        type: string
+        default: "pungking/alpha-exec-engine"
+      sidecar_ref:
+        description: "Target sidecar branch/ref"
+        required: false
+        type: string
+        default: "main"
+    secrets:
+      dispatch_token:
+        required: false
+    outputs:
+      promote_status:
+        description: "Promote lane status"
+        value: ${{ jobs.promote.outputs.promote_status }}
+      promote_note:
+        description: "Promote lane note"
+        value: ${{ jobs.promote.outputs.promote_note }}
+
+jobs:
+  promote:
+    runs-on: ubuntu-latest
+    outputs:
+      promote_status: ${{ steps.finalize.outputs.promote_status }}
+      promote_note: ${{ steps.finalize.outputs.promote_note }}
+    steps:
+      - name: Gate check
+        id: gate
+        run: |
+          current="${{ inputs.sample_progress_current }}"
+          required="${{ inputs.sample_progress_required }}"
+          if [ "$current" -ge "$required" ]; then
+            echo "sample_ready=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sample_ready=false" >> "$GITHUB_OUTPUT"
+          fi
+
+          token="${{ secrets.dispatch_token }}"
+          if [ -n "$token" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Request validation-pack run
+        id: request_pack
+        if: ${{ inputs.allow_promote && steps.gate.outputs.sample_ready == 'true' && inputs.promotion_mode == 'request_validation_pack' && steps.gate.outputs.has_token == 'true' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.dispatch_token }}
+          script: |
+            const repoRaw = String(process.env.TARGET_REPO || "").trim();
+            const ref = String(process.env.TARGET_REF || "main").trim();
+            const [owner, repo] = repoRaw.split("/");
+            if (!owner || !repo) {
+              core.setFailed(`Invalid sidecar_repo: ${repoRaw}`);
+              return;
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: "dry-run.yml",
+              ref,
+              inputs: {
+                validation_pack: "true",
+                payload_probe: "false"
+              }
+            });
+            core.info(`Requested sidecar validation-pack: ${owner}/${repo}@${ref}`);
+        env:
+          TARGET_REPO: ${{ inputs.sidecar_repo }}
+          TARGET_REF: ${{ inputs.sidecar_ref }}
+
+      - name: Finalize promote status
+        id: finalize
+        run: |
+          status="hold"
+          note="promotion_mode=hold"
+
+          if [ "${{ inputs.allow_promote }}" != "true" ]; then
+            status="blocked_policy"
+            note="allow_promote=false"
+          elif [ "${{ steps.gate.outputs.sample_ready }}" != "true" ]; then
+            status="blocked_sample_not_complete"
+            note="sample progress below threshold"
+          elif [ "${{ inputs.promotion_mode }}" != "request_validation_pack" ]; then
+            status="hold"
+            note="no promotion action selected"
+          elif [ "${{ steps.gate.outputs.has_token }}" != "true" ]; then
+            status="blocked_missing_token"
+            note="missing dispatch token secret"
+          elif [ "${{ steps.request_pack.outcome }}" = "success" ]; then
+            status="dispatched_validation_pack"
+            note="validation-pack dispatch requested"
+          else
+            status="dispatch_failed"
+            note="validation-pack dispatch failed"
+          fi
+
+          echo "promote_status=$status" >> "$GITHUB_OUTPUT"
+          echo "promote_note=$note" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Promote Lane";
+            echo "- status: \`$status\`";
+            echo "- note: \`$note\`";
+            echo "- sample_progress: \`${{ inputs.sample_progress_current }}/${{ inputs.sample_progress_required }}\`";
+            echo "- promotion_mode: \`${{ inputs.promotion_mode }}\`";
+          } >> "$GITHUB_STEP_SUMMARY"
+

@@ -1,0 +1,70 @@
+name: Reusable Control - Validate
+
+on:
+  workflow_call:
+    inputs:
+      run_local_mcp_health:
+        description: "Run npm-based MCP health routine in this repo"
+        required: false
+        type: boolean
+        default: false
+    outputs:
+      validate_status:
+        description: "Validate lane status"
+        value: ${{ jobs.validate.outputs.validate_status }}
+      validate_note:
+        description: "Validate lane note"
+        value: ${{ jobs.validate.outputs.validate_note }}
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    outputs:
+      validate_status: ${{ steps.finalize.outputs.validate_status }}
+      validate_note: ${{ steps.finalize.outputs.validate_note }}
+    steps:
+      - name: Checkout
+        if: ${{ inputs.run_local_mcp_health }}
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        if: ${{ inputs.run_local_mcp_health }}
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Install dependencies
+        id: deps
+        if: ${{ inputs.run_local_mcp_health }}
+        run: npm ci
+
+      - name: Run MCP ops health routine
+        id: mcp
+        if: ${{ inputs.run_local_mcp_health }}
+        run: npm run mcp:ops:daily
+
+      - name: Finalize validate status
+        id: finalize
+        run: |
+          status="skipped"
+          note="run_local_mcp_health=false"
+
+          if [ "${{ inputs.run_local_mcp_health }}" = "true" ]; then
+            if [ "${{ steps.mcp.outcome }}" = "success" ]; then
+              status="passed"
+              note="mcp ops health routine succeeded"
+            else
+              status="failed"
+              note="mcp ops health routine failed"
+            fi
+          fi
+
+          echo "validate_status=$status" >> "$GITHUB_OUTPUT"
+          echo "validate_note=$note" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Validate Lane";
+            echo "- status: \`$status\`";
+            echo "- note: \`$note\`";
+          } >> "$GITHUB_STEP_SUMMARY"
+

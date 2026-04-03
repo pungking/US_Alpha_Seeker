@@ -1,0 +1,145 @@
+name: Master Control Plane (Scaffold)
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Run mode"
+        required: true
+        default: "full"
+        type: choice
+        options:
+          - full
+          - collect
+          - validate
+          - promote
+          - incident
+      sidecar_repo:
+        description: "Sidecar repo (owner/repo)"
+        required: false
+        default: "pungking/alpha-exec-engine"
+        type: string
+      sidecar_ref:
+        description: "Sidecar ref"
+        required: false
+        default: "main"
+        type: string
+      dispatch_sidecar_dry_run:
+        description: "Collect lane: dispatch sidecar dry-run"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      run_local_mcp_health:
+        description: "Validate lane: run local MCP health routine"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+      allow_promote:
+        description: "Promotion lane approval flag"
+        required: true
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      promotion_mode:
+        description: "Promotion action mode"
+        required: true
+        default: "hold"
+        type: choice
+        options:
+          - hold
+          - request_validation_pack
+      sample_progress_current:
+        description: "Current sample progress"
+        required: true
+        default: "13"
+        type: string
+      sample_progress_required:
+        description: "Required sample progress"
+        required: true
+        default: "20"
+        type: string
+      notify_telegram:
+        description: "Incident lane: Telegram notify"
+        required: true
+        default: "true"
+        type: choice
+        options:
+          - "true"
+          - "false"
+
+concurrency:
+  group: master-control-plane-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  collect:
+    if: ${{ inputs.mode == 'full' || inputs.mode == 'collect' || inputs.mode == 'promote' }}
+    uses: ./.github/workflows/reusable-control-collect.yml
+    with:
+      sidecar_repo: ${{ inputs.sidecar_repo }}
+      sidecar_ref: ${{ inputs.sidecar_ref }}
+      dispatch_sidecar_dry_run: ${{ inputs.dispatch_sidecar_dry_run == 'true' }}
+    secrets:
+      dispatch_token: ${{ secrets.SIDECAR_DISPATCH_TOKEN || secrets.GITHUB_PAT || secrets.MCP_GITHUB_TOKEN }}
+
+  validate:
+    if: ${{ inputs.mode == 'full' || inputs.mode == 'validate' }}
+    uses: ./.github/workflows/reusable-control-validate.yml
+    with:
+      run_local_mcp_health: ${{ inputs.run_local_mcp_health == 'true' }}
+
+  promote:
+    if: ${{ inputs.mode == 'full' || inputs.mode == 'promote' }}
+    needs: [collect]
+    uses: ./.github/workflows/reusable-control-promote.yml
+    with:
+      allow_promote: ${{ inputs.allow_promote == 'true' }}
+      promotion_mode: ${{ inputs.promotion_mode }}
+      sample_progress_current: ${{ fromJson(inputs.sample_progress_current) }}
+      sample_progress_required: ${{ fromJson(inputs.sample_progress_required) }}
+      sidecar_repo: ${{ inputs.sidecar_repo }}
+      sidecar_ref: ${{ inputs.sidecar_ref }}
+    secrets:
+      dispatch_token: ${{ secrets.SIDECAR_DISPATCH_TOKEN || secrets.GITHUB_PAT || secrets.MCP_GITHUB_TOKEN }}
+
+  incident:
+    if: ${{ always() && (inputs.mode == 'full' || inputs.mode == 'incident' || failure()) }}
+    needs: [collect, validate, promote]
+    uses: ./.github/workflows/reusable-control-incident.yml
+    with:
+      notify_telegram: ${{ inputs.notify_telegram == 'true' }}
+      incident_context: ${{ format('master-control-plane mode={0}', inputs.mode) }}
+    secrets:
+      telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
+      telegram_chat_id: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
+
+  summary:
+    if: always()
+    runs-on: ubuntu-latest
+    needs: [collect, validate, promote, incident]
+    steps:
+      - name: Publish control-plane summary
+        run: |
+          {
+            echo "## Master Control Plane (Scaffold)";
+            echo "- mode: \`${{ inputs.mode }}\`";
+            echo "- sidecar_target: \`${{ inputs.sidecar_repo }}@${{ inputs.sidecar_ref }}\`";
+            echo "- collect: \`${{ needs.collect.outputs.collect_status || 'n/a' }}\`";
+            echo "- validate: \`${{ needs.validate.outputs.validate_status || 'n/a' }}\`";
+            echo "- promote: \`${{ needs.promote.outputs.promote_status || 'n/a' }}\`";
+            echo "- incident: \`${{ needs.incident.outputs.incident_status || 'n/a' }}\`";
+            echo "";
+            echo "### Guardrails";
+            echo "- auto promote to live mode: disabled in this scaffold";
+            echo "- promotion lane only supports validation-pack request";
+            echo "- 20/20 sample gate remains required before promotion lane proceeds";
+          } >> "$GITHUB_STEP_SUMMARY"
+

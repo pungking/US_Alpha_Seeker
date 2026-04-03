@@ -1,0 +1,108 @@
+name: Reusable Control - Collect
+
+on:
+  workflow_call:
+    inputs:
+      sidecar_repo:
+        description: "Target sidecar repo (owner/repo)"
+        required: false
+        type: string
+        default: "pungking/alpha-exec-engine"
+      sidecar_ref:
+        description: "Target sidecar branch/ref"
+        required: false
+        type: string
+        default: "main"
+      dispatch_sidecar_dry_run:
+        description: "Dispatch sidecar dry-run workflow"
+        required: false
+        type: boolean
+        default: true
+    secrets:
+      dispatch_token:
+        required: false
+    outputs:
+      collect_status:
+        description: "Collect lane status"
+        value: ${{ jobs.collect.outputs.collect_status }}
+      collect_note:
+        description: "Collect lane note"
+        value: ${{ jobs.collect.outputs.collect_note }}
+
+jobs:
+  collect:
+    runs-on: ubuntu-latest
+    outputs:
+      collect_status: ${{ steps.finalize.outputs.collect_status }}
+      collect_note: ${{ steps.finalize.outputs.collect_note }}
+    steps:
+      - name: Precheck
+        id: precheck
+        run: |
+          token="${{ secrets.dispatch_token }}"
+          if [ -n "$token" ]; then
+            echo "has_token=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has_token=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Dispatch sidecar dry-run
+        id: dispatch
+        if: ${{ inputs.dispatch_sidecar_dry_run && steps.precheck.outputs.has_token == 'true' }}
+        uses: actions/github-script@v8
+        with:
+          github-token: ${{ secrets.dispatch_token }}
+          script: |
+            const repoRaw = String(process.env.TARGET_REPO || "").trim();
+            const ref = String(process.env.TARGET_REF || "main").trim();
+            const [owner, repo] = repoRaw.split("/");
+            if (!owner || !repo) {
+              core.setFailed(`Invalid sidecar_repo: ${repoRaw}`);
+              return;
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: "dry-run.yml",
+              ref,
+              inputs: {
+                validation_pack: "false",
+                payload_probe: "false"
+              }
+            });
+            core.info(`Dispatched sidecar dry-run: ${owner}/${repo}@${ref}`);
+        env:
+          TARGET_REPO: ${{ inputs.sidecar_repo }}
+          TARGET_REF: ${{ inputs.sidecar_ref }}
+
+      - name: Finalize collect status
+        id: finalize
+        run: |
+          status="skipped_dispatch_disabled"
+          note="dispatch_sidecar_dry_run=false"
+
+          if [ "${{ inputs.dispatch_sidecar_dry_run }}" = "true" ]; then
+            if [ "${{ steps.precheck.outputs.has_token }}" != "true" ]; then
+              status="skipped_missing_token"
+              note="missing dispatch token secret"
+            elif [ "${{ steps.dispatch.outcome }}" = "success" ]; then
+              status="dispatched"
+              note="sidecar dry-run dispatch requested"
+            else
+              status="dispatch_failed"
+              note="dispatch step failed"
+            fi
+          fi
+
+          echo "collect_status=$status" >> "$GITHUB_OUTPUT"
+          echo "collect_note=$note" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Collect Lane";
+            echo "- status: \`$status\`";
+            echo "- note: \`$note\`";
+            echo "- sidecar_repo: \`${{ inputs.sidecar_repo }}\`";
+            echo "- sidecar_ref: \`${{ inputs.sidecar_ref }}\`";
+          } >> "$GITHUB_STEP_SUMMARY"
+

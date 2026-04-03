@@ -1,0 +1,90 @@
+name: Reusable Control - Incident
+
+on:
+  workflow_call:
+    inputs:
+      notify_telegram:
+        description: "Send Telegram incident notice"
+        required: false
+        type: boolean
+        default: false
+      incident_context:
+        description: "Short context text"
+        required: false
+        type: string
+        default: "master-control-plane"
+    secrets:
+      telegram_token:
+        required: false
+      telegram_chat_id:
+        required: false
+    outputs:
+      incident_status:
+        description: "Incident lane status"
+        value: ${{ jobs.incident.outputs.incident_status }}
+      incident_note:
+        description: "Incident lane note"
+        value: ${{ jobs.incident.outputs.incident_note }}
+
+jobs:
+  incident:
+    runs-on: ubuntu-latest
+    outputs:
+      incident_status: ${{ steps.finalize.outputs.incident_status }}
+      incident_note: ${{ steps.finalize.outputs.incident_note }}
+    steps:
+      - name: Precheck
+        id: precheck
+        run: |
+          token="${{ secrets.telegram_token }}"
+          chat="${{ secrets.telegram_chat_id }}"
+          if [ -n "$token" ] && [ -n "$chat" ]; then
+            echo "can_notify=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "can_notify=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Send Telegram incident notice
+        id: telegram
+        if: ${{ inputs.notify_telegram && steps.precheck.outputs.can_notify == 'true' }}
+        run: |
+          ts="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+          msg="[INCIDENT] ${ts}\ncontext=${{ inputs.incident_context }}\nrepo=${{ github.repository }}\nrun=${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          curl -sS -X POST "https://api.telegram.org/bot${{ secrets.telegram_token }}/sendMessage" \
+            -H "content-type: application/json" \
+            -d "$(jq -n --arg chat_id "${{ secrets.telegram_chat_id }}" --arg text "$msg" '{chat_id:$chat_id,text:$text}')" \
+            > /tmp/telegram-response.json
+
+          echo "response:"
+          cat /tmp/telegram-response.json
+
+      - name: Finalize incident status
+        id: finalize
+        run: |
+          status="skipped"
+          note="notify_telegram=false"
+
+          if [ "${{ inputs.notify_telegram }}" = "true" ]; then
+            if [ "${{ steps.precheck.outputs.can_notify }}" != "true" ]; then
+              status="skipped_missing_telegram_secret"
+              note="missing telegram token or chat id"
+            elif [ "${{ steps.telegram.outcome }}" = "success" ]; then
+              status="notified"
+              note="telegram incident notice sent"
+            else
+              status="notify_failed"
+              note="telegram notify step failed"
+            fi
+          fi
+
+          echo "incident_status=$status" >> "$GITHUB_OUTPUT"
+          echo "incident_note=$note" >> "$GITHUB_OUTPUT"
+
+          {
+            echo "## Incident Lane";
+            echo "- status: \`$status\`";
+            echo "- note: \`$note\`";
+            echo "- context: \`${{ inputs.incident_context }}\`";
+          } >> "$GITHUB_STEP_SUMMARY"
+
