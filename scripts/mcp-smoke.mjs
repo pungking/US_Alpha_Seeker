@@ -183,7 +183,11 @@ const main = async () => {
   const shouldNotify = notifyOn === "always" || (notifyOn === "fail" && failed.length > 0);
   if (shouldNotify) {
     const token = String(envMap.TELEGRAM_TOKEN || "").trim();
-    const chatId = String(envMap.TELEGRAM_SIMULATION_CHAT_ID || envMap.TELEGRAM_CHAT_ID || "").trim();
+    const chatId = String(
+      (failed.length > 0
+        ? envMap.TELEGRAM_ALERT_CHAT_ID || envMap.TELEGRAM_SIMULATION_CHAT_ID || envMap.TELEGRAM_CHAT_ID
+        : envMap.TELEGRAM_SIMULATION_CHAT_ID || envMap.TELEGRAM_CHAT_ID) || ""
+    ).trim();
     if (!token || !chatId) {
       console.log("[MCP_SMOKE] telegram_notify_skipped: missing TELEGRAM_TOKEN or TELEGRAM_SIMULATION_CHAT_ID");
     } else {

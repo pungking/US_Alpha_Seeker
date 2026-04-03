@@ -50,6 +50,7 @@ const getEnvVar = (key: string): string => {
                 TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
                 TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
                 TELEGRAM_SIMULATION_CHAT_ID: process.env.TELEGRAM_SIMULATION_CHAT_ID,
+                TELEGRAM_ALERT_CHAT_ID: process.env.TELEGRAM_ALERT_CHAT_ID,
                 GITHUB_PAT: process.env.GITHUB_PAT,
                 GH_PAT: process.env.GH_PAT,
                 SIDECAR_DISPATCH_TOKEN: process.env.SIDECAR_DISPATCH_TOKEN
@@ -71,6 +72,7 @@ const getEnvVar = (key: string): string => {
             if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
             if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
             if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
+            if (key === 'TELEGRAM_ALERT_CHAT_ID') return import.meta.env.VITE_TELEGRAM_ALERT_CHAT_ID || import.meta.env.TELEGRAM_ALERT_CHAT_ID || '';
             const definedProcessValue = readDefinedProcessEnv(key);
             if (definedProcessValue) return definedProcessValue;
             
@@ -134,7 +136,9 @@ export const TELEGRAM_CONFIG = {
   TOKEN: getEnvVar('TELEGRAM_TOKEN'),
   CHAT_ID: getEnvVar('TELEGRAM_CHAT_ID'),
   // [SIMULATION CHANNEL] Backtest/simulation execution events are routed here.
-  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID')
+  SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID'),
+  // [ALERT CHANNEL] Incident/failure notifications are routed here.
+  ALERT_CHAT_ID: getEnvVar('TELEGRAM_ALERT_CHAT_ID')
 };
 
 export const API_CONFIGS: ApiConfig[] = [

@@ -120,7 +120,7 @@ jobs:
       incident_context: ${{ format('master-control-plane mode={0}', inputs.mode) }}
     secrets:
       telegram_token: ${{ secrets.TELEGRAM_TOKEN }}
-      telegram_chat_id: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
+      telegram_chat_id: ${{ secrets.TELEGRAM_ALERT_CHAT_ID || vars.TELEGRAM_ALERT_CHAT_ID || secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
 
   summary:
     if: always()

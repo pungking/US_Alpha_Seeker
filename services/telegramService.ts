@@ -42,6 +42,18 @@ export async function sendSimulationTelegramReport(reportContent: string): Promi
   return sendTelegramReportToChat(reportContent, target, "SIMULATION");
 }
 
+/**
+ * Sends incident/failure alerts to dedicated alert channel.
+ * Falls back to simulation -> primary channel to avoid message loss.
+ */
+export async function sendAlertTelegramReport(reportContent: string): Promise<boolean> {
+  const target =
+    TELEGRAM_CONFIG.ALERT_CHAT_ID ||
+    TELEGRAM_CONFIG.SIMULATION_CHAT_ID ||
+    TELEGRAM_CONFIG.CHAT_ID;
+  return sendTelegramReportToChat(reportContent, target, "ALERT");
+}
+
 async function sendTelegramReportToChat(reportContent: string, chatId: string, channelTag: string): Promise<boolean> {
   const { TOKEN } = TELEGRAM_CONFIG;
   // Mask token for log safety
