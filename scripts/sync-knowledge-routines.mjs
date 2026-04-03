@@ -82,6 +82,20 @@ const notionRequest = async (token, route, init = {}) => {
   return body;
 };
 
+const ensureDatabaseProperties = async ({ token, databaseId, currentProperties = {}, desiredProperties = {} }) => {
+  const missing = {};
+  for (const [name, def] of Object.entries(desiredProperties)) {
+    if (!currentProperties[name]) missing[name] = def;
+  }
+  const added = Object.keys(missing);
+  if (added.length === 0) return { status: "no_change", added };
+  await notionRequest(token, `/v1/databases/${databaseId}`, {
+    method: "PATCH",
+    body: JSON.stringify({ properties: missing })
+  });
+  return { status: "patched", added };
+};
+
 const queryDatabaseAll = async (token, databaseId, query = {}) => {
   const results = [];
   let startCursor = null;
@@ -954,21 +968,67 @@ const main = async () => {
       report.notion.status = "dry_run";
     } else {
       const workListDb = await notionRequest(notionToken, `/v1/databases/${notionWorkList}`, { method: "GET" });
-      const workListProps = workListDb?.properties || {};
+      const workListSchemaPatch = await ensureDatabaseProperties({
+        token: notionToken,
+        databaseId: notionWorkList,
+        currentProperties: workListDb?.properties || {},
+        desiredProperties: {
+          "우선순위": {
+            select: {
+              options: [
+                { name: "높음", color: "red" },
+                { name: "중간", color: "yellow" },
+                { name: "낮음", color: "blue" }
+              ]
+            }
+          },
+          "분류": {
+            select: {
+              options: [
+                { name: "일반", color: "default" },
+                { name: "Blocked", color: "orange" },
+                { name: "Incident", color: "red" }
+              ]
+            }
+          },
+          "마감일": { date: {} },
+          "요약": { rich_text: {} }
+        }
+      });
+
+      const workListDbRefreshed =
+        workListSchemaPatch.status === "patched"
+          ? await notionRequest(notionToken, `/v1/databases/${notionWorkList}`, { method: "GET" })
+          : workListDb;
+      const workListProps = workListDbRefreshed?.properties || {};
       const workListTitle = findTitleProperty(workListProps);
       if (!workListTitle) throw new Error("Notion work-list DB has no title property");
       const workListStatus = findStatusProperty(workListProps);
+      const workListPriority = findPriorityProperty(workListProps);
+      const workListCategory = findSelectProperty(workListProps, ["분류", "Category"]);
+      const workListStatusOption = chooseStatusOption(workListStatus, ["할 일", "진행 중", "To Do"]);
+      const workListPriorityOption = chooseStatusOption(workListPriority, ["중간", "Medium"]);
+      const workListCategoryOption = chooseStatusOption(workListCategory, ["일반", "Normal"]);
       for (const title of viewTasks) {
+        const extraProperties = {};
+        if (workListCategory?.name && workListCategoryOption) {
+          extraProperties[workListCategory.name] = { select: { name: workListCategoryOption } };
+        }
         const result = await upsertRow({
           token: notionToken,
           databaseId: notionWorkList,
           titlePropertyName: workListTitle,
           statusProperty: workListStatus,
+          statusOptionName: workListStatusOption,
+          priorityProperty: workListPriority,
+          priorityOptionName: workListPriorityOption,
+          extraProperties,
           title
         });
         report.notion.tasks.push({ title, target: "NOTION_WORK_LIST", ...result });
         report.notion.workListTasks.push({ title, ...result });
       }
+      report.notion.workListSchema = workListSchemaPatch;
 
       const childDatabases = await listProjectChildDatabases({ token: notionToken, projectPageId: notionProject });
       report.notion.childDatabases = childDatabases;
@@ -1219,10 +1279,10 @@ const main = async () => {
         {
           title: "Notion 뷰 설정값(수동 UI 적용)",
           items: [
-            "Today: 상태 != 완료, 생성일 = 오늘, 정렬 = 우선순위(desc) > 생성일(desc)",
-            "This Week: 상태 != 완료, 생성일 = 이번 주, 정렬 = 우선순위(desc) > 마감일(asc)",
-            "Blocked: 제목 contains [Blocked] 또는 상태 = Blocked, 정렬 = 최근 수정(desc)",
-            "Incident: 제목 contains [Incident], 인시던트 로그 relation 노출, 정렬 = 생성일(desc)"
+            "Today: 상태 != 완료 🙌, 작성일시 = 오늘, 정렬 = 우선순위(desc) > 작성일시(desc)",
+            "This Week: 상태 != 완료 🙌, 작성일시 = 이번 주, 정렬 = 우선순위(desc) > 마감일(asc)",
+            "Blocked: 분류 = Blocked (또는 제목 contains [Blocked]), 정렬 = 최근 수정(desc)",
+            "Incident: 분류 = Incident (또는 제목 contains [Incident]), 정렬 = 작성일시(desc)"
           ]
         }
       ];

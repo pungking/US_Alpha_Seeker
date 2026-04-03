@@ -156,6 +156,7 @@ Smoke/health checks:
   - 동기화 항목:
     - Notion 프로젝트 페이지에 `[AUTO] US Alpha Seeker Program Status` 보드 재생성(완료/진행중/다음/가드레일)
     - Notion child DB `운영 히스토리` 생성/업서트(완료/진행중/예정 전체 타임라인)
+    - `NOTION_WORK_LIST` 스키마 보강(`우선순위`, `분류`, `마감일`, `요약`) 자동 패치
     - 프로젝트/작업 DB 내 레거시 샘플 행(`샘플`, `템플릿` 등) 자동 정리
     - Obsidian 템플릿 허브/일일로그/인시던트/튜닝 노트 갱신
   - 선택 옵션:

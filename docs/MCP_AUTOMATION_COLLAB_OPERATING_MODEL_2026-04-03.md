@@ -208,6 +208,9 @@
 - `ops:knowledge:sync` 실행 시 Notion 프로젝트 페이지에
   - `[AUTO] US Alpha Seeker Program Status` 섹션을 재생성
   - 완료/진행중/다음/가드레일/뷰설정값을 최신 기준으로 갱신
+- `NOTION_WORK_LIST`는 동기 루틴에서 운영 스키마를 보강
+  - 추가 속성: `우선순위`, `분류`, `마감일`, `요약`
+  - 기본 분류/우선순위 값도 동기 루틴에서 일관되게 upsert
 - 프로젝트/작업 child DB에서 `샘플`/`템플릿`/초기 온보딩 행은 자동 archive 가능
   - 기본값: `KNOWLEDGE_SYNC_ARCHIVE_LEGACY_SAMPLES=true`
   - 필요 시 `false`로 비활성화 가능
