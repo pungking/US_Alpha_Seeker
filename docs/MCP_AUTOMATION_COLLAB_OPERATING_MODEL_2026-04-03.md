@@ -211,6 +211,9 @@
 - 프로젝트/작업 child DB에서 `샘플`/`템플릿`/초기 온보딩 행은 자동 archive 가능
   - 기본값: `KNOWLEDGE_SYNC_ARCHIVE_LEGACY_SAMPLES=true`
   - 필요 시 `false`로 비활성화 가능
+- Notion child DB `운영 히스토리`를 유지해
+  - 완료/진행중/예정 항목을 append-upsert로 누적
+  - 프로젝트 페이지는 요약보드, 히스토리 DB는 상세 타임라인 역할로 분리
 
 ---
 

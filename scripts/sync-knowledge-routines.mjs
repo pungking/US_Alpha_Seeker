@@ -154,6 +154,31 @@ const findPriorityProperty = (properties = {}) => {
   return null;
 };
 
+const findSelectProperty = (properties = {}, preferredNames = []) => {
+  for (const name of preferredNames) {
+    if (properties?.[name]?.type === "select") {
+      const options = Array.isArray(properties[name]?.select?.options) ? properties[name].select.options.map((x) => x.name) : [];
+      return { name, type: "select", options, defaultOption: options[0] || null };
+    }
+  }
+  for (const [name, def] of Object.entries(properties)) {
+    if (def?.type !== "select") continue;
+    const options = Array.isArray(def?.select?.options) ? def.select.options.map((x) => x.name) : [];
+    return { name, type: "select", options, defaultOption: options[0] || null };
+  }
+  return null;
+};
+
+const findDateProperty = (properties = {}, preferredNames = []) => {
+  for (const name of preferredNames) {
+    if (properties?.[name]?.type === "date") return { name, type: "date" };
+  }
+  for (const [name, def] of Object.entries(properties)) {
+    if (def?.type === "date") return { name, type: "date" };
+  }
+  return null;
+};
+
 const findRichTextProperty = (properties = {}, preferredNames = []) => {
   for (const name of preferredNames) {
     if (properties?.[name]?.type === "rich_text") return name;
@@ -218,6 +243,7 @@ const upsertRow = async ({
   relationPageId,
   summaryPropertyName,
   summaryText,
+  extraProperties = {},
   title
 }) => {
   const existing = await queryExistingByTitle(token, databaseId, titlePropertyName, title);
@@ -246,6 +272,10 @@ const upsertRow = async ({
     properties[summaryPropertyName] = {
       rich_text: [{ text: { content: summaryText } }]
     };
+  }
+  for (const [name, value] of Object.entries(extraProperties || {})) {
+    if (!name || !value) continue;
+    properties[name] = value;
   }
   if (existing?.id) {
     await notionRequest(token, `/v1/pages/${existing.id}`, {
@@ -328,6 +358,35 @@ const appendProjectBlocks = async ({ token, projectPageId, viewSpecTitles }) => 
     body: JSON.stringify({ children })
   });
   return { status: "appended", blocks: children.length };
+};
+
+const ensureChildDatabase = async ({
+  token,
+  projectPageId,
+  existingChildDatabases,
+  title,
+  properties
+}) => {
+  const existing = (existingChildDatabases || []).find((x) => x.title === title);
+  if (existing?.id) return { id: existing.id, status: "existing" };
+  const created = await notionRequest(token, "/v1/databases", {
+    method: "POST",
+    body: JSON.stringify({
+      parent: {
+        type: "page_id",
+        page_id: projectPageId
+      },
+      title: [
+        {
+          type: "text",
+          text: { content: title }
+        }
+      ],
+      is_inline: true,
+      properties
+    })
+  });
+  return { id: created?.id || "", status: "created" };
 };
 
 const listProjectChildDatabases = async ({ token, projectPageId }) => {
@@ -686,6 +745,7 @@ const main = async () => {
       projectAppend: null,
       projectAutoCleanup: null,
       legacyCleanup: null,
+      history: null,
       childDatabases: []
     },
     obsidian: {
@@ -700,6 +760,8 @@ const main = async () => {
   const notionProject = env(envMap, "NOTION_PROJECT");
   const notionProjectTaskDbEnv = env(envMap, "KNOWLEDGE_NOTION_PROJECT_TASK_DB");
   const notionProjectDbEnv = env(envMap, "KNOWLEDGE_NOTION_PROJECT_DB");
+  const notionHistoryDbEnv = env(envMap, "KNOWLEDGE_NOTION_HISTORY_DB");
+  const notionHistoryDbTitle = env(envMap, "KNOWLEDGE_NOTION_HISTORY_DB_TITLE", "운영 히스토리");
   const notionPrimaryProjectTitle = env(envMap, "KNOWLEDGE_NOTION_PRIMARY_PROJECT_TITLE", "US Alpha Seeker 운영 자동화");
   const appendProjectNotes = boolFromEnv(envMap, "KNOWLEDGE_SYNC_APPEND_PROJECT_NOTES", false);
   const cleanupProjectAutoNotes = boolFromEnv(envMap, "KNOWLEDGE_SYNC_CLEANUP_PROJECT_AUTO_NOTES", true);
@@ -712,6 +774,177 @@ const main = async () => {
     "[View Setup] This Week 운영 뷰 구성",
     "[View Setup] Blocked 운영 뷰 구성",
     "[View Setup] Incident 운영 뷰 구성"
+  ];
+
+  const historyItems = [
+    {
+      title: "Stage6 Requirements Master v1 기준 고정",
+      status: "완료",
+      category: "Stage6",
+      date: "2026-03-14",
+      summary: "Stage6 요구사항 문서를 단일 기준으로 고정하고 적용 범위를 명확히 정의",
+      evidence: "docs/STAGE6_REQUIREMENTS_MASTER_v1_2026-03-14.md"
+    },
+    {
+      title: "v2 전체 트레이스 매트릭스 전수 검토 완료",
+      status: "완료",
+      category: "문서화",
+      date: "2026-03-17",
+      summary: "2,152라인 원문 기반 C/H/M 이슈를 코드와 교차 검증해 상세 트레이스화",
+      evidence: "docs/US_ALPHA_SEEKER_V2_FULL_TRACE_MATRIX_2026-03-17.md"
+    },
+    {
+      title: "보안 로테이션 런북/증적 체계 문서화",
+      status: "완료",
+      category: "보안",
+      date: "2026-03-23",
+      summary: "시크릿 로테이션 실행/검증/롤백 증적 관리 절차를 문서 기준으로 고정",
+      evidence: "docs/SECURITY_ROTATION_EVIDENCE_LOG_2026-03-23.md"
+    },
+    {
+      title: "Notion 워크스페이스 정비/아카이브 보존 정책 수립",
+      status: "완료",
+      category: "Notion",
+      date: "2026-04-02",
+      summary: "워크스페이스 정리와 보관 정책을 운영 루틴으로 명문화",
+      evidence: "docs/NOTION_ARCHIVE_RETENTION_WORKORDER_2026-04-02.md"
+    },
+    {
+      title: "MCP Collaboration Playbook 구축",
+      status: "완료",
+      category: "MCP",
+      date: "2026-04-02",
+      summary: "ops/research/full 프로필 전략과 sync/check/smoke 절차를 표준화",
+      evidence: "docs/MCP_COLLAB_SETUP_PLAYBOOK_2026-04-02.md"
+    },
+    {
+      title: "Sentry SDK 최소 안전 연동 단계 착수",
+      status: "완료",
+      category: "관측",
+      date: "2026-04-02",
+      summary: "프론트/API smoke 이벤트와 오류 추적 루프를 운영 체크포인트로 반영",
+      evidence: "docs/SENTRY_SDK_INTEGRATION_PLAN_2026-04-02.md"
+    },
+    {
+      title: "Master Control Plane 워크플로우 스캐폴드 반영",
+      status: "완료",
+      category: "워크플로우",
+      date: "2026-04-03",
+      summary: "collect/validate/promote/incident lane 분리와 수동 안전 게이트 구성",
+      evidence: "docs/MASTER_WORKFLOW_CONTROL_PLANE_2026-04-03.md"
+    },
+    {
+      title: "MCP 운영모델(ops/full) 및 SSOT 원칙 확정",
+      status: "완료",
+      category: "운영",
+      date: "2026-04-03",
+      summary: "운영은 ops 고정, 연구는 full 한정, Trade Plane 자동변경 금지 원칙 확정",
+      evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
+    },
+    {
+      title: "Repo↔Notion↔Obsidian 동기화 루틴 구현",
+      status: "완료",
+      category: "자동화",
+      date: "2026-04-03",
+      summary: "ops:knowledge:sync로 작업/보드/템플릿 동기화와 리포트 생성 자동화",
+      evidence: "scripts/sync-knowledge-routines.mjs"
+    },
+    {
+      title: "Notion 프로젝트 페이지 Program Status 보드 자동 재생성",
+      status: "완료",
+      category: "Notion",
+      date: "2026-04-03",
+      summary: "완료/진행중/예정/가드레일/뷰설정 섹션을 자동 업데이트하도록 반영",
+      evidence: "scripts/sync-knowledge-routines.mjs"
+    },
+    {
+      title: "Notion 프로젝트/작업 DB 레거시 샘플 행 정리 자동화",
+      status: "완료",
+      category: "Notion",
+      date: "2026-04-03",
+      summary: "샘플/템플릿/온보딩 기본행 archive를 동기화 루틴에 내장",
+      evidence: "state/knowledge-routine-sync-report.json"
+    },
+    {
+      title: "MCP ops 프로필 10/10 smoke PASS 유지",
+      status: "완료",
+      category: "MCP",
+      date: "2026-04-03",
+      summary: "운영 핵심 MCP 셋에 대한 check/smoke PASS 기준 운영 확인",
+      evidence: "state/mcp-smoke-report.json"
+    },
+    {
+      title: "MCP full 프로필 12/12 smoke PASS 검증",
+      status: "완료",
+      category: "MCP",
+      date: "2026-04-03",
+      summary: "research 확장(perplexity/obsidian) 포함 전체 프로필 검증 완료",
+      evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
+    },
+    {
+      title: "20/20 gate 데이터 수집 진행",
+      status: "진행 중",
+      category: "검증",
+      date: "2026-04-03",
+      summary: "baseline 오염 없이 gate 샘플 축적을 지속하고 승격 조건을 관찰 중",
+      evidence: "sidecar-template/alpha-exec-engine/docs/OPS_RUNBOOK_20TRADE_GATE.md"
+    },
+    {
+      title: "HF alert/drift 해소 및 promotion blocker 모니터링",
+      status: "진행 중",
+      category: "검증",
+      date: "2026-04-03",
+      summary: "live promotion 차단 조건(alert/perf/freeze/shadow/payload path)을 추적 중",
+      evidence: "sidecar-template/alpha-exec-engine/docs/OPS_RUNBOOK_20TRADE_GATE.md"
+    },
+    {
+      title: "Notion 운영뷰 Today/ThisWeek/Blocked/Incident 최적화",
+      status: "진행 중",
+      category: "Notion",
+      date: "2026-04-03",
+      summary: "실사용 기준 필터/정렬/관계 컬럼 최종 미세조정 작업 진행",
+      evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
+    },
+    {
+      title: "Obsidian 템플릿 기반 일일/인시던트/튜닝 노트 누적 운영",
+      status: "진행 중",
+      category: "Obsidian",
+      date: "2026-04-03",
+      summary: "Hub 중심 템플릿 연결로 연구 노트를 일관되게 누적하는 단계",
+      evidence: "Templates/00_Ops_Hub.md"
+    },
+    {
+      title: "20/20 도달 후 validation_pack OFF/ON/STRICT 비교 실행",
+      status: "예정",
+      category: "검증",
+      date: "2026-04-04",
+      summary: "수집 완료 직후 3-way 비교로 GO/NO_GO 판단 근거를 확정",
+      evidence: "sidecar-template/alpha-exec-engine/docs/OPS_RUNBOOK_20TRADE_GATE.md"
+    },
+    {
+      title: "payload_probe isolated tighten/relief 비교 리포트 확정",
+      status: "예정",
+      category: "검증",
+      date: "2026-04-04",
+      summary: "baseline과 probe 분리 데이터를 근거로 HF path 검증 결과를 고정",
+      evidence: "sidecar-template/alpha-exec-engine/.github/workflows/payload-probe-isolated.yml"
+    },
+    {
+      title: "Gate 결과 GO/NO_GO + blocker Notion/Docs 동시 반영",
+      status: "예정",
+      category: "운영",
+      date: "2026-04-04",
+      summary: "검증결과를 운영 결론으로 문서/보드/작업목록에 동기 반영",
+      evidence: "docs/MASTER_WORKFLOW_CONTROL_PLANE_2026-04-03.md"
+    },
+    {
+      title: "n8n 기반 장기 오케스트레이션 설계안 v1 확정",
+      status: "예정",
+      category: "자동화",
+      date: "2026-04-05",
+      summary: "무료 플랜 기반 승인게이트 중심 장기운영 자동화 구조를 문서화",
+      evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
+    }
   ];
 
   try {
@@ -743,6 +976,110 @@ const main = async () => {
         notionProjectTaskDbEnv || childDatabases.find((x) => x.title === "작업")?.id || "";
       const projectDbId =
         notionProjectDbEnv || childDatabases.find((x) => x.title === "프로젝트")?.id || "";
+      let historyDbId =
+        notionHistoryDbEnv || childDatabases.find((x) => x.title === notionHistoryDbTitle)?.id || "";
+
+      if (!historyDbId) {
+        const ensuredHistoryDb = await ensureChildDatabase({
+          token: notionToken,
+          projectPageId: notionProject,
+          existingChildDatabases: childDatabases,
+          title: notionHistoryDbTitle,
+          properties: {
+            "이력 항목": { title: {} },
+            "상태": {
+              status: {
+                options: [
+                  { name: "완료", color: "green" },
+                  { name: "진행 중", color: "blue" },
+                  { name: "예정", color: "yellow" }
+                ]
+              }
+            },
+            "분류": {
+              select: {
+                options: [
+                  { name: "Stage6", color: "purple" },
+                  { name: "문서화", color: "gray" },
+                  { name: "보안", color: "red" },
+                  { name: "MCP", color: "blue" },
+                  { name: "워크플로우", color: "orange" },
+                  { name: "Notion", color: "pink" },
+                  { name: "Obsidian", color: "brown" },
+                  { name: "자동화", color: "green" },
+                  { name: "운영", color: "default" },
+                  { name: "검증", color: "yellow" },
+                  { name: "관측", color: "blue" }
+                ]
+              }
+            },
+            "날짜": { date: {} },
+            "요약": { rich_text: {} },
+            "근거": { rich_text: {} }
+          }
+        });
+        historyDbId = ensuredHistoryDb.id || "";
+        report.notion.history = {
+          dbId: historyDbId,
+          dbStatus: ensuredHistoryDb.status,
+          rows: [],
+          counts: { done: 0, inProgress: 0, planned: 0 }
+        };
+      }
+
+      if (historyDbId) {
+        const historyDb = await notionRequest(notionToken, `/v1/databases/${historyDbId}`, { method: "GET" });
+        const historyProps = historyDb?.properties || {};
+        const historyTitle = findTitleProperty(historyProps);
+        if (!historyTitle) throw new Error("History DB has no title property");
+        const historyStatus = findStatusProperty(historyProps);
+        const historyCategory = findSelectProperty(historyProps, ["분류", "카테고리", "Category"]);
+        const historyDate = findDateProperty(historyProps, ["날짜", "Date"]);
+        const historySummary = findRichTextProperty(historyProps, ["요약", "Summary"]);
+        const historyEvidence = findRichTextProperty(historyProps, ["근거", "Evidence", "링크"]);
+
+        const rows = [];
+        for (const item of historyItems) {
+          const statusOptionName = chooseStatusOption(historyStatus, [item.status]);
+          const categoryOptionName = chooseStatusOption(historyCategory, [item.category]);
+          const extraProperties = {};
+          if (historyDate?.name && item.date) {
+            extraProperties[historyDate.name] = { date: { start: item.date } };
+          }
+          if (historyCategory?.name && categoryOptionName) {
+            extraProperties[historyCategory.name] = { select: { name: categoryOptionName } };
+          }
+          if (historyEvidence && item.evidence) {
+            extraProperties[historyEvidence] = {
+              rich_text: [{ text: { content: item.evidence.slice(0, 1800) } }]
+            };
+          }
+          const row = await upsertRow({
+            token: notionToken,
+            databaseId: historyDbId,
+            titlePropertyName: historyTitle,
+            statusProperty: historyStatus,
+            statusOptionName,
+            summaryPropertyName: historySummary,
+            summaryText: item.summary,
+            extraProperties,
+            title: item.title
+          });
+          rows.push({ title: item.title, status: item.status, ...row });
+        }
+
+        const counts = {
+          done: historyItems.filter((x) => x.status === "완료").length,
+          inProgress: historyItems.filter((x) => x.status === "진행 중").length,
+          planned: historyItems.filter((x) => x.status === "예정").length
+        };
+        report.notion.history = {
+          dbId: historyDbId,
+          dbStatus: report.notion.history?.dbStatus || "existing",
+          rows,
+          counts
+        };
+      }
 
       if (projectTaskDbId) {
         const projectTaskDb = await notionRequest(notionToken, `/v1/databases/${projectTaskDbId}`, { method: "GET" });
@@ -844,6 +1181,7 @@ const main = async () => {
         {
           title: "완료(Completed)",
           items: [
+            "전체 타임라인은 child DB `운영 히스토리`에서 일자/상태 기반으로 조회",
             "운영 MCP 프로필 10종(ops) + 연구 확장 2종(full) 통합 및 검증 완료",
             "ops/full 프로필 동기화, check/smoke 루틴 고정 (`mcp:sync:ops`, `mcp:sync:full`)",
             "Sentry/Playwright/Grafana/PagerDuty/Cloudflare 포함 관측·대응 체계 구축",
