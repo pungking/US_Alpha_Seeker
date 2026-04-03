@@ -136,3 +136,130 @@
 3. MCP는 ops 루틴 안정 운용 중심
 4. 추가 확장은 20/20 완료 후 재평가
 
+---
+
+## 7) 실행 프로토콜 (문서 중심 운영 고정)
+
+아래 순서를 모든 작업의 기본 프로토콜로 고정한다.
+
+1. 문서화
+   - 목표/범위/리스크/완료조건을 먼저 기록한다.
+2. 작업 실행
+   - 코드/워크플로/변수 변경은 문서 범위 내에서만 진행한다.
+3. 검증
+   - 실행 로그/지표/액션 결과를 증거로 남긴다.
+4. 문서 업데이트
+   - 무엇을 왜 바꿨는지, 결과가 어땠는지 즉시 반영한다.
+5. 다음 작업 확정
+   - 다음 1단계 액션과 성공 조건을 명시한다.
+6. 경로 이탈 시
+   - 이탈 작업을 먼저 종료 기록한 뒤 원래 트랙으로 복귀한다.
+
+핵심 원칙:
+- `20/20` 수집 완료 전에는 전략 파라미터 자동 반영 금지
+- `ops`는 기본, `full`은 조사 세션에서만 일시 사용
+- 운영 기준 문서는 Git 레포 `docs/`를 정본으로 유지
+
+---
+
+## 8) 최신 검증 로그 (2026-04-03)
+
+### A. Ops 프로필 검증
+
+- `npm run mcp:sync:ops` 성공
+- `npm run mcp:check` 성공
+- `npm run mcp:smoke` 성공
+- 결과: `PASS, servers=10, passed=10, failed=0`
+
+### B. Full 프로필(연구 포함) 검증
+
+- `npm run mcp:sync:full` 성공
+- `npm run mcp:check` 성공
+- `npm run mcp:smoke` 성공
+- 결과: `PASS, servers=12, passed=12, failed=0`
+  - 포함: `perplexity-mcp`, `obsidian-mcp`
+
+### C. 운영 복귀 확인
+
+- `npm run mcp:sync:ops` 재실행 완료
+- 현재 기본 운영 상태는 `ops` 프로필로 복귀됨
+
+### D. Repo↔Notion↔Obsidian 동기 실행 검증 (2026-04-03)
+
+- Repo:
+  - 본 문서에 실행 프로토콜/일일/주간 루틴 반영 완료
+- Notion:
+  - `NOTION_PROJECT` 페이지에 자동 동기 로그 블록 append 성공
+  - 내용: 루틴 확정, MCP 검증 결과(ops/full), 기본 프로필 복귀 상태
+- Notion Work List DB:
+  - `NOTION_WORK_LIST` 접근 재검증 완료 (DB 조회/쿼리 200)
+  - 쓰기 권한 재검증 완료 (페이지 생성 200 + archive 200)
+- Notion Project Page DB:
+  - 프로젝트 페이지 내 `작업`/`프로젝트` child DB 탐지 기반으로 표 행(upsert) 가능
+  - 텍스트 안내 블록은 기본 비활성, 표(데이터베이스) 중심 운영으로 전환
+- Obsidian:
+  - Local REST API(`127.0.0.1:27123/27124`) 연결/인증 정상 확인
+  - `/vault/{filename}` PUT/GET 테스트로 노트 생성/조회 성공
+  - 생성 노트: `AUTO_SYNC_CHECK_2026-04-03.md`
+  - 템플릿 간 `[[wikilink]]` 연결과 `00_Ops_Hub`로 그래프 가독성 개선
+
+### E. Program Status 보드/레거시 정리 동기 (2026-04-03)
+
+- `ops:knowledge:sync` 실행 시 Notion 프로젝트 페이지에
+  - `[AUTO] US Alpha Seeker Program Status` 섹션을 재생성
+  - 완료/진행중/다음/가드레일/뷰설정값을 최신 기준으로 갱신
+- 프로젝트/작업 child DB에서 `샘플`/`템플릿`/초기 온보딩 행은 자동 archive 가능
+  - 기본값: `KNOWLEDGE_SYNC_ARCHIVE_LEGACY_SAMPLES=true`
+  - 필요 시 `false`로 비활성화 가능
+
+---
+
+## 9) Repo↔Notion↔Obsidian 동기 운영 루틴 (일일/주간)
+
+본 섹션은 2026-04-03 기준 v1으로 확정한다.
+
+### A. 일일 루틴 (Daily)
+
+1. 시작 점검 (Ops 고정)
+   - `npm run mcp:sync:ops`
+   - `npm run mcp:check`
+   - `npm run mcp:smoke`
+2. Repo 운영
+   - GitHub Actions 핵심 런(dry-run/market-guard/master-control) 상태 확인
+   - 실패 런은 Sentry/PagerDuty/Telegram 기준으로 triage
+3. Notion 운영 업데이트
+   - 작업지시 상태(진행/보류/완료) 업데이트
+   - 인시던트 원인/조치/재발방지 항목 기록
+4. Obsidian 연구 기록
+   - 당일 가설/실험 메모 작성
+   - 확정안은 Notion으로 승격, 미확정안은 Obsidian에 유지
+5. 종료 체크
+   - 다음 액션 1개를 Notion에 명시
+   - 기준 상태를 `ops` 프로필로 다시 확인
+
+### B. 주간 루틴 (Weekly)
+
+1. 주간 시작(월)
+   - 지난주 incident/alert/top issue 리뷰
+   - 이번 주 우선순위(20/20 수집, 게이트 상태) 확정
+2. 중간 점검(수)
+   - KPI 추세 점검(수집 진행도, hf alert, smoke pass율)
+   - 문서-코드-운영 불일치 여부 교정
+3. 주간 마감(금)
+   - Notion 운영보드 정리(완료/이월/보류)
+   - Obsidian 연구노트에서 확정안만 Notion 반영
+   - 레포 `docs/`에 주간 변경 로그 업데이트
+
+### C. 동기화 원칙 (SSOT)
+
+- 최종 정본(SSOT): 레포 `docs/`
+- 운영 보드/상태 관리: Notion
+- 연구/아이디어 초안: Obsidian
+- 충돌 시 우선순위: `docs/` > Notion > Obsidian
+
+### D. 실행 커맨드
+
+- 동기 루틴 실행:
+  - `npm run ops:knowledge:sync`
+- 결과 리포트:
+  - `state/knowledge-routine-sync-report.json`

@@ -150,6 +150,17 @@ Smoke/health checks:
   - `npm run mcp:health:always`
 - one-shot daily ops routine:
   - `npm run mcp:ops:daily`
+- Repo↔Notion↔Obsidian 운영 루틴 동기화:
+  - `npm run ops:knowledge:sync`
+  - 결과 리포트: `state/knowledge-routine-sync-report.json`
+  - 동기화 항목:
+    - Notion 프로젝트 페이지에 `[AUTO] US Alpha Seeker Program Status` 보드 재생성(완료/진행중/다음/가드레일)
+    - 프로젝트/작업 DB 내 레거시 샘플 행(`샘플`, `템플릿` 등) 자동 정리
+    - Obsidian 템플릿 허브/일일로그/인시던트/튜닝 노트 갱신
+  - 선택 옵션:
+    - `KNOWLEDGE_SYNC_APPEND_PROJECT_NOTES=true` (프로젝트 페이지 하단 안내 텍스트 블록 append)
+    - `KNOWLEDGE_SYNC_CLEANUP_PROJECT_AUTO_NOTES=true|false` (기존 `[AUTO]` 텍스트 블록 정리)
+    - `KNOWLEDGE_SYNC_ARCHIVE_LEGACY_SAMPLES=true|false` (레거시 샘플 행 자동 archive, 기본 true)
 
 Optional GitHub Actions daily automation:
 
