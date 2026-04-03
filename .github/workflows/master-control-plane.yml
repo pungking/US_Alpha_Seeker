@@ -88,13 +88,14 @@ jobs:
       sidecar_ref: ${{ inputs.sidecar_ref }}
       dispatch_sidecar_dry_run: ${{ inputs.dispatch_sidecar_dry_run == 'true' }}
     secrets:
-      dispatch_token: ${{ secrets.SIDECAR_DISPATCH_TOKEN || secrets.GITHUB_PAT || secrets.MCP_GITHUB_TOKEN }}
+      dispatch_token: ${{ secrets.SIDECAR_DISPATCH_TOKEN || secrets.MCP_GITHUB_TOKEN }}
 
   validate:
     if: ${{ inputs.mode == 'full' || inputs.mode == 'validate' }}
     uses: ./.github/workflows/reusable-control-validate.yml
     with:
       run_local_mcp_health: ${{ inputs.run_local_mcp_health == 'true' }}
+    secrets: inherit
 
   promote:
     if: ${{ inputs.mode == 'full' || inputs.mode == 'promote' }}
@@ -108,7 +109,7 @@ jobs:
       sidecar_repo: ${{ inputs.sidecar_repo }}
       sidecar_ref: ${{ inputs.sidecar_ref }}
     secrets:
-      dispatch_token: ${{ secrets.SIDECAR_DISPATCH_TOKEN || secrets.GITHUB_PAT || secrets.MCP_GITHUB_TOKEN }}
+      dispatch_token: ${{ secrets.SIDECAR_DISPATCH_TOKEN || secrets.MCP_GITHUB_TOKEN }}
 
   incident:
     if: ${{ always() && (inputs.mode == 'full' || inputs.mode == 'incident' || failure()) }}
@@ -142,4 +143,3 @@ jobs:
             echo "- promotion lane only supports validation-pack request";
             echo "- 20/20 sample gate remains required before promotion lane proceeds";
           } >> "$GITHUB_STEP_SUMMARY"
-

@@ -49,6 +49,7 @@ jobs:
       - name: Dispatch sidecar dry-run
         id: dispatch
         if: ${{ inputs.dispatch_sidecar_dry_run && steps.precheck.outputs.has_token == 'true' }}
+        continue-on-error: true
         uses: actions/github-script@v8
         with:
           github-token: ${{ secrets.dispatch_token }}
@@ -78,6 +79,7 @@ jobs:
 
       - name: Finalize collect status
         id: finalize
+        if: ${{ always() }}
         run: |
           status="skipped_dispatch_disabled"
           note="dispatch_sidecar_dry_run=false"
@@ -105,4 +107,3 @@ jobs:
             echo "- sidecar_repo: \`${{ inputs.sidecar_repo }}\`";
             echo "- sidecar_ref: \`${{ inputs.sidecar_ref }}\`";
           } >> "$GITHUB_STEP_SUMMARY"
-

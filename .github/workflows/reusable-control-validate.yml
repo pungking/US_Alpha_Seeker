@@ -19,6 +19,27 @@ on:
 jobs:
   validate:
     runs-on: ubuntu-latest
+    env:
+      # MCP package defaults
+      MCP_GITHUB_COMMAND_PACKAGE: mcp-remote
+      MCP_GITHUB_URL: https://api.githubcopilot.com/mcp/
+      MCP_VERCEL_COMMAND_PACKAGE: mcp-remote
+      MCP_VERCEL_URL: https://mcp.vercel.com
+      MCP_TELEGRAM_COMMAND_PACKAGE: "@iqai/mcp-telegram"
+      MCP_SENTRY_COMMAND_PACKAGE: "@sentry/mcp-server"
+
+      # Tokens / secrets
+      GITHUB_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.SIDECAR_DISPATCH_TOKEN }}
+      VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
+      SENTRY_ACCESS_TOKEN: ${{ secrets.SENTRY_ACCESS_TOKEN }}
+
+      # Base MCP placeholders (google-drive in mcp.base.json)
+      GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+      GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+      GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+
     outputs:
       validate_status: ${{ steps.finalize.outputs.validate_status }}
       validate_note: ${{ steps.finalize.outputs.validate_note }}
@@ -45,6 +66,7 @@ jobs:
 
       - name: Finalize validate status
         id: finalize
+        if: ${{ always() }}
         run: |
           status="skipped"
           note="run_local_mcp_health=false"
@@ -67,4 +89,3 @@ jobs:
             echo "- status: \`$status\`";
             echo "- note: \`$note\`";
           } >> "$GITHUB_STEP_SUMMARY"
-
