@@ -60,14 +60,20 @@ async function refreshWithCredentials(clientId, clientSecret, refreshToken) {
             return null;
         }
         const data = await response.json();
-        return data.access_token;
+        const accessToken = String(data?.access_token || '').trim();
+        if (!accessToken) return null;
+        const expiresInSec = Number(data?.expires_in);
+        return {
+            accessToken,
+            expiresInSec: Number.isFinite(expiresInSec) ? expiresInSec : null
+        };
     } catch (e) {
         console.error("❌ Network Error during refresh:", e.message);
         return null;
     }
 }
 
-async function getAccessToken() {
+async function getAccessTokenBundle() {
     const envClientId = (process.env.GDRIVE_CLIENT_ID || '').trim();
     const envClientSecret = (process.env.GDRIVE_CLIENT_SECRET || '').trim();
     const envRefreshToken = (process.env.GDRIVE_REFRESH_TOKEN || '').trim();
@@ -78,10 +84,10 @@ async function getAccessToken() {
     // Strategy 1: Refresh Token (Preferred for long-running auth)
     if (envClientId && envClientSecret && envRefreshToken) {
         console.log("🔄 [AUTH] Attempting Token Refresh via Secrets...");
-        const token = await refreshWithCredentials(envClientId, envClientSecret, envRefreshToken);
-        if (token) {
+        const refreshed = await refreshWithCredentials(envClientId, envClientSecret, envRefreshToken);
+        if (refreshed?.accessToken) {
             console.log("✅ [AUTH] Authenticated via Refresh Token.");
-            return token;
+            return { accessToken: refreshed.accessToken, expiresInSec: refreshed.expiresInSec, mode: 'refresh' };
         }
     } else if (envRefreshToken) {
         console.warn("⚠️ [AUTH] Refresh Token present but Client ID/Secret missing. Skipping Refresh.");
@@ -90,12 +96,12 @@ async function getAccessToken() {
     // Strategy 2: Static Access Token (Short-lived, good for CI debug or one-off)
     if (envAccessToken) {
         console.log("⚠️ [AUTH] Using Static Access Token from Secrets (May expire).");
-        return envAccessToken;
+        return { accessToken: envAccessToken, expiresInSec: null, mode: 'static' };
     }
 
     // Strategy 3: Offline Mode
     console.warn("⚠️ [AUTH] All authentication methods failed. Proceeding in OFFLINE SIMULATION MODE.");
-    return "OFFLINE_MODE_TOKEN";
+    return { accessToken: "OFFLINE_MODE_TOKEN", expiresInSec: null, mode: 'offline' };
 }
 
 (async () => {
@@ -111,7 +117,10 @@ async function getAccessToken() {
   }
   console.log("✅ [BOOT] App server is ready.");
 
-  const token = await getAccessToken();
+  const initialAuth = await getAccessTokenBundle();
+  let token = initialAuth.accessToken;
+  let refreshInFlight = false;
+  let authRefreshInterval = null;
   
   const browser = await puppeteer.launch({
     headless: "new",
@@ -131,8 +140,48 @@ async function getAccessToken() {
     await page.setBypassCSP(true);
     
     // [DEBUG] Capture ALL console logs to see where it hangs
+    const syncTokenIntoPage = async (accessToken) => {
+        await page.evaluate((nextToken, clientId) => {
+            if (nextToken === "OFFLINE_MODE_TOKEN") {
+                sessionStorage.setItem('offline_mode', 'true');
+                return;
+            }
+            sessionStorage.setItem('gdrive_access_token', nextToken);
+            if (clientId) localStorage.setItem('gdrive_client_id', clientId);
+        }, accessToken, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
+    };
+
+    const refreshBrowserDriveToken = async (reason = 'scheduled') => {
+        if (refreshInFlight) return false;
+        const envClientId = (process.env.GDRIVE_CLIENT_ID || '').trim();
+        const envClientSecret = (process.env.GDRIVE_CLIENT_SECRET || '').trim();
+        const envRefreshToken = (process.env.GDRIVE_REFRESH_TOKEN || '').trim();
+        if (!envClientId || !envClientSecret || !envRefreshToken) return false;
+        refreshInFlight = true;
+        try {
+            const refreshed = await refreshWithCredentials(envClientId, envClientSecret, envRefreshToken);
+            if (!refreshed?.accessToken) return false;
+            token = refreshed.accessToken;
+            await syncTokenIntoPage(token);
+            console.log(
+                `🔄 [AUTH] Browser token rotated (${reason})` +
+                (refreshed.expiresInSec ? ` expiresIn=${refreshed.expiresInSec}s` : '')
+            );
+            return true;
+        } catch (e) {
+            console.error(`❌ [AUTH] Browser token rotation failed (${reason}):`, e?.message || e);
+            return false;
+        } finally {
+            refreshInFlight = false;
+        }
+    };
+
     page.on('console', msg => {
-        console.log(`[BROWSER] ${msg.type().toUpperCase()}: ${msg.text()}`);
+        const text = msg.text();
+        console.log(`[BROWSER] ${msg.type().toUpperCase()}: ${text}`);
+        if (text.includes('status of 401') || text.includes('HTTP 401')) {
+            refreshBrowserDriveToken('401-detected').catch(() => {});
+        }
     });
 
     // [DEBUG] Capture page errors
@@ -192,18 +241,17 @@ async function getAccessToken() {
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'networkidle0' });
     
     console.log("🔐 Injecting Security Context...");
-    await page.evaluate((accessToken, clientId) => {
-        if (accessToken === "OFFLINE_MODE_TOKEN") {
-            sessionStorage.setItem('offline_mode', 'true');
-            console.log("[Setup] Offline Mode Flag Set");
-        } else {
-            sessionStorage.setItem('gdrive_access_token', accessToken);
-        }
-        if (clientId) localStorage.setItem('gdrive_client_id', clientId);
-    }, token, process.env.GDRIVE_CLIENT_ID || FALLBACK_CLIENT_ID);
+    await syncTokenIntoPage(token);
 
     console.log("🤖 Engaging Headless Auto-Pilot...");
     await page.goto(`${APP_URL}/?auto=true`, { waitUntil: 'domcontentloaded' });
+
+    if (initialAuth.mode === 'refresh') {
+        // Google access tokens expire ~1h. Rotate periodically so stage sync polling never gets stuck on 401.
+        authRefreshInterval = setInterval(() => {
+            refreshBrowserDriveToken('interval').catch(() => {});
+        }, 25 * 60 * 1000);
+    }
 
     console.log("⏳ Pipeline Execution in Progress... (Waiting for 'ALL PIPELINES EXECUTED')");
     let progressTicker = null;
@@ -250,6 +298,10 @@ async function getAccessToken() {
         if (progressTicker) {
             clearInterval(progressTicker);
             progressTicker = null;
+        }
+        if (authRefreshInterval) {
+            clearInterval(authRefreshInterval);
+            authRefreshInterval = null;
         }
     }
 

@@ -65,6 +65,29 @@ const selectProp = (value) => ({
   select: { name: shortText(value, 100) || "Partial" }
 });
 
+const setPropertyAliases = (target, schema, names, handlers) => {
+  for (const name of names) {
+    const def = schema?.[name];
+    if (!def || !def.type) continue;
+    const handler = handlers[def.type];
+    if (!handler) continue;
+    target[name] = handler();
+    return true;
+  }
+  return false;
+};
+
+const classifyRunTrigger = (eventName) => {
+  const event = String(eventName || "").trim().toLowerCase();
+  if (!event) return "UNKNOWN";
+  if (event === "schedule") return "SCHEDULED";
+  if (event === "workflow_dispatch") return "MANUAL";
+  if (event === "repository_dispatch") return "DISPATCH";
+  if (event === "push") return "PUSH";
+  if (event === "pull_request") return "PR";
+  return event.toUpperCase();
+};
+
 const queryExistingByTitle = async (token, databaseId, titlePropertyName, titleValue) => {
   const payload = {
     filter: {
@@ -133,6 +156,9 @@ const main = async () => {
   const repository = env("GITHUB_REPOSITORY");
   const workflow = env("GITHUB_WORKFLOW");
   const eventName = env("GITHUB_EVENT_NAME");
+  const eventAction = env("GITHUB_EVENT_ACTION");
+  const triggerType = classifyRunTrigger(eventName);
+  const eventLabel = eventAction ? `${eventName}:${eventAction}` : eventName || "N/A";
   const actor = env("GITHUB_ACTOR");
   const sha = env("GITHUB_SHA");
   const serverUrl = env("GITHUB_SERVER_URL", "https://github.com");
@@ -145,7 +171,8 @@ const main = async () => {
     `source=github_actions`,
     `status=${statusRaw}`,
     `workflow=${workflow || "N/A"}`,
-    `event=${eventName || "N/A"}`,
+    `trigger=${triggerType}`,
+    `event=${eventLabel}`,
     `actor=${actor || "N/A"}`,
     `repo=${repository || "N/A"}`,
     `runUrl=${runUrl || "N/A"}`,
@@ -169,6 +196,14 @@ const main = async () => {
   if (has("Top Tickers")) {
     properties["Top Tickers"] = textProp(stage6File || stage6Hash ? `${stage6File || "N/A"} ${stage6Hash ? `(${stage6Hash.slice(0, 12)})` : ""}` : "N/A");
   }
+  setPropertyAliases(properties, schema, ["Run Trigger", "Trigger", "Execution Mode", "Run Mode"], {
+    select: () => selectProp(triggerType),
+    rich_text: () => textProp(triggerType)
+  });
+  setPropertyAliases(properties, schema, ["Event", "Workflow Event", "GitHub Event"], {
+    select: () => selectProp(eventName || "N/A"),
+    rich_text: () => textProp(eventLabel)
+  });
 
   const upsertStatus = await upsertPage(notionToken, dbDaily, titlePropertyName, runKey, properties);
   console.log(
