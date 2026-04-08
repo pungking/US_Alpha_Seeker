@@ -3570,6 +3570,16 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
           return null;
       };
+      const pickPositiveFinite = (...vals: any[]): number | null => {
+          for (const v of vals) {
+              if (v === null || v === undefined) continue;
+              if (typeof v === 'string' && v.trim() === '') continue;
+              if (typeof v === 'boolean') continue;
+              const n = Number(v);
+              if (Number.isFinite(n) && n > 0) return n;
+          }
+          return null;
+      };
       const entryFeasibilityMaxDistanceRaw = Number(
           (import.meta as any)?.env?.VITE_ENTRY_FEASIBILITY_MAX_DISTANCE_PCT ?? 15
       );
@@ -4178,11 +4188,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           };
       };
       const deriveExecutionContractFields = (item: AlphaCandidate) => {
-          const mirroredEntry = pickFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
-          const mirroredTarget = pickFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
-          const mirroredStop = pickFinite(item?.stopLoss, item?.ictStopLoss);
-          const entryAnchorPrice = pickFinite(item?.otePrice, item?.supportLevel, mirroredEntry);
-          const entryExecPriceShadow = pickFinite(item?.entryPrice, entryAnchorPrice, item?.price);
+          const mirroredEntry = pickPositiveFinite(item?.otePrice, item?.supportLevel, item?.entryPrice);
+          const mirroredTarget = pickPositiveFinite(item?.targetMeanPrice, item?.resistanceLevel, item?.targetPrice);
+          const mirroredStop = pickPositiveFinite(item?.stopLoss, item?.ictStopLoss);
+          const entryAnchorPrice = pickPositiveFinite(item?.otePrice, item?.supportLevel, mirroredEntry);
+          const entryExecPriceShadow = pickPositiveFinite(item?.entryPrice, entryAnchorPrice, item?.price);
           const livePrice = pickFinite(item?.price);
           const entryDistancePctShadow =
               livePrice != null && entryExecPriceShadow != null && livePrice > 0
@@ -4430,6 +4440,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           return {
               mirroredEntry,
               mirroredTarget,
+              mirroredStop,
               entryAnchorPrice,
               entryExecPriceShadow,
               entryDistancePctShadow,
@@ -4491,12 +4502,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               ...item,
               modelRank: modelRankMap.get(normalizeContractSymbol(item?.symbol)) ?? null,
               executionRank: null,
-              entryPrice: executionContract.mirroredEntry ?? item.entryPrice ?? 0,
+              entryPrice: executionContract.mirroredEntry ?? pickPositiveFinite(item?.entryPrice, item?.otePrice, item?.supportLevel) ?? undefined,
               entryAnchorPrice: executionContract.entryAnchorPrice ?? undefined,
               entryExecPrice: executionContract.entryExecPriceShadow ?? undefined,
               entryExecPriceShadow: executionContract.entryExecPriceShadow ?? undefined,
               entryDistancePct: executionContract.entryDistancePctShadow ?? undefined,
               entryDistancePctShadow: executionContract.entryDistancePctShadow ?? undefined,
+              stopLoss: executionContract.mirroredStop ?? pickPositiveFinite(item?.stopLoss, item?.ictStopLoss) ?? undefined,
+              ictStopLoss: executionContract.mirroredStop ?? pickPositiveFinite(item?.ictStopLoss, item?.stopLoss) ?? undefined,
               stopDistancePct: executionContract.stopDistancePct ?? null,
               targetDistancePct: executionContract.targetDistancePct ?? null,
               anchorExecGapPct: executionContract.anchorExecGapPct ?? null,
@@ -4532,8 +4545,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
-              targetPrice: executionContract.mirroredTarget ?? item.targetPrice ?? 0,
-              targetMeanPrice: executionContract.mirroredTarget ?? item.targetMeanPrice ?? 0
+              targetPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetPrice, item?.targetMeanPrice, item?.resistanceLevel) ?? undefined,
+              targetMeanPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetMeanPrice, item?.targetPrice, item?.resistanceLevel) ?? undefined
           };
       });
       const hfBlendAppliedCount = scoredCandidates.filter((item) => Boolean(item?.hfBlendApplied)).length;
@@ -4837,12 +4850,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               aiVerdict: verdictFinal,
               verdict: verdictFinal,
               finalVerdict: verdictFinal,
-              entryPrice: executionContract.mirroredEntry ?? 0,
+              entryPrice: executionContract.mirroredEntry ?? pickPositiveFinite(item?.entryPrice, item?.otePrice, item?.supportLevel) ?? undefined,
               entryAnchorPrice: executionContract.entryAnchorPrice ?? undefined,
               entryExecPrice: executionContract.entryExecPriceShadow ?? undefined,
               entryExecPriceShadow: executionContract.entryExecPriceShadow ?? undefined,
               entryDistancePct: executionContract.entryDistancePctShadow ?? undefined,
               entryDistancePctShadow: executionContract.entryDistancePctShadow ?? undefined,
+              stopLoss: executionContract.mirroredStop ?? pickPositiveFinite(item?.stopLoss, item?.ictStopLoss) ?? undefined,
+              ictStopLoss: executionContract.mirroredStop ?? pickPositiveFinite(item?.ictStopLoss, item?.stopLoss) ?? undefined,
               stopDistancePct: executionContract.stopDistancePct ?? null,
               targetDistancePct: executionContract.targetDistancePct ?? null,
               anchorExecGapPct: executionContract.anchorExecGapPct ?? null,
@@ -4863,8 +4878,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               riskRewardRatioValue: executionContract.riskRewardRatioValue,
               expectedReturnPct: executionContract.expectedReturnPct,
               earningsDaysToEvent: executionContract.earningsDaysToEvent,
-              targetPrice: executionContract.mirroredTarget ?? 0,
-              targetMeanPrice: executionContract.mirroredTarget ?? 0
+              targetPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetPrice, item?.targetMeanPrice, item?.resistanceLevel) ?? undefined,
+              targetMeanPrice: executionContract.mirroredTarget ?? pickPositiveFinite(item?.targetMeanPrice, item?.targetPrice, item?.resistanceLevel) ?? undefined
           };
       });
       const executionRankMap = new Map<string, number>();
@@ -5142,15 +5157,19 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   normalizeOptionalText(item?.executionBucket)?.toUpperCase() || 'WATCHLIST',
               executionReason: normalizeOptionalText(item?.executionReason || item?.tradePlanStatusShadow),
               entryAnchorPrice: Number.isFinite(Number(item?.entryAnchorPrice))
+                  && Number(item.entryAnchorPrice) > 0
                   ? Number(item.entryAnchorPrice)
                   : null,
               entryExecPrice: Number.isFinite(Number(item?.entryExecPrice ?? item?.entryExecPriceShadow))
+                  && Number(item.entryExecPrice ?? item.entryExecPriceShadow) > 0
                   ? Number(item.entryExecPrice ?? item.entryExecPriceShadow)
                   : null,
               targetPrice: Number.isFinite(Number(item?.targetPrice ?? item?.targetMeanPrice))
+                  && Number(item.targetPrice ?? item.targetMeanPrice) > 0
                   ? Number(item.targetPrice ?? item.targetMeanPrice)
                   : null,
               stopPrice: Number.isFinite(Number(item?.stopLoss ?? item?.ictStopLoss))
+                  && Number(item.stopLoss ?? item.ictStopLoss) > 0
                   ? Number(item.stopLoss ?? item.ictStopLoss)
                   : null,
               entryDistancePct: Number.isFinite(Number(item?.entryDistancePct ?? item?.entryDistancePctShadow))
@@ -5483,10 +5502,17 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           decisionReason: item?.decisionReason || item?.executionReason,
           executionBucket: item?.executionBucket,
           entryPrice: Number.isFinite(Number(item?.entryExecPrice ?? item?.entryPrice))
+              && Number(item.entryExecPrice ?? item.entryPrice) > 0
               ? Number(item.entryExecPrice ?? item.entryPrice)
               : undefined,
-          targetPrice: Number.isFinite(Number(item?.targetPrice)) ? Number(item.targetPrice) : undefined,
-          stopLoss: Number.isFinite(Number(item?.stopLoss)) ? Number(item.stopLoss) : undefined
+          targetPrice:
+              Number.isFinite(Number(item?.targetPrice)) && Number(item.targetPrice) > 0
+                  ? Number(item.targetPrice)
+                  : undefined,
+          stopLoss:
+              Number.isFinite(Number(item?.stopLoss)) && Number(item.stopLoss) > 0
+                  ? Number(item.stopLoss)
+                  : undefined
       });
 
       // Notion sync is best-effort: do not block pipeline completion.
