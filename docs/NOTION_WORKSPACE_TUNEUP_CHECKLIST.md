@@ -145,3 +145,38 @@ Please do the following:
 
 4) Keep existing data intact; do not delete old rows. Only add/update schema and views.
 ```
+
+---
+
+## 8) MCP 확장 추적 뷰 (2026-04-08 추가)
+
+시장/금융 MCP 확장 작업(Shadow Lane)을 빠르게 추적하기 위해 아래를 추가한다.
+
+### Work List 권장 태그
+- Area: `MCP`, `Stage6`, `Infra`
+- 분류: `Incident`, `Blocked`, `일반`
+- 우선순위: `높음/중간/낮음`
+
+### 권장 뷰
+1) `MCP_Expansion_Active`
+- Filter: Area = `MCP`, Status != `Done`
+- Sort: 우선순위 desc, 마감일 asc
+
+2) `MCP_Expansion_Blocked`
+- Filter: Area = `MCP`, Status = `Blocked`
+- Sort: 최근 수정 desc
+
+3) `MCP_Expansion_Done`
+- Filter: Area = `MCP`, Status = `Done`
+- Sort: 최근 수정 desc
+
+### 트래킹할 최소 컬럼
+- Run Key
+- Workflow
+- Evidence Link
+- Notes
+- 요약
+
+운영 기준 문서:
+- `docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md`
+- `docs/MCP_MARKET_INTEL_EXPANSION_ROADMAP_2026-04-08.md`

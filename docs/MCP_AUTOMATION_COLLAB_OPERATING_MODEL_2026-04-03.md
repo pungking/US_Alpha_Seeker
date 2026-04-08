@@ -120,12 +120,13 @@
 
 ---
 
-## 5) 현재 상태 스냅샷 (2026-04-03)
+## 5) 현재 상태 스냅샷 (2026-04-08)
 
 - MCP smoke: 10/10 PASS (ops)
-- 최신 dry-run: `23929933685` success
-- 게이트 진행: `13/20`
-- auto validation-pack: `sample_not_complete`로 정상 skip
+- 최신 sidecar dry-run: `stage6_result_created #310` success
+- 게이트 진행: `13/20` (remaining `7`)
+- 최신 dry-run payload: `0/0` (Stage6 candidate `0`, 조건 미충족으로 HOLD)
+- auto validation-pack: 샘플 미달로 정상 skip
 
 ---
 
@@ -219,6 +220,34 @@
   - 프로젝트 페이지는 요약보드, 히스토리 DB는 상세 타임라인 역할로 분리
 
 ---
+
+## 9) MCP 확장 운영 원칙 (2026-04-08)
+
+시장/금융 MCP 확장은 "많이 붙이기"가 아니라, 아래 순서로 안전하게 진행한다.
+
+1. `20/20` 이전:
+   - **shadow-only** (읽기/교차검증만 허용)
+   - 주문/핵심 전략 파라미터 자동변경 금지
+2. `20/20` 이후:
+   - validation 증적 기반으로 단계 승격
+   - 실패 시 즉시 롤백 가능한 토글/워크플로 유지
+
+### 확장 우선순위 v1
+
+| 우선순위 | MCP | 운영 판단 |
+|---|---|---|
+| 🔴 최우선 | Alpaca MCP | 주문 경로는 보류, 우선 read-only 진단/검증에 사용 |
+| 🔴 최우선 | Perplexity MCP | 리서치 맥락 강화용으로 유지/강화 |
+| 🔴 최우선 | Alpha Vantage MCP | 공식 MCP 기반 교차검증 소스 추가 |
+| 🟠 높음 | SEC EDGAR 레이어 | Stage6 근거(공시) 검증 강화 |
+| 🟠 높음 | Supabase/Postgres MCP | 상태 저장/조회 확장성 확보 |
+| 🟡 중간 | Finnhub MCP | 현재 API와 shadow 비교 후 승격 판단 |
+| 🟡 중간 | Obsidian MCP | 튜닝/런북 지식 누적 자동화 |
+| 🟢 선택 | Redis MCP | staleness 완화/상태 캐시 보조 |
+| 🟢 선택 | Datadog MCP | 이상 감지 보강(현행 Grafana/Sentry 우선) |
+| 🟢 선택 | TradingView MCP | 커뮤니티 소스, shadow lane에서 품질 검증 우선 |
+
+세부 도입 순서/체크리스트는 `docs/MCP_MARKET_INTEL_EXPANSION_ROADMAP_2026-04-08.md`를 따른다.
 
 ## 9) Repo↔Notion↔Obsidian 동기 운영 루틴 (일일/주간)
 

@@ -586,6 +586,7 @@ const OBSIDIAN_TEMPLATES = {
 - [[01_Daily_Log]]
 - [[02_Incident_Report]]
 - [[03_Tuning_Note]]
+- [[04_MCP_Expansion_Plan]]
 - [[AUTO_SYNC_CHECK_2026-04-03]]
 `,
   "Templates/01_Daily_Log.md": `# Daily Ops Log
@@ -594,6 +595,7 @@ Related:
 - [[00_Ops_Hub]]
 - [[02_Incident_Report]]
 - [[03_Tuning_Note]]
+- [[04_MCP_Expansion_Plan]]
 
 ## 1) Mission
 - Today Focus:
@@ -693,6 +695,38 @@ Related:
 ## 6) Promote Conditions
 - Canary criteria:
 - Rollback criteria:
+`,
+  "Templates/04_MCP_Expansion_Plan.md": `# MCP Expansion Plan
+
+Related:
+- [[00_Ops_Hub]]
+- [[01_Daily_Log]]
+- [[03_Tuning_Note]]
+
+## 1) Current Phase
+- Phase: Shadow Lane
+- Gate: 13/20 (target 20/20)
+- Status: HOLD (no payload)
+
+## 2) Priority Queue
+- P0: Alpaca(read-only), Perplexity, Alpha Vantage
+- P1: SEC EDGAR, Supabase/Postgres
+- P2: Finnhub, Obsidian ops accumulation
+
+## 3) Guardrails
+- No live order path change before 20/20
+- No strategy auto-parameter changes
+- Rollback on repeated instability
+
+## 4) Verification Checklist
+- source_agreement_pct
+- signal_precision_shadow
+- drift_delta
+- no_reason_drift
+
+## 5) Decision
+- Continue / Hold / Rollback
+- Evidence link:
 `
 };
 
@@ -957,6 +991,22 @@ const main = async () => {
       category: "자동화",
       date: "2026-04-05",
       summary: "무료 플랜 기반 승인게이트 중심 장기운영 자동화 구조를 문서화",
+      evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
+    },
+    {
+      title: "MCP 시장데이터 확장 로드맵 v1 수립",
+      status: "완료",
+      category: "MCP",
+      date: "2026-04-08",
+      summary: "Alpaca/Perplexity/AlphaVantage/SEC/Supabase 중심 확장 우선순위를 문서로 확정",
+      evidence: "docs/MCP_MARKET_INTEL_EXPANSION_ROADMAP_2026-04-08.md"
+    },
+    {
+      title: "Phase-1 Shadow Data Bus 착수",
+      status: "진행 중",
+      category: "검증",
+      date: "2026-04-08",
+      summary: "20/20 이전에는 read-only 교차검증만 적용하는 확장 실행 단계 시작",
       evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
     }
   ];
@@ -1256,12 +1306,15 @@ const main = async () => {
             "20-trade gate 수집 진행(목표: 20/20, 수집 구간 파라미터 동결 유지)",
             "HF alert/drift 관찰 모드 유지 및 live promotion 차단 조건 모니터링",
             "Notion 운영 뷰(Today/This Week/Blocked/Incident) 실사용 기준 정렬/필터 최적화",
-            "Obsidian 템플릿 기반 일일 운영 로그/인시던트/튜닝 노트 누적"
+            "Obsidian 템플릿 기반 일일 운영 로그/인시던트/튜닝 노트 누적",
+            "MCP 확장 Phase-1(Shadow Data Bus) 설계 기준으로 도입 준비"
           ]
         },
         {
           title: "다음 작업(Next)",
           items: [
+            "Alpaca(read-only) + Alpha Vantage + SEC EDGAR shadow lane 우선 연결",
+            "Notion 운영 히스토리에 MCP 확장 이정표/증적 링크 누적",
             "20/20 도달 후 validation_pack OFF/ON/STRICT 비교 실행",
             "payload_probe isolated 결과와 baseline 분리 검증 리포트 확정",
             "Gate 결과(GO/NO_GO)와 blocker를 Notion + docs에 동시 반영",
