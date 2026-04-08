@@ -1079,8 +1079,8 @@ export async function generateAlphaSynthesis(candidates: any[], provider: ApiPro
       quantConviction: Number(c.quantConviction ?? c.convictionScore ?? c.conviction ?? 0),
       sector: c.sectorTheme || c.sector,
       pdZone: c.pdZone || 'EQUILIBRIUM', // Premium / Discount / Equilibrium
-      otePrice: c.otePrice || 0,
-      ictStopLoss: c.ictStopLoss || 0,
+      otePrice: Number.isFinite(Number(c.otePrice)) && Number(c.otePrice) > 0 ? Number(c.otePrice) : null,
+      ictStopLoss: Number.isFinite(Number(c.ictStopLoss)) && Number(c.ictStopLoss) > 0 ? Number(c.ictStopLoss) : null,
       marketState: c.marketState || 'Consolidation',
       ictMetrics: {
           // C2: support both legacy and canonical displacement fields.

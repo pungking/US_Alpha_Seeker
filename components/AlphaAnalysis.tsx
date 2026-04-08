@@ -125,6 +125,7 @@ interface AlphaCandidate {
   integrityScore?: number; // [NEW] Data Quality Score
   tradePlanSource?: 'RAW' | 'AI_FALLBACK' | 'DERIVED_2R' | 'INVALID';
   tradePlanStatus?: 'VALID' | 'DERIVED' | 'INVALID';
+  tradePlanInvalidReason?: string | null;
   tradePlanStatusShadow?: 'VALID_EXEC' | 'WAIT_PULLBACK_TOO_DEEP' | 'INVALID_GEOMETRY' | 'INVALID_DATA';
   // [NEW] ICT 5-Step Data
   pdZone?: 'PREMIUM' | 'EQUILIBRIUM' | 'DISCOUNT';
@@ -947,6 +948,13 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       if (key === 'INVALID_GEOMETRY') return 'Invalid Geometry';
       if (key === 'INVALID_DATA') return 'Data Missing';
       return key || 'N/A';
+  };
+  const formatTradeBoxPrice = (value: any): string => {
+      const n = Number(value);
+      if (!Number.isFinite(n) || n <= 0) return '---';
+      if (n < 0.1) return n.toFixed(3);
+      if (n < 1) return n.toFixed(2);
+      return n.toFixed(1);
   };
   const toPositiveRank = (value: any): number | null => {
       const n = Number(value);
@@ -2027,6 +2035,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       return 0;
   };
 
+  const pickPositiveNumber = (...vals: any[]): number | undefined => {
+      for (const v of vals) {
+          const n = Number(v);
+          if (Number.isFinite(n) && n > 0) return n;
+      }
+      return undefined;
+  };
+
   const formatExpectedReturnFromGeometry = (entry: number, target: number) => {
       if (!(entry > 0) || !(target > entry)) return '0% (No Edge)';
       const pct = ((target - entry) / entry) * 100;
@@ -2065,9 +2081,23 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               target: rawTarget,
               source: 'RAW' as const,
               status: 'VALID' as const,
+              invalidReason: null as string | null,
               expectedReturnLabel: formatExpectedReturnFromGeometry(entry, rawTarget)
           };
       }
+
+      const invalidReason =
+          entry <= 0
+              ? 'missing_entry'
+              : stop <= 0
+                  ? 'missing_stop'
+                  : stop >= entry
+                      ? 'stop_not_below_entry'
+                      : rawTarget <= 0
+                          ? 'missing_target'
+                          : rawTarget <= entry
+                              ? 'target_not_above_entry'
+                              : 'invalid_geometry';
 
       return {
           entry,
@@ -2075,6 +2105,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           target: rawTarget > 0 ? rawTarget : entry,
           source: 'INVALID' as const,
           status: 'INVALID' as const,
+          invalidReason,
           expectedReturnLabel: '0% (No Edge)'
       };
   };
@@ -3341,6 +3372,14 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               const safeVerdict = aiData?.aiVerdict || "BUY";
               const safeOutlook = aiData?.investmentOutlook || "";
               const canonicalTrade = buildCanonicalTradePlan(item);
+              const lockedEntry = pickPositiveNumber(canonicalTrade.entry, item?.supportLevel, item?.otePrice);
+              const lockedTarget = pickPositiveNumber(
+                  canonicalTrade.target,
+                  item?.resistanceLevel,
+                  item?.targetPrice,
+                  (item as any)?.targetMeanPrice
+              );
+              const lockedStop = pickPositiveNumber(canonicalTrade.stop, item?.stopLoss, item?.ictStopLoss);
               // Preserve quant-side expected return label first to keep Stage UI semantics stable.
               const quantExpectedReturn =
                   canonicalTrade.expectedReturnLabel ||
@@ -3383,10 +3422,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   executionFactor: Number(executionFactor.toFixed(2)),
                   tradePlanSource: canonicalTrade.source,
                   tradePlanStatus: canonicalTrade.status,
+                  tradePlanInvalidReason: canonicalTrade.invalidReason || null,
                   // [QUANT LOCK] Trade-box values are quant-authoritative. AI must never overwrite.
-                  supportLevel: canonicalTrade.entry || item.supportLevel || item.otePrice || 0,
-                  resistanceLevel: canonicalTrade.target || item.resistanceLevel || item.targetPrice || (item as any).targetMeanPrice || 0,
-                  stopLoss: canonicalTrade.stop || item.stopLoss || item.ictStopLoss || 0,
+                  supportLevel: lockedEntry,
+                  resistanceLevel: lockedTarget,
+                  stopLoss: lockedStop,
                   // [NEW] Inject Visualization Data
                   radarData: radar,
                   fullHistory: item.priceHistory || item.fullHistory || [], // Map priceHistory to fullHistory
@@ -3397,8 +3437,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ictMetrics: item.ictMetrics || { displacement: 0, smartMoneyFlow: 50, fvgStrength: 0 },
                   priceHistory: item.priceHistory || [],
                   pdZone: item.pdZone || 'EQUILIBRIUM',
-                  otePrice: canonicalTrade.entry || item.otePrice || item.supportLevel || 0,
-                  ictStopLoss: canonicalTrade.stop || item.ictStopLoss || item.stopLoss || 0,
+                  otePrice: lockedEntry,
+                  ictStopLoss: lockedStop,
                   marketState: item.marketState || 'Consolidation',
                   verdict: item.verdict || aiData.aiVerdict || 'HOLD',
                   compositeAlpha: item.compositeAlpha || 0,
@@ -6527,15 +6567,15 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                     <div className="grid grid-cols-3 gap-2 py-3 bg-black/50 rounded-2xl border border-white/10 flex-grow items-center shadow-inner mb-3">
                       <div className="text-center">
                           <p className="text-[8px] text-emerald-500 font-black uppercase">{item.otePrice ? "🎯 ICT OTE" : "Entry"}</p>
-                          <p className="text-[12px] font-black text-white tracking-tighter">${(item.otePrice || item.supportLevel)?.toFixed(1) || '---'}</p>
+                          <p className="text-[12px] font-black text-white tracking-tighter">${formatTradeBoxPrice(item.otePrice ?? item.supportLevel)}</p>
                       </div>
                       <div className="text-center border-x border-white/10">
                           <p className="text-[8px] text-blue-500 font-black uppercase">Target</p>
-                          <p className="text-[12px] font-black text-white tracking-tighter">${item.resistanceLevel?.toFixed(1) || '---'}</p>
+                          <p className="text-[12px] font-black text-white tracking-tighter">${formatTradeBoxPrice(item.resistanceLevel)}</p>
                       </div>
                       <div className="text-center">
-                          <p className="text-[8px] text-rose-500 font-black uppercase">{item.ictStopLoss ? "🛡️ ICT Stop" : "Stop"}</p>
-                          <p className="text-[12px] font-black text-white tracking-tighter">${(item.ictStopLoss || item.stopLoss)?.toFixed(1) || '---'}</p>
+                          <p className="text-[8px] text-rose-500 font-black uppercase">{Number(item.ictStopLoss) > 0 ? "🛡️ ICT Stop" : "Stop"}</p>
+                          <p className="text-[12px] font-black text-white tracking-tighter">${formatTradeBoxPrice(item.ictStopLoss ?? item.stopLoss)}</p>
                       </div>
                     </div>
 
