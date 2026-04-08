@@ -424,11 +424,15 @@ const normalizePriceHistoryBars = (priceHistory: any): PriceHistoryBar[] => {
             const lowRaw = Number(candle?.low);
             const closeRaw = Number(candle?.close ?? candle?.c);
 
+            // Guard against corrupted OHLC rows (zero/negative lows) that can fabricate
+            // unrealistic ICT stops (for example 0.01) and pollute Stage6 decisions.
             if (!Number.isFinite(highRaw) || !Number.isFinite(lowRaw)) return null;
+            if (highRaw <= 0 || lowRaw <= 0) return null;
             const high = Math.max(highRaw, lowRaw);
             const low = Math.min(highRaw, lowRaw);
             const mid = (high + low) / 2;
             const close = Number.isFinite(closeRaw) ? closeRaw : mid;
+            if (!(close > 0)) return null;
 
             return { high, low, close };
         })
@@ -457,11 +461,24 @@ const calculateAtrFromBars = (bars: PriceHistoryBar[], period = 20): number | nu
 };
 
 const resolveIctExecutionGeometry = (item: any) => {
+    const toFinitePositive = (value: any): number | null => {
+        const parsed = Number(value);
+        return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+    };
+    const ensureStopBelowEntry = (stopValue: number | null, entryValue: number | null): number | null => {
+        if (stopValue == null) return null;
+        if (entryValue != null && stopValue >= entryValue) return null;
+        return stopValue;
+    };
     const high52 = Number(item?.fiftyTwoWeekHigh || item?.high52 || item?.price * 1.2 || 0);
     const low52 = Number(item?.fiftyTwoWeekLow || item?.low52 || item?.price * 0.8 || 0);
     const fallbackRange = Math.max(0, high52 - low52);
-    const fallbackOte = fallbackRange > 0 ? high52 - (fallbackRange * Number(STRATEGY_CONFIG.ICT_OTE_LEVEL ?? 0.705)) : Number(item?.price || 0);
-    const fallbackStop = low52 > 0 ? low52 * 0.985 : Number(item?.price || 0) * 0.9;
+    const fallbackOteRaw = fallbackRange > 0
+        ? high52 - (fallbackRange * Number(STRATEGY_CONFIG.ICT_OTE_LEVEL ?? 0.705))
+        : Number(item?.price || 0);
+    const fallbackOte = toFinitePositive(fallbackOteRaw);
+    const fallbackStopRaw = low52 > 0 ? low52 * 0.985 : Number(item?.price || 0) * 0.9;
+    const fallbackStop = ensureStopBelowEntry(toFinitePositive(fallbackStopRaw), fallbackOte);
     const clamp01 = (value: number) => Math.max(0, Math.min(1, value));
     const fallbackIctPos = fallbackRange > 0 ? clamp01((Number(item?.price || 0) - low52) / fallbackRange) : 0.5;
 
@@ -484,17 +501,23 @@ const resolveIctExecutionGeometry = (item: any) => {
             const recentOte = recentHigh - (recentRange * Number(STRATEGY_CONFIG.ICT_OTE_LEVEL ?? 0.705));
             let stop = recentLowStop - (atr * atrMultiplier);
 
-            if (!Number.isFinite(stop) || stop <= 0) stop = fallbackStop;
+            if (!Number.isFinite(stop) || stop <= 0) stop = fallbackStop ?? Number.NaN;
             if (Number.isFinite(recentOte) && stop >= recentOte) {
-                stop = Math.min(recentLowStop * 0.995, recentOte * 0.985);
+                const candidateStops = [
+                    toFinitePositive(recentLowStop * 0.995),
+                    toFinitePositive(recentOte * 0.985),
+                    fallbackStop
+                ].filter((value): value is number => value != null && value < recentOte);
+                stop = candidateStops.length > 0 ? Math.max(...candidateStops) : Number.NaN;
             }
+            const safeStop = ensureStopBelowEntry(toFinitePositive(stop), toFinitePositive(recentOte));
 
             return {
                 high52,
                 low52,
                 ictPos: clamp01((Number(item?.price || 0) - recentLow) / recentRange),
                 otePrice: recentOte,
-                ictStopLoss: Math.max(0.01, stop),
+                ictStopLoss: safeStop ?? Number.NaN,
                 executionGeometrySource: "RECENT_SWING_ATR",
                 executionRangeBars: rangeBars.length,
                 executionStopBars: stopBars.length,
@@ -507,8 +530,8 @@ const resolveIctExecutionGeometry = (item: any) => {
         high52,
         low52,
         ictPos: fallbackIctPos,
-        otePrice: fallbackOte,
-        ictStopLoss: Math.max(0.01, fallbackStop),
+        otePrice: fallbackOteRaw,
+        ictStopLoss: fallbackStop ?? Number.NaN,
         executionGeometrySource: "FALLBACK_52W",
         executionRangeBars: rangeBars.length,
         executionStopBars: stopBars.length,

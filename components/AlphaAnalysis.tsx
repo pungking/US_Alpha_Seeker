@@ -5320,6 +5320,26 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               acc[key] = (acc[key] || 0) + 1;
               return acc;
           }, {});
+          const executableContractPool = top6ArchiveCandidates
+              .filter((item) => String(item?.finalDecision || '').toUpperCase() === 'EXECUTABLE_NOW')
+              .sort((a, b) => {
+                  const rankA = Number(a?.executionRank);
+                  const rankB = Number(b?.executionRank);
+                  const safeRankA = Number.isFinite(rankA) ? rankA : Number.POSITIVE_INFINITY;
+                  const safeRankB = Number.isFinite(rankB) ? rankB : Number.POSITIVE_INFINITY;
+                  if (safeRankA !== safeRankB) return safeRankA - safeRankB;
+                  const scoreA = Number(a?.executionScore);
+                  const scoreB = Number(b?.executionScore);
+                  const safeScoreA = Number.isFinite(scoreA) ? scoreA : Number.NEGATIVE_INFINITY;
+                  const safeScoreB = Number.isFinite(scoreB) ? scoreB : Number.NEGATIVE_INFINITY;
+                  if (safeScoreA !== safeScoreB) return safeScoreB - safeScoreA;
+                  const modelA = Number(a?.modelRank);
+                  const modelB = Number(b?.modelRank);
+                  const safeModelA = Number.isFinite(modelA) ? modelA : Number.POSITIVE_INFINITY;
+                  const safeModelB = Number.isFinite(modelB) ? modelB : Number.POSITIVE_INFINITY;
+                  return safeModelA - safeModelB;
+              })
+              .slice(0, 6);
           const engineResponseTag = String(responseUsedProviderRaw || '').toUpperCase();
           const engineProviderSwapped = requestedProvider !== usedProvider;
           const engineResponseFallback = /FALLBACK|REPAIR/i.test(engineResponseTag);
@@ -5373,7 +5393,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   decisionCountsPrimary,
                   decisionCountsTop6,
                   modelTop6Symbols: modelTop6Pool.map((item) => item.symbol),
-                  executablePickSymbols: top6Elite.map((item) => item.symbol),
+                  executablePickSymbols: executableContractPool.map((item) => item.symbol),
                   modelTop6WatchlistSymbols: modelTop6Watchlist.map((item) => item.symbol),
                   executableFallbackCount,
                   decisionGate: {
@@ -5431,7 +5451,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               execution_contract: {
                   generatedAt: new Date().toISOString(),
                   modelTop6: modelTop6Pool.map(toExecutionContractItem),
-                  executablePicks: top6ArchiveCandidates.map(toExecutionContractItem),
+                  executablePicks: executableContractPool.map(toExecutionContractItem),
                   watchlistTop: modelTop6Watchlist.map(toExecutionContractItem),
                   decisionCountsPrimary,
                   decisionCountsTop6,
