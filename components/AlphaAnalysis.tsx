@@ -4972,10 +4972,79 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
 
           // [CRITICAL] Save Final Top 6 to Stage 6 Folder (The "Dump")
           const stage6FolderId = await ensureFolder(accessToken, GOOGLE_DRIVE_TARGET.stage6SubFolder);
+          const toFiniteShadowNumber = (value: any): number | null => {
+              const parsed = Number(value);
+              return Number.isFinite(parsed) ? parsed : null;
+          };
+          const toShadowIsoDate = (value: any): string | null => {
+              if (typeof value !== 'string') return null;
+              const trimmed = value.trim();
+              if (!trimmed) return null;
+              const normalized = trimmed.includes('T') ? trimmed : `${trimmed}T00:00:00Z`;
+              const parsed = Date.parse(normalized);
+              return Number.isFinite(parsed) ? new Date(parsed).toISOString() : null;
+          };
+          const buildShadowAlphaVantage = (item: any): Record<string, any> | null => {
+              const marketCap = toFiniteShadowNumber(item?.marketCap ?? item?.market_cap ?? item?.mktCap);
+              const peRatio = toFiniteShadowNumber(
+                  item?.peRatio ?? item?.per ?? item?.pe ?? item?.priceEarningsRatio ?? item?.ttmPE
+              );
+              const beta = toFiniteShadowNumber(item?.beta);
+              const earningsDate = toShadowIsoDate(
+                  item?.nextEarningsDate ?? item?.earningsDate ?? item?.reportDate
+              );
+              if (marketCap == null && peRatio == null && beta == null && earningsDate == null) return null;
+              return {
+                  source: 'stage6_shadow',
+                  marketCap,
+                  peRatio,
+                  beta,
+                  earningsDate
+              };
+          };
+          const buildShadowSecEdgar = (item: any): Record<string, any> | null => {
+              const cikRaw = item?.cik ?? item?.CIK ?? item?.secCik;
+              const cik = typeof cikRaw === 'string' && cikRaw.trim() ? cikRaw.trim() : null;
+              const latestFormTypeRaw = item?.latestFormType ?? item?.latest_form_type ?? item?.lastForm ?? item?.formType;
+              const latestFormType =
+                  typeof latestFormTypeRaw === 'string' && latestFormTypeRaw.trim()
+                      ? latestFormTypeRaw.trim()
+                      : null;
+              const latestFiledAt = toShadowIsoDate(
+                  item?.latestFiledAt ?? item?.latest_filed_at ?? item?.lastFiledAt ?? item?.last_filed_at ?? item?.filedAt
+              );
+              const filingCount30dRaw =
+                  item?.filingCount30d ?? item?.filing_count_30d ?? item?.recentFilingCount ?? item?.filingCount;
+              const filingCount30dNumber = toFiniteShadowNumber(filingCount30dRaw);
+              const filingCount30d =
+                  filingCount30dNumber != null ? Math.max(0, Math.round(filingCount30dNumber)) : null;
+              if (cik == null && latestFormType == null && latestFiledAt == null && filingCount30d == null) return null;
+              return {
+                  source: 'stage6_shadow',
+                  cik,
+                  latestFormType,
+                  latestFiledAt,
+                  filingCount30d
+              };
+          };
+          const attachShadowIntel = (item: any) => {
+              const alphaVantage = buildShadowAlphaVantage(item);
+              const secEdgar = buildShadowSecEdgar(item);
+              if (!alphaVantage && !secEdgar) return {};
+              return {
+                  ...(alphaVantage ? { alphaVantage } : {}),
+                  ...(secEdgar ? { secEdgar } : {}),
+                  shadow: {
+                      ...(alphaVantage ? { alphaVantage } : {}),
+                      ...(secEdgar ? { secEdgar } : {})
+                  }
+              };
+          };
           top6ArchiveCandidates = top6Elite.map((item) => ({
               ...item,
               economicMoat: normalizeEconomicMoat(item?.economicMoat),
-              aiFallbackReason: normalizeOptionalText(item?.aiFallbackReason) || 'NONE'
+              aiFallbackReason: normalizeOptionalText(item?.aiFallbackReason) || 'NONE',
+              ...attachShadowIntel(item)
           }));
           const top6AuditTrail = top6ArchiveCandidates.map(item => ({
               symbol: item.symbol,
@@ -5184,7 +5253,8 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
                   ? Number(item.earningsDaysToEvent)
                   : null,
               verdictConflict: Boolean(item?.verdictConflict),
-              stateVerdictConflict: Boolean(item?.stateVerdictConflict)
+              stateVerdictConflict: Boolean(item?.stateVerdictConflict),
+              ...attachShadowIntel(item)
           });
           const decisionReasonCountsTop6 = top6Elite.reduce<Record<string, number>>((acc, item) => {
               const key = String(item?.decisionReason || item?.executionReason || 'unknown').toLowerCase();
