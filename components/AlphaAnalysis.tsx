@@ -5539,22 +5539,28 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
           }
       }
 
+      const toFinite = (...values: any[]): number | undefined => {
+          for (const value of values) {
+              const n = Number(value);
+              if (Number.isFinite(n)) return n;
+          }
+          return undefined;
+      };
+
       const mapToNotionCandidate = (item: any): NotionSyncCandidate => ({
           symbol: String(item?.symbol || '').toUpperCase(),
           name: item?.name,
           sector: item?.sectorTheme || item?.sector,
-          price: Number.isFinite(Number(item?.price)) ? Number(item.price) : undefined,
-          changePct: Number.isFinite(Number(item?.changePercent)) ? Number(item.changePercent) : undefined,
-          marketCap: Number.isFinite(Number(item?.marketCap)) ? Number(item.marketCap) : undefined,
-          volume: Number.isFinite(Number(item?.volume)) ? Number(item.volume) : undefined,
-          compositeAlpha: Number.isFinite(Number(item?.compositeAlpha)) ? Number(item.compositeAlpha) : undefined,
-          qualityScore: Number.isFinite(Number(item?.qualityScore)) ? Number(item.qualityScore) : undefined,
-          fundamentalScore: Number.isFinite(Number(item?.fundamentalScore)) ? Number(item.fundamentalScore) : undefined,
-          technicalScore: Number.isFinite(Number(item?.technicalScore ?? item?.ictScore))
-              ? Number(item.technicalScore ?? item.ictScore)
-              : undefined,
-          convictionScore: Number.isFinite(Number(item?.convictionScore)) ? Number(item.convictionScore) : undefined,
-          expectedReturnPct: Number.isFinite(Number(item?.expectedReturnPct)) ? Number(item.expectedReturnPct) : undefined,
+          price: toFinite(item?.price, item?.entryExecPrice, item?.entryPrice),
+          changePct: toFinite(item?.changePercent, item?.changePct, item?.priceChangePercent, item?.change),
+          marketCap: toFinite(item?.marketCap, item?.market_cap, item?.mktCap),
+          volume: toFinite(item?.volume, item?.avgVolume, item?.averageVolume),
+          compositeAlpha: toFinite(item?.compositeAlpha),
+          qualityScore: toFinite(item?.qualityScore, item?.alphaQualityScore),
+          fundamentalScore: toFinite(item?.fundamentalScore, item?.quantScores?.fundamental),
+          technicalScore: toFinite(item?.technicalScore, item?.quantScores?.technical, item?.ictScore),
+          convictionScore: toFinite(item?.convictionScore, item?.quantConviction),
+          expectedReturnPct: toFinite(item?.expectedReturnPct, item?.expectedReturn),
           aiVerdict: item?.aiVerdict,
           investmentOutlook: item?.investmentOutlook,
           selectionReasons: Array.isArray(item?.selectionReasons) ? item.selectionReasons : [],

@@ -10,6 +10,13 @@ const parseNumber = (value: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
+const roundNumber = (value: unknown, digits?: number): number | null => {
+  const n = parseNumber(value);
+  if (n == null) return null;
+  if (!Number.isInteger(digits) || digits == null || digits < 0) return n;
+  return Number(n.toFixed(digits));
+};
+
 const toDateOnly = (isoLike: string): string => {
   const d = new Date(isoLike);
   if (Number.isNaN(d.getTime())) return new Date().toISOString().slice(0, 10);
@@ -36,9 +43,13 @@ const modelFromEngine = (engine: unknown): string => {
 };
 
 const marketConditionFromPulse = (pulse: Json | undefined): string => {
-  const vix = parseNumber(pulse?.vix?.price);
-  const spy = parseNumber(pulse?.spy?.change);
-  const qqq = parseNumber(pulse?.qqq?.change);
+  const vix = parseNumber(pulse?.vix?.price ?? pulse?.vix?.value ?? pulse?.vix);
+  const spy = parseNumber(
+    pulse?.spy?.change ?? pulse?.spy?.changePercent ?? pulse?.spy?.changePct ?? pulse?.sp500?.change ?? pulse?.spx?.change
+  );
+  const qqq = parseNumber(
+    pulse?.qqq?.change ?? pulse?.qqq?.changePercent ?? pulse?.qqq?.changePct ?? pulse?.nasdaq?.change ?? pulse?.ndx?.change
+  );
   if (vix != null && vix >= 28) return "VOLATILE";
   const avg = [spy, qqq].filter((n): n is number => n != null);
   if (avg.length === 0) return "NEUTRAL";
@@ -119,8 +130,8 @@ const textProp = (value: unknown) => ({
   rich_text: [{ text: { content: shortText(value, 1900) } }]
 });
 
-const numberProp = (value: unknown) => ({
-  number: parseNumber(value)
+const numberProp = (value: unknown, digits?: number) => ({
+  number: roundNumber(value, digits)
 });
 
 const selectProp = (value: unknown) => ({
@@ -177,6 +188,13 @@ const handler = async (req: any, res: any) => {
     const engine = modelFromEngine(body.engine);
     const stageCounts = body.stageCounts || {};
     const pulse = body.marketPulse || {};
+    const vixLevel = parseNumber(pulse?.vix?.price ?? pulse?.vix?.value ?? pulse?.vix);
+    const sp500Change = parseNumber(
+      pulse?.spy?.change ?? pulse?.spy?.changePercent ?? pulse?.spy?.changePct ?? pulse?.sp500?.change ?? pulse?.spx?.change
+    );
+    const nasdaqChange = parseNumber(
+      pulse?.qqq?.change ?? pulse?.qqq?.changePercent ?? pulse?.qqq?.changePct ?? pulse?.nasdaq?.change ?? pulse?.ndx?.change
+    );
     const executablePicks = Array.isArray(body.executablePicks) ? body.executablePicks : [];
     const watchlist = Array.isArray(body.watchlist) ? body.watchlist : [];
     const topTickers = executablePicks.map((row: any) => String(row?.symbol || "").toUpperCase()).filter(Boolean).slice(0, 6);
@@ -194,9 +212,9 @@ const handler = async (req: any, res: any) => {
       Date: dateProp(runDateOnly),
       Status: selectProp((stageCounts.finalPicks || 0) > 0 ? "Success" : "Partial"),
       "Market Condition": selectProp(marketConditionFromPulse(pulse)),
-      "VIX Level": numberProp(pulse?.vix?.price),
-      "SP500 Change %": numberProp(pulse?.spy?.change),
-      "NASDAQ Change %": numberProp(pulse?.qqq?.change),
+      "VIX Level": numberProp(vixLevel, 2),
+      "SP500 Change %": numberProp(sp500Change, 2),
+      "NASDAQ Change %": numberProp(nasdaqChange, 2),
       "Stage 1 Count": numberProp(stageCounts.stage1),
       "Stage 2 Count": numberProp(stageCounts.stage2),
       "Stage 3 Count": numberProp(stageCounts.stage3),
@@ -204,7 +222,7 @@ const handler = async (req: any, res: any) => {
       "Stage 5 Count": numberProp(stageCounts.stage5),
       "Stage 6 Count": numberProp(stageCounts.stage6),
       "Final Picks Count": numberProp(stageCounts.finalPicks),
-      "Run Duration (s)": numberProp(stageCounts.runDurationSec),
+      "Run Duration (s)": numberProp(stageCounts.runDurationSec, 2),
       Summary: textProp(
         `engine=${String(body.engine || "N/A")} stage6File=${String(body.stage6File || "N/A")} stage6Hash=${String(body.stage6Hash || "N/A").slice(0, 12)}`
       ),
@@ -227,14 +245,14 @@ const handler = async (req: any, res: any) => {
         Ticker: titleProp(symbol),
         Date: dateProp(runDateOnly),
         "Stage Reached": selectProp("Stage 6"),
-        "Composite Alpha": numberProp(row?.compositeAlpha),
-        "Quality Score": numberProp(row?.qualityScore),
-        "Fundamental Score": numberProp(row?.fundamentalScore),
-        "Tech Score": numberProp(row?.technicalScore),
-        Price: numberProp(row?.price),
-        "Price Change %": numberProp(row?.changePct),
-        "Market Cap": numberProp(row?.marketCap),
-        Volume: numberProp(row?.volume),
+        "Composite Alpha": numberProp(row?.compositeAlpha, 2),
+        "Quality Score": numberProp(row?.qualityScore, 2),
+        "Fundamental Score": numberProp(row?.fundamentalScore, 2),
+        "Tech Score": numberProp(row?.technicalScore, 2),
+        Price: numberProp(row?.price, 2),
+        "Price Change %": numberProp(row?.changePct, 2),
+        "Market Cap": numberProp(row?.marketCap, 0),
+        Volume: numberProp(row?.volume, 0),
         Sector: textProp(row?.sector || ""),
         Notes: textProp(baseNotes)
       });
@@ -246,9 +264,9 @@ const handler = async (req: any, res: any) => {
         "AI Model": selectProp(engine),
         "Alpha Signal": selectProp(alphaSignal),
         "Analysis Summary": textProp(row?.investmentOutlook || ""),
-        "Composite Alpha": numberProp(row?.compositeAlpha),
-        "Confidence Score": numberProp(row?.convictionScore),
-        "Price Target": numberProp(row?.targetPrice),
+        "Composite Alpha": numberProp(row?.compositeAlpha, 2),
+        "Confidence Score": numberProp(row?.convictionScore, 2),
+        "Price Target": numberProp(row?.targetPrice, 2),
         "Key Catalysts": textProp(Array.isArray(row?.selectionReasons) ? row.selectionReasons.join(", ") : ""),
         "Risk Factors": textProp(baseNotes),
         "Time Horizon": selectProp("Mid-term")
@@ -263,14 +281,14 @@ const handler = async (req: any, res: any) => {
         "Added Date": dateProp(runDateOnly),
         Status: selectProp(status),
         "Alpha Signal": selectProp(alphaSignal),
-        "Composite Alpha": numberProp(row?.compositeAlpha),
-        "Quality Score": numberProp(row?.qualityScore),
-        "Fundamental Score": numberProp(row?.fundamentalScore),
-        "Tech Score": numberProp(row?.technicalScore),
-        "Current Price": numberProp(row?.price),
-        "Entry Price": numberProp(row?.entryPrice),
-        "Target Price": numberProp(row?.targetPrice),
-        "Stop Loss": numberProp(row?.stopLoss),
+        "Composite Alpha": numberProp(row?.compositeAlpha, 2),
+        "Quality Score": numberProp(row?.qualityScore, 2),
+        "Fundamental Score": numberProp(row?.fundamentalScore, 2),
+        "Tech Score": numberProp(row?.technicalScore, 2),
+        "Current Price": numberProp(row?.price, 2),
+        "Entry Price": numberProp(row?.entryPrice, 2),
+        "Target Price": numberProp(row?.targetPrice, 2),
+        "Stop Loss": numberProp(row?.stopLoss, 2),
         Sector: textProp(row?.sector || ""),
         Notes: textProp(baseNotes)
       });
