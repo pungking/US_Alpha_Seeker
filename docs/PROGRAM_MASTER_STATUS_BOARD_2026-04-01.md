@@ -18,3 +18,15 @@ Doc-Tier: P0 (Control Tower)
 - [ ] G-Drive MCP JSON 파싱 에러 해결 (Auth 정상화)
 - [ ] 텔레그램 MCP 개인 봇방(1281749368) 메시지 전송 성공 확인
 - [ ] perf_loop 20/20 최종 달성 및 Go-Live 승인
+
+## 4) Daily Update (2026-04-09)
+- `sidecar-dry-run` 자동 실행 정상 (preflight market-closed soft 처리 적용)
+- `RUN_SUMMARY` 증적 필드 정상:
+  - `approval_queue`
+  - `shadow_data_bus`
+  - `preflight`
+- approval queue gate는 현재 정책상 `required=true`, `enforce_in_preview=false`로 관측 오염 없이 동작
+- `perf_loop`: `13/20` (관측 누적 진행 중)
+- 다음 핵심 검증:
+  - 장중 자동 런에서 `preflight=pass` 경로 확인
+  - payload path evidence 누적

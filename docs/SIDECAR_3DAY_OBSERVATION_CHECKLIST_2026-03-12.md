@@ -196,3 +196,58 @@ Day 1 예시:
 - 작성:
 - 검토:
 - 날짜:
+
+---
+
+## 6) RTH Auto-Run Extension (2026-04-09)
+
+목적: 기존 3일 `observe/non-live` 검증 이후, 현재 운영 정책(`EXEC_ENABLED=true`, `POSITION_LIFECYCLE_PREVIEW_ONLY=true`)에서 장중 자동 런이 의도대로 동작하는지 추가 확인한다.
+
+### 6.1 사전 고정값
+
+- [ ] `PREFLIGHT_BLOCKING_HARD_FAIL=true`
+- [ ] `PREFLIGHT_SOFT_CODES=PREFLIGHT_MARKET_CLOSED`
+- [ ] `APPROVAL_REQUIRED=true`
+- [ ] `APPROVAL_ENFORCE_IN_PREVIEW=false`
+- [ ] `POSITION_LIFECYCLE_ENABLED=true`
+- [ ] `POSITION_LIFECYCLE_PREVIEW_ONLY=true`
+
+### 6.2 장중 런 체크 (필수)
+
+- [ ] `RUN_SUMMARY` 존재 및 `event=sent`
+- [ ] `preflight=pass:PREFLIGHT_PASS` 확인
+- [ ] `approval_queue` 토큰 존재 및 reason 확인
+- [ ] `payloads/skipped` 사유가 설명 가능
+- [ ] `hf_marker_audit` 전 항목 `ok`
+- [ ] `ops-health-report`가 `overall=pass` 또는 설명 가능한 `warn`
+
+기록
+- Run ID / URL:
+- stage6 file/hash:
+- preflight(status/code):
+- approval_queue(reason/enforced/blocked):
+- payloads/skipped:
+- skip_reasons:
+- ops-health(overall/checks):
+
+### 6.3 오프마켓 런 체크 (필수)
+
+- [ ] `PREFLIGHT_MARKET_CLOSED` 발생 시 워크플로우 실패가 아닌 soft 처리
+- [ ] `skip saveRunState due preflight blocking` 로그 확인
+- [ ] `idempotency`가 final persist되지 않았는지 확인(동일 hash 재실행 가능성 유지)
+
+### 6.4 판정 규칙
+
+PASS:
+- 장중 1회 이상 `preflight=pass` 증적 확보
+- 오프마켓 soft-fail 경로 정상
+- approval/summary/marker/ops-health 필드 정합성 유지
+
+WARN:
+- 장중 런 미확보(시장 시간 외만 수집)
+- 필드 일부 누락이나 재현 가능한 원인 존재
+
+FAIL:
+- 장중에도 `preflight` 오판정 반복
+- approval/summary 핵심 토큰 누락
+- workflow red fail 또는 상태 오염(idempotency/saveRunState 정책 위반)
