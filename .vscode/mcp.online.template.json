@@ -82,6 +82,16 @@
         "${MCP_CLOUDFLARE_URL}"
       ]
     },
+    "notebooklm-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "notebooklm-mcp"
+      ],
+      "env": {
+        "GOOGLE_API_KEY": "${GEMINI_API_KEY}"
+      }
+    },
     "obsidian-mcp": {
       "command": "npx",
       "args": [

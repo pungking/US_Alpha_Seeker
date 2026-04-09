@@ -98,6 +98,39 @@
         "${MCP_CLOUDFLARE_COMMAND_PACKAGE}",
         "${MCP_CLOUDFLARE_URL}"
       ]
+    },
+    "notebooklm-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "notebooklm-mcp"
+      ],
+      "env": {
+        "GOOGLE_API_KEY": "${GEMINI_API_KEY}"
+      }
+    },
+    "perplexity-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "${MCP_PERPLEXITY_COMMAND_PACKAGE}"
+      ],
+      "env": {
+        "PERPLEXITY_API_KEY": "${PERPLEXITY_API_KEY}"
+      }
+    },
+    "obsidian-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "${MCP_OBSIDIAN_COMMAND_PACKAGE}"
+      ],
+      "env": {
+        "OBSIDIAN_API_KEY": "${OBSIDIAN_API_KEY}",
+        "OBSIDIAN_BASE_URL": "${OBSIDIAN_BASE_URL}",
+        "OBSIDIAN_VERIFY_SSL": "${OBSIDIAN_VERIFY_SSL}",
+        "OBSIDIAN_ENABLE_CACHE": "${OBSIDIAN_ENABLE_CACHE}"
+      }
     }
   },
   "inputs": []

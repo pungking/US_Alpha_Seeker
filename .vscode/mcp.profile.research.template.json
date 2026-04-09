@@ -1,5 +1,15 @@
 {
   "servers": {
+    "notebooklm-mcp": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "notebooklm-mcp"
+      ],
+      "env": {
+        "GOOGLE_API_KEY": "${GEMINI_API_KEY}"
+      }
+    },
     "perplexity-mcp": {
       "command": "npx",
       "args": [
