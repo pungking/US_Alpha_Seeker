@@ -249,7 +249,7 @@
 
 세부 도입 순서/체크리스트는 `docs/MCP_MARKET_INTEL_EXPANSION_ROADMAP_2026-04-08.md`를 따른다.
 
-## 9) Repo↔Notion↔Obsidian 동기 운영 루틴 (일일/주간)
+## 10) Repo↔Notion↔Obsidian 동기 운영 루틴 (일일/주간)
 
 본 섹션은 2026-04-03 기준 v1으로 확정한다.
 
@@ -298,3 +298,27 @@
   - `npm run ops:knowledge:sync`
 - 결과 리포트:
   - `state/knowledge-routine-sync-report.json`
+
+---
+
+## 11) Simulation-for-Live 운영 모드 (2026-04-09 업데이트)
+
+목표: 실주문 전환 전, 시뮬레이션 결과를 장중 운영 현실에 맞춰 자동 누적한다.
+
+- sidecar dry-run 스케줄:
+  - UTC `5,20,35,50 13-21 * * 1-5` (미국 장중 대응용 15분 cadence)
+  - 장중 여부/주문 가능 여부는 preflight gate가 최종 판단
+- preflight 정책:
+  - `PREFLIGHT_BLOCKING_HARD_FAIL=true` 유지
+  - `PREFLIGHT_SOFT_CODES=PREFLIGHT_MARKET_CLOSED`로 장마감 red-fail 노이즈 억제
+  - 차단 런은 `RUN_SUMMARY`/텔레그램/Notion에 증적을 남기고 상태 오염은 방지
+- lifecycle 정책:
+  - `POSITION_LIFECYCLE_ENABLED=true`, `POSITION_LIFECYCLE_PREVIEW_ONLY=true` 권장
+  - 실주문 전에는 action-intent 관측(ENTRY/HOLD/SCALE/EXIT)만 누적
+- 승격 가드:
+  - `20/20` + perf gate + freeze gate + payload path 검증 완료 전까지 실행 자동 승격 금지
+
+운영자 체크포인트:
+1. 장중 dry-run이 실제로 돌고 있는지 (`workflow schedule` + `RUN_SUMMARY` 타임스탬프)
+2. `payloads/skipped`, `skip_reasons`, `preflight` 코드가 설명 가능하게 일치하는지
+3. 텔레그램/Notion/ops-health 증적이 같은 run 기준으로 동기화되는지

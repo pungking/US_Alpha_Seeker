@@ -12,20 +12,20 @@
 
 ---
 
-## 2) 우선순위 매트릭스 (종합안)
+## 2) 우선순위 매트릭스 (운영 현실 반영, 2026-04-09)
 
-| 우선순위 | MCP | 근거 | 기대 효과 |
-|---|---|---|---|
-| 🔴 최우선 | Alpaca MCP | alpha-exec-engine 핵심 실행 경로 | 주문 실행 디버깅/검증 자동화(우선 read-only) |
-| 🔴 최우선 | Perplexity MCP | 리서치 템플릿/컨텍스트 강화 | HF sentiment 맥락 품질 향상 |
-| 🔴 최우선 | Alpha Vantage MCP | 공식 MCP, 시계열/지표 교차검증 가능 | 신호 품질/신뢰도 보강 |
-| 🟠 높음 | SEC EDGAR 레이어 | 공시 근거 검증 레이어 필요 | Stage6 종목 근거 강화 |
-| 🟠 높음 | Supabase/Postgres MCP | JSON 상태 관리 확장 한계 | 상태 조회/감사/확장성 향상 |
-| 🟡 중간 | Finnhub MCP | VIX/earnings 중요 소스 | 어닝 캘린더/리스크 맥락 개선 |
-| 🟡 중간 | Obsidian MCP | 런북/튜닝 누적 구조 | 학습/튜닝 워크플로 정착 |
-| 🟢 선택 | Redis MCP | 스냅샷 staleness 대응 | 레짐 전환 지연 최소화 |
-| 🟢 선택 | Datadog MCP | drift/이상감지 보강 | 이상 탐지 자동화 강화 |
-| 🟢 선택 | TradingView MCP | 보조 신호/패턴 탐지 | 기술 신호 보강 (shadow 검증 후) |
+| 우선순위 | MCP | 최종 제안 |
+|---|---|---|
+| 🔴 최우선 | Alpaca MCP | **read-only(조회/검증)만 우선 도입**, 주문 실행 자동화는 `20/20` + gate 통과 이후 승격 |
+| 🔴 최우선 | Perplexity MCP | 유지/강화. HF sentiment 맥락 보강 lane으로 계속 사용 |
+| 🔴 최우선 | Alpha Vantage MCP | 공식 MCP 기반 교차검증 소스로 유지/확장 (기술지표/시계열 보강) |
+| 🟠 높음 | SEC EDGAR (API/MCP 레이어) | Stage6 근거 품질 보강용으로 우선 도입 (공시 기반 evidence 강화) |
+| 🟠 높음 | Supabase/Postgres MCP | JSON 상태 파일 한계 보완. 초기에는 read-only/project-scope로 제한 도입 |
+| 🟡 중간 | Finnhub MCP | 기존 직접 API 유지 + shadow 비교 후 채택 판단 (즉시 전환 금지) |
+| 🟡 중간 | Obsidian MCP | 신호 향상 직접효과보다 런북/튜닝 기록 자동화에 집중 |
+| 🟢 선택 | Redis MCP | staleness/캐시 지연 완화가 필요할 때 운영 안정성 관점으로 도입 |
+| 🟢 선택 | Datadog MCP | 유효하지만 접근/비용 이슈 고려. 현재는 Grafana+Sentry 고도화 우선 |
+| 🟢 선택 | TradingView MCP | 커뮤니티 소스는 shadow lane으로만 시작 후 품질 검증 뒤 승격 |
 
 ---
 
