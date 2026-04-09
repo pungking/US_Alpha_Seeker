@@ -6,6 +6,7 @@ const NOTION_VERSION = "2022-06-28";
 const REPORT_PATH = path.join(CWD, "state", "knowledge-intake-pipeline-report.json");
 const QUEUE_JSON_PATH = path.join(CWD, "state", "knowledge-approved-queue.json");
 const QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue.md");
+const OBSIDIAN_QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue-obsidian.md");
 const ENV_FILE_CANDIDATES = [
   path.join(CWD, ".env"),
   path.join(CWD, ".vscode", "mcp.env"),
@@ -221,6 +222,57 @@ const markdownQueue = ({ generatedAt, apply, pendingStatus, approvedStatus, refl
   return `${lines.join("\n")}\n`;
 };
 
+const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) => {
+  const lines = [];
+  lines.push("---");
+  lines.push(`generatedAt: "${generatedAt}"`);
+  lines.push(`sourceQueue: "${sourcePath}"`);
+  lines.push(`statusFlow: "${statusFlow}"`);
+  lines.push("---");
+  lines.push("");
+  lines.push("# Knowledge Intake Queue (Approved)");
+  lines.push("");
+  if (items.length === 0) {
+    lines.push("- 승인 항목 없음");
+  } else {
+    let idx = 1;
+    for (const item of items) {
+      lines.push(`## ${idx}. ${item.title}`);
+      lines.push(`- status: ${item.status || "N/A"}`);
+      lines.push(`- category: ${item.category || "N/A"}`);
+      lines.push(`- priority: ${item.priority || "N/A"}`);
+      lines.push(`- summary: ${item.summary || "N/A"}`);
+      lines.push(`- notionPageId: ${item.pageId}`);
+      lines.push("");
+      idx += 1;
+    }
+  }
+  lines.push("## Next");
+  lines.push("- [ ] shadow-only 범위로 코드 반영");
+  lines.push("- [ ] dry-run evidence >= 3회 확보");
+  lines.push("- [ ] rollback flag 경로 확인");
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+};
+
+const obsidianRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", body = null, contentType = "application/json" }) => {
+  const url = `${baseUrl.replace(/\/+$/, "")}${route}`;
+  const headers = { Authorization: `Bearer ${apiKey}` };
+  if (contentType) headers["Content-Type"] = contentType;
+  const response = await fetch(url, {
+    method,
+    headers,
+    body: body == null ? undefined : body
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    throw new Error(`Obsidian ${route} failed (${response.status}): ${short(text, 400)}`);
+  }
+  return text;
+};
+
+const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeURIComponent(part)).join("/");
+
 const main = async () => {
   const notionToken = env("NOTION_TOKEN");
   const notionWorkList = env("NOTION_WORK_LIST");
@@ -232,6 +284,12 @@ const main = async () => {
   const reflectStatus = env("KNOWLEDGE_PIPELINE_REFLECT_STATUS", "코드반영");
   const categoryFilter = env("KNOWLEDGE_PIPELINE_CATEGORY_FILTER", "MCP");
   const limit = Number.parseInt(env("KNOWLEDGE_PIPELINE_LIMIT", "20"), 10) || 20;
+  const obsidianApply = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY", false);
+  const obsidianRequired = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED", false);
+  const obsidianDryRun = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN", false);
+  const obsidianBaseUrl = env("OBSIDIAN_BASE_URL", "http://127.0.0.1:27123");
+  const obsidianApiKey = env("OBSIDIAN_API_KEY");
+  const obsidianNotePath = env("KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH", "99_Automation/Knowledge Approved Queue.md");
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -249,9 +307,23 @@ const main = async () => {
       pathJson: path.relative(CWD, QUEUE_JSON_PATH),
       pathMd: path.relative(CWD, QUEUE_MD_PATH),
       count: 0
+    },
+    obsidian: {
+      apply: obsidianApply,
+      required: obsidianRequired,
+      dryRun: obsidianDryRun,
+      status: "skip_disabled",
+      reason: "",
+      baseUrl: obsidianBaseUrl || null,
+      notePath: obsidianNotePath,
+      queuePath: path.relative(CWD, OBSIDIAN_QUEUE_MD_PATH),
+      uploaded: false,
+      bytes: 0,
+      fallback: "notion_queue_only"
     }
   };
 
+  let queueItems = [];
   try {
     if (!notionToken || !notionWorkList) {
       report.notion.status = "skip_missing_env";
@@ -278,7 +350,7 @@ const main = async () => {
         })
         .slice(0, Math.max(1, limit));
 
-      const queueItems = approvedRows.map((row) => ({
+      queueItems = approvedRows.map((row) => ({
         pageId: row.id,
         title: titleFromPage(row, titleName),
         status: statusFromPage(row, statusProp),
@@ -327,17 +399,72 @@ const main = async () => {
     report.notion.reason = error?.message || String(error);
   }
 
+  fs.mkdirSync(path.dirname(OBSIDIAN_QUEUE_MD_PATH), { recursive: true });
+  fs.writeFileSync(
+    OBSIDIAN_QUEUE_MD_PATH,
+    markdownObsidianQueue({
+      generatedAt: report.generatedAt,
+      sourcePath: report.queue.pathMd,
+      statusFlow: `${pendingStatus} -> ${approvedStatus} -> ${reflectStatus}`,
+      items: queueItems
+    }),
+    "utf8"
+  );
+
+  if (!obsidianApply) {
+    report.obsidian.status = "skip_disabled";
+    report.obsidian.reason = "KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=false";
+  } else if (queueItems.length === 0) {
+    report.obsidian.status = "skip_no_queue";
+    report.obsidian.reason = "approved queue is empty";
+  } else if (!obsidianApiKey || !obsidianBaseUrl) {
+    report.obsidian.status = "skip_missing_env";
+    report.obsidian.reason = "OBSIDIAN_API_KEY or OBSIDIAN_BASE_URL missing";
+  } else if (obsidianDryRun) {
+    report.obsidian.status = "dry_run";
+    report.obsidian.reason = "KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN=true";
+  } else {
+    try {
+      const content = fs.readFileSync(OBSIDIAN_QUEUE_MD_PATH, "utf8");
+      const route = `/vault/${encodeVaultPath(obsidianNotePath)}`;
+      await obsidianRequest({
+        baseUrl: obsidianBaseUrl,
+        apiKey: obsidianApiKey,
+        method: "PUT",
+        route,
+        body: content,
+        contentType: "text/markdown"
+      });
+      const verify = await obsidianRequest({
+        baseUrl: obsidianBaseUrl,
+        apiKey: obsidianApiKey,
+        method: "GET",
+        route,
+        contentType: null
+      });
+      report.obsidian.status = "ok";
+      report.obsidian.uploaded = true;
+      report.obsidian.bytes = Buffer.byteLength(verify, "utf8");
+    } catch (error) {
+      report.obsidian.status = "fail";
+      report.obsidian.reason = error?.message || String(error);
+    }
+  }
+
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   console.log(
-    `[KNOWLEDGE_PIPELINE] notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} queue=${path.relative(
+    `[KNOWLEDGE_PIPELINE] notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
       CWD,
       QUEUE_MD_PATH
-    )} report=${path.relative(CWD, REPORT_PATH)}`
+    )} obsidianQueue=${path.relative(CWD, OBSIDIAN_QUEUE_MD_PATH)} report=${path.relative(CWD, REPORT_PATH)}`
   );
 
   if (report.notion.status === "fail" && required) {
+    process.exit(1);
+  }
+  if (report.obsidian.status === "fail" && obsidianRequired) {
     process.exit(1);
   }
 };

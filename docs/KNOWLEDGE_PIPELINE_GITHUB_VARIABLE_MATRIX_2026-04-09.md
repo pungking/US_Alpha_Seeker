@@ -9,16 +9,23 @@
 | 변수 | 권장값 | 이유 |
 |---|---|---|
 | `KNOWLEDGE_PIPELINE_APPLY` | `false` | 승인 항목을 바로 상태 전이하지 않고 큐 산출물만 생성 |
+| `KNOWLEDGE_PIPELINE_RUNS_ON` | `ubuntu-latest` | 기본은 hosted runner, Obsidian 무인 반영 시 `self-hosted`로 전환 |
 | `KNOWLEDGE_PIPELINE_REQUIRED` | `false` | 초기에는 Notion/API 이슈로 워크플로우 전체 실패 방지 |
 | `KNOWLEDGE_PIPELINE_PENDING_STATUS` | `승인대기` | 아이디어 검토 대기 |
 | `KNOWLEDGE_PIPELINE_APPROVED_STATUS` | `승인` | 사람 승인 완료 상태 |
 | `KNOWLEDGE_PIPELINE_REFLECT_STATUS` | `코드반영` | 코드 반영 단계 상태 |
 | `KNOWLEDGE_PIPELINE_CATEGORY_FILTER` | `MCP` | MCP 확장안만 우선 처리 |
 | `KNOWLEDGE_PIPELINE_LIMIT` | `20` | 1회 처리량 상한으로 노이즈 방지 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY` | `false` | 기본은 Notion 큐 산출물만 운영(Obsidian 반영은 점진 적용) |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED` | `false` | Obsidian 연결 실패가 워크플로우를 깨지 않도록 안전 운용 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN` | `false` | 실제 반영 전, 파이프라인 smoke 검증용 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH` | `99_Automation/Knowledge Approved Queue.md` | Obsidian 내 승인 큐 대상 노트 경로 |
+| `OBSIDIAN_BASE_URL` | `http://127.0.0.1:27123` | Obsidian Local REST API endpoint |
 | `NOTION_WORK_LIST` | 실제 DB ID | 승인 큐 소스 DB |
 
 Secret:
 - `NOTION_TOKEN` (필수)
+- `OBSIDIAN_API_KEY` (Obsidian 반영 사용 시 필수)
 
 ---
 
@@ -35,6 +42,12 @@ Secret:
 전환 후 첫 1주:
 - `KNOWLEDGE_PIPELINE_REQUIRED=false` 유지 (관측 기간)
 - 이상 없으면 2주차부터 `KNOWLEDGE_PIPELINE_REQUIRED=true` 검토
+
+Obsidian 반영(`KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`) 전환 기준:
+1. self-hosted runner에서 Obsidian Local REST API health check 3회 연속 성공
+2. `state/knowledge-approved-queue-obsidian.md`와 vault 반영 결과 일치
+3. 실패 시 fallback(Notion 큐 only) 로그가 운영자에게 명확히 전달됨
+4. 초기 1주간은 `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED=false` 유지
 
 ---
 

@@ -12,7 +12,7 @@ concurrency:
 
 jobs:
   intake-pipeline:
-    runs-on: ubuntu-latest
+    runs-on: ${{ vars.KNOWLEDGE_PIPELINE_RUNS_ON || 'ubuntu-latest' }}
     timeout-minutes: 15
     env:
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
@@ -28,6 +28,12 @@ jobs:
       KNOWLEDGE_PIPELINE_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_APPLY || 'false' }}
       KNOWLEDGE_PIPELINE_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_REQUIRED || 'false' }}
       KNOWLEDGE_PIPELINE_LIMIT: ${{ vars.KNOWLEDGE_PIPELINE_LIMIT || '20' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY || 'false' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED || 'false' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN || 'false' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH || '99_Automation/Knowledge Approved Queue.md' }}
+      OBSIDIAN_BASE_URL: ${{ vars.OBSIDIAN_BASE_URL || 'http://127.0.0.1:27123' }}
+      OBSIDIAN_API_KEY: ${{ secrets.OBSIDIAN_API_KEY }}
 
     steps:
       - name: Checkout
@@ -50,5 +56,5 @@ jobs:
             state/knowledge-intake-pipeline-report.json
             state/knowledge-approved-queue.json
             state/knowledge-approved-queue.md
+            state/knowledge-approved-queue-obsidian.md
           if-no-files-found: warn
-

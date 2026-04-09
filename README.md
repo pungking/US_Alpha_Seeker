@@ -174,6 +174,8 @@ Smoke/health checks:
     - Notion `NOTION_WORK_LIST`에서 `승인` 상태 항목(기본 `분류=MCP`)을 수집
     - 코드 반영 PR 템플릿용 큐 파일 생성
     - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
+    - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`면 승인 큐를 Obsidian 노트로 반영 시도
+    - Obsidian 반영 실패 시에도 기본 fallback은 Notion 큐 산출물 유지(필요 시 hard-fail 가능)
   - 상태머신 기본값:
     - `승인대기 -> 승인 -> 코드반영`
 
@@ -197,14 +199,21 @@ Optional knowledge pipeline automation:
   - `NOTION_TOKEN` (secret)
   - `NOTION_WORK_LIST` (repo variable)
 - optional vars:
+  - `KNOWLEDGE_PIPELINE_RUNS_ON` (default `ubuntu-latest`, Obsidian 무인 반영 시 `self-hosted` 권장)
   - `KNOWLEDGE_PIPELINE_APPLY` (default `false`, 권장: 초기 queue-only)
   - `KNOWLEDGE_PIPELINE_REQUIRED` (default `false`)
   - `KNOWLEDGE_PIPELINE_PENDING_STATUS` (default `승인대기`)
   - `KNOWLEDGE_PIPELINE_APPROVED_STATUS` (default `승인`)
   - `KNOWLEDGE_PIPELINE_REFLECT_STATUS` (default `코드반영`)
   - `KNOWLEDGE_PIPELINE_CATEGORY_FILTER` (default `MCP`)
-  - 권장 세팅/전환 기준 문서:
-    - `docs/KNOWLEDGE_PIPELINE_GITHUB_VARIABLE_MATRIX_2026-04-09.md`
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY` (default `false`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED` (default `false`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN` (default `false`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH` (default `99_Automation/Knowledge Approved Queue.md`)
+  - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)
+  - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
+- 권장 세팅/전환 기준 문서:
+  - `docs/KNOWLEDGE_PIPELINE_GITHUB_VARIABLE_MATRIX_2026-04-09.md`
 
 Optional master control-plane scaffold (manual-only):
 
