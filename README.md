@@ -203,6 +203,8 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_APPROVED_STATUS` (default `승인`)
   - `KNOWLEDGE_PIPELINE_REFLECT_STATUS` (default `코드반영`)
   - `KNOWLEDGE_PIPELINE_CATEGORY_FILTER` (default `MCP`)
+  - 권장 세팅/전환 기준 문서:
+    - `docs/KNOWLEDGE_PIPELINE_GITHUB_VARIABLE_MATRIX_2026-04-09.md`
 
 Optional master control-plane scaffold (manual-only):
 
