@@ -110,6 +110,15 @@ jobs:
       VITE_TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
       VITE_TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID }}
 
+      # Approval Gateway
+      TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+      TELEGRAM_WEBHOOK_SECRET: ${{ secrets.TELEGRAM_WEBHOOK_SECRET }}
+      VITE_TELEGRAM_ADMIN_CHAT_ID: ${{ secrets.TELEGRAM_ADMIN_CHAT_ID || secrets.TELEGRAM_CHAT_ID }}
+      PAPER_MODE: ${{ vars.PAPER_MODE || 'true' }}
+      VITE_PAPER_MODE: ${{ vars.PAPER_MODE || 'true' }}
+      APPROVAL_REQUIRED: ${{ vars.APPROVAL_REQUIRED || 'true' }}
+      VITE_APPROVAL_REQUIRED: ${{ vars.APPROVAL_REQUIRED || 'true' }}      
+
       # GitHub Dispatch (Stage3 -> Harvester)
       GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
       VITE_GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}

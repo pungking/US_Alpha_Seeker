@@ -7,3 +7,6 @@ node_modules/
 dist/
 build/
 state/
+
+# Local GitHub Actions self-hosted runner files
+.github-runner/

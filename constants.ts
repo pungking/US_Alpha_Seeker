@@ -12,109 +12,112 @@ export interface ApiConfig {
 
 // [SECURITY POLICY] Env-only credentials (no hardcoded secret fallback).
 const getEnvVar = (key: string): string => {
-    try {
-        const readDefinedProcessEnv = (targetKey: string): string => {
-            if (typeof process === 'undefined' || !process.env) return '';
-            // Use static property access so Vite `define` can inline injected values.
-            const directMap: Record<string, string | undefined> = {
-                GEMINI_API_KEY: process.env.GEMINI_API_KEY,
-                API_KEY: process.env.API_KEY,
-                PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
-                RAPID_API_KEY: process.env.RAPID_API_KEY,
-                POLYGON_API_KEY: process.env.POLYGON_API_KEY,
-                ALPACA_KEY: process.env.ALPACA_KEY,
-                FINNHUB_KEY: process.env.FINNHUB_KEY,
-                FMP_KEY: process.env.FMP_KEY,
-                TWELVE_DATA_KEY: process.env.TWELVE_DATA_KEY,
-                ALPHA_VANTAGE_KEY: process.env.ALPHA_VANTAGE_KEY,
-                HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
-                HUGGINGFACE_API_BASE_URL: process.env.HUGGINGFACE_API_BASE_URL,
-                HUGGINGFACE_FINBERT_MODEL: process.env.HUGGINGFACE_FINBERT_MODEL,
-                HUGGINGFACE_SUMMARY_MODEL: process.env.HUGGINGFACE_SUMMARY_MODEL,
-                HUGGINGFACE_ENABLE_SMOKE_TEST: process.env.HUGGINGFACE_ENABLE_SMOKE_TEST,
-                HUGGINGFACE_SMOKE_STRICT: process.env.HUGGINGFACE_SMOKE_STRICT,
-                HUGGINGFACE_TIMEOUT_MS: process.env.HUGGINGFACE_TIMEOUT_MS,
-                HUGGINGFACE_RETRY: process.env.HUGGINGFACE_RETRY,
-                HUGGINGFACE_ENABLE_ADVISORY: process.env.HUGGINGFACE_ENABLE_ADVISORY,
-                HUGGINGFACE_ADVISORY_MAX_CANDIDATES: process.env.HUGGINGFACE_ADVISORY_MAX_CANDIDATES,
-                HUGGINGFACE_ADVISORY_REQUIRE_HEADLINE: process.env.HUGGINGFACE_ADVISORY_REQUIRE_HEADLINE,
-                HUGGINGFACE_BLEND_ENABLED: process.env.HUGGINGFACE_BLEND_ENABLED,
-                HUGGINGFACE_BLEND_WEIGHT: process.env.HUGGINGFACE_BLEND_WEIGHT,
-                HUGGINGFACE_BLEND_MAX_DELTA: process.env.HUGGINGFACE_BLEND_MAX_DELTA,
-                HUGGINGFACE_BLEND_POSITIVE_SCALE: process.env.HUGGINGFACE_BLEND_POSITIVE_SCALE,
-                HUGGINGFACE_BLEND_NEGATIVE_SCALE: process.env.HUGGINGFACE_BLEND_NEGATIVE_SCALE,
-                GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
-                GDRIVE_CLIENT_ID: process.env.GDRIVE_CLIENT_ID,
-                GDRIVE_CLIENT_SECRET: process.env.GDRIVE_CLIENT_SECRET,
-                GDRIVE_REFRESH_TOKEN: process.env.GDRIVE_REFRESH_TOKEN,
-                TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
-                TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
-                TELEGRAM_SIMULATION_CHAT_ID: process.env.TELEGRAM_SIMULATION_CHAT_ID,
-                TELEGRAM_ALERT_CHAT_ID: process.env.TELEGRAM_ALERT_CHAT_ID,
-                GITHUB_PAT: process.env.GITHUB_PAT,
-                GH_PAT: process.env.GH_PAT,
-                SIDECAR_DISPATCH_TOKEN: process.env.SIDECAR_DISPATCH_TOKEN
-            };
-            return directMap[targetKey] || '';
-        };
+  try {
+    const readDefinedProcessEnv = (targetKey: string): string => {
+      if (typeof process === 'undefined' || !process.env) return '';
+      // Use static property access so Vite `define` can inline injected values.
+      const directMap: Record<string, string | undefined> = {
+        GEMINI_API_KEY: process.env.GEMINI_API_KEY,
+        API_KEY: process.env.API_KEY,
+        PERPLEXITY_API_KEY: process.env.PERPLEXITY_API_KEY,
+        RAPID_API_KEY: process.env.RAPID_API_KEY,
+        POLYGON_API_KEY: process.env.POLYGON_API_KEY,
+        ALPACA_KEY: process.env.ALPACA_KEY,
+        FINNHUB_KEY: process.env.FINNHUB_KEY,
+        FMP_KEY: process.env.FMP_KEY,
+        TWELVE_DATA_KEY: process.env.TWELVE_DATA_KEY,
+        ALPHA_VANTAGE_KEY: process.env.ALPHA_VANTAGE_KEY,
+        HUGGINGFACE_API_KEY: process.env.HUGGINGFACE_API_KEY,
+        HUGGINGFACE_API_BASE_URL: process.env.HUGGINGFACE_API_BASE_URL,
+        HUGGINGFACE_FINBERT_MODEL: process.env.HUGGINGFACE_FINBERT_MODEL,
+        HUGGINGFACE_SUMMARY_MODEL: process.env.HUGGINGFACE_SUMMARY_MODEL,
+        HUGGINGFACE_ENABLE_SMOKE_TEST: process.env.HUGGINGFACE_ENABLE_SMOKE_TEST,
+        HUGGINGFACE_SMOKE_STRICT: process.env.HUGGINGFACE_SMOKE_STRICT,
+        HUGGINGFACE_TIMEOUT_MS: process.env.HUGGINGFACE_TIMEOUT_MS,
+        HUGGINGFACE_RETRY: process.env.HUGGINGFACE_RETRY,
+        HUGGINGFACE_ENABLE_ADVISORY: process.env.HUGGINGFACE_ENABLE_ADVISORY,
+        HUGGINGFACE_ADVISORY_MAX_CANDIDATES: process.env.HUGGINGFACE_ADVISORY_MAX_CANDIDATES,
+        HUGGINGFACE_ADVISORY_REQUIRE_HEADLINE: process.env.HUGGINGFACE_ADVISORY_REQUIRE_HEADLINE,
+        HUGGINGFACE_BLEND_ENABLED: process.env.HUGGINGFACE_BLEND_ENABLED,
+        HUGGINGFACE_BLEND_WEIGHT: process.env.HUGGINGFACE_BLEND_WEIGHT,
+        HUGGINGFACE_BLEND_MAX_DELTA: process.env.HUGGINGFACE_BLEND_MAX_DELTA,
+        HUGGINGFACE_BLEND_POSITIVE_SCALE: process.env.HUGGINGFACE_BLEND_POSITIVE_SCALE,
+        HUGGINGFACE_BLEND_NEGATIVE_SCALE: process.env.HUGGINGFACE_BLEND_NEGATIVE_SCALE,
+        GDRIVE_API_KEY: process.env.GDRIVE_API_KEY,
+        GDRIVE_CLIENT_ID: process.env.GDRIVE_CLIENT_ID,
+        GDRIVE_CLIENT_SECRET: process.env.GDRIVE_CLIENT_SECRET,
+        GDRIVE_REFRESH_TOKEN: process.env.GDRIVE_REFRESH_TOKEN,
+        TELEGRAM_TOKEN: process.env.TELEGRAM_TOKEN,
+        TELEGRAM_CHAT_ID: process.env.TELEGRAM_CHAT_ID,
+        TELEGRAM_SIMULATION_CHAT_ID: process.env.TELEGRAM_SIMULATION_CHAT_ID,
+        TELEGRAM_ALERT_CHAT_ID: process.env.TELEGRAM_ALERT_CHAT_ID,
+        TELEGRAM_ADMIN_CHAT_ID: process.env.TELEGRAM_ADMIN_CHAT_ID,
+        TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
+        PAPER_MODE: process.env.PAPER_MODE,        
+        GITHUB_PAT: process.env.GITHUB_PAT,
+        GH_PAT: process.env.GH_PAT,
+        SIDECAR_DISPATCH_TOKEN: process.env.SIDECAR_DISPATCH_TOKEN
+      };
+      return directMap[targetKey] || '';
+    };
 
-        // @ts-ignore
-        if (typeof import.meta !== 'undefined' && import.meta.env) {
-            const viteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
-            const viteDirect = import.meta.env[viteKey] || import.meta.env[key] || '';
-            if (viteDirect) return viteDirect;
+    // @ts-ignore
+    if (typeof import.meta !== 'undefined' && import.meta.env) {
+      const viteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
+      const viteDirect = import.meta.env[viteKey] || import.meta.env[key] || '';
+      if (viteDirect) return viteDirect;
 
-            // Static access for common keys to ensure Vite includes them
-            if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
-            if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || readDefinedProcessEnv('API_KEY');
-            if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
-            if (key === 'HUGGINGFACE_API_KEY') return import.meta.env.HUGGINGFACE_API_KEY || readDefinedProcessEnv('HUGGINGFACE_API_KEY');
-            if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
-            if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
-            if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
-            if (key === 'TELEGRAM_ALERT_CHAT_ID') return import.meta.env.VITE_TELEGRAM_ALERT_CHAT_ID || import.meta.env.TELEGRAM_ALERT_CHAT_ID || '';
-            const definedProcessValue = readDefinedProcessEnv(key);
-            if (definedProcessValue) return definedProcessValue;
-            
-            // Fallback to dynamic access
-            return import.meta.env[key] || '';
-        }
-        if (typeof process !== 'undefined' && process.env) {
-            const nodeViteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
-            return process.env[nodeViteKey] || process.env[key] || readDefinedProcessEnv(key);
-        }
-    } catch (e) {}
-    return '';
+      // Static access for common keys to ensure Vite includes them
+      if (key === 'GEMINI_API_KEY') return import.meta.env.VITE_GEMINI_API_KEY || import.meta.env.GEMINI_API_KEY || '';
+      if (key === 'API_KEY') return import.meta.env.VITE_API_KEY || import.meta.env.API_KEY || readDefinedProcessEnv('API_KEY');
+      if (key === 'PERPLEXITY_API_KEY') return import.meta.env.VITE_PERPLEXITY_API_KEY || import.meta.env.PERPLEXITY_API_KEY || '';
+      if (key === 'HUGGINGFACE_API_KEY') return import.meta.env.HUGGINGFACE_API_KEY || readDefinedProcessEnv('HUGGINGFACE_API_KEY');
+      if (key === 'TELEGRAM_TOKEN') return import.meta.env.VITE_TELEGRAM_TOKEN || import.meta.env.TELEGRAM_TOKEN || '';
+      if (key === 'TELEGRAM_CHAT_ID') return import.meta.env.VITE_TELEGRAM_CHAT_ID || import.meta.env.TELEGRAM_CHAT_ID || '';
+      if (key === 'TELEGRAM_SIMULATION_CHAT_ID') return import.meta.env.VITE_TELEGRAM_SIMULATION_CHAT_ID || import.meta.env.TELEGRAM_SIMULATION_CHAT_ID || '';
+      if (key === 'TELEGRAM_ALERT_CHAT_ID') return import.meta.env.VITE_TELEGRAM_ALERT_CHAT_ID || import.meta.env.TELEGRAM_ALERT_CHAT_ID || '';
+      const definedProcessValue = readDefinedProcessEnv(key);
+      if (definedProcessValue) return definedProcessValue;
+
+      // Fallback to dynamic access
+      return import.meta.env[key] || '';
+    }
+    if (typeof process !== 'undefined' && process.env) {
+      const nodeViteKey = key.startsWith('VITE_') ? key : `VITE_${key}`;
+      return process.env[nodeViteKey] || process.env[key] || readDefinedProcessEnv(key);
+    }
+  } catch (e) { }
+  return '';
 };
 
 const parseNumberEnv = (keys: string[], fallback: number): number => {
-    for (const key of keys) {
-        const raw = String(getEnvVar(key) || '').trim();
-        if (!raw) continue;
-        const num = Number(raw);
-        if (Number.isFinite(num)) return num;
-    }
-    return fallback;
+  for (const key of keys) {
+    const raw = String(getEnvVar(key) || '').trim();
+    if (!raw) continue;
+    const num = Number(raw);
+    if (Number.isFinite(num)) return num;
+  }
+  return fallback;
 };
 
 const parseEnumEnv = <T extends string>(keys: string[], allowed: readonly T[], fallback: T): T => {
-    const allowedSet = new Set(allowed);
-    for (const key of keys) {
-        const raw = String(getEnvVar(key) || '').trim().toUpperCase();
-        if (!raw) continue;
-        if (allowedSet.has(raw as T)) return raw as T;
-    }
-    return fallback;
+  const allowedSet = new Set(allowed);
+  for (const key of keys) {
+    const raw = String(getEnvVar(key) || '').trim().toUpperCase();
+    if (!raw) continue;
+    if (allowedSet.has(raw as T)) return raw as T;
+  }
+  return fallback;
 };
 
 const parseBooleanEnv = (keys: string[], fallback: boolean): boolean => {
-    for (const key of keys) {
-        const raw = String(getEnvVar(key) || '').trim().toLowerCase();
-        if (!raw) continue;
-        if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on') return true;
-        if (raw === 'false' || raw === '0' || raw === 'no' || raw === 'off') return false;
-    }
-    return fallback;
+  for (const key of keys) {
+    const raw = String(getEnvVar(key) || '').trim().toLowerCase();
+    if (!raw) continue;
+    if (raw === 'true' || raw === '1' || raw === 'yes' || raw === 'on') return true;
+    if (raw === 'false' || raw === '0' || raw === 'no' || raw === 'off') return false;
+  }
+  return fallback;
 };
 
 // ============================================================
@@ -138,64 +141,83 @@ export const TELEGRAM_CONFIG = {
   // [SIMULATION CHANNEL] Backtest/simulation execution events are routed here.
   SIMULATION_CHAT_ID: getEnvVar('TELEGRAM_SIMULATION_CHAT_ID'),
   // [ALERT CHANNEL] Incident/failure notifications are routed here.
-  ALERT_CHAT_ID: getEnvVar('TELEGRAM_ALERT_CHAT_ID')
+  ALERT_CHAT_ID: getEnvVar('TELEGRAM_ALERT_CHAT_ID'),
+  // [APPROVAL GATEWAY] Admin chat ID for approval commands. Comma-separated for multiple admins.
+  ADMIN_CHAT_ID: getEnvVar('TELEGRAM_ADMIN_CHAT_ID'),
+  // [APPROVAL GATEWAY] Webhook secret for validating incoming Telegram updates.
+  WEBHOOK_SECRET: getEnvVar('TELEGRAM_WEBHOOK_SECRET'),
+};
+// [APPROVAL GATEWAY] Trading execution mode.
+export const EXECUTION_CONFIG = {
+  // When true, orders are submitted to Alpaca Paper API (no real money).
+  PAPER_MODE: (() => {
+    const raw = getEnvVar('PAPER_MODE').toLowerCase();
+    return ['1', 'true', 'yes', 'on'].includes(raw);
+  })(),
+  // When true, approval gateway requires user confirmation before executing trades.
+  APPROVAL_REQUIRED: (() => {
+    const raw = getEnvVar('APPROVAL_REQUIRED').toLowerCase();
+    // Default: true (require approval unless explicitly disabled)
+    if (!raw) return true;
+    return !['0', 'false', 'no', 'off'].includes(raw);
+  })(),
 };
 
 export const API_CONFIGS: ApiConfig[] = [
   // Acquisition Node (Data Feeders)
-  { 
-    provider: ApiProvider.RAPID_API, 
-    key: getEnvVar('RAPID_API_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.RAPID_API,
+    key: getEnvVar('RAPID_API_KEY'),
+    category: 'Acquisition'
   },
-  { 
-    provider: ApiProvider.POLYGON, 
-    key: getEnvVar('POLYGON_API_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.POLYGON,
+    key: getEnvVar('POLYGON_API_KEY'),
+    category: 'Acquisition'
   },
-  { 
-    provider: ApiProvider.ALPACA, 
-    key: getEnvVar('ALPACA_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.ALPACA,
+    key: getEnvVar('ALPACA_KEY'),
+    category: 'Acquisition'
   },
-  { 
-    provider: ApiProvider.FINNHUB, 
-    key: getEnvVar('FINNHUB_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.FINNHUB,
+    key: getEnvVar('FINNHUB_KEY'),
+    category: 'Acquisition'
   },
-  { 
-    provider: ApiProvider.FMP, 
-    key: getEnvVar('FMP_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.FMP,
+    key: getEnvVar('FMP_KEY'),
+    category: 'Acquisition'
   },
-  { 
-    provider: ApiProvider.TWELVE_DATA, 
-    key: getEnvVar('TWELVE_DATA_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.TWELVE_DATA,
+    key: getEnvVar('TWELVE_DATA_KEY'),
+    category: 'Acquisition'
   },
-  { 
-    provider: ApiProvider.ALPHA_VANTAGE, 
-    key: getEnvVar('ALPHA_VANTAGE_KEY'), 
-    category: 'Acquisition' 
+  {
+    provider: ApiProvider.ALPHA_VANTAGE,
+    key: getEnvVar('ALPHA_VANTAGE_KEY'),
+    category: 'Acquisition'
   },
-  
+
   // Intelligence Node (AI Brains)
-  { 
-    provider: ApiProvider.GEMINI, 
-    key: getEnvVar('GEMINI_API_KEY') || getEnvVar('API_KEY'), 
-    category: 'Intelligence' 
+  {
+    provider: ApiProvider.GEMINI,
+    key: getEnvVar('GEMINI_API_KEY') || getEnvVar('API_KEY'),
+    category: 'Intelligence'
   },
-  { 
-    provider: ApiProvider.PERPLEXITY, 
-    key: getEnvVar('PERPLEXITY_API_KEY'), 
-    category: 'Intelligence' 
+  {
+    provider: ApiProvider.PERPLEXITY,
+    key: getEnvVar('PERPLEXITY_API_KEY'),
+    category: 'Intelligence'
   },
-  
+
   // Infrastructure Node (Storage)
-  { 
-    provider: ApiProvider.GOOGLE_DRIVE, 
-    key: getEnvVar('GDRIVE_API_KEY'), 
-    category: 'Infrastructure' 
+  {
+    provider: ApiProvider.GOOGLE_DRIVE,
+    key: getEnvVar('GDRIVE_API_KEY'),
+    category: 'Infrastructure'
   }
 ];
 
