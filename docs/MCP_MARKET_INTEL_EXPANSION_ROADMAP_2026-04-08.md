@@ -85,3 +85,14 @@
 - Supabase/Postgres MCP 연동(상태 저장 계층 확장)
 - Finnhub/TradingView shadow 비교
 - `20/20` 달성 후 OFF/ON/STRICT + payload probe 통합 평가
+
+---
+
+## 8) Research Intake Loop (NotebookLM + Obsidian)
+
+- 수집: NotebookLM에서 source digest/claim 추출
+- 정규화: Obsidian `Templates/05_NotebookLM_Intake.md`에 기록
+- 승격: Notion 작업/운영 히스토리에 증적 기반 반영
+- 구현: feature flag + shadow lane + run summary evidence
+
+참조: `docs/NOTEBOOKLM_OBSIDIAN_NOTION_IMPLEMENTATION_LOOP_2026-04-09.md`

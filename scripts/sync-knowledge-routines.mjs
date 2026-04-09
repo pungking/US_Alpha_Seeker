@@ -587,6 +587,7 @@ const OBSIDIAN_TEMPLATES = {
 - [[02_Incident_Report]]
 - [[03_Tuning_Note]]
 - [[04_MCP_Expansion_Plan]]
+- [[05_NotebookLM_Intake]]
 - [[AUTO_SYNC_CHECK_2026-04-03]]
 `,
   "Templates/01_Daily_Log.md": `# Daily Ops Log
@@ -596,6 +597,7 @@ Related:
 - [[02_Incident_Report]]
 - [[03_Tuning_Note]]
 - [[04_MCP_Expansion_Plan]]
+- [[05_NotebookLM_Intake]]
 
 ## 1) Mission
 - Today Focus:
@@ -726,6 +728,40 @@ Related:
 
 ## 5) Decision
 - Continue / Hold / Rollback
+- Evidence link:
+`,
+  "Templates/05_NotebookLM_Intake.md": `# NotebookLM Intake
+
+Related:
+- [[00_Ops_Hub]]
+- [[01_Daily_Log]]
+- [[03_Tuning_Note]]
+- [[04_MCP_Expansion_Plan]]
+
+## 1) Source
+- NotebookLM notebook/topic:
+- Source links (paper/blog/video):
+- Key quote / claim:
+
+## 2) Hypothesis for US Alpha Seeker
+- What to improve:
+- Why now:
+- Expected impact (precision/risk/latency):
+
+## 3) Validation Design (shadow-first)
+- Scope: stage6 / sidecar / harvester / dashboard
+- Feature flag:
+- Shadow metric:
+- Failure rollback condition:
+
+## 4) Code Reflection Plan
+- Target files:
+- Data contract changes:
+- Notion fields to update:
+- Telegram/ops-health evidence:
+
+## 5) Decision
+- Adopt / Hold / Reject:
 - Evidence link:
 `
 };
@@ -1008,6 +1044,14 @@ const main = async () => {
       date: "2026-04-08",
       summary: "20/20 이전에는 read-only 교차검증만 적용하는 확장 실행 단계 시작",
       evidence: "docs/MCP_AUTOMATION_COLLAB_OPERATING_MODEL_2026-04-03.md"
+    },
+    {
+      title: "NotebookLM+Obsidian 리서치 인테이크 루프 설계",
+      status: "진행 중",
+      category: "MCP",
+      date: "2026-04-09",
+      summary: "NotebookLM 리서치 요약을 Obsidian intake 템플릿으로 정규화하고 Notion/코드 반영 루프로 연결",
+      evidence: "docs/NOTEBOOKLM_OBSIDIAN_NOTION_IMPLEMENTATION_LOOP_2026-04-09.md"
     }
   ];
 
@@ -1314,6 +1358,7 @@ const main = async () => {
           title: "다음 작업(Next)",
           items: [
             "Alpaca(read-only) + Alpha Vantage + SEC EDGAR shadow lane 우선 연결",
+            "NotebookLM + Obsidian intake 노트를 Notion 확장안과 코드 반영 체크리스트로 승격",
             "Notion 운영 히스토리에 MCP 확장 이정표/증적 링크 누적",
             "20/20 도달 후 validation_pack OFF/ON/STRICT 비교 실행",
             "payload_probe isolated 결과와 baseline 분리 검증 리포트 확정",
