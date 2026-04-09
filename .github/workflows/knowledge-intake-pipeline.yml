@@ -1,0 +1,54 @@
+name: Knowledge Intake Pipeline
+
+on:
+  schedule:
+    # Weekdays 09:40 UTC (18:40 KST)
+    - cron: "40 9 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: knowledge-intake-pipeline-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  intake-pipeline:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    env:
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_WORK_LIST: ${{ vars.NOTION_WORK_LIST }}
+
+      # state machine
+      KNOWLEDGE_PIPELINE_PENDING_STATUS: ${{ vars.KNOWLEDGE_PIPELINE_PENDING_STATUS || '승인대기' }}
+      KNOWLEDGE_PIPELINE_APPROVED_STATUS: ${{ vars.KNOWLEDGE_PIPELINE_APPROVED_STATUS || '승인' }}
+      KNOWLEDGE_PIPELINE_REFLECT_STATUS: ${{ vars.KNOWLEDGE_PIPELINE_REFLECT_STATUS || '코드반영' }}
+      KNOWLEDGE_PIPELINE_CATEGORY_FILTER: ${{ vars.KNOWLEDGE_PIPELINE_CATEGORY_FILTER || 'MCP' }}
+
+      # safe default: queue-only. set true after stable 운영.
+      KNOWLEDGE_PIPELINE_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_APPLY || 'false' }}
+      KNOWLEDGE_PIPELINE_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_REQUIRED || 'false' }}
+      KNOWLEDGE_PIPELINE_LIMIT: ${{ vars.KNOWLEDGE_PIPELINE_LIMIT || '20' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Run knowledge intake pipeline
+        run: npm run ops:knowledge:pipeline
+
+      - name: Upload pipeline artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: knowledge-intake-pipeline
+          path: |
+            state/knowledge-intake-pipeline-report.json
+            state/knowledge-approved-queue.json
+            state/knowledge-approved-queue.md
+          if-no-files-found: warn
+

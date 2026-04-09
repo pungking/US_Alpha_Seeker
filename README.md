@@ -164,6 +164,19 @@ Smoke/health checks:
     - `KNOWLEDGE_SYNC_CLEANUP_PROJECT_AUTO_NOTES=true|false` (기존 `[AUTO]` 텍스트 블록 정리)
     - `KNOWLEDGE_SYNC_ARCHIVE_LEGACY_SAMPLES=true|false` (레거시 샘플 행 자동 archive, 기본 true)
 
+- NotebookLM/Obsidian -> Notion 승인 -> 코드반영 큐 파이프라인:
+  - `npm run ops:knowledge:pipeline`
+  - 결과 리포트: `state/knowledge-intake-pipeline-report.json`
+  - 승인 큐 산출물:
+    - `state/knowledge-approved-queue.json`
+    - `state/knowledge-approved-queue.md`
+  - 기본 동작:
+    - Notion `NOTION_WORK_LIST`에서 `승인` 상태 항목(기본 `분류=MCP`)을 수집
+    - 코드 반영 PR 템플릿용 큐 파일 생성
+    - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
+  - 상태머신 기본값:
+    - `승인대기 -> 승인 -> 코드반영`
+
 Optional GitHub Actions daily automation:
 
 - workflow: `.github/workflows/mcp-ops-daily.yml`
@@ -175,6 +188,21 @@ Optional GitHub Actions daily automation:
   - `TELEGRAM_SIMULATION_CHAT_ID` (secret or repo variable)
   - `SENTRY_ACCESS_TOKEN`
   - `GDRIVE_CLIENT_ID`, `GDRIVE_CLIENT_SECRET`, `GDRIVE_REFRESH_TOKEN`
+
+Optional knowledge pipeline automation:
+
+- workflow: `.github/workflows/knowledge-intake-pipeline.yml`
+- schedule: weekdays `09:40 UTC` (`18:40 KST`)
+- required:
+  - `NOTION_TOKEN` (secret)
+  - `NOTION_WORK_LIST` (repo variable)
+- optional vars:
+  - `KNOWLEDGE_PIPELINE_APPLY` (default `false`, 권장: 초기 queue-only)
+  - `KNOWLEDGE_PIPELINE_REQUIRED` (default `false`)
+  - `KNOWLEDGE_PIPELINE_PENDING_STATUS` (default `승인대기`)
+  - `KNOWLEDGE_PIPELINE_APPROVED_STATUS` (default `승인`)
+  - `KNOWLEDGE_PIPELINE_REFLECT_STATUS` (default `코드반영`)
+  - `KNOWLEDGE_PIPELINE_CATEGORY_FILTER` (default `MCP`)
 
 Optional master control-plane scaffold (manual-only):
 
