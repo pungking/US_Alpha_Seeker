@@ -145,6 +145,40 @@ const readableHeadline = (title, sourceUrl, fallback) => {
   if (fromUrl) return fromUrl;
   return fallback;
 };
+const sanitizeNotebookSummary = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  let s = raw
+    .replace(/\[Executive Summary\]/gi, "\n## 핵심 요약\n")
+    .replace(/\[Strategic Analysis\]/gi, "\n## 전략 해석\n")
+    .replace(/\[Technical Validation[^\]]*\]/gi, "\n## 기술 검증\n")
+    .replace(/\[Operational Checklist[^\]]*\]/gi, "\n## 운영 체크포인트\n")
+    .replace(/more_horiz/gi, " ")
+    .replace(/\s+\d+(?:\s+\d+){1,}/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!s.includes("## ")) {
+    s = `## 핵심 요약\n${s}`;
+  }
+  return short(s, 1800);
+};
+const categoryLabelKo = (value) => {
+  const key = String(value || "").trim().toLowerCase();
+  if (!key) return "시장 인텔";
+  if (key.includes("macro")) return "거시";
+  if (key.includes("risk")) return "리스크";
+  if (key.includes("volatility")) return "변동성";
+  if (key.includes("earning")) return "실적";
+  if (key.includes("trend")) return "트렌드";
+  if (key.includes("policy")) return "정책";
+  if (key.includes("chart")) return "차트";
+  return "시장 인텔";
+};
+const unlinkWikiLinksForArchive = (text) =>
+  String(text || "")
+    .replace(/\[\[([^\]]+)\]\]/g, "$1")
+    .replace(/\n{3,}/g, "\n\n");
 const extractKeywords = (item) => {
   const text = `${item?.title || ""} ${item?.summary || ""} ${item?.sourceUrl || ""}`.toLowerCase();
   const raw = text
@@ -439,13 +473,15 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink,
   lines.push("");
   lines.push("## Link Graph");
   lines.push(`- [[${hubLink}]]`);
-  lines.push(`- [[${packLink}]]`);
-  lines.push(`- [[${playbookLink}]]`);
   lines.push(`- [[${themeHubLink}]]`);
   lines.push(`- theme: ${item.theme || "General Market Intel"}`);
   if (item.sourceUrl) lines.push(`- sourceUrl: ${item.sourceUrl}`);
   if (keywords.length > 0) lines.push(`- keywords: ${keywords.join(", ")}`);
   if (relatedLinks.length > 0) lines.push(`- related: ${relatedLinks.map((x) => `[[${x}]]`).join(", ")}`);
+  lines.push("");
+  lines.push("## 참고 문서");
+  lines.push(`- ${packLink}`);
+  lines.push(`- ${playbookLink}`);
   lines.push("");
   lines.push("## Summary");
   lines.push(item.summary || "N/A");
@@ -659,12 +695,13 @@ const cleanupObsidianStalePaths = async ({
       if (read.exists) {
         const archivedPath = archivePathFor(archiveDir, stalePath, generatedAt);
         const archivedRoute = `/vault/${encodeVaultPath(archivedPath)}`;
+        const archivedBody = unlinkWikiLinksForArchive(read.text);
         await obsidianRequest({
           baseUrl,
           apiKey,
           method: "PUT",
           route: archivedRoute,
-          body: read.text,
+          body: archivedBody,
           contentType: "text/markdown"
         });
         archived += 1;
@@ -710,7 +747,8 @@ const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limi
   const rows = list.slice(0, Math.max(1, limit));
   const items = rows.map((row, index) => {
     const rawTitle = String(row?.title || row?.topic || row?.headline || "").trim();
-    const summary = String(row?.summary || row?.insight || row?.notes || "").trim();
+    const summaryRaw = String(row?.summary || row?.insight || row?.notes || "").trim();
+    const summary = sanitizeNotebookSummary(summaryRaw);
     const category = String(row?.category || row?.area || fallbackCategory || "").trim();
     const priority = String(row?.priority || fallbackPriority || "").trim();
     const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
@@ -721,7 +759,7 @@ const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limi
       pageId: idBase,
       title,
       status: "승인",
-      category: category || "NotebookLM",
+      category: categoryLabelKo(category || "NotebookLM"),
       priority: priority || "P2",
       summary,
       sourceUrl,
