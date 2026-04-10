@@ -22,6 +22,17 @@ const resolvePath = (value, fallbackPath) => {
 
 const short = (value, max = 160) => String(value ?? "").trim().slice(0, max);
 const looksLikeUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+const looksMachineTitle = (value) => {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return true;
+  if (text.startsWith("seed-") || text.startsWith("nlm-")) return true;
+  if (text.includes("https-") || text.includes("-http-")) return true;
+  const hyphenCount = (text.match(/-/g) || []).length;
+  const spaceCount = (text.match(/\s/g) || []).length;
+  if (spaceCount === 0 && hyphenCount >= 4) return true;
+  if (/^[a-z0-9]+(?:-[a-z0-9]+){5,}$/.test(text)) return true;
+  return false;
+};
 
 const readText = (filePath) => {
   if (!fs.existsSync(filePath)) return "";
@@ -65,21 +76,61 @@ const titleCase = (value) =>
     .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
     .join(" ");
 
+const humanizeToken = (value) =>
+  titleCase(
+    String(value || "")
+      .replace(/newsevents/gi, "news events")
+      .replace(/pressreleases/gi, "press releases")
+      .replace(/monetarypolicy/gi, "monetary policy")
+      .replace(/fomccalendars/gi, "FOMC calendars")
+      .replace(/searchedgar/gi, "search EDGAR")
+      .replace(/companysearch/gi, "company search")
+      .replace(/marketreports/gi, "market reports")
+      .replace(/commitmentsoftraders/gi, "commitments of traders")
+      .replace(/gdpnow/gi, "GDPNow")
+      .replace(/empsit(?=[_-]|\b)/gi, "employment situation")
+      .replace(/cpi(?=[_-]|\b)/gi, "CPI")
+      .replace(/fedwatch/gi, "FedWatch")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
+
+const hostLabelMap = {
+  federalreserve: "Federal Reserve",
+  bls: "BLS",
+  bea: "BEA",
+  cmegroup: "CME Group",
+  cboe: "CBOE",
+  nyse: "NYSE",
+  sec: "SEC",
+  spglobal: "S&P Global",
+  fred: "FRED",
+  atlantafed: "Atlanta Fed",
+  insight: "FactSet Insight",
+  home: "US Treasury",
+  cftc: "CFTC",
+  nasdaq: "Nasdaq"
+};
+
 const titleFromUrl = (url) => {
   try {
     const parsed = new URL(url);
     const host = parsed.hostname.replace(/^www\./, "");
     const hostStem = host.split(".")[0] || "source";
+    const hostLabel = hostLabelMap[hostStem] || humanizeToken(hostStem);
     const pathTokens = parsed.pathname
       .split("/")
       .map((x) => decodeURIComponent(x))
       .map((x) => x.replace(/\.[a-z0-9]+$/i, ""))
-      .map((x) => x.replace(/[^a-zA-Z0-9]+/g, " ").trim())
+      .map((x) => x.replace(/[^a-zA-Z0-9_-]+/g, " ").trim())
       .filter(Boolean)
-      .slice(0, 4);
-    const hostLabel = titleCase(hostStem.replace(/[^a-zA-Z0-9]+/g, " "));
-    const pathLabel = titleCase(pathTokens.join(" "));
-    return short(pathLabel ? `${hostLabel} ${pathLabel}` : hostLabel, 120);
+      .slice(-3);
+    const pathLabel = pathTokens.map((x) => humanizeToken(x)).filter(Boolean).join(" - ");
+    return short(pathLabel ? `${hostLabel} - ${pathLabel}` : hostLabel, 120);
   } catch {
     return short(url, 120);
   }
@@ -87,7 +138,9 @@ const titleFromUrl = (url) => {
 
 const pickTitle = (rawTitle, url, index) => {
   const normalized = short(rawTitle || "", 120).replace(/\s+/g, " ").trim();
-  if (normalized && !looksLikeUrl(normalized) && normalized.length >= 8) return normalized;
+  if (normalized && !looksLikeUrl(normalized) && normalized.length >= 8 && !looksMachineTitle(normalized)) {
+    return normalized;
+  }
   const fromUrl = titleFromUrl(url);
   if (fromUrl) return fromUrl;
   return `NotebookLM Seed ${index + 1}`;

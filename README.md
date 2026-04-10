@@ -181,6 +181,8 @@ Smoke/health checks:
     - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`면 승인 큐를 Obsidian 노트로 반영 시도
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY=true`면 item별 노트 + 허브 노트를 함께 생성해 Graph View 링크를 강화
+      - item 파일명은 `NN-<readable-title>.md` 형태로 생성(기계식 `seed-...` suffix 제거)
+      - `Intake/<theme>/...` + `Intake/_themes/theme-...` 구조로 클러스터 구분
     - Obsidian 반영 실패 시에도 기본 fallback은 Notion 큐 산출물 유지(필요 시 hard-fail 가능)
   - 상태머신 기본값:
     - `승인대기 -> 승인 -> 코드반영`
@@ -214,6 +216,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_OVERWRITE` (default `false`, 기존 json 덮어쓰기)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_COMMAND` (default `npx`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ARGS` (default `["-y","notebooklm-mcp"]`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS` (default `300000`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY`
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
@@ -240,6 +243,12 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR` (default `99_Automation/NotebookLM/Intake`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE` (default `99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE` (default `99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md`)
+  - Graph note role guide:
+    - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference
+    - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서
+    - `NotebookLM_Intake_Graph_Hub`: 전체 허브
+    - `Intake/_themes/theme-...`: 주제별 허브
+    - `Intake/<theme>/NN-...`: 개별 intake 노트
   - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)
   - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
 - 권장 세팅/전환 기준 문서:

@@ -72,12 +72,45 @@ const slugifyFileName = (value, fallback = "item") => {
   return normalized || fallback;
 };
 const looksLikeUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+const looksMachineTitle = (value) => {
+  const text = String(value || "").trim().toLowerCase();
+  if (!text) return true;
+  if (text.startsWith("seed-") || text.startsWith("nlm-")) return true;
+  if (text.includes("https-") || text.includes("-http-")) return true;
+  const hyphenCount = (text.match(/-/g) || []).length;
+  const spaceCount = (text.match(/\s/g) || []).length;
+  if (spaceCount === 0 && hyphenCount >= 4) return true;
+  if (/^[a-z0-9]+(?:-[a-z0-9]+){5,}$/.test(text)) return true;
+  return false;
+};
 const titleCase = (value) =>
   String(value || "")
     .split(/\s+/)
     .filter(Boolean)
     .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
     .join(" ");
+const humanizeToken = (value) =>
+  titleCase(
+    String(value || "")
+      .replace(/newsevents/gi, "news events")
+      .replace(/pressreleases/gi, "press releases")
+      .replace(/monetarypolicy/gi, "monetary policy")
+      .replace(/fomccalendars/gi, "FOMC calendars")
+      .replace(/searchedgar/gi, "search EDGAR")
+      .replace(/companysearch/gi, "company search")
+      .replace(/marketreports/gi, "market reports")
+      .replace(/commitmentsoftraders/gi, "commitments of traders")
+      .replace(/gdpnow/gi, "GDPNow")
+      .replace(/empsit(?=[_-]|\b)/gi, "employment situation")
+      .replace(/cpi(?=[_-]|\b)/gi, "CPI")
+      .replace(/fedwatch/gi, "FedWatch")
+      .replace(/([a-z])([A-Z])/g, "$1 $2")
+      .replace(/[_-]+/g, " ")
+      .replace(/([a-zA-Z])(\d)/g, "$1 $2")
+      .replace(/(\d)([a-zA-Z])/g, "$1 $2")
+      .replace(/\s+/g, " ")
+      .trim()
+  );
 const headlineFromUrl = (url) => {
   try {
     const parsed = new URL(String(url || ""));
@@ -87,10 +120,11 @@ const headlineFromUrl = (url) => {
       .split("/")
       .map((x) => decodeURIComponent(x))
       .map((x) => x.replace(/\.[a-z0-9]+$/i, ""))
-      .map((x) => x.replace(/[^a-zA-Z0-9]+/g, " ").trim())
+      .map((x) => x.replace(/[^a-zA-Z0-9_-]+/g, " ").trim())
+      .map((x) => humanizeToken(x))
       .filter(Boolean)
       .slice(0, 4);
-    const hostLabel = titleCase(hostStem.replace(/[^a-zA-Z0-9]+/g, " "));
+    const hostLabel = humanizeToken(hostStem.replace(/[^a-zA-Z0-9_-]+/g, " "));
     const pathLabel = titleCase(pathTokens.join(" "));
     return short(pathLabel ? `${hostLabel} ${pathLabel}` : hostLabel, 120);
   } catch {
@@ -99,14 +133,10 @@ const headlineFromUrl = (url) => {
 };
 const readableHeadline = (title, sourceUrl, fallback) => {
   const normalized = short(String(title || "").replace(/\s+/g, " "), 120).trim();
-  if (normalized && !looksLikeUrl(normalized) && normalized.length >= 8) return normalized;
+  if (normalized && !looksLikeUrl(normalized) && normalized.length >= 8 && !looksMachineTitle(normalized)) return normalized;
   const fromUrl = headlineFromUrl(sourceUrl);
   if (fromUrl) return fromUrl;
   return fallback;
-};
-const compactId = (value, fallback = "item") => {
-  const slug = slugifyFileName(value, fallback);
-  return slug.slice(0, 10) || fallback;
 };
 const extractKeywords = (item) => {
   const text = `${item?.title || ""} ${item?.summary || ""} ${item?.sourceUrl || ""}`.toLowerCase();
@@ -360,7 +390,7 @@ const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) =
   return `${lines.join("\n")}\n`;
 };
 
-const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink }) => {
+const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink, themeHubLink, relatedLinks = [] }) => {
   const lines = [];
   const keywords = Array.isArray(item?.keywords) ? item.keywords : [];
   lines.push("---");
@@ -370,10 +400,13 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink 
   lines.push(`priority: "${item.priority || "N/A"}"`);
   lines.push(`category: "${item.category || "N/A"}"`);
   lines.push(`theme: "${item.theme || "General Market Intel"}"`);
+  lines.push("aliases:");
+  lines.push(`  - "${String(item.displayTitle || item.title || "").replace(/"/g, '\\"')}"`);
   lines.push("tags:");
   lines.push("  - knowledge-intake");
   lines.push("  - notebooklm");
   lines.push("  - market-intel");
+  lines.push(`  - theme-${slugifyFileName(item.theme || "general", "general")}`);
   for (const keyword of keywords) lines.push(`  - kw-${keyword}`);
   lines.push("---");
   lines.push("");
@@ -383,17 +416,59 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink 
   lines.push(`- [[${hubLink}]]`);
   lines.push(`- [[${packLink}]]`);
   lines.push(`- [[${playbookLink}]]`);
+  lines.push(`- [[${themeHubLink}]]`);
   lines.push(`- theme: ${item.theme || "General Market Intel"}`);
   if (item.sourceUrl) lines.push(`- sourceUrl: ${item.sourceUrl}`);
   if (keywords.length > 0) lines.push(`- keywords: ${keywords.join(", ")}`);
+  if (relatedLinks.length > 0) lines.push(`- related: ${relatedLinks.map((x) => `[[${x}]]`).join(", ")}`);
   lines.push("");
   lines.push("## Summary");
   lines.push(item.summary || "N/A");
+  lines.push("");
+  lines.push("## Why this note exists");
+  lines.push("- Captures one intake source as a reusable knowledge node.");
+  lines.push("- Connects source -> theme cluster -> response playbook for fast graph navigation.");
   lines.push("");
   lines.push("## 대응안(초안)");
   lines.push("- [ ] 시그널/지표 반영 포인트 정리");
   lines.push("- [ ] shadow-only 검증 설계");
   lines.push("- [ ] 롤백 조건 명시");
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+};
+
+const markdownThemeHub = ({ generatedAt, theme, items, hubLink, packLink, playbookLink }) => {
+  const lines = [];
+  const keywords = new Map();
+  for (const item of items) {
+    for (const keyword of item.keywords || []) keywords.set(keyword, (keywords.get(keyword) || 0) + 1);
+  }
+  const topKeywords = [...keywords.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 8)
+    .map(([word, count]) => `${word} (${count})`);
+  lines.push("---");
+  lines.push(`generatedAt: "${generatedAt}"`);
+  lines.push(`theme: "${theme}"`);
+  lines.push("tags:");
+  lines.push("  - knowledge-hub");
+  lines.push("  - theme-cluster");
+  lines.push(`  - theme-${slugifyFileName(theme, "general")}`);
+  lines.push("---");
+  lines.push("");
+  lines.push(`# Theme Hub - ${theme}`);
+  lines.push("");
+  lines.push("## Links");
+  lines.push(`- [[${hubLink}]]`);
+  lines.push(`- [[${packLink}]]`);
+  lines.push(`- [[${playbookLink}]]`);
+  lines.push("");
+  lines.push("## Notes");
+  for (const item of items) lines.push(`- [[${item.noteName}]]`);
+  lines.push("");
+  lines.push("## Keyword Lens");
+  if (topKeywords.length === 0) lines.push("- (none)");
+  else for (const row of topKeywords) lines.push(`- ${row}`);
   lines.push("");
   return `${lines.join("\n")}\n`;
 };
@@ -431,12 +506,18 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
   } else {
     for (const [theme, rows] of themeMap.entries()) {
       lines.push(`### ${theme}`);
+      if (rows[0]?.themeHubName) lines.push(`- Theme Hub: [[${rows[0].themeHubName}]]`);
       for (const item of rows) {
         lines.push(`- [[${item.noteName}]] · ${item.displayTitle || item.title}`);
       }
       lines.push("");
     }
   }
+  lines.push("## Note Legend");
+  lines.push("- `NotebookLM_US_Stock_Research_Pack...`: source batch used to collect references.");
+  lines.push("- `Market_Intel_AutoTrading_Uplift_Playbook...`: candidate response actions and rollout ideas.");
+  lines.push("- `Theme Hub - ...`: cluster entry point by macro/risk/earnings/trend.");
+  lines.push("");
   lines.push("## Keyword Lens");
   if (topKeywords.length === 0) {
     lines.push("- (none)");
@@ -754,23 +835,55 @@ const main = async () => {
         const packLink = noteNameFromPath(obsidianGraphPackNote);
         const playbookLink = noteNameFromPath(obsidianGraphPlaybookNote);
         const prepared = [];
+        const usedNotePaths = new Set();
+        const themeHubMap = new Map();
         let index = 1;
         for (const item of queueItems) {
           const displayTitle = readableHeadline(item.title, item.sourceUrl, `NotebookLM Insight ${index}`);
           const keywords = extractKeywords({ ...item, title: displayTitle });
           const theme = inferTheme({ ...item, title: displayTitle });
-          const base = `${String(index).padStart(2, "0")}-${slugifyFileName(displayTitle, `item-${index}`).slice(0, 42)}-${compactId(item.pageId, `i${index}`)}`;
-          const notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${base}.md`;
+          const themeSlug = slugifyFileName(theme, "general-market-intel");
+          const baseStem = `${String(index).padStart(2, "0")}-${slugifyFileName(displayTitle, `insight-${index}`).slice(0, 56)}`;
+          let notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
+          let dupe = 2;
+          while (usedNotePaths.has(notePath)) {
+            notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}-${dupe}.md`;
+            dupe += 1;
+          }
+          usedNotePaths.add(notePath);
           const noteName = noteNameFromPath(notePath);
-          const graphItem = { ...item, displayTitle, keywords, theme };
+          const themeHubPath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`;
+          const themeHubName = noteNameFromPath(themeHubPath);
+          if (!themeHubMap.has(theme)) themeHubMap.set(theme, { themeHubPath, themeHubName });
+          prepared.push({ ...item, displayTitle, keywords, theme, noteName, notePath, themeHubPath, themeHubName });
+          index += 1;
+        }
+        const preparedByTheme = new Map();
+        for (const item of prepared) {
+          if (!preparedByTheme.has(item.theme)) preparedByTheme.set(item.theme, []);
+          preparedByTheme.get(item.theme).push(item);
+        }
+        for (const item of prepared) {
+          const peers = preparedByTheme.get(item.theme) || [];
+          const scored = peers
+            .filter((peer) => peer.noteName !== item.noteName)
+            .map((peer) => ({
+              noteName: peer.noteName,
+              score: peer.keywords.filter((kw) => item.keywords.includes(kw)).length
+            }))
+            .sort((a, b) => b.score - a.score || a.noteName.localeCompare(b.noteName))
+            .slice(0, 2)
+            .map((row) => row.noteName);
           const markdown = markdownGraphItem({
             generatedAt: report.generatedAt,
-            item: graphItem,
+            item,
             hubLink,
             packLink,
-            playbookLink
+            playbookLink,
+            themeHubLink: item.themeHubName,
+            relatedLinks: scored
           });
-          const itemRoute = `/vault/${encodeVaultPath(notePath)}`;
+          const itemRoute = `/vault/${encodeVaultPath(item.notePath)}`;
           await obsidianRequest({
             baseUrl: obsidianBaseUrl,
             apiKey: obsidianApiKey,
@@ -780,8 +893,27 @@ const main = async () => {
             contentType: "text/markdown"
           });
           totalBytes += Buffer.byteLength(markdown, "utf8");
-          prepared.push({ ...graphItem, noteName, notePath });
-          index += 1;
+        }
+        for (const [theme, rows] of preparedByTheme.entries()) {
+          const themeHub = themeHubMap.get(theme);
+          const themeMarkdown = markdownThemeHub({
+            generatedAt: report.generatedAt,
+            theme,
+            items: rows,
+            hubLink,
+            packLink,
+            playbookLink
+          });
+          const themeRoute = `/vault/${encodeVaultPath(themeHub.themeHubPath)}`;
+          await obsidianRequest({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            method: "PUT",
+            route: themeRoute,
+            body: themeMarkdown,
+            contentType: "text/markdown"
+          });
+          totalBytes += Buffer.byteLength(themeMarkdown, "utf8");
         }
         const hubMarkdown = markdownGraphHub({
           generatedAt: report.generatedAt,

@@ -237,7 +237,7 @@ const main = async () => {
   const notebookUrl = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL", "");
   const notebookQuery = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY", "");
   const maxItems = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS", 10);
-  const rpcTimeoutMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 180000);
+  const rpcTimeoutMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 300000);
   const questions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions).slice(0, maxItems);
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
   const bootstrapUrls = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS", []);
