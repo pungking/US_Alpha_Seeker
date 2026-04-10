@@ -222,7 +222,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY`
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
-  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `8`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `2`, 필요 시 증가)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` (default `false`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` (default `seed_pack`)
@@ -258,6 +258,9 @@ Optional knowledge pipeline automation:
     - `Intake/<theme>/NN-...`: 개별 intake 노트
   - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)
   - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
+  - 운영 안정화 메모:
+    - workflow 기본 timeout은 35분이며, NotebookLM MCP 수집 step은 `continue-on-error`로 구성되어 파이프라인 전체 중단을 방지
+    - NotebookLM 수집 시간이 길면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS`를 먼저 낮추고 관측 후 점진 증가 권장
 - 권장 세팅/전환 기준 문서:
   - `docs/KNOWLEDGE_PIPELINE_GITHUB_VARIABLE_MATRIX_2026-04-09.md`
 

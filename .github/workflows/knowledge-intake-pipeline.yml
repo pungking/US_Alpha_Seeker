@@ -13,8 +13,9 @@ concurrency:
 jobs:
   intake-pipeline:
     runs-on: ${{ vars.KNOWLEDGE_PIPELINE_RUNS_ON || 'ubuntu-latest' }}
-    timeout-minutes: 15
+    timeout-minutes: 35
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
       NOTION_WORK_LIST: ${{ vars.NOTION_WORK_LIST }}
 
@@ -37,7 +38,7 @@ jobs:
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS || '' }}
-      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS || '8' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS || '2' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER || 'false' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED || 'true' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE || 'seed_pack' }}
@@ -77,7 +78,19 @@ jobs:
         with:
           node-version: "20"
 
+      - name: Prepare state placeholders
+        run: |
+          mkdir -p state
+          [ -f state/knowledge-intake-pipeline-report.json ] || echo '{}' > state/knowledge-intake-pipeline-report.json
+          [ -f state/knowledge-approved-queue.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.json
+          [ -f state/knowledge-approved-queue.md ] || printf '# Knowledge Approved Queue\n\n- (pending)\n' > state/knowledge-approved-queue.md
+          [ -f state/knowledge-approved-queue-obsidian.md ] || printf '# Knowledge Approved Queue (Obsidian)\n\n- (pending)\n' > state/knowledge-approved-queue-obsidian.md
+          [ -f state/notebooklm-intake.json ] || echo '{"generatedAt":"","items":[]}' > state/notebooklm-intake.json
+          [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
+
       - name: Collect from NotebookLM MCP (optional)
+        timeout-minutes: 20
+        continue-on-error: true
         run: npm run ops:knowledge:notebooklm
 
       - name: Build NotebookLM intake seed (optional)
@@ -88,7 +101,7 @@ jobs:
 
       - name: Upload pipeline artifacts
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: knowledge-intake-pipeline
           path: |

@@ -24,7 +24,7 @@
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY` | 빈값(선택) | 이름/설명 검색 기반 notebook 선택 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` | 빈값(선택) | 라이브러리 비어있을 때 자동 add_notebook할 URL 목록 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` | 빈값(기본 질문세트 사용) | `||` 구분 또는 JSON array |
-| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` | `8` | 1회 수집 질문 상한 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` | `2` | 1회 수집 질문 상한(타임아웃 안정화 기본값) |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` | `false` | 디버깅용 브라우저 표시 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` | `true` | `notebooklm-intake.json` 자동 seed 생성 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` | `seed_pack` | docs 소스 팩 기반 seed 모드 |
@@ -48,6 +48,10 @@
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE` | `99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md` | 대응안 기준 노트 링크 |
 | `OBSIDIAN_BASE_URL` | `http://127.0.0.1:27123` | Obsidian Local REST API endpoint |
 | `NOTION_WORK_LIST` | 실제 DB ID | 승인 큐 소스 DB |
+
+운영 타임아웃 권장:
+- GitHub Actions job timeout은 `35m` 이상 권장
+- NotebookLM MCP step은 `continue-on-error: true` + `timeout-minutes: 20`으로 운영해 전체 파이프라인 중단 방지
 
 Secret:
 - `NOTION_TOKEN` (`source_mode=notion|hybrid`일 때 필수)
