@@ -145,6 +145,57 @@ const readableHeadline = (title, sourceUrl, fallback) => {
   if (fromUrl) return fromUrl;
   return fallback;
 };
+const compactReadableTitle = (value, max = 64) =>
+  short(
+    String(value || "")
+      .replace(/\s+/g, " ")
+      .replace(/\b(insight|analysis|summary|response)\b/gi, "")
+      .replace(/\s{2,}/g, " ")
+      .trim(),
+    max
+  );
+const summaryOneLiner = (summary) => {
+  const text = String(summary || "")
+    .replace(/^#+\s+/gm, "")
+    .replace(/^\s*-\s+/gm, "")
+    .replace(/\n+/g, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!text) return "";
+  return short(text, 120);
+};
+const inferSourceHintKo = ({ title, sourceUrl, summary, theme }) => {
+  const text = `${title || ""} ${summary || ""} ${sourceUrl || ""}`.toLowerCase();
+  if (/(fomc|federalreserve|monetary)/.test(text)) return "연준 통화정책";
+  if (/(cpi|inflation|bls)/.test(text)) return "미국 CPI";
+  if (/(employment|nfp|jobs|payroll)/.test(text)) return "미국 고용";
+  if (/(gdpnow|gdp)/.test(text)) return "GDPNow/성장";
+  if (/(fedwatch|interest rates|rate cut|rate hike|cme)/.test(text)) return "금리 확률";
+  if (/(vix|volatility|drawdown|hedge|risk)/.test(text)) return "변동성/리스크";
+  if (/(earnings|guidance|profit|revenue)/.test(text)) return "실적/펀더멘털";
+  if (/(sector|rotation|momentum|trend)/.test(text)) return "섹터/트렌드";
+  if (/(policy|regulation|sec|edgar|compliance)/.test(text)) return "정책/컴플라이언스";
+  if (String(theme || "").trim()) return themeLabelKo(theme);
+  return "";
+};
+const isSeedPlaceholder = (summary) => {
+  const text = String(summary || "").toLowerCase();
+  return text.includes("seed source from") || text.includes("replace with notebooklm analysis output");
+};
+const seedPlaceholderSummary = (sourceUrl) => {
+  const lines = [];
+  lines.push("## 상태");
+  lines.push("NotebookLM 실제 분석 응답이 아직 수집되지 않았습니다.");
+  lines.push("");
+  lines.push("## 현재 항목 의미");
+  lines.push("- 소스 URL만 연결된 시드(placeholder) 노트입니다.");
+  if (sourceUrl) lines.push(`- sourceUrl: ${sourceUrl}`);
+  lines.push("");
+  lines.push("## 다음 조치");
+  lines.push("- NotebookLM MCP collect 타임아웃/세션 상태 점검");
+  lines.push("- 질문 수를 줄여 재실행 후 실제 답변으로 덮어쓰기");
+  return `${lines.join("\n")}`.trim();
+};
 const sanitizeNotebookSummary = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -238,6 +289,7 @@ const localizedDisplayTitle = ({ displayTitle, theme, index, preferKorean }) => 
   const normalized = short(String(displayTitle || "").replace(/\s+/g, " "), 120).trim();
   if (!preferKorean) return normalized || `NotebookLM Insight ${index}`;
   if (hasKorean(normalized)) return normalized;
+  if (normalized && !looksMachineTitle(normalized) && !looksLikeUrl(normalized)) return compactReadableTitle(normalized, 72);
   return `${themeLabelKo(theme)} 인사이트 ${String(index).padStart(2, "0")}`;
 };
 const resolvePath = (value, fallbackPath) => {
@@ -452,13 +504,17 @@ const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) =
 const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink, themeHubLink, relatedLinks = [] }) => {
   const lines = [];
   const keywords = Array.isArray(item?.keywords) ? item.keywords : [];
+  const oneLiner = summaryOneLiner(item.summary);
   lines.push("---");
   lines.push(`generatedAt: "${generatedAt}"`);
+  lines.push(`title: "${String(item.displayTitle || item.title || "").replace(/"/g, '\\"')}"`);
   lines.push(`sourceType: "${item.sourceType || "N/A"}"`);
   lines.push(`itemId: "${item.pageId}"`);
   lines.push(`priority: "${item.priority || "N/A"}"`);
   lines.push(`category: "${item.category || "N/A"}"`);
   lines.push(`theme: "${item.theme || "General Market Intel"}"`);
+  if (item.sourceUrl) lines.push(`sourceUrl: "${String(item.sourceUrl).replace(/"/g, '\\"')}"`);
+  if (item.sourceRef) lines.push(`sourceRef: "${String(item.sourceRef).replace(/"/g, '\\"')}"`);
   lines.push("aliases:");
   lines.push(`  - "${String(item.displayTitle || item.title || "").replace(/"/g, '\\"')}"`);
   lines.push("tags:");
@@ -471,24 +527,28 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink,
   lines.push("");
   lines.push(`# ${item.displayTitle || item.title}`);
   lines.push("");
-  lines.push("## Link Graph");
-  lines.push(`- [[${hubLink}]]`);
-  lines.push(`- [[${themeHubLink}]]`);
-  lines.push(`- theme: ${item.theme || "General Market Intel"}`);
+  if (oneLiner) lines.push(`> ${oneLiner}`);
+  if (oneLiner) lines.push("");
+  lines.push("## 핵심 내용");
+  lines.push(item.summary || "N/A");
+  lines.push("");
+  lines.push("## 근거 소스");
   if (item.sourceUrl) lines.push(`- sourceUrl: ${item.sourceUrl}`);
+  else lines.push("- sourceUrl: N/A");
+  if (item.sourceRef) lines.push(`- sourceRef: ${item.sourceRef}`);
+  lines.push("");
+  lines.push("## 연관 노트");
+  lines.push(`- [[${themeHubLink}]]`);
+  lines.push(`- 클러스터: ${item.theme || "General Market Intel"}`);
   if (keywords.length > 0) lines.push(`- keywords: ${keywords.join(", ")}`);
   if (relatedLinks.length > 0) lines.push(`- related: ${relatedLinks.map((x) => `[[${x}]]`).join(", ")}`);
   lines.push("");
-  lines.push("## 참고 문서");
-  lines.push(`- ${packLink}`);
-  lines.push(`- ${playbookLink}`);
-  lines.push("");
-  lines.push("## Summary");
-  lines.push(item.summary || "N/A");
-  lines.push("");
-  lines.push("## Why this note exists");
-  lines.push("- Captures one intake source as a reusable knowledge node.");
-  lines.push("- Connects source -> theme cluster -> response playbook for fast graph navigation.");
+  lines.push("## 실행 메모");
+  lines.push(`- category: ${item.category || "N/A"}`);
+  lines.push(`- priority: ${item.priority || "N/A"}`);
+  lines.push(`- graphHub: ${hubLink}`);
+  lines.push(`- pack: ${packLink}`);
+  lines.push(`- playbook: ${playbookLink}`);
   lines.push("");
   lines.push("## 대응안(초안)");
   lines.push("- [ ] 시그널/지표 반영 포인트 정리");
@@ -517,17 +577,21 @@ const markdownThemeHub = ({ generatedAt, theme, items, hubLink, packLink, playbo
   lines.push(`  - theme-${slugifyFileName(theme, "general")}`);
   lines.push("---");
   lines.push("");
-  lines.push(`# Theme Hub - ${theme}`);
+  lines.push(`# 테마 허브 - ${theme}`);
   lines.push("");
-  lines.push("## Links");
+  lines.push("## 요약");
+  lines.push(`- 노트 수: ${items.length}`);
+  lines.push(`- 중심 키워드: ${topKeywords.slice(0, 4).join(", ") || "(none)"}`);
+  lines.push("");
+  lines.push("## 연결");
   lines.push(`- [[${hubLink}]]`);
-  lines.push(`- [[${packLink}]]`);
-  lines.push(`- [[${playbookLink}]]`);
+  lines.push(`- pack: ${packLink}`);
+  lines.push(`- playbook: ${playbookLink}`);
   lines.push("");
-  lines.push("## Notes");
-  for (const item of items) lines.push(`- [[${item.noteName}]]`);
+  lines.push("## 인사이트 노트");
+  for (const item of items) lines.push(`- [[${item.noteName}]] · ${item.displayTitle || item.title}`);
   lines.push("");
-  lines.push("## Keyword Lens");
+  lines.push("## 키워드 렌즈");
   if (topKeywords.length === 0) lines.push("- (none)");
   else for (const row of topKeywords) lines.push(`- ${row}`);
   lines.push("");
@@ -555,29 +619,57 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
   lines.push("  - notebooklm");
   lines.push("---");
   lines.push("");
-  lines.push("# NotebookLM Intake Graph Hub");
+  lines.push("# NotebookLM 인테이크 그래프 허브");
   lines.push("");
   lines.push("## Core Docs");
-  lines.push(`- [[${packLink}]]`);
-  lines.push(`- [[${playbookLink}]]`);
+  lines.push(`- pack: ${packLink}`);
+  lines.push(`- playbook: ${playbookLink}`);
   lines.push("");
-  lines.push("## Headline Clusters");
+  lines.push("## 테마 클러스터");
   if (items.length === 0) {
     lines.push("- (none)");
   } else {
     for (const [theme, rows] of themeMap.entries()) {
-      lines.push(`### ${theme}`);
-      if (rows[0]?.themeHubName) lines.push(`- Theme Hub: [[${rows[0].themeHubName}]]`);
-      for (const item of rows) {
-        lines.push(`- [[${item.noteName}]] · ${item.displayTitle || item.title}`);
+      const keywords = new Map();
+      for (const row of rows) for (const keyword of row.keywords || []) keywords.set(keyword, (keywords.get(keyword) || 0) + 1);
+      const top = [...keywords.entries()]
+        .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+        .slice(0, 4)
+        .map(([w]) => w)
+        .join(", ");
+      lines.push(`- [[${rows[0]?.themeHubName || theme}]] · ${rows.length}개 노트 · 키워드: ${top || "(none)"}`);
+    }
+    lines.push("");
+    lines.push("## 테마 상관관계");
+    const themes = [...themeMap.entries()];
+    let relationCount = 0;
+    for (let i = 0; i < themes.length; i += 1) {
+      for (let j = i + 1; j < themes.length; j += 1) {
+        const [themeA, rowsA] = themes[i];
+        const [themeB, rowsB] = themes[j];
+        const setA = new Set(rowsA.flatMap((x) => x.keywords || []));
+        const setB = new Set(rowsB.flatMap((x) => x.keywords || []));
+        const overlap = [...setA].filter((x) => setB.has(x)).slice(0, 4);
+        if (overlap.length === 0) continue;
+        relationCount += 1;
+        lines.push(
+          `- [[${rowsA[0]?.themeHubName || themeA}]] ↔ [[${rowsB[0]?.themeHubName || themeB}]] · 공통 키워드: ${overlap.join(", ")}`
+        );
       }
+    }
+    if (relationCount === 0) lines.push("- (공통 키워드 기반 연결 없음)");
+    lines.push("");
+    lines.push("## 노트 인덱스(텍스트)");
+    for (const [theme, rows] of themeMap.entries()) {
+      lines.push(`### ${theme}`);
+      for (const item of rows) lines.push(`- ${item.displayTitle || item.title} (${item.noteName})`);
       lines.push("");
     }
   }
   lines.push("## Note Legend");
   lines.push("- `NotebookLM_US_Stock_Research_Pack...`: source batch used to collect references.");
   lines.push("- `Market_Intel_AutoTrading_Uplift_Playbook...`: candidate response actions and rollout ideas.");
-  lines.push("- `Theme Hub - ...`: cluster entry point by macro/risk/earnings/trend.");
+  lines.push("- `테마 허브`: 주제별 탐색 시작점.");
   lines.push("");
   lines.push("## Keyword Lens");
   if (topKeywords.length === 0) {
@@ -748,10 +840,11 @@ const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limi
   const items = rows.map((row, index) => {
     const rawTitle = String(row?.title || row?.topic || row?.headline || "").trim();
     const summaryRaw = String(row?.summary || row?.insight || row?.notes || "").trim();
-    const summary = sanitizeNotebookSummary(summaryRaw);
+    const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
+    const summarySanitized = sanitizeNotebookSummary(summaryRaw);
+    const summary = isSeedPlaceholder(summaryRaw) ? seedPlaceholderSummary(sourceUrl) : summarySanitized;
     const category = String(row?.category || row?.area || fallbackCategory || "").trim();
     const priority = String(row?.priority || fallbackPriority || "").trim();
-    const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
     const sourceRef = String(row?.sourceRef || row?.notebook || row?.notebookId || "").trim();
     const idBase = safeId(row?.id, `notebooklm-${index + 1}`);
     const title = readableHeadline(rawTitle, sourceUrl, `NotebookLM Item ${index + 1}`);
@@ -1055,11 +1148,23 @@ const main = async () => {
             displayTitle: rawTitle,
             theme: themeCanonical,
             index,
-            preferKorean: obsidianGraphKoreanTitle
+            preferKorean: obsidianGraphKoreanTitle,
+            sourceUrl: item.sourceUrl,
+            summary: item.summary
           });
+          const hintTitle = inferSourceHintKo({
+            title: rawTitle,
+            sourceUrl: item.sourceUrl,
+            summary: item.summary,
+            theme: themeCanonical
+          });
+          const finalTitle =
+            obsidianGraphKoreanTitle && hintTitle && !hasKorean(displayTitle)
+              ? `${themeLabelKo(themeCanonical)} · ${hintTitle}`
+              : displayTitle;
           const keywords = extractKeywords({ ...item, title: rawTitle });
           const themeSlug = slugifyFileName(theme, "general-market-intel");
-          const baseStem = `${String(index).padStart(2, "0")}-${slugifyFileName(displayTitle, `insight-${index}`).slice(0, 56)}`;
+          const baseStem = `${String(index).padStart(2, "0")}-${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}`;
           let notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
           let dupe = 2;
           while (usedNotePaths.has(notePath)) {
@@ -1071,7 +1176,7 @@ const main = async () => {
           const themeHubPath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`;
           const themeHubName = noteNameFromPath(themeHubPath);
           if (!themeHubMap.has(theme)) themeHubMap.set(theme, { themeHubPath, themeHubName });
-          prepared.push({ ...item, displayTitle, keywords, theme, themeCanonical, noteName, notePath, themeHubPath, themeHubName });
+          prepared.push({ ...item, displayTitle: finalTitle, keywords, theme, themeCanonical, noteName, notePath, themeHubPath, themeHubName });
           index += 1;
         }
         const currentNotePathSet = new Set(prepared.map((x) => x.notePath));
