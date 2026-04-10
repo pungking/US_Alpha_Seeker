@@ -122,6 +122,11 @@ const extractAnswerText = (resultText, parsed) => {
   return resultText;
 };
 
+const isNoSourceUiError = (text) => {
+  const s = String(text || "");
+  return /(시작하려면 출처를 업로드하세요|upload.*source|element is not enabled)/i.test(s);
+};
+
 class JsonLineRpcClient {
   constructor({ command, args, commandEnv, timeoutMs = 90000 }) {
     this.command = command;
@@ -273,10 +278,23 @@ const main = async () => {
   const client = new JsonLineRpcClient({ command, args, commandEnv });
   try {
     await client.start();
-    const healthRes = await client.request("tools/call", { name: "get_health", arguments: {} });
-    const healthParsed = parseToolTextResult(healthRes);
-    report.health.status = healthParsed.parsed?.data?.status ?? null;
-    report.health.authenticated = healthParsed.parsed?.data?.authenticated ?? null;
+    const refreshHealth = async () => {
+      const healthRes = await client.request("tools/call", { name: "get_health", arguments: {} });
+      const healthParsed = parseToolTextResult(healthRes);
+      report.health.status = healthParsed.parsed?.data?.status ?? null;
+      report.health.authenticated = healthParsed.parsed?.data?.authenticated ?? null;
+    };
+    await refreshHealth();
+
+    // If auth is missing and browser mode is enabled, request one-time manual auth first.
+    if (report.health.authenticated === false && showBrowser) {
+      try {
+        await client.request("tools/call", { name: "setup_auth", arguments: { show_browser: true } });
+      } catch (authErr) {
+        report.authSetup = { status: "failed", reason: authErr?.message || String(authErr) };
+      }
+      await refreshHealth();
+    }
 
     const listRes = await client.request("tools/call", { name: "list_notebooks", arguments: {} });
     const listParsed = parseToolTextResult(listRes);
@@ -329,9 +347,36 @@ const main = async () => {
       url: selected.url || notebookUrl || null
     };
 
+    if (report.health.authenticated === false) {
+      fs.mkdirSync(path.dirname(outputPath), { recursive: true });
+      fs.writeFileSync(
+        outputPath,
+        `${JSON.stringify(
+          {
+            generatedAt: new Date().toISOString(),
+            mode: "notebooklm_mcp",
+            notebook: report.notebook.selected,
+            questions,
+            items: []
+          },
+          null,
+          2
+        )}\n`,
+        "utf8"
+      );
+      report.status = "no_items";
+      report.reason = "not_authenticated_or_notebook_access_denied";
+      report.collected = 0;
+      console.log(
+        `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`
+      );
+      return;
+    }
+
     const items = [];
     let failCount = 0;
     let index = 1;
+    let noSourceUiBlocked = false;
     for (const question of questions) {
       const args = {
         question,
@@ -345,6 +390,10 @@ const main = async () => {
       const ok = parsed.parsed?.success !== false;
       if (!ok) {
         failCount += 1;
+        if (isNoSourceUiError(parsed.text)) {
+          noSourceUiBlocked = true;
+          break;
+        }
         continue;
       }
       const answer = extractAnswerText(parsed.text, parsed.parsed);
@@ -383,6 +432,8 @@ const main = async () => {
     report.reason =
       items.length > 0
         ? ""
+        : noSourceUiBlocked
+          ? "notebook_has_no_sources_or_query_disabled"
         : report.health.authenticated === false
           ? "not_authenticated_or_notebook_access_denied"
           : failCount > 0

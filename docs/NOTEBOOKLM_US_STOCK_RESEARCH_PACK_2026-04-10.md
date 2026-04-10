@@ -63,6 +63,63 @@
 - NYSE Holidays/Trading Hours: https://www.nyse.com/markets/hours-calendars
 - CME FedWatch main: https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html
 
+## 카테고리별 고신뢰 링크 (추가)
+
+### 1) 금융/경제 (공식 1차 소스)
+- Federal Reserve calendar: https://www.federalreserve.gov/monetarypolicy/fomccalendars.htm
+- BLS Economic Releases calendar: https://www.bls.gov/schedule/news_release/
+- BEA News Releases: https://www.bea.gov/news
+- US Treasury Yield Curve rates: https://home.treasury.gov/resource-center/data-chart-center/interest-rates
+- FRED (St. Louis Fed): https://fred.stlouisfed.org/
+
+### 2) 변동성/파생/수급
+- Cboe VIX products: https://www.cboe.com/tradable-products/vix/
+- CFTC Commitments of Traders (COT): https://www.cftc.gov/MarketReports/CommitmentsofTraders/index.htm
+- CME FedWatch: https://www.cmegroup.com/markets/interest-rates/cme-fedwatch-tool.html
+
+### 3) 실적/기업 펀더멘털/공시
+- SEC EDGAR company filings: https://www.sec.gov/edgar/searchedgar/companysearch
+- SEC press releases: https://www.sec.gov/news/pressreleases
+- S&P DJI index dashboard: https://www.spglobal.com/spdji/en/
+
+### 4) 테마/트렌드/섹터
+- GICS sectors overview (S&P): https://www.spglobal.com/spdji/en/landing/topic/gics/
+- NYSE market data overview: https://www.nyse.com/market-data
+- Nasdaq market activity: https://www.nasdaq.com/market-activity
+
+### 5) 분석기법/신호검색/모델 품질
+- Ken French Data Library (factor research): https://mba.tuck.dartmouth.edu/pages/faculty/ken.french/data_library.html
+- NBER Working Papers search: https://www.nber.org/papers
+- BIS research hub: https://www.bis.org/publ/research.htm
+
+### 6) 차트/OHLCV 데이터 파이프라인 검증
+- Alpha Vantage docs (OHLCV/indicators): https://www.alphavantage.co/documentation/
+- Alpaca market data docs: https://docs.alpaca.markets/docs/market-data
+- Polygon market data docs: https://polygon.io/docs
+- Nasdaq historical quote data: https://www.nasdaq.com/market-activity/quotes/historical
+
+## NotebookLM 투입 우선순위 (권장)
+- P0 (매일): Fed/BLS/BEA/Cboe/CME/FRED/SEC
+- P1 (주간): COT/GICS/S&P sector pages
+- P2 (개선 실험): Ken French/NBER/BIS + OHLCV provider docs
+
+## 차트 패턴/신호 분석 링크 (추가)
+- NBER, Foundations of Technical Analysis (Lo et al.): https://www.nber.org/papers/w7613
+- CMT Association (Body of Knowledge): https://cmtassociation.org/body-of-knowledge/
+- TA-Lib pattern recognition functions: https://ta-lib.github.io/ta-lib-python/func_groups/pattern_recognition.html
+- StockCharts ChartSchool (pattern taxonomy): https://chartschool.stockcharts.com/
+- TradingView Pine Script docs (pattern/signal implementation): https://www.tradingview.com/pine-script-docs/welcome/
+- pandas-ta indicators list (OHLCV signal engineering): https://xgboosted.github.io/pandas-ta-classic/indicators.html
+
+## 차트 패턴 질문 템플릿 (NotebookLM)
+- "NBER/TA-Lib/CMT 기준으로 신뢰도 높은 패턴 10개를 강세/약세/중립으로 분류하고 false signal 조건을 적어줘."
+- "OHLCV만으로 구현 가능한 breakout/reversal/continuation 신호를 수식(또는 의사코드)으로 정리해줘."
+- "자동매매용으로 패턴+거래량+변동성 결합 점수(0~100) 모델을 설계하고 백테스트 체크리스트를 제시해줘."
+
+## 운영 메모
+- `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS`는 "노트북 URL 등록" 용도다.
+- 위 링크들은 NotebookLM 노트북 내부의 "소스 추가"로 넣어야 실제 질문 응답 품질이 올라간다.
+
 ## NotebookLM 질문 템플릿 (바로 복붙)
 
 ### A. 거시-시장 연결
@@ -86,4 +143,3 @@
 - 스케줄: CPI/고용/FOMC 발표 시각(ET)을 cron + preflight 정책과 동기화.
 - 실적 시즌: 섹터 편중(IT/Energy) 시 포트폴리오 concentration guard 강화.
 - 승격 게이트: payload-path 검증 + shadow drift 안정 + marker audit 통과 시에만 실전 승격.
-
