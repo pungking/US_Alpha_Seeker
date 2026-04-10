@@ -170,10 +170,42 @@ class JsonLineRpcClient {
     this.notify("notifications/initialized", {});
   }
 
-  async stop() {
+  async stop({ gracefulMs = 3000, forceMs = 2000 } = {}) {
     if (!this.proc) return;
-    this.proc.kill("SIGTERM");
+    const proc = this.proc;
     this.proc = null;
+
+    await new Promise((resolve) => {
+      let settled = false;
+      const done = () => {
+        if (settled) return;
+        settled = true;
+        resolve();
+      };
+
+      const onExit = () => done();
+      const onError = () => done();
+      proc.once("exit", onExit);
+      proc.once("error", onError);
+
+      try {
+        proc.kill("SIGTERM");
+      } catch {
+        done();
+        return;
+      }
+
+      setTimeout(() => {
+        if (proc.exitCode == null) {
+          try {
+            proc.kill("SIGKILL");
+          } catch {
+            // ignore
+          }
+        }
+        setTimeout(done, forceMs);
+      }, gracefulMs);
+    });
   }
 
   notify(method, params = {}) {
@@ -237,6 +269,8 @@ const main = async () => {
   const notebookUrl = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL", "");
   const notebookQuery = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY", "");
   const maxItems = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS", 10);
+  const maxRuntimeMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS", 24 * 60 * 1000);
+  const minQuestionBudgetMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS", 90 * 1000);
   const rpcTimeoutMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 300000);
   const questions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions).slice(0, maxItems);
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
@@ -255,7 +289,12 @@ const main = async () => {
     notebook: { requestedId: notebookId || null, requestedUrl: notebookUrl || null, query: notebookQuery || null, selected: null },
     health: { authenticated: null, status: null },
     asked: 0,
-    collected: 0
+    collected: 0,
+    runtime: {
+      maxRuntimeMs,
+      minQuestionBudgetMs,
+      budgetStop: false
+    }
   };
 
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
@@ -379,7 +418,16 @@ const main = async () => {
     let failCount = 0;
     let index = 1;
     let noSourceUiBlocked = false;
+    const startedAtMs = Date.now();
     for (const question of questions) {
+      const elapsedMs = Date.now() - startedAtMs;
+      const remainingMs = maxRuntimeMs - elapsedMs;
+      if (remainingMs < minQuestionBudgetMs) {
+        report.runtime.budgetStop = true;
+        report.runtime.elapsedMs = elapsedMs;
+        report.runtime.remainingMs = remainingMs;
+        break;
+      }
       const args = {
         question,
         show_browser: showBrowser
@@ -441,6 +489,10 @@ const main = async () => {
           : failCount > 0
             ? "ask_question_failed_for_all_items"
             : "ask_question_returned_no_content";
+    if (items.length > 0 && report.runtime.budgetStop) {
+      report.status = "ok_partial";
+      report.reason = "runtime_budget_guard";
+    }
     report.collected = items.length;
     console.log(
       `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`

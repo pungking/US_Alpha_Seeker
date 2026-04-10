@@ -19,6 +19,10 @@
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_OVERWRITE` | `false` | 기존 `notebooklm-intake.json` 덮어쓰기 제어 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_COMMAND` | `npx` | NotebookLM MCP 실행 커맨드 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ARGS` | `["-y","notebooklm-mcp"]` | NotebookLM MCP 실행 인자 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_STEP_TIMEOUT_MIN` | `30` | NotebookLM 수집 step 타임아웃(분) |
+| `KNOWLEDGE_PIPELINE_JOB_TIMEOUT_MIN` | `45` | workflow job 타임아웃(분) |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS` | `1440000` | 수집 스크립트 내부 실행 한도(밀리초) |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS` | `90000` | 다음 질문 시작 최소 잔여시간(밀리초) |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` | 빈값(선택) | 특정 notebook ID 고정 선택 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` | 빈값(선택) | ad-hoc NotebookLM URL 직접 지정 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY` | 빈값(선택) | 이름/설명 검색 기반 notebook 선택 |
@@ -46,12 +50,19 @@
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR` | `99_Automation/NotebookLM/Intake` | item 노트 저장 디렉토리 |
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE` | `99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md` | 소스 팩 기준 노트 링크 |
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE` | `99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md` | 대응안 기준 노트 링크 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH` | `99_Automation/NotebookLM/Intake/_meta/generated-manifest.json` | stale 정리 기준 manifest |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_KOREAN_TITLE` | `true` | Obsidian 제목/파일명을 한글 중심으로 생성 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP` | `true` | 구버전 `seed-*` 레거시 패턴 자동 정리 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP` | `true` | 최신 manifest에 없는 구노트 자동 정리 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED` | `true` | stale 삭제 전 Archive 백업 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR` | `99_Automation/NotebookLM/Archive` | stale 아카이브 경로 |
 | `OBSIDIAN_BASE_URL` | `http://127.0.0.1:27123` | Obsidian Local REST API endpoint |
 | `NOTION_WORK_LIST` | 실제 DB ID | 승인 큐 소스 DB |
 
 운영 타임아웃 권장:
-- GitHub Actions job timeout은 `35m` 이상 권장
-- NotebookLM MCP step은 `continue-on-error: true` + `timeout-minutes: 20`으로 운영해 전체 파이프라인 중단 방지
+- GitHub Actions job timeout은 `45m` 권장
+- NotebookLM MCP step은 `continue-on-error: true` + `timeout-minutes: 30` 권장
+- 수집 스크립트 내부 런타임 가드를 활성화해 timeout 직전 강제종료를 방지 (`...MAX_RUNTIME_MS`, `...MIN_QUESTION_BUDGET_MS`)
 
 Secret:
 - `NOTION_TOKEN` (`source_mode=notion|hybrid`일 때 필수)

@@ -63,10 +63,17 @@ const safeId = (value, fallback) => {
   return fallback;
 };
 const noteNameFromPath = (filePath) => path.basename(String(filePath || "").replace(/\\/g, "/"), ".md").trim();
+const hasKorean = (value) => /[가-힣]/.test(String(value || ""));
 const slugifyFileName = (value, fallback = "item") => {
-  const raw = String(value || "").toLowerCase();
+  const raw = String(value || "")
+    .normalize("NFKC")
+    .toLowerCase();
   const normalized = raw
-    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/[\/\\:?*"<>|]/g, " ")
+    .replace(/[\u0000-\u001f]/g, " ")
+    .replace(/[^\p{L}\p{N}\s._-]+/gu, " ")
+    .replace(/[._]+/g, "-")
+    .replace(/\s+/g, "-")
     .replace(/-+/g, "-")
     .replace(/^-+|-+$/g, "");
   return normalized || fallback;
@@ -180,6 +187,24 @@ const inferTheme = (item) => {
   if (/(sector|rotation|flow|momentum|trend)/.test(text)) return "Sector & Trend";
   if (/(policy|regulation|sec|edgar)/.test(text)) return "Policy & Compliance";
   return "General Market Intel";
+};
+const themeLabelKo = (theme) => {
+  const key = String(theme || "");
+  const map = {
+    "Macro & Rates": "거시-금리",
+    "Volatility & Risk": "변동성-리스크",
+    "Earnings & Fundamentals": "실적-펀더멘털",
+    "Sector & Trend": "섹터-트렌드",
+    "Policy & Compliance": "정책-컴플라이언스",
+    "General Market Intel": "시장-인텔"
+  };
+  return map[key] || "시장-인텔";
+};
+const localizedDisplayTitle = ({ displayTitle, theme, index, preferKorean }) => {
+  const normalized = short(String(displayTitle || "").replace(/\s+/g, " "), 120).trim();
+  if (!preferKorean) return normalized || `NotebookLM Insight ${index}`;
+  if (hasKorean(normalized)) return normalized;
+  return `${themeLabelKo(theme)} 인사이트 ${String(index).padStart(2, "0")}`;
 };
 const resolvePath = (value, fallbackPath) => {
   const raw = String(value || "").trim();
@@ -751,9 +776,10 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH",
     "99_Automation/NotebookLM/Intake/_meta/generated-manifest.json"
   );
+  const obsidianGraphKoreanTitle = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_KOREAN_TITLE", true);
   const obsidianGraphLegacyCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP", true);
-  const obsidianGraphStaleCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP", false);
-  const obsidianGraphArchiveEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED", false);
+  const obsidianGraphStaleCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP", true);
+  const obsidianGraphArchiveEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED", true);
   const obsidianGraphArchiveDir = env(
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR",
     "99_Automation/NotebookLM/Archive"
@@ -802,6 +828,7 @@ const main = async () => {
       graphUploadedItems: 0,
       graphUploadedHub: false,
       graphManifestPath: obsidianGraphManifestPath,
+      graphKoreanTitleEnabled: obsidianGraphKoreanTitle,
       graphLegacyCleanupEnabled: obsidianGraphLegacyCleanup,
       graphStaleCleanupEnabled: obsidianGraphStaleCleanup,
       graphArchiveEnabled: obsidianGraphArchiveEnabled,
@@ -983,9 +1010,16 @@ const main = async () => {
         const themeHubMap = new Map();
         let index = 1;
         for (const item of queueItems) {
-          const displayTitle = readableHeadline(item.title, item.sourceUrl, `NotebookLM Insight ${index}`);
-          const keywords = extractKeywords({ ...item, title: displayTitle });
-          const theme = inferTheme({ ...item, title: displayTitle });
+          const rawTitle = readableHeadline(item.title, item.sourceUrl, `NotebookLM Insight ${index}`);
+          const themeCanonical = inferTheme({ ...item, title: rawTitle });
+          const theme = obsidianGraphKoreanTitle ? themeLabelKo(themeCanonical) : themeCanonical;
+          const displayTitle = localizedDisplayTitle({
+            displayTitle: rawTitle,
+            theme: themeCanonical,
+            index,
+            preferKorean: obsidianGraphKoreanTitle
+          });
+          const keywords = extractKeywords({ ...item, title: rawTitle });
           const themeSlug = slugifyFileName(theme, "general-market-intel");
           const baseStem = `${String(index).padStart(2, "0")}-${slugifyFileName(displayTitle, `insight-${index}`).slice(0, 56)}`;
           let notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
@@ -999,7 +1033,7 @@ const main = async () => {
           const themeHubPath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`;
           const themeHubName = noteNameFromPath(themeHubPath);
           if (!themeHubMap.has(theme)) themeHubMap.set(theme, { themeHubPath, themeHubName });
-          prepared.push({ ...item, displayTitle, keywords, theme, noteName, notePath, themeHubPath, themeHubName });
+          prepared.push({ ...item, displayTitle, keywords, theme, themeCanonical, noteName, notePath, themeHubPath, themeHubName });
           index += 1;
         }
         const currentNotePathSet = new Set(prepared.map((x) => x.notePath));
