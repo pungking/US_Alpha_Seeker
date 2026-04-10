@@ -237,6 +237,7 @@ const main = async () => {
   const notebookUrl = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL", "");
   const notebookQuery = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY", "");
   const maxItems = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS", 10);
+  const rpcTimeoutMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 180000);
   const questions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions).slice(0, maxItems);
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
   const bootstrapUrls = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS", []);
@@ -250,6 +251,7 @@ const main = async () => {
     outputPath: path.relative(CWD, outputPath),
     command,
     args,
+    rpcTimeoutMs,
     notebook: { requestedId: notebookId || null, requestedUrl: notebookUrl || null, query: notebookQuery || null, selected: null },
     health: { authenticated: null, status: null },
     asked: 0,
@@ -275,7 +277,7 @@ const main = async () => {
   const commandEnv = { ...process.env };
   if (env("GEMINI_API_KEY")) commandEnv.GOOGLE_API_KEY = env("GEMINI_API_KEY");
 
-  const client = new JsonLineRpcClient({ command, args, commandEnv });
+  const client = new JsonLineRpcClient({ command, args, commandEnv, timeoutMs: rpcTimeoutMs });
   try {
     await client.start();
     const refreshHealth = async () => {
