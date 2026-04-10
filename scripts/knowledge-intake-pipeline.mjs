@@ -71,6 +71,86 @@ const slugifyFileName = (value, fallback = "item") => {
     .replace(/^-+|-+$/g, "");
   return normalized || fallback;
 };
+const looksLikeUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
+const titleCase = (value) =>
+  String(value || "")
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
+    .join(" ");
+const headlineFromUrl = (url) => {
+  try {
+    const parsed = new URL(String(url || ""));
+    const host = parsed.hostname.replace(/^www\./, "");
+    const hostStem = host.split(".")[0] || "source";
+    const pathTokens = parsed.pathname
+      .split("/")
+      .map((x) => decodeURIComponent(x))
+      .map((x) => x.replace(/\.[a-z0-9]+$/i, ""))
+      .map((x) => x.replace(/[^a-zA-Z0-9]+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 4);
+    const hostLabel = titleCase(hostStem.replace(/[^a-zA-Z0-9]+/g, " "));
+    const pathLabel = titleCase(pathTokens.join(" "));
+    return short(pathLabel ? `${hostLabel} ${pathLabel}` : hostLabel, 120);
+  } catch {
+    return "";
+  }
+};
+const readableHeadline = (title, sourceUrl, fallback) => {
+  const normalized = short(String(title || "").replace(/\s+/g, " "), 120).trim();
+  if (normalized && !looksLikeUrl(normalized) && normalized.length >= 8) return normalized;
+  const fromUrl = headlineFromUrl(sourceUrl);
+  if (fromUrl) return fromUrl;
+  return fallback;
+};
+const compactId = (value, fallback = "item") => {
+  const slug = slugifyFileName(value, fallback);
+  return slug.slice(0, 10) || fallback;
+};
+const extractKeywords = (item) => {
+  const text = `${item?.title || ""} ${item?.summary || ""} ${item?.sourceUrl || ""}`.toLowerCase();
+  const raw = text
+    .replace(/https?:\/\/[^\s]+/g, " ")
+    .replace(/[^a-z0-9\s]+/g, " ")
+    .split(/\s+/)
+    .filter(Boolean);
+  const stop = new Set([
+    "https",
+    "http",
+    "www",
+    "com",
+    "org",
+    "html",
+    "news",
+    "market",
+    "markets",
+    "index",
+    "report",
+    "analysis",
+    "source",
+    "notebooklm",
+    "seed"
+  ]);
+  const freq = new Map();
+  for (const token of raw) {
+    if (token.length < 3 || stop.has(token)) continue;
+    freq.set(token, (freq.get(token) || 0) + 1);
+  }
+  return [...freq.entries()]
+    .sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))
+    .slice(0, 4)
+    .map(([word]) => word);
+};
+const inferTheme = (item) => {
+  const text = `${item?.title || ""} ${item?.summary || ""} ${item?.sourceUrl || ""}`.toLowerCase();
+  if (/(federalreserve|fomc|fedwatch|cpi|employment|gdp|rates|interest)/.test(text)) return "Macro & Rates";
+  if (/(vix|volatility|cboe|drawdown|risk|hedge)/.test(text)) return "Volatility & Risk";
+  if (/(earnings|guidance|revenue|profit|season)/.test(text)) return "Earnings & Fundamentals";
+  if (/(sector|rotation|flow|momentum|trend)/.test(text)) return "Sector & Trend";
+  if (/(policy|regulation|sec|edgar)/.test(text)) return "Policy & Compliance";
+  return "General Market Intel";
+};
 const resolvePath = (value, fallbackPath) => {
   const raw = String(value || "").trim();
   if (!raw) return fallbackPath;
@@ -282,25 +362,30 @@ const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) =
 
 const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink }) => {
   const lines = [];
+  const keywords = Array.isArray(item?.keywords) ? item.keywords : [];
   lines.push("---");
   lines.push(`generatedAt: "${generatedAt}"`);
   lines.push(`sourceType: "${item.sourceType || "N/A"}"`);
   lines.push(`itemId: "${item.pageId}"`);
   lines.push(`priority: "${item.priority || "N/A"}"`);
   lines.push(`category: "${item.category || "N/A"}"`);
+  lines.push(`theme: "${item.theme || "General Market Intel"}"`);
   lines.push("tags:");
   lines.push("  - knowledge-intake");
   lines.push("  - notebooklm");
   lines.push("  - market-intel");
+  for (const keyword of keywords) lines.push(`  - kw-${keyword}`);
   lines.push("---");
   lines.push("");
-  lines.push(`# ${item.title}`);
+  lines.push(`# ${item.displayTitle || item.title}`);
   lines.push("");
   lines.push("## Link Graph");
   lines.push(`- [[${hubLink}]]`);
   lines.push(`- [[${packLink}]]`);
   lines.push(`- [[${playbookLink}]]`);
+  lines.push(`- theme: ${item.theme || "General Market Intel"}`);
   if (item.sourceUrl) lines.push(`- sourceUrl: ${item.sourceUrl}`);
+  if (keywords.length > 0) lines.push(`- keywords: ${keywords.join(", ")}`);
   lines.push("");
   lines.push("## Summary");
   lines.push(item.summary || "N/A");
@@ -314,6 +399,17 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink 
 };
 
 const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLink }) => {
+  const themeMap = new Map();
+  const keywordCounts = new Map();
+  for (const item of items) {
+    const theme = item.theme || "General Market Intel";
+    if (!themeMap.has(theme)) themeMap.set(theme, []);
+    themeMap.get(theme).push(item);
+    for (const keyword of item.keywords || []) {
+      keywordCounts.set(keyword, (keywordCounts.get(keyword) || 0) + 1);
+    }
+  }
+  const topKeywords = [...keywordCounts.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
   const lines = [];
   lines.push("---");
   lines.push(`generatedAt: "${generatedAt}"`);
@@ -329,13 +425,23 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
   lines.push(`- [[${packLink}]]`);
   lines.push(`- [[${playbookLink}]]`);
   lines.push("");
-  lines.push("## Items");
+  lines.push("## Headline Clusters");
   if (items.length === 0) {
     lines.push("- (none)");
   } else {
-    for (const item of items) {
-      lines.push(`- [[${item.noteName}]]`);
+    for (const [theme, rows] of themeMap.entries()) {
+      lines.push(`### ${theme}`);
+      for (const item of rows) {
+        lines.push(`- [[${item.noteName}]] · ${item.displayTitle || item.title}`);
+      }
+      lines.push("");
     }
+  }
+  lines.push("## Keyword Lens");
+  if (topKeywords.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const [keyword, count] of topKeywords) lines.push(`- ${keyword} (${count})`);
   }
   lines.push("");
   lines.push("## Next");
@@ -384,16 +490,17 @@ const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limi
   const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
   const rows = list.slice(0, Math.max(1, limit));
   const items = rows.map((row, index) => {
-    const title = String(row?.title || row?.topic || row?.headline || "").trim();
+    const rawTitle = String(row?.title || row?.topic || row?.headline || "").trim();
     const summary = String(row?.summary || row?.insight || row?.notes || "").trim();
     const category = String(row?.category || row?.area || fallbackCategory || "").trim();
     const priority = String(row?.priority || fallbackPriority || "").trim();
     const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
     const sourceRef = String(row?.sourceRef || row?.notebook || row?.notebookId || "").trim();
     const idBase = safeId(row?.id, `notebooklm-${index + 1}`);
+    const title = readableHeadline(rawTitle, sourceUrl, `NotebookLM Item ${index + 1}`);
     return {
       pageId: idBase,
-      title: title || `NotebookLM Item ${index + 1}`,
+      title,
       status: "승인",
       category: category || "NotebookLM",
       priority: priority || "P2",
@@ -649,12 +756,16 @@ const main = async () => {
         const prepared = [];
         let index = 1;
         for (const item of queueItems) {
-          const base = slugifyFileName(`${item.pageId}-${item.title}`, `item-${index}`);
+          const displayTitle = readableHeadline(item.title, item.sourceUrl, `NotebookLM Insight ${index}`);
+          const keywords = extractKeywords({ ...item, title: displayTitle });
+          const theme = inferTheme({ ...item, title: displayTitle });
+          const base = `${String(index).padStart(2, "0")}-${slugifyFileName(displayTitle, `item-${index}`).slice(0, 42)}-${compactId(item.pageId, `i${index}`)}`;
           const notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${base}.md`;
           const noteName = noteNameFromPath(notePath);
+          const graphItem = { ...item, displayTitle, keywords, theme };
           const markdown = markdownGraphItem({
             generatedAt: report.generatedAt,
-            item,
+            item: graphItem,
             hubLink,
             packLink,
             playbookLink
@@ -669,7 +780,7 @@ const main = async () => {
             contentType: "text/markdown"
           });
           totalBytes += Buffer.byteLength(markdown, "utf8");
-          prepared.push({ ...item, noteName, notePath });
+          prepared.push({ ...graphItem, noteName, notePath });
           index += 1;
         }
         const hubMarkdown = markdownGraphHub({
