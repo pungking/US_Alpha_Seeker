@@ -59,6 +59,10 @@ GitHub Secret:
 
 ## 4) 실행
 
+NotebookLM 소스 업로드 배치(고신뢰 링크):
+
+- `docs/NOTEBOOKLM_SOURCE_UPLOAD_BATCH_US_MARKET_2026-04-10.md`
+
 로컬 검증:
 
 ```bash
