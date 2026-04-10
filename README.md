@@ -173,11 +173,13 @@ Smoke/health checks:
   - 기본 동작:
     - 소스 모드(`KNOWLEDGE_PIPELINE_SOURCE_MODE`)에 따라 큐 소스를 선택
       - `notion` (기본): Notion `NOTION_WORK_LIST`에서 `승인` 상태 항목 수집
-      - `notebooklm_json`: `state/notebooklm-intake.json` 기반 큐 생성
+      - `notebooklm_json`: `state/notebooklm-intake.json` 기반 큐 생성 (NotebookLM 분석 결과를 JSON으로 반영한 입력 파일 필요)
       - `hybrid`: Notion + NotebookLM JSON 병합
+    - `ops:knowledge:bridge`가 seed 모드에서 `notebooklm-intake.json` 자동 생성 가능(무료 운영용 기본값)
     - 코드 반영 PR 템플릿용 큐 파일 생성
     - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`면 승인 큐를 Obsidian 노트로 반영 시도
+    - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY=true`면 item별 노트 + 허브 노트를 함께 생성해 Graph View 링크를 강화
     - Obsidian 반영 실패 시에도 기본 fallback은 Notion 큐 산출물 유지(필요 시 hard-fail 가능)
   - 상태머신 기본값:
     - `승인대기 -> 승인 -> 코드반영`
@@ -206,6 +208,12 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_SOURCE_MODE` (default `notion`, `notion|notebooklm_json|hybrid`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` (default `state/notebooklm-intake.json`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` (default `false`, notebooklm 소스 필수화)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` (default `true`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` (default `seed_pack`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_OVERWRITE` (default `false`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SEED_LIMIT` (default `20`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_PACK_PATH` (default `docs/NOTEBOOKLM_US_STOCK_RESEARCH_PACK_2026-04-10.md`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_PLAYBOOK_PATH` (default `docs/MARKET_INTEL_AUTOTRADING_UPLIFT_PLAYBOOK_2026-04-10.md`)
   - `KNOWLEDGE_PIPELINE_APPLY` (default `false`, 권장: 초기 queue-only)
   - `KNOWLEDGE_PIPELINE_REQUIRED` (default `false`)
   - `KNOWLEDGE_PIPELINE_PENDING_STATUS` (default `승인대기`)
@@ -216,6 +224,11 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED` (default `false`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN` (default `false`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH` (default `99_Automation/Knowledge Approved Queue.md`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY` (default `true`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH` (default `99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR` (default `99_Automation/NotebookLM/Intake`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE` (default `99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE` (default `99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md`)
   - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)
   - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
 - 권장 세팅/전환 기준 문서:

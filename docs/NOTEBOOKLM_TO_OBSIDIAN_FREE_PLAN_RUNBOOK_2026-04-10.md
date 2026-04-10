@@ -21,6 +21,11 @@ GitHub Variables:
 - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`
 - `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED=false` (초기)
 - `KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH=99_Automation/Knowledge Approved Queue.md`
+- `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY=true`
+- `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH=99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md`
+- `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR=99_Automation/NotebookLM/Intake`
+- `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE=99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md`
+- `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE=99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md`
 - `OBSIDIAN_BASE_URL=http://127.0.0.1:27123`
 - `KNOWLEDGE_PIPELINE_RUNS_ON=self-hosted` (Obsidian Local REST 접근 필요)
 
@@ -66,6 +71,15 @@ cat state/knowledge-intake-pipeline-report.json
 - `report.source.mode = notebooklm_json`
 - `report.source.notebooklmStatus = ok`
 - `report.obsidian.status = ok`
+- `report.obsidian.graphUploadedItems > 0`
+- `report.obsidian.graphUploadedHub = true`
+
+실패 케이스 빠른 해석:
+
+- `notebooklm=skip_missing_file/0`
+  - `state/notebooklm-intake.json`이 runner 경로에 없음 (NotebookLM 결과 파일 미주입)
+- `obsidian=skip_no_queue`
+  - NotebookLM 입력이 비어 queue가 0개
 
 ---
 
@@ -74,4 +88,3 @@ cat state/knowledge-intake-pipeline-report.json
 1. 3회 연속 성공 후 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED=true`
 2. 5회 연속 성공 후 `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED=true`
 3. 실패 시 즉시 둘 다 `false`로 롤백
-

@@ -14,6 +14,12 @@
 | `KNOWLEDGE_PIPELINE_SOURCE_MODE` | `notebooklm_json` (무료 자동화 권장) | Notion 승인 없이 NotebookLM JSON -> Obsidian 직행 가능 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` | `state/notebooklm-intake.json` | NotebookLM 수집 결과 파일 경로 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` | `false` (초기), 안정화 후 `true` | NotebookLM 파일 누락 시 hard-fail 여부 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` | `true` | `notebooklm-intake.json` 자동 seed 생성 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` | `seed_pack` | docs 소스 팩 기반 seed 모드 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_OVERWRITE` | `false` | 기존 분석 JSON 덮어쓰기 방지 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SEED_LIMIT` | `20` | seed 항목 상한 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_PACK_PATH` | `docs/NOTEBOOKLM_US_STOCK_RESEARCH_PACK_2026-04-10.md` | 소스 팩 markdown |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_PLAYBOOK_PATH` | `docs/MARKET_INTEL_AUTOTRADING_UPLIFT_PLAYBOOK_2026-04-10.md` | 대응안 markdown |
 | `KNOWLEDGE_PIPELINE_PENDING_STATUS` | `승인대기` | 아이디어 검토 대기 |
 | `KNOWLEDGE_PIPELINE_APPROVED_STATUS` | `승인` | 사람 승인 완료 상태 |
 | `KNOWLEDGE_PIPELINE_REFLECT_STATUS` | `코드반영` | 코드 반영 단계 상태 |
@@ -23,6 +29,11 @@
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED` | `false` | Obsidian 연결 실패가 워크플로우를 깨지 않도록 안전 운용 |
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN` | `false` | 실제 반영 전, 파이프라인 smoke 검증용 |
 | `KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH` | `99_Automation/Knowledge Approved Queue.md` | Obsidian 내 승인 큐 대상 노트 경로 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY` | `true` | item별 노트 + 허브 노트 생성으로 Graph View 연관성 강화 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH` | `99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md` | Graph 허브 노트 경로 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR` | `99_Automation/NotebookLM/Intake` | item 노트 저장 디렉토리 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE` | `99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md` | 소스 팩 기준 노트 링크 |
+| `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE` | `99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md` | 대응안 기준 노트 링크 |
 | `OBSIDIAN_BASE_URL` | `http://127.0.0.1:27123` | Obsidian Local REST API endpoint |
 | `NOTION_WORK_LIST` | 실제 DB ID | 승인 큐 소스 DB |
 
@@ -59,7 +70,10 @@ Obsidian 반영(`KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`) 전환 기준:
 1. NotebookLM에서 리서치 소스 요약
 2. 수집 결과를 `state/notebooklm-intake.json`으로 저장
 3. GitHub pipeline(`source_mode=notebooklm_json`) 실행
-4. Obsidian `99_Automation/Knowledge Approved Queue.md` 자동 반영 확인
+4. Obsidian 큐 노트 + Graph 노트 자동 반영 확인
+   - `99_Automation/Knowledge Approved Queue.md`
+   - `99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md`
+   - `99_Automation/NotebookLM/Intake/*.md`
 5. 필요 시 Notion 승격/코드 반영(PR) 진행
 
 JSON 예시:

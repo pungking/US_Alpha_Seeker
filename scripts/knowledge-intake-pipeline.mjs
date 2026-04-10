@@ -62,6 +62,15 @@ const safeId = (value, fallback) => {
   if (text) return text;
   return fallback;
 };
+const noteNameFromPath = (filePath) => path.basename(String(filePath || "").replace(/\\/g, "/"), ".md").trim();
+const slugifyFileName = (value, fallback = "item") => {
+  const raw = String(value || "").toLowerCase();
+  const normalized = raw
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/-+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return normalized || fallback;
+};
 const resolvePath = (value, fallbackPath) => {
   const raw = String(value || "").trim();
   if (!raw) return fallbackPath;
@@ -271,6 +280,71 @@ const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) =
   return `${lines.join("\n")}\n`;
 };
 
+const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink }) => {
+  const lines = [];
+  lines.push("---");
+  lines.push(`generatedAt: "${generatedAt}"`);
+  lines.push(`sourceType: "${item.sourceType || "N/A"}"`);
+  lines.push(`itemId: "${item.pageId}"`);
+  lines.push(`priority: "${item.priority || "N/A"}"`);
+  lines.push(`category: "${item.category || "N/A"}"`);
+  lines.push("tags:");
+  lines.push("  - knowledge-intake");
+  lines.push("  - notebooklm");
+  lines.push("  - market-intel");
+  lines.push("---");
+  lines.push("");
+  lines.push(`# ${item.title}`);
+  lines.push("");
+  lines.push("## Link Graph");
+  lines.push(`- [[${hubLink}]]`);
+  lines.push(`- [[${packLink}]]`);
+  lines.push(`- [[${playbookLink}]]`);
+  if (item.sourceUrl) lines.push(`- sourceUrl: ${item.sourceUrl}`);
+  lines.push("");
+  lines.push("## Summary");
+  lines.push(item.summary || "N/A");
+  lines.push("");
+  lines.push("## 대응안(초안)");
+  lines.push("- [ ] 시그널/지표 반영 포인트 정리");
+  lines.push("- [ ] shadow-only 검증 설계");
+  lines.push("- [ ] 롤백 조건 명시");
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+};
+
+const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLink }) => {
+  const lines = [];
+  lines.push("---");
+  lines.push(`generatedAt: "${generatedAt}"`);
+  lines.push(`sourceMode: "${sourceMode}"`);
+  lines.push("tags:");
+  lines.push("  - knowledge-hub");
+  lines.push("  - notebooklm");
+  lines.push("---");
+  lines.push("");
+  lines.push("# NotebookLM Intake Graph Hub");
+  lines.push("");
+  lines.push("## Core Docs");
+  lines.push(`- [[${packLink}]]`);
+  lines.push(`- [[${playbookLink}]]`);
+  lines.push("");
+  lines.push("## Items");
+  if (items.length === 0) {
+    lines.push("- (none)");
+  } else {
+    for (const item of items) {
+      lines.push(`- [[${item.noteName}]]`);
+    }
+  }
+  lines.push("");
+  lines.push("## Next");
+  lines.push("- [ ] 연관 노트 상호 링크 보강");
+  lines.push("- [ ] 대응안 검증 결과를 노트별로 누적");
+  lines.push("");
+  return `${lines.join("\n")}\n`;
+};
+
 const obsidianRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", body = null, contentType = "application/json" }) => {
   const url = `${baseUrl.replace(/\/+$/, "")}${route}`;
   const headers = { Authorization: `Bearer ${apiKey}` };
@@ -358,6 +432,20 @@ const main = async () => {
   const obsidianBaseUrl = env("OBSIDIAN_BASE_URL", "http://127.0.0.1:27123");
   const obsidianApiKey = env("OBSIDIAN_API_KEY");
   const obsidianNotePath = env("KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH", "99_Automation/Knowledge Approved Queue.md");
+  const obsidianGraphApply = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY", true);
+  const obsidianGraphHubPath = env(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH",
+    "99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md"
+  );
+  const obsidianGraphItemDir = env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR", "99_Automation/NotebookLM/Intake");
+  const obsidianGraphPackNote = env(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE",
+    "99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md"
+  );
+  const obsidianGraphPlaybookNote = env(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE",
+    "99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md"
+  );
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -395,7 +483,12 @@ const main = async () => {
       queuePath: path.relative(CWD, OBSIDIAN_QUEUE_MD_PATH),
       uploaded: false,
       bytes: 0,
-      fallback: "notion_queue_only"
+      fallback: "notion_queue_only",
+      graphApply: obsidianGraphApply,
+      graphHubPath: obsidianGraphHubPath,
+      graphItemDir: obsidianGraphItemDir,
+      graphUploadedItems: 0,
+      graphUploadedHub: false
     }
   };
 
@@ -519,7 +612,10 @@ const main = async () => {
     report.obsidian.reason = "KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=false";
   } else if (queueItems.length === 0) {
     report.obsidian.status = "skip_no_queue";
-    report.obsidian.reason = "approved queue is empty";
+    report.obsidian.reason =
+      sourceMode === "notebooklm_json"
+        ? `approved queue is empty (${report.source.notebooklmStatus}${report.source.notebooklmReason ? `: ${report.source.notebooklmReason}` : ""})`
+        : "approved queue is empty";
   } else if (!obsidianApiKey || !obsidianBaseUrl) {
     report.obsidian.status = "skip_missing_env";
     report.obsidian.reason = "OBSIDIAN_API_KEY or OBSIDIAN_BASE_URL missing";
@@ -545,9 +641,60 @@ const main = async () => {
         route,
         contentType: null
       });
+      let totalBytes = Buffer.byteLength(verify, "utf8");
+      if (obsidianGraphApply) {
+        const hubLink = noteNameFromPath(obsidianGraphHubPath);
+        const packLink = noteNameFromPath(obsidianGraphPackNote);
+        const playbookLink = noteNameFromPath(obsidianGraphPlaybookNote);
+        const prepared = [];
+        let index = 1;
+        for (const item of queueItems) {
+          const base = slugifyFileName(`${item.pageId}-${item.title}`, `item-${index}`);
+          const notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${base}.md`;
+          const noteName = noteNameFromPath(notePath);
+          const markdown = markdownGraphItem({
+            generatedAt: report.generatedAt,
+            item,
+            hubLink,
+            packLink,
+            playbookLink
+          });
+          const itemRoute = `/vault/${encodeVaultPath(notePath)}`;
+          await obsidianRequest({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            method: "PUT",
+            route: itemRoute,
+            body: markdown,
+            contentType: "text/markdown"
+          });
+          totalBytes += Buffer.byteLength(markdown, "utf8");
+          prepared.push({ ...item, noteName, notePath });
+          index += 1;
+        }
+        const hubMarkdown = markdownGraphHub({
+          generatedAt: report.generatedAt,
+          sourceMode,
+          items: prepared,
+          packLink,
+          playbookLink
+        });
+        const hubRoute = `/vault/${encodeVaultPath(obsidianGraphHubPath)}`;
+        await obsidianRequest({
+          baseUrl: obsidianBaseUrl,
+          apiKey: obsidianApiKey,
+          method: "PUT",
+          route: hubRoute,
+          body: hubMarkdown,
+          contentType: "text/markdown"
+        });
+        totalBytes += Buffer.byteLength(hubMarkdown, "utf8");
+        report.obsidian.graphUploadedItems = prepared.length;
+        report.obsidian.graphUploadedHub = true;
+      }
       report.obsidian.status = "ok";
       report.obsidian.uploaded = true;
-      report.obsidian.bytes = Buffer.byteLength(verify, "utf8");
+      report.obsidian.bytes = totalBytes;
     } catch (error) {
       report.obsidian.status = "fail";
       report.obsidian.reason = error?.message || String(error);
