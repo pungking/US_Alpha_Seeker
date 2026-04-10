@@ -11,6 +11,9 @@
 | `KNOWLEDGE_PIPELINE_APPLY` | `false` | 승인 항목을 바로 상태 전이하지 않고 큐 산출물만 생성 |
 | `KNOWLEDGE_PIPELINE_RUNS_ON` | `ubuntu-latest` | 기본은 hosted runner, Obsidian 무인 반영 시 `self-hosted`로 전환 |
 | `KNOWLEDGE_PIPELINE_REQUIRED` | `false` | 초기에는 Notion/API 이슈로 워크플로우 전체 실패 방지 |
+| `KNOWLEDGE_PIPELINE_SOURCE_MODE` | `notebooklm_json` (무료 자동화 권장) | Notion 승인 없이 NotebookLM JSON -> Obsidian 직행 가능 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` | `state/notebooklm-intake.json` | NotebookLM 수집 결과 파일 경로 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` | `false` (초기), 안정화 후 `true` | NotebookLM 파일 누락 시 hard-fail 여부 |
 | `KNOWLEDGE_PIPELINE_PENDING_STATUS` | `승인대기` | 아이디어 검토 대기 |
 | `KNOWLEDGE_PIPELINE_APPROVED_STATUS` | `승인` | 사람 승인 완료 상태 |
 | `KNOWLEDGE_PIPELINE_REFLECT_STATUS` | `코드반영` | 코드 반영 단계 상태 |
@@ -24,7 +27,7 @@
 | `NOTION_WORK_LIST` | 실제 DB ID | 승인 큐 소스 DB |
 
 Secret:
-- `NOTION_TOKEN` (필수)
+- `NOTION_TOKEN` (`source_mode=notion|hybrid`일 때 필수)
 - `OBSIDIAN_API_KEY` (Obsidian 반영 사용 시 필수)
 
 ---
@@ -54,10 +57,28 @@ Obsidian 반영(`KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`) 전환 기준:
 ## 3) 운영 권장 시퀀스
 
 1. NotebookLM에서 리서치 소스 요약
-2. Obsidian `Templates/05_NotebookLM_Intake.md`로 정규화
-3. Notion에서 `승인대기 -> 승인` 수동 결정
-4. GitHub pipeline이 승인 항목 큐 산출
-5. 코드 반영(PR) 후 evidence 링크를 Notion/Obsidian에 역기록
+2. 수집 결과를 `state/notebooklm-intake.json`으로 저장
+3. GitHub pipeline(`source_mode=notebooklm_json`) 실행
+4. Obsidian `99_Automation/Knowledge Approved Queue.md` 자동 반영 확인
+5. 필요 시 Notion 승격/코드 반영(PR) 진행
+
+JSON 예시:
+
+```json
+{
+  "generatedAt": "2026-04-10T10:00:00Z",
+  "items": [
+    {
+      "id": "nblm-001",
+      "title": "US Market Regime Shift Signal",
+      "summary": "VIX slope and breadth divergence imply risk-off drift.",
+      "category": "MCP",
+      "priority": "P1",
+      "sourceUrl": "https://example.com/research"
+    }
+  ]
+}
+```
 
 ---
 

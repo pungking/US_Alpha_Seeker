@@ -7,6 +7,7 @@ const REPORT_PATH = path.join(CWD, "state", "knowledge-intake-pipeline-report.js
 const QUEUE_JSON_PATH = path.join(CWD, "state", "knowledge-approved-queue.json");
 const QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue.md");
 const OBSIDIAN_QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue-obsidian.md");
+const NOTEBOOKLM_DEFAULT_JSON_PATH = path.join(CWD, "state", "notebooklm-intake.json");
 const ENV_FILE_CANDIDATES = [
   path.join(CWD, ".env"),
   path.join(CWD, ".vscode", "mcp.env"),
@@ -56,6 +57,17 @@ const boolFromEnv = (name, fallback = false) => {
 };
 
 const short = (value, max = 1800) => String(value ?? "").trim().slice(0, max);
+const safeId = (value, fallback) => {
+  const text = String(value ?? "").trim();
+  if (text) return text;
+  return fallback;
+};
+const resolvePath = (value, fallbackPath) => {
+  const raw = String(value || "").trim();
+  if (!raw) return fallbackPath;
+  if (path.isAbsolute(raw)) return raw;
+  return path.join(CWD, raw);
+};
 
 const notionHeaders = (token) => ({
   Authorization: `Bearer ${token}`,
@@ -190,6 +202,8 @@ const markdownQueue = ({ generatedAt, apply, pendingStatus, approvedStatus, refl
       lines.push(`   - category: ${item.category || "N/A"}`);
       lines.push(`   - priority: ${item.priority || "N/A"}`);
       lines.push(`   - summary: ${item.summary || "N/A"}`);
+      if (item.sourceUrl) lines.push(`   - sourceUrl: ${item.sourceUrl}`);
+      lines.push(`   - source: ${item.sourceType || "N/A"}`);
       lines.push(`   - pageId: ${item.pageId}`);
       idx += 1;
     }
@@ -242,6 +256,8 @@ const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) =
       lines.push(`- category: ${item.category || "N/A"}`);
       lines.push(`- priority: ${item.priority || "N/A"}`);
       lines.push(`- summary: ${item.summary || "N/A"}`);
+      if (item.sourceUrl) lines.push(`- sourceUrl: ${item.sourceUrl}`);
+      lines.push(`- source: ${item.sourceType || "N/A"}`);
       lines.push(`- notionPageId: ${item.pageId}`);
       lines.push("");
       idx += 1;
@@ -273,7 +289,59 @@ const obsidianRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", b
 
 const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeURIComponent(part)).join("/");
 
+const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limit) => {
+  if (!fs.existsSync(jsonPath)) {
+    return { status: "skip_missing_file", reason: `missing ${path.relative(CWD, jsonPath)}`, items: [] };
+  }
+  const raw = fs.readFileSync(jsonPath, "utf8").trim();
+  if (!raw) {
+    return { status: "skip_empty_file", reason: `empty ${path.relative(CWD, jsonPath)}`, items: [] };
+  }
+  let parsed;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (error) {
+    return {
+      status: "fail_parse",
+      reason: `invalid json ${path.relative(CWD, jsonPath)}: ${error?.message || error}`,
+      items: []
+    };
+  }
+  const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
+  const rows = list.slice(0, Math.max(1, limit));
+  const items = rows.map((row, index) => {
+    const title = String(row?.title || row?.topic || row?.headline || "").trim();
+    const summary = String(row?.summary || row?.insight || row?.notes || "").trim();
+    const category = String(row?.category || row?.area || fallbackCategory || "").trim();
+    const priority = String(row?.priority || fallbackPriority || "").trim();
+    const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
+    const sourceRef = String(row?.sourceRef || row?.notebook || row?.notebookId || "").trim();
+    const idBase = safeId(row?.id, `notebooklm-${index + 1}`);
+    return {
+      pageId: idBase,
+      title: title || `NotebookLM Item ${index + 1}`,
+      status: "승인",
+      category: category || "NotebookLM",
+      priority: priority || "P2",
+      summary,
+      sourceUrl,
+      sourceRef,
+      sourceType: "notebooklm_json"
+    };
+  });
+  return {
+    status: "ok",
+    reason: "",
+    items
+  };
+};
+
 const main = async () => {
+  const sourceModeRaw = env("KNOWLEDGE_PIPELINE_SOURCE_MODE", "notion").toLowerCase();
+  const sourceMode = ["notion", "notebooklm_json", "hybrid"].includes(sourceModeRaw) ? sourceModeRaw : "notion";
+  const notebooklmJsonPath = resolvePath(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH"), NOTEBOOKLM_DEFAULT_JSON_PATH);
+  const notebooklmRequired = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED", false);
+
   const notionToken = env("NOTION_TOKEN");
   const notionWorkList = env("NOTION_WORK_LIST");
   const apply = boolFromEnv("KNOWLEDGE_PIPELINE_APPLY", false);
@@ -295,6 +363,14 @@ const main = async () => {
     generatedAt: new Date().toISOString(),
     apply,
     required,
+    source: {
+      mode: sourceMode,
+      notebooklmJsonPath: path.relative(CWD, notebooklmJsonPath),
+      notebooklmRequired,
+      notebooklmStatus: "skip",
+      notebooklmReason: "",
+      notebooklmLoaded: 0
+    },
     statusFlow: { pendingStatus, approvedStatus, reflectStatus },
     notion: {
       status: "skip",
@@ -324,8 +400,13 @@ const main = async () => {
   };
 
   let queueItems = [];
+  let notionItems = [];
+  let notebooklmItems = [];
   try {
-    if (!notionToken || !notionWorkList) {
+    if (!["notion", "hybrid"].includes(sourceMode)) {
+      report.notion.status = "skip_source_mode";
+      report.notion.reason = `source_mode=${sourceMode}`;
+    } else if (!notionToken || !notionWorkList) {
       report.notion.status = "skip_missing_env";
       report.notion.reason = "NOTION_TOKEN or NOTION_WORK_LIST missing";
     } else {
@@ -350,36 +431,25 @@ const main = async () => {
         })
         .slice(0, Math.max(1, limit));
 
-      queueItems = approvedRows.map((row) => ({
+      notionItems = approvedRows.map((row) => ({
         pageId: row.id,
         title: titleFromPage(row, titleName),
         status: statusFromPage(row, statusProp),
         category: categoryProp?.name ? selectFromPage(row, categoryProp.name) : "",
         priority: priorityProp?.name ? selectFromPage(row, priorityProp.name) : "",
-        summary: summaryProp ? richTextFromPage(row, summaryProp) : ""
+        summary: summaryProp ? richTextFromPage(row, summaryProp) : "",
+        sourceType: "notion"
       }));
 
       fs.mkdirSync(path.dirname(QUEUE_JSON_PATH), { recursive: true });
-      fs.writeFileSync(QUEUE_JSON_PATH, `${JSON.stringify({ generatedAt: report.generatedAt, queueItems }, null, 2)}\n`, "utf8");
-      fs.writeFileSync(
-        QUEUE_MD_PATH,
-        markdownQueue({
-          generatedAt: report.generatedAt,
-          apply,
-          pendingStatus,
-          approvedStatus,
-          reflectStatus,
-          items: queueItems
-        }),
-        "utf8"
-      );
+      fs.writeFileSync(QUEUE_JSON_PATH, `${JSON.stringify({ generatedAt: report.generatedAt, queueItems: notionItems }, null, 2)}\n`, "utf8");
 
       let transitioned = 0;
-      if (apply && queueItems.length > 0) {
+      if (apply && notionItems.length > 0) {
         if (!statusProp.options.includes(reflectStatus)) {
           throw new Error(`reflect status option not found: ${reflectStatus}`);
         }
-        for (const item of queueItems) {
+        for (const item of notionItems) {
           const patch = statusPatch(statusProp, reflectStatus);
           await notionRequest(notionToken, `/v1/pages/${item.pageId}`, {
             method: "PATCH",
@@ -390,14 +460,34 @@ const main = async () => {
       }
 
       report.notion.status = "ok";
-      report.notion.approved = queueItems.length;
+      report.notion.approved = notionItems.length;
       report.notion.transitioned = transitioned;
-      report.queue.count = queueItems.length;
     }
   } catch (error) {
     report.notion.status = "fail";
     report.notion.reason = error?.message || String(error);
   }
+
+  if (["notebooklm_json", "hybrid"].includes(sourceMode)) {
+    const notebooklm = parseNotebooklmQueue(notebooklmJsonPath, categoryFilter, "P2", limit);
+    report.source.notebooklmStatus = notebooklm.status;
+    report.source.notebooklmReason = notebooklm.reason;
+    notebooklmItems = notebooklm.items;
+    report.source.notebooklmLoaded = notebooklmItems.length;
+  } else {
+    report.source.notebooklmStatus = "skip_source_mode";
+    report.source.notebooklmReason = `source_mode=${sourceMode}`;
+  }
+
+  if (sourceMode === "notion") {
+    queueItems = notionItems;
+  } else if (sourceMode === "notebooklm_json") {
+    queueItems = notebooklmItems;
+  } else {
+    // hybrid mode
+    queueItems = [...notionItems, ...notebooklmItems];
+  }
+  report.queue.count = queueItems.length;
 
   fs.mkdirSync(path.dirname(OBSIDIAN_QUEUE_MD_PATH), { recursive: true });
   fs.writeFileSync(
@@ -410,6 +500,19 @@ const main = async () => {
     }),
     "utf8"
   );
+  fs.writeFileSync(
+    QUEUE_MD_PATH,
+    markdownQueue({
+      generatedAt: report.generatedAt,
+      apply,
+      pendingStatus,
+      approvedStatus,
+      reflectStatus,
+      items: queueItems
+    }),
+    "utf8"
+  );
+  fs.writeFileSync(QUEUE_JSON_PATH, `${JSON.stringify({ generatedAt: report.generatedAt, sourceMode, queueItems }, null, 2)}\n`, "utf8");
 
   if (!obsidianApply) {
     report.obsidian.status = "skip_disabled";
@@ -455,13 +558,19 @@ const main = async () => {
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   console.log(
-    `[KNOWLEDGE_PIPELINE] notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
+    `[KNOWLEDGE_PIPELINE] source=${sourceMode} notebooklm=${report.source.notebooklmStatus}/${report.source.notebooklmLoaded} notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
       CWD,
       QUEUE_MD_PATH
     )} obsidianQueue=${path.relative(CWD, OBSIDIAN_QUEUE_MD_PATH)} report=${path.relative(CWD, REPORT_PATH)}`
   );
 
   if (report.notion.status === "fail" && required) {
+    process.exit(1);
+  }
+  if (["notebooklm_json", "hybrid"].includes(sourceMode) && report.source.notebooklmStatus.startsWith("fail") && notebooklmRequired) {
+    process.exit(1);
+  }
+  if (sourceMode === "notebooklm_json" && queueItems.length === 0 && notebooklmRequired) {
     process.exit(1);
   }
   if (report.obsidian.status === "fail" && obsidianRequired) {

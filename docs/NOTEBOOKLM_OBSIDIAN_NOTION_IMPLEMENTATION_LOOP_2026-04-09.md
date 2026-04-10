@@ -1,6 +1,7 @@
 # NotebookLM + Obsidian -> Notion -> Code Implementation Loop (2026-04-09)
 
 목적: 리서치 아이디어를 빠르게 모으되, 운영 리스크를 통제하면서 코드 반영까지 일관된 루프로 연결한다.
+환경 기준: Antigravity 용어 대신 VSCode/Codex 기준은 `docs/VSCODE_NOTEBOOKLM_OBSIDIAN_ADAPTATION_2026-04-10.md`를 따른다.
 
 ---
 
@@ -85,4 +86,3 @@ Intake 노트를 Notion으로 승격하는 기준:
 - [ ] feature flag 기반으로 shadow 구현
 - [ ] dry-run 3회 이상 증적 수집
 - [ ] PASS 시에만 다음 단계(확장/승격) 진행
-

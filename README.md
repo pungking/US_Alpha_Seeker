@@ -171,7 +171,10 @@ Smoke/health checks:
     - `state/knowledge-approved-queue.json`
     - `state/knowledge-approved-queue.md`
   - 기본 동작:
-    - Notion `NOTION_WORK_LIST`에서 `승인` 상태 항목(기본 `분류=MCP`)을 수집
+    - 소스 모드(`KNOWLEDGE_PIPELINE_SOURCE_MODE`)에 따라 큐 소스를 선택
+      - `notion` (기본): Notion `NOTION_WORK_LIST`에서 `승인` 상태 항목 수집
+      - `notebooklm_json`: `state/notebooklm-intake.json` 기반 큐 생성
+      - `hybrid`: Notion + NotebookLM JSON 병합
     - 코드 반영 PR 템플릿용 큐 파일 생성
     - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`면 승인 큐를 Obsidian 노트로 반영 시도
@@ -195,11 +198,14 @@ Optional knowledge pipeline automation:
 
 - workflow: `.github/workflows/knowledge-intake-pipeline.yml`
 - schedule: weekdays `09:40 UTC` (`18:40 KST`)
-- required:
-  - `NOTION_TOKEN` (secret)
-  - `NOTION_WORK_LIST` (repo variable)
+- required (source mode에 따라 달라짐):
+  - `source_mode=notion|hybrid`: `NOTION_TOKEN`, `NOTION_WORK_LIST`
+  - `source_mode=notebooklm_json`: `state/notebooklm-intake.json` 파일
 - optional vars:
   - `KNOWLEDGE_PIPELINE_RUNS_ON` (default `ubuntu-latest`, Obsidian 무인 반영 시 `self-hosted` 권장)
+  - `KNOWLEDGE_PIPELINE_SOURCE_MODE` (default `notion`, `notion|notebooklm_json|hybrid`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` (default `state/notebooklm-intake.json`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` (default `false`, notebooklm 소스 필수화)
   - `KNOWLEDGE_PIPELINE_APPLY` (default `false`, 권장: 초기 queue-only)
   - `KNOWLEDGE_PIPELINE_REQUIRED` (default `false`)
   - `KNOWLEDGE_PIPELINE_PENDING_STATUS` (default `승인대기`)

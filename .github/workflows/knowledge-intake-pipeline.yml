@@ -23,6 +23,9 @@ jobs:
       KNOWLEDGE_PIPELINE_APPROVED_STATUS: ${{ vars.KNOWLEDGE_PIPELINE_APPROVED_STATUS || '승인' }}
       KNOWLEDGE_PIPELINE_REFLECT_STATUS: ${{ vars.KNOWLEDGE_PIPELINE_REFLECT_STATUS || '코드반영' }}
       KNOWLEDGE_PIPELINE_CATEGORY_FILTER: ${{ vars.KNOWLEDGE_PIPELINE_CATEGORY_FILTER || 'MCP' }}
+      KNOWLEDGE_PIPELINE_SOURCE_MODE: ${{ vars.KNOWLEDGE_PIPELINE_SOURCE_MODE || 'notion' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH || 'state/notebooklm-intake.json' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED || 'false' }}
 
       # safe default: queue-only. set true after stable 운영.
       KNOWLEDGE_PIPELINE_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_APPLY || 'false' }}
@@ -57,4 +60,5 @@ jobs:
             state/knowledge-approved-queue.json
             state/knowledge-approved-queue.md
             state/knowledge-approved-queue-obsidian.md
+            state/notebooklm-intake.json
           if-no-files-found: warn
