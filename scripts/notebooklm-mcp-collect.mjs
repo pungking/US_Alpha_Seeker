@@ -246,6 +246,7 @@ const main = async () => {
     command,
     args,
     notebook: { requestedId: notebookId || null, requestedUrl: notebookUrl || null, query: notebookQuery || null, selected: null },
+    health: { authenticated: null, status: null },
     asked: 0,
     collected: 0
   };
@@ -272,6 +273,10 @@ const main = async () => {
   const client = new JsonLineRpcClient({ command, args, commandEnv });
   try {
     await client.start();
+    const healthRes = await client.request("tools/call", { name: "get_health", arguments: {} });
+    const healthParsed = parseToolTextResult(healthRes);
+    report.health.status = healthParsed.parsed?.data?.status ?? null;
+    report.health.authenticated = healthParsed.parsed?.data?.authenticated ?? null;
 
     const listRes = await client.request("tools/call", { name: "list_notebooks", arguments: {} });
     const listParsed = parseToolTextResult(listRes);
@@ -325,6 +330,7 @@ const main = async () => {
     };
 
     const items = [];
+    let failCount = 0;
     let index = 1;
     for (const question of questions) {
       const args = {
@@ -337,7 +343,10 @@ const main = async () => {
       report.asked += 1;
       const parsed = parseToolTextResult(callRes);
       const ok = parsed.parsed?.success !== false;
-      if (!ok) continue;
+      if (!ok) {
+        failCount += 1;
+        continue;
+      }
       const answer = extractAnswerText(parsed.text, parsed.parsed);
       if (!answer) continue;
       items.push({
@@ -371,7 +380,14 @@ const main = async () => {
     );
 
     report.status = items.length > 0 ? "ok" : "no_items";
-    report.reason = items.length > 0 ? "" : "ask_question returned no successful items";
+    report.reason =
+      items.length > 0
+        ? ""
+        : report.health.authenticated === false
+          ? "not_authenticated_or_notebook_access_denied"
+          : failCount > 0
+            ? "ask_question_failed_for_all_items"
+            : "ask_question_returned_no_content";
     report.collected = items.length;
     console.log(
       `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`

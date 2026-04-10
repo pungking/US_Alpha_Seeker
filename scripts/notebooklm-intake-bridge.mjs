@@ -150,8 +150,24 @@ const main = async () => {
     return;
   }
   if (!overwrite && fs.existsSync(outputPath)) {
-    console.log(`[NOTEBOOKLM_BRIDGE] status=skip_existing output=${path.relative(CWD, outputPath)}`);
-    return;
+    const rawExisting = readText(outputPath).trim();
+    let canReuse = true;
+    if (rawExisting) {
+      try {
+        const parsed = JSON.parse(rawExisting);
+        const existingItems = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
+        if (existingItems.length === 0) canReuse = false;
+      } catch {
+        canReuse = false;
+      }
+    } else {
+      canReuse = false;
+    }
+    if (canReuse) {
+      console.log(`[NOTEBOOKLM_BRIDGE] status=skip_existing output=${path.relative(CWD, outputPath)}`);
+      return;
+    }
+    console.log(`[NOTEBOOKLM_BRIDGE] status=regenerate_empty_output output=${path.relative(CWD, outputPath)}`);
   }
   if (mode !== "seed_pack") {
     console.log(`[NOTEBOOKLM_BRIDGE] status=skip_unknown_mode mode=${mode}`);
