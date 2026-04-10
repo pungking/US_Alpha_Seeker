@@ -532,7 +532,7 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
   return `${lines.join("\n")}\n`;
 };
 
-const obsidianRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", body = null, contentType = "application/json" }) => {
+const obsidianRawRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", body = null, contentType = "application/json" }) => {
   const url = `${baseUrl.replace(/\/+$/, "")}${route}`;
   const headers = { Authorization: `Bearer ${apiKey}` };
   if (contentType) headers["Content-Type"] = contentType;
@@ -542,10 +542,123 @@ const obsidianRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", b
     body: body == null ? undefined : body
   });
   const text = await response.text();
-  if (!response.ok) {
-    throw new Error(`Obsidian ${route} failed (${response.status}): ${short(text, 400)}`);
+  return { status: response.status, ok: response.ok, text };
+};
+
+const obsidianRequest = async ({ baseUrl, apiKey, method = "GET", route = "/", body = null, contentType = "application/json" }) => {
+  const { status, ok, text } = await obsidianRawRequest({ baseUrl, apiKey, method, route, body, contentType });
+  if (!ok) {
+    throw new Error(`Obsidian ${route} failed (${status}): ${short(text, 400)}`);
   }
   return text;
+};
+
+const obsidianDeleteIfExists = async ({ baseUrl, apiKey, route }) => {
+  const { status, ok, text } = await obsidianRawRequest({
+    baseUrl,
+    apiKey,
+    method: "DELETE",
+    route,
+    contentType: null
+  });
+  if (ok || status === 404) return { deleted: status !== 404, status };
+  throw new Error(`Obsidian ${route} failed (${status}): ${short(text, 400)}`);
+};
+
+const obsidianReadIfExists = async ({ baseUrl, apiKey, route, contentType = null }) => {
+  const { status, ok, text } = await obsidianRawRequest({
+    baseUrl,
+    apiKey,
+    method: "GET",
+    route,
+    contentType
+  });
+  if (ok) return { exists: true, text };
+  if (status === 404) return { exists: false, text: "" };
+  throw new Error(`Obsidian ${route} failed (${status}): ${short(text, 400)}`);
+};
+
+const parseJsonOrNull = (value) => {
+  try {
+    return JSON.parse(String(value || ""));
+  } catch {
+    return null;
+  }
+};
+
+const archivePathFor = (archiveDir, stalePath, generatedAt) => {
+  const stamp = String(generatedAt || "").slice(0, 10).replace(/-/g, "") || "unknown";
+  const stem = path.basename(stalePath, path.extname(stalePath));
+  return `${archiveDir.replace(/\/+$/, "")}/${stem}__archived_${stamp}.md`;
+};
+
+const legacyPathFromOldPattern = (itemDir, item, index) => {
+  const displayTitle = short(String(item?.title || "").replace(/\s+/g, " "), 120).trim() || `NotebookLM Insight ${index}`;
+  const compactId = slugifyFileName(item?.pageId, `i${index}`).slice(0, 10) || `i${index}`;
+  const base = `${String(index).padStart(2, "0")}-${slugifyFileName(displayTitle, `item-${index}`).slice(0, 42)}-${compactId}`;
+  return `${itemDir.replace(/\/+$/, "")}/${base}.md`;
+};
+
+const parseManifest = (text) => {
+  const parsed = parseJsonOrNull(text);
+  if (!parsed || !Array.isArray(parsed?.items)) return [];
+  return parsed.items
+    .map((x) => String(x?.path || "").trim())
+    .filter(Boolean);
+};
+
+const buildManifest = ({ generatedAt, sourceMode, itemDir, notePaths }) => ({
+  generatedAt,
+  sourceMode,
+  itemDir,
+  count: notePaths.length,
+  items: notePaths.map((notePath) => ({ path: notePath, generatedAt }))
+});
+
+const obsidianManifestRoute = (manifestPath) => `/vault/${encodeVaultPath(manifestPath)}`;
+
+const cleanupObsidianStalePaths = async ({
+  baseUrl,
+  apiKey,
+  stalePaths,
+  archiveEnabled,
+  archiveDir,
+  generatedAt
+}) => {
+  let archived = 0;
+  let deleted = 0;
+  for (const stalePath of stalePaths) {
+    const staleRoute = `/vault/${encodeVaultPath(stalePath)}`;
+    if (archiveEnabled) {
+      const read = await obsidianReadIfExists({ baseUrl, apiKey, route: staleRoute, contentType: null });
+      if (read.exists) {
+        const archivedPath = archivePathFor(archiveDir, stalePath, generatedAt);
+        const archivedRoute = `/vault/${encodeVaultPath(archivedPath)}`;
+        await obsidianRequest({
+          baseUrl,
+          apiKey,
+          method: "PUT",
+          route: archivedRoute,
+          body: read.text,
+          contentType: "text/markdown"
+        });
+        archived += 1;
+      }
+    }
+    const removed = await obsidianDeleteIfExists({ baseUrl, apiKey, route: staleRoute });
+    if (removed.deleted) deleted += 1;
+  }
+  return { archived, deleted };
+};
+
+const cleanupObsidianLegacyPaths = async ({ baseUrl, apiKey, legacyPaths }) => {
+  let deleted = 0;
+  for (const legacyPath of legacyPaths) {
+    const route = `/vault/${encodeVaultPath(legacyPath)}`;
+    const removed = await obsidianDeleteIfExists({ baseUrl, apiKey, route });
+    if (removed.deleted) deleted += 1;
+  }
+  return { deleted };
 };
 
 const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeURIComponent(part)).join("/");
@@ -634,6 +747,17 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE",
     "99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md"
   );
+  const obsidianGraphManifestPath = env(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH",
+    "99_Automation/NotebookLM/Intake/_meta/generated-manifest.json"
+  );
+  const obsidianGraphLegacyCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP", true);
+  const obsidianGraphStaleCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP", false);
+  const obsidianGraphArchiveEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED", false);
+  const obsidianGraphArchiveDir = env(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR",
+    "99_Automation/NotebookLM/Archive"
+  );
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -676,7 +800,16 @@ const main = async () => {
       graphHubPath: obsidianGraphHubPath,
       graphItemDir: obsidianGraphItemDir,
       graphUploadedItems: 0,
-      graphUploadedHub: false
+      graphUploadedHub: false,
+      graphManifestPath: obsidianGraphManifestPath,
+      graphLegacyCleanupEnabled: obsidianGraphLegacyCleanup,
+      graphStaleCleanupEnabled: obsidianGraphStaleCleanup,
+      graphArchiveEnabled: obsidianGraphArchiveEnabled,
+      graphArchiveDir: obsidianGraphArchiveDir,
+      graphLegacyDeleted: 0,
+      graphStaleArchived: 0,
+      graphStaleDeleted: 0,
+      graphManifestWritten: false
     }
   };
 
@@ -834,6 +967,17 @@ const main = async () => {
         const hubLink = noteNameFromPath(obsidianGraphHubPath);
         const packLink = noteNameFromPath(obsidianGraphPackNote);
         const playbookLink = noteNameFromPath(obsidianGraphPlaybookNote);
+        const manifestRoute = obsidianManifestRoute(obsidianGraphManifestPath);
+        let previousManifestPaths = [];
+        if (obsidianGraphStaleCleanup) {
+          const previousManifest = await obsidianReadIfExists({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            route: manifestRoute,
+            contentType: null
+          });
+          if (previousManifest.exists) previousManifestPaths = parseManifest(previousManifest.text);
+        }
         const prepared = [];
         const usedNotePaths = new Set();
         const themeHubMap = new Map();
@@ -857,6 +1001,41 @@ const main = async () => {
           if (!themeHubMap.has(theme)) themeHubMap.set(theme, { themeHubPath, themeHubName });
           prepared.push({ ...item, displayTitle, keywords, theme, noteName, notePath, themeHubPath, themeHubName });
           index += 1;
+        }
+        const currentNotePathSet = new Set(prepared.map((x) => x.notePath));
+        if (obsidianGraphLegacyCleanup) {
+          const legacySet = new Set();
+          let legacyIndex = 1;
+          for (const item of queueItems) {
+            const legacyPath = legacyPathFromOldPattern(obsidianGraphItemDir, item, legacyIndex);
+            if (!currentNotePathSet.has(legacyPath)) legacySet.add(legacyPath);
+            legacyIndex += 1;
+          }
+          if (legacySet.size > 0) {
+            const legacyResult = await cleanupObsidianLegacyPaths({
+              baseUrl: obsidianBaseUrl,
+              apiKey: obsidianApiKey,
+              legacyPaths: [...legacySet]
+            });
+            report.obsidian.graphLegacyDeleted = legacyResult.deleted;
+          }
+        }
+        if (obsidianGraphStaleCleanup && previousManifestPaths.length > 0) {
+          const stalePaths = previousManifestPaths.filter(
+            (x) => !currentNotePathSet.has(x) && x.startsWith(`${obsidianGraphItemDir.replace(/\/+$/, "")}/`)
+          );
+          if (stalePaths.length > 0) {
+            const staleResult = await cleanupObsidianStalePaths({
+              baseUrl: obsidianBaseUrl,
+              apiKey: obsidianApiKey,
+              stalePaths,
+              archiveEnabled: obsidianGraphArchiveEnabled,
+              archiveDir: obsidianGraphArchiveDir,
+              generatedAt: report.generatedAt
+            });
+            report.obsidian.graphStaleArchived = staleResult.archived;
+            report.obsidian.graphStaleDeleted = staleResult.deleted;
+          }
         }
         const preparedByTheme = new Map();
         for (const item of prepared) {
@@ -932,8 +1111,24 @@ const main = async () => {
           contentType: "text/markdown"
         });
         totalBytes += Buffer.byteLength(hubMarkdown, "utf8");
+        const manifest = buildManifest({
+          generatedAt: report.generatedAt,
+          sourceMode,
+          itemDir: obsidianGraphItemDir,
+          notePaths: [...currentNotePathSet]
+        });
+        await obsidianRequest({
+          baseUrl: obsidianBaseUrl,
+          apiKey: obsidianApiKey,
+          method: "PUT",
+          route: manifestRoute,
+          body: `${JSON.stringify(manifest, null, 2)}\n`,
+          contentType: "application/json"
+        });
+        totalBytes += Buffer.byteLength(JSON.stringify(manifest), "utf8");
         report.obsidian.graphUploadedItems = prepared.length;
         report.obsidian.graphUploadedHub = true;
+        report.obsidian.graphManifestWritten = true;
       }
       report.obsidian.status = "ok";
       report.obsidian.uploaded = true;

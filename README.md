@@ -183,6 +183,8 @@ Smoke/health checks:
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY=true`면 item별 노트 + 허브 노트를 함께 생성해 Graph View 링크를 강화
       - item 파일명은 `NN-<readable-title>.md` 형태로 생성(기계식 `seed-...` suffix 제거)
       - `Intake/<theme>/...` + `Intake/_themes/theme-...` 구조로 클러스터 구분
+      - 레거시 `seed-*` 패턴 노트는 자동 정리(`KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP=true`)
+      - 선택적으로 stale 노트 archive/delete 가능(`...GRAPH_STALE_CLEANUP`, `...GRAPH_ARCHIVE_ENABLED`)
     - Obsidian 반영 실패 시에도 기본 fallback은 Notion 큐 산출물 유지(필요 시 hard-fail 가능)
   - 상태머신 기본값:
     - `승인대기 -> 승인 -> 코드반영`
@@ -243,6 +245,11 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR` (default `99_Automation/NotebookLM/Intake`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PACK_NOTE` (default `99_Automation/NotebookLM_US_Stock_Research_Pack_2026-04-10.md`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_PLAYBOOK_NOTE` (default `99_Automation/Market_Intel_AutoTrading_Uplift_Playbook_2026-04-10.md`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH` (default `99_Automation/NotebookLM/Intake/_meta/generated-manifest.json`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP` (default `true`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP` (default `false`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED` (default `false`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR` (default `99_Automation/NotebookLM/Archive`)
   - Graph note role guide:
     - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference
     - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서
