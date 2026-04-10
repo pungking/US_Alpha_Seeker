@@ -20,6 +20,7 @@
     "mcp:sync:full": "MCP_PROFILE=full node scripts/sync-mcp-profile.mjs",
     "mcp:ops:daily": "npm run mcp:sync:ops && MCP_CHECK_STRICT=true npm run mcp:check && npm run mcp:health",
     "ops:knowledge:sync": "node scripts/sync-knowledge-routines.mjs",
+    "ops:knowledge:notebooklm": "node scripts/notebooklm-mcp-collect.mjs",
     "ops:knowledge:bridge": "node scripts/notebooklm-intake-bridge.mjs",
     "ops:knowledge:pipeline": "node scripts/knowledge-intake-pipeline.mjs",
     "webhook:setup": "node scripts/setup-telegram-webhook.mjs",

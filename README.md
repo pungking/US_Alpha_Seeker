@@ -173,8 +173,9 @@ Smoke/health checks:
   - 기본 동작:
     - 소스 모드(`KNOWLEDGE_PIPELINE_SOURCE_MODE`)에 따라 큐 소스를 선택
       - `notion` (기본): Notion `NOTION_WORK_LIST`에서 `승인` 상태 항목 수집
-      - `notebooklm_json`: `state/notebooklm-intake.json` 기반 큐 생성 (NotebookLM 분석 결과를 JSON으로 반영한 입력 파일 필요)
-      - `hybrid`: Notion + NotebookLM JSON 병합
+    - `notebooklm_json`: `state/notebooklm-intake.json` 기반 큐 생성 (NotebookLM 분석 결과를 JSON으로 반영한 입력 파일 필요)
+    - `hybrid`: Notion + NotebookLM JSON 병합
+    - `ops:knowledge:notebooklm`가 활성화되면 NotebookLM MCP를 통해 질문/응답 수집 후 `notebooklm-intake.json` 자동 생성
     - `ops:knowledge:bridge`가 seed 모드에서 `notebooklm-intake.json` 자동 생성 가능(무료 운영용 기본값)
     - 코드 반영 PR 템플릿용 큐 파일 생성
     - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
@@ -208,6 +209,16 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_SOURCE_MODE` (default `notion`, `notion|notebooklm_json|hybrid`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` (default `state/notebooklm-intake.json`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` (default `false`, notebooklm 소스 필수화)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ENABLED` (default `false`, true 시 NotebookLM MCP 직접 수집 사용)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_REQUIRED` (default `false`, MCP 수집 실패 시 워크플로우 fail 여부)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_OVERWRITE` (default `false`, 기존 json 덮어쓰기)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_COMMAND` (default `npx`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ARGS` (default `["-y","notebooklm-mcp"]`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY`
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `8`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` (default `false`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` (default `seed_pack`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_OVERWRITE` (default `false`)

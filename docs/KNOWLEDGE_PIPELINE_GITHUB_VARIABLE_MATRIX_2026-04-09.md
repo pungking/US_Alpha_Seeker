@@ -14,6 +14,18 @@
 | `KNOWLEDGE_PIPELINE_SOURCE_MODE` | `notebooklm_json` (무료 자동화 권장) | Notion 승인 없이 NotebookLM JSON -> Obsidian 직행 가능 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` | `state/notebooklm-intake.json` | NotebookLM 수집 결과 파일 경로 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` | `false` (초기), 안정화 후 `true` | NotebookLM 파일 누락 시 hard-fail 여부 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ENABLED` | `false` (초기), 이후 `true` | NotebookLM MCP 직접 수집 on/off |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_REQUIRED` | `false` | NotebookLM MCP 수집 실패 시 hard-fail 여부 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_OVERWRITE` | `false` | 기존 `notebooklm-intake.json` 덮어쓰기 제어 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_COMMAND` | `npx` | NotebookLM MCP 실행 커맨드 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ARGS` | `["-y","notebooklm-mcp"]` | NotebookLM MCP 실행 인자 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` | 빈값(선택) | 특정 notebook ID 고정 선택 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` | 빈값(선택) | ad-hoc NotebookLM URL 직접 지정 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY` | 빈값(선택) | 이름/설명 검색 기반 notebook 선택 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` | 빈값(선택) | 라이브러리 비어있을 때 자동 add_notebook할 URL 목록 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` | 빈값(기본 질문세트 사용) | `||` 구분 또는 JSON array |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` | `8` | 1회 수집 질문 상한 |
+| `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` | `false` | 디버깅용 브라우저 표시 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` | `true` | `notebooklm-intake.json` 자동 seed 생성 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` | `seed_pack` | docs 소스 팩 기반 seed 모드 |
 | `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_OVERWRITE` | `false` | 기존 분석 JSON 덮어쓰기 방지 |
