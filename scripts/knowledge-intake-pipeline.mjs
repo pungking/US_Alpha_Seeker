@@ -285,6 +285,106 @@ const themeLabelKo = (theme) => {
   };
   return map[key] || "시장-인텔";
 };
+const themeCanonicalFromAny = (value) => {
+  const raw = String(value || "").trim();
+  const direct = {
+    "Macro & Rates": "Macro & Rates",
+    "Volatility & Risk": "Volatility & Risk",
+    "Earnings & Fundamentals": "Earnings & Fundamentals",
+    "Sector & Trend": "Sector & Trend",
+    "Policy & Compliance": "Policy & Compliance",
+    "General Market Intel": "General Market Intel",
+    "거시-금리": "Macro & Rates",
+    "변동성-리스크": "Volatility & Risk",
+    "실적-펀더멘털": "Earnings & Fundamentals",
+    "섹터-트렌드": "Sector & Trend",
+    "정책-컴플라이언스": "Policy & Compliance",
+    "시장-인텔": "General Market Intel"
+  };
+  if (direct[raw]) return direct[raw];
+  const lower = raw.toLowerCase();
+  if (lower.includes("macro") || lower.includes("금리")) return "Macro & Rates";
+  if (lower.includes("volatility") || lower.includes("리스크")) return "Volatility & Risk";
+  if (lower.includes("earning") || lower.includes("실적")) return "Earnings & Fundamentals";
+  if (lower.includes("sector") || lower.includes("trend") || lower.includes("섹터")) return "Sector & Trend";
+  if (lower.includes("policy") || lower.includes("compliance") || lower.includes("정책")) return "Policy & Compliance";
+  return "General Market Intel";
+};
+const parseThemeTargets = (value) => {
+  const raw = String(value || "").trim();
+  if (!raw) return [];
+  const rows = raw.split(",").map((x) => x.trim()).filter(Boolean);
+  const out = [];
+  const seen = new Set();
+  for (const row of rows) {
+    const canonical = themeCanonicalFromAny(row);
+    if (!canonical || seen.has(canonical)) continue;
+    seen.add(canonical);
+    out.push(canonical);
+  }
+  return out;
+};
+const mergeKeyFromItem = (item, index = 0) => {
+  const sourceUrl = String(item?.sourceUrl || "").trim().toLowerCase();
+  if (sourceUrl) return `url:${sourceUrl}`;
+  const pageId = String(item?.pageId || "").trim().toLowerCase();
+  if (pageId) return `id:${pageId}`;
+  const title = slugifyFileName(item?.displayTitle || item?.title || `item-${index + 1}`, `item-${index + 1}`);
+  return `title:${title}`;
+};
+const scoreQueueItem = (item, index) => {
+  const priority = String(item?.priority || "").toUpperCase();
+  const p = priority === "P1" ? 30 : priority === "P2" ? 20 : priority === "P3" ? 10 : 0;
+  const s = Math.min(30, Math.floor(String(item?.summary || "").length / 90));
+  const u = item?.sourceUrl ? 15 : 0;
+  return p + s + u + Math.max(0, 50 - index);
+};
+const selectWithThemeQuota = ({ items, runLimit, enabled, minQuota, targets }) => {
+  if (!Array.isArray(items) || items.length === 0) return [];
+  const cap = Math.max(1, Number(runLimit) || items.length);
+  const annotated = items.map((item, index) => ({
+    ...item,
+    _idx: index,
+    _themeCanonical: themeCanonicalFromAny(item?.themeCanonical || inferTheme(item)),
+    _score: scoreQueueItem(item, index)
+  }));
+  if (!enabled) {
+    return annotated
+      .sort((a, b) => b._score - a._score || a._idx - b._idx)
+      .slice(0, cap)
+      .map(({ _idx, _themeCanonical, _score, ...row }) => ({ ...row, themeCanonical: _themeCanonical }));
+  }
+  const selected = [];
+  const selectedIdx = new Set();
+  const quota = Math.max(1, Number(minQuota) || 1);
+  const targetRows = (Array.isArray(targets) && targets.length > 0 ? targets : [
+    "Macro & Rates",
+    "Volatility & Risk",
+    "Sector & Trend",
+    "Earnings & Fundamentals",
+    "Policy & Compliance"
+  ]).map((x) => themeCanonicalFromAny(x));
+  for (const theme of targetRows) {
+    if (selected.length >= cap) break;
+    const pool = annotated
+      .filter((row) => !selectedIdx.has(row._idx) && row._themeCanonical === theme)
+      .sort((a, b) => b._score - a._score || a._idx - b._idx);
+    for (let k = 0; k < Math.min(quota, pool.length); k += 1) {
+      if (selected.length >= cap) break;
+      selected.push(pool[k]);
+      selectedIdx.add(pool[k]._idx);
+    }
+  }
+  const rest = annotated
+    .filter((row) => !selectedIdx.has(row._idx))
+    .sort((a, b) => b._score - a._score || a._idx - b._idx);
+  for (const row of rest) {
+    if (selected.length >= cap) break;
+    selected.push(row);
+    selectedIdx.add(row._idx);
+  }
+  return selected.map(({ _idx, _themeCanonical, _score, ...row }) => ({ ...row, themeCanonical: _themeCanonical }));
+};
 const localizedDisplayTitle = ({ displayTitle, theme, index, preferKorean }) => {
   const normalized = short(String(displayTitle || "").replace(/\s+/g, " "), 120).trim();
   if (!preferKorean) return normalized || `NotebookLM Insight ${index}`;
@@ -756,16 +856,57 @@ const parseManifest = (text) => {
   const parsed = parseJsonOrNull(text);
   if (!parsed || !Array.isArray(parsed?.items)) return [];
   return parsed.items
-    .map((x) => String(x?.path || "").trim())
+    .map((row) => {
+      const pathValue = String(row?.path || "").trim();
+      if (!pathValue) return null;
+      const keywords = Array.isArray(row?.keywords)
+        ? row.keywords.map((x) => String(x || "").trim()).filter(Boolean)
+        : [];
+      return {
+        path: pathValue,
+        mergeKey: String(row?.mergeKey || "").trim(),
+        pageId: String(row?.pageId || "").trim(),
+        title: String(row?.title || "").trim(),
+        displayTitle: String(row?.displayTitle || "").trim(),
+        summary: String(row?.summary || "").trim(),
+        sourceType: String(row?.sourceType || "").trim(),
+        sourceUrl: String(row?.sourceUrl || "").trim(),
+        sourceRef: String(row?.sourceRef || "").trim(),
+        category: String(row?.category || "").trim(),
+        priority: String(row?.priority || "").trim(),
+        themeCanonical: themeCanonicalFromAny(String(row?.themeCanonical || row?.theme || "").trim()),
+        theme: String(row?.theme || "").trim(),
+        keywords,
+        generatedAt: String(row?.generatedAt || "").trim(),
+        updatedAt: String(row?.updatedAt || row?.generatedAt || "").trim()
+      };
+    })
     .filter(Boolean);
 };
 
-const buildManifest = ({ generatedAt, sourceMode, itemDir, notePaths }) => ({
+const buildManifest = ({ generatedAt, sourceMode, itemDir, items }) => ({
   generatedAt,
   sourceMode,
   itemDir,
-  count: notePaths.length,
-  items: notePaths.map((notePath) => ({ path: notePath, generatedAt }))
+  count: items.length,
+  items: items.map((item) => ({
+    path: item.notePath,
+    mergeKey: item.mergeKey || mergeKeyFromItem(item),
+    pageId: item.pageId || "",
+    title: item.title || "",
+    displayTitle: item.displayTitle || "",
+    summary: item.summary || "",
+    sourceType: item.sourceType || "",
+    sourceUrl: item.sourceUrl || "",
+    sourceRef: item.sourceRef || "",
+    category: item.category || "",
+    priority: item.priority || "",
+    themeCanonical: item.themeCanonical || themeCanonicalFromAny(item.theme || ""),
+    theme: item.theme || "",
+    keywords: Array.isArray(item.keywords) ? item.keywords : [],
+    generatedAt: item.generatedAt || generatedAt,
+    updatedAt: item.updatedAt || generatedAt
+  }))
 });
 
 const obsidianManifestRoute = (manifestPath) => `/vault/${encodeVaultPath(manifestPath)}`;
@@ -911,6 +1052,23 @@ const main = async () => {
   const obsidianGraphLegacyCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP", true);
   const obsidianGraphStaleCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP", true);
   const obsidianGraphArchiveEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED", true);
+  const obsidianGraphAccumulateEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_ENABLED", true);
+  const obsidianGraphAccumulateMax = Number.parseInt(
+    env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_MAX", "200"),
+    10
+  ) || 200;
+  const obsidianGraphThemeQuotaEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_QUOTA_ENABLED", true);
+  const obsidianGraphThemeQuotaMin = Number.parseInt(env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_QUOTA_MIN", "1"), 10) || 1;
+  const obsidianGraphRunLimit = Number.parseInt(
+    env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RUN_LIMIT", String(Math.max(1, limit))),
+    10
+  ) || Math.max(1, limit);
+  const obsidianGraphThemeTargets = parseThemeTargets(
+    env(
+      "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_TARGETS",
+      "Macro & Rates,Volatility & Risk,Sector & Trend,Earnings & Fundamentals,Policy & Compliance"
+    )
+  );
   const obsidianGraphArchiveDir = env(
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR",
     "99_Automation/NotebookLM/Archive"
@@ -963,6 +1121,12 @@ const main = async () => {
       graphLegacyCleanupEnabled: obsidianGraphLegacyCleanup,
       graphStaleCleanupEnabled: obsidianGraphStaleCleanup,
       graphArchiveEnabled: obsidianGraphArchiveEnabled,
+      graphAccumulateEnabled: obsidianGraphAccumulateEnabled,
+      graphAccumulateMax: obsidianGraphAccumulateMax,
+      graphThemeQuotaEnabled: obsidianGraphThemeQuotaEnabled,
+      graphThemeQuotaMin: obsidianGraphThemeQuotaMin,
+      graphRunLimit: obsidianGraphRunLimit,
+      graphThemeTargets: obsidianGraphThemeTargets,
       graphArchiveDir: obsidianGraphArchiveDir,
       graphLegacyDeleted: 0,
       graphStaleArchived: 0,
@@ -1126,23 +1290,34 @@ const main = async () => {
         const packLink = noteNameFromPath(obsidianGraphPackNote);
         const playbookLink = noteNameFromPath(obsidianGraphPlaybookNote);
         const manifestRoute = obsidianManifestRoute(obsidianGraphManifestPath);
-        let previousManifestPaths = [];
-        if (obsidianGraphStaleCleanup) {
-          const previousManifest = await obsidianReadIfExists({
-            baseUrl: obsidianBaseUrl,
-            apiKey: obsidianApiKey,
-            route: manifestRoute,
-            contentType: null
-          });
-          if (previousManifest.exists) previousManifestPaths = parseManifest(previousManifest.text);
+        const previousManifest = await obsidianReadIfExists({
+          baseUrl: obsidianBaseUrl,
+          apiKey: obsidianApiKey,
+          route: manifestRoute,
+          contentType: null
+        });
+        const previousManifestEntries = previousManifest.exists ? parseManifest(previousManifest.text) : [];
+        const previousManifestPaths = previousManifestEntries.map((x) => String(x?.path || "").trim()).filter(Boolean);
+        const previousByKey = new Map();
+        for (const entry of previousManifestEntries) {
+          const key = String(entry?.mergeKey || "").trim() || mergeKeyFromItem(entry);
+          if (!key) continue;
+          previousByKey.set(key, { ...entry, mergeKey: key });
         }
-        const prepared = [];
-        const usedNotePaths = new Set();
+        const queueSelected = selectWithThemeQuota({
+          items: queueItems,
+          runLimit: obsidianGraphRunLimit,
+          enabled: obsidianGraphThemeQuotaEnabled,
+          minQuota: obsidianGraphThemeQuotaMin,
+          targets: obsidianGraphThemeTargets
+        });
+        const preparedCurrent = [];
+        const usedNotePaths = new Set(previousManifestPaths);
         const themeHubMap = new Map();
         let index = 1;
-        for (const item of queueItems) {
+        for (const item of queueSelected) {
           const rawTitle = readableHeadline(item.title, item.sourceUrl, `NotebookLM Insight ${index}`);
-          const themeCanonical = inferTheme({ ...item, title: rawTitle });
+          const themeCanonical = themeCanonicalFromAny(item?.themeCanonical || inferTheme({ ...item, title: rawTitle }));
           const theme = obsidianGraphKoreanTitle ? themeLabelKo(themeCanonical) : themeCanonical;
           const displayTitle = localizedDisplayTitle({
             displayTitle: rawTitle,
@@ -1163,27 +1338,93 @@ const main = async () => {
               ? `${themeLabelKo(themeCanonical)} · ${hintTitle}`
               : displayTitle;
           const keywords = extractKeywords({ ...item, title: rawTitle });
+          const mergeKey = mergeKeyFromItem({ ...item, displayTitle: finalTitle, title: rawTitle }, index);
+          const previous = previousByKey.get(mergeKey);
           const themeSlug = slugifyFileName(theme, "general-market-intel");
-          const baseStem = `${String(index).padStart(2, "0")}-${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}`;
-          let notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
-          let dupe = 2;
-          while (usedNotePaths.has(notePath)) {
-            notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}-${dupe}.md`;
-            dupe += 1;
+          let notePath = "";
+          if (previous?.path) {
+            notePath = previous.path;
+          } else {
+            const stableTail = slugifyFileName(
+              String(item?.pageId || item?.sourceUrl || mergeKey).slice(-32),
+              `i${index}`
+            ).slice(0, 12);
+            const baseStem = `${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}-${stableTail}`;
+            notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
+            let dupe = 2;
+            while (usedNotePaths.has(notePath)) {
+              notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}-${dupe}.md`;
+              dupe += 1;
+            }
           }
           usedNotePaths.add(notePath);
           const noteName = noteNameFromPath(notePath);
           const themeHubPath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`;
           const themeHubName = noteNameFromPath(themeHubPath);
           if (!themeHubMap.has(theme)) themeHubMap.set(theme, { themeHubPath, themeHubName });
-          prepared.push({ ...item, displayTitle: finalTitle, keywords, theme, themeCanonical, noteName, notePath, themeHubPath, themeHubName });
+          preparedCurrent.push({
+            ...item,
+            mergeKey,
+            generatedAt: report.generatedAt,
+            updatedAt: report.generatedAt,
+            title: rawTitle,
+            displayTitle: finalTitle,
+            keywords,
+            theme,
+            themeCanonical,
+            noteName,
+            notePath,
+            themeHubPath,
+            themeHubName
+          });
           index += 1;
         }
+        let prepared = preparedCurrent;
+        if (obsidianGraphAccumulateEnabled) {
+          const accumulatedMap = new Map();
+          for (const row of previousManifestEntries) {
+            const baseKey = String(row?.mergeKey || "").trim() || mergeKeyFromItem(row);
+            const hasIdentity = Boolean(String(row?.sourceUrl || "").trim() || String(row?.title || "").trim() || String(row?.pageId || "").trim());
+            if (!baseKey || !hasIdentity || !row?.path) continue;
+            const canonical = themeCanonicalFromAny(row?.themeCanonical || row?.theme);
+            const themeLabel = obsidianGraphKoreanTitle ? themeLabelKo(canonical) : canonical;
+            const themeSlug = slugifyFileName(themeLabel, "general-market-intel");
+            const notePath = row.path;
+            accumulatedMap.set(baseKey, {
+              mergeKey: baseKey,
+              pageId: row.pageId || "",
+              title: row.title || row.displayTitle || noteNameFromPath(notePath),
+              displayTitle: row.displayTitle || row.title || noteNameFromPath(notePath),
+              status: "승인",
+              category: row.category || "시장 인텔",
+              priority: row.priority || "P2",
+              summary: row.summary || "",
+              sourceUrl: row.sourceUrl || "",
+              sourceRef: row.sourceRef || "",
+              sourceType: row.sourceType || "notebooklm_json",
+              keywords: Array.isArray(row.keywords) ? row.keywords : [],
+              themeCanonical: canonical,
+              theme: themeLabel,
+              notePath,
+              noteName: noteNameFromPath(notePath),
+              themeHubPath: `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`,
+              themeHubName: noteNameFromPath(`${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`),
+              generatedAt: row.generatedAt || report.generatedAt,
+              updatedAt: row.updatedAt || row.generatedAt || "1970-01-01T00:00:00.000Z"
+            });
+          }
+          for (const row of preparedCurrent) accumulatedMap.set(row.mergeKey, row);
+          prepared = [...accumulatedMap.values()]
+            .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
+            .slice(0, Math.max(1, obsidianGraphAccumulateMax));
+        }
+        report.obsidian.graphSelectedThisRun = queueSelected.length;
+        report.obsidian.graphAccumulatedTotal = prepared.length;
         const currentNotePathSet = new Set(prepared.map((x) => x.notePath));
         if (obsidianGraphLegacyCleanup) {
           const legacySet = new Set();
           let legacyIndex = 1;
-          for (const item of queueItems) {
+          for (const item of queueSelected) {
             const legacyPath = legacyPathFromOldPattern(obsidianGraphItemDir, item, legacyIndex);
             if (!currentNotePathSet.has(legacyPath)) legacySet.add(legacyPath);
             legacyIndex += 1;
@@ -1292,7 +1533,7 @@ const main = async () => {
           generatedAt: report.generatedAt,
           sourceMode,
           itemDir: obsidianGraphItemDir,
-          notePaths: [...currentNotePathSet]
+          items: prepared
         });
         await obsidianRequest({
           baseUrl: obsidianBaseUrl,
