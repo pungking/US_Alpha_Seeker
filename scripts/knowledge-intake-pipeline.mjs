@@ -196,9 +196,32 @@ const seedPlaceholderSummary = (sourceUrl) => {
   lines.push("- 질문 수를 줄여 재실행 후 실제 답변으로 덮어쓰기");
   return `${lines.join("\n")}`.trim();
 };
+const isInvalidNotebookLmMetaAnswer = (value) => {
+  const text = String(value || "");
+  return (
+    /EXTREMELY IMPORTANT:\s*Is that ALL you need to know\?/i.test(text) ||
+    /시스템에서 답변할 수 없습니다/i.test(text)
+  );
+};
+const invalidNotebookLmSummary = () => {
+  const lines = [];
+  lines.push("## 상태");
+  lines.push("NotebookLM 응답이 유효하지 않아 본문을 반영하지 않았습니다.");
+  lines.push("");
+  lines.push("## 감지된 문제");
+  lines.push("- 시스템 가드 문구(분석 본문 아님)가 수집되었습니다.");
+  lines.push("- 동일 세션 재질문 또는 질문 단순화가 필요합니다.");
+  lines.push("");
+  lines.push("## 다음 조치");
+  lines.push("- 질문 수를 줄이고(`MAX_ITEMS=1~2`) 재실행");
+  lines.push("- 장문 질문을 1문장 핵심 질의로 축약");
+  lines.push("- 수집 성공 후 본 노트를 최신 응답으로 덮어쓰기");
+  return `${lines.join("\n")}`.trim();
+};
 const sanitizeNotebookSummary = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return "";
+  if (isInvalidNotebookLmMetaAnswer(raw)) return invalidNotebookLmSummary();
   let s = raw
     .replace(/\[Executive Summary\]/gi, "\n## 핵심 요약\n")
     .replace(/\[Strategic Analysis\]/gi, "\n## 전략 해석\n")

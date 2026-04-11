@@ -122,6 +122,12 @@ const extractAnswerText = (resultText, parsed) => {
   return resultText;
 };
 
+const isInvalidAssistantMetaAnswer = (text) => {
+  const s = String(text || "");
+  if (!s.trim()) return true;
+  return /EXTREMELY IMPORTANT: Is that ALL you need to know\?/i.test(s) || /시스템에서 답변할 수 없습니다/i.test(s);
+};
+
 const isNoSourceUiError = (text) => {
   const s = String(text || "");
   return /(시작하려면 출처를 업로드하세요|upload.*source|element is not enabled)/i.test(s);
@@ -416,6 +422,7 @@ const main = async () => {
 
     const items = [];
     let failCount = 0;
+    let invalidAnswerCount = 0;
     let index = 1;
     let noSourceUiBlocked = false;
     const startedAtMs = Date.now();
@@ -448,6 +455,10 @@ const main = async () => {
       }
       const answer = extractAnswerText(parsed.text, parsed.parsed);
       if (!answer) continue;
+      if (isInvalidAssistantMetaAnswer(answer)) {
+        invalidAnswerCount += 1;
+        continue;
+      }
       items.push({
         id: `nlm-${Date.now()}-${index}`,
         title: short(question, 120),
@@ -479,16 +490,21 @@ const main = async () => {
     );
 
     report.status = items.length > 0 ? "ok" : "no_items";
-    report.reason =
-      items.length > 0
-        ? ""
-        : noSourceUiBlocked
-          ? "notebook_has_no_sources_or_query_disabled"
-        : report.health.authenticated === false
-          ? "not_authenticated_or_notebook_access_denied"
-          : failCount > 0
-            ? "ask_question_failed_for_all_items"
-            : "ask_question_returned_no_content";
+    if (items.length > 0) {
+      report.reason = "";
+    } else if (noSourceUiBlocked) {
+      report.reason = "notebook_has_no_sources_or_query_disabled";
+    } else if (report.health.authenticated === false) {
+      report.reason = "not_authenticated_or_notebook_access_denied";
+    } else if (invalidAnswerCount > 0 && invalidAnswerCount === report.asked) {
+      report.reason = "invalid_assistant_meta_answer_for_all_items";
+    } else if (invalidAnswerCount > 0) {
+      report.reason = "invalid_assistant_meta_answer_partial";
+    } else if (failCount > 0) {
+      report.reason = "ask_question_failed_for_all_items";
+    } else {
+      report.reason = "ask_question_returned_no_content";
+    }
     if (items.length > 0 && report.runtime.budgetStop) {
       report.status = "ok_partial";
       report.reason = "runtime_budget_guard";
