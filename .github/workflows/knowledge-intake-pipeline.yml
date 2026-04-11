@@ -40,6 +40,7 @@ jobs:
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD || '2' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL || 'true' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL || 'true' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS || '2' }}
@@ -57,6 +58,7 @@ jobs:
       KNOWLEDGE_PIPELINE_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_APPLY || 'false' }}
       KNOWLEDGE_PIPELINE_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_REQUIRED || 'false' }}
       KNOWLEDGE_PIPELINE_LIMIT: ${{ vars.KNOWLEDGE_PIPELINE_LIMIT || '20' }}
+      KNOWLEDGE_PIPELINE_ENFORCE_STRICT: ${{ vars.KNOWLEDGE_PIPELINE_ENFORCE_STRICT || 'true' }}
       KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY: ${{ vars.KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY || 'false' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY || 'false' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED || 'false' }}
@@ -107,9 +109,37 @@ jobs:
           [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
           [ -f state/notebooklm-mcp-health.json ] || echo '{}' > state/notebooklm-mcp-health.json
 
+      - name: Validate strict profile
+        run: |
+          set -euo pipefail
+          if [ "${KNOWLEDGE_PIPELINE_ENFORCE_STRICT}" != "true" ]; then
+            echo "[STRICT] disabled (KNOWLEDGE_PIPELINE_ENFORCE_STRICT=${KNOWLEDGE_PIPELINE_ENFORCE_STRICT})"
+            exit 0
+          fi
+          bad=0
+          check_eq () {
+            key="$1"
+            want="$2"
+            current="${!key:-}"
+            if [ "$current" != "$want" ]; then
+              echo "::error::$key must be '$want' (current='$current')"
+              bad=1
+            else
+              echo "[STRICT][OK] $key=$current"
+            fi
+          }
+          check_eq KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ENABLED true
+          check_eq KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED true
+          check_eq KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_REQUIRED true
+          check_eq KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL true
+          check_eq KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY false
+          if [ "$bad" -ne 0 ]; then
+            echo "::error::Strict profile check failed. Update repository variables or disable strict mode intentionally."
+            exit 1
+          fi
+
       - name: Collect from NotebookLM MCP (optional)
         timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_STEP_TIMEOUT_MIN || '30') }}
-        continue-on-error: true
         run: npm run ops:knowledge:notebooklm
 
       - name: Build NotebookLM intake seed (optional)

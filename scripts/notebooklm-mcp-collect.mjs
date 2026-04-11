@@ -146,6 +146,8 @@ const isNoSourceUiError = (text) => {
   return /(시작하려면 출처를 업로드하세요|upload.*source|element is not enabled)/i.test(s);
 };
 
+const isAuthFailureReason = (reason) => /not_authenticated_or_notebook_access_denied/i.test(String(reason || ""));
+
 class JsonLineRpcClient {
   constructor({ command, args, commandEnv, timeoutMs = 90000 }) {
     this.command = command;
@@ -299,6 +301,7 @@ const main = async () => {
     numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD", 2)
   );
   const invalidStreakAlertFail = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL", false);
+  const authHardFail = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL", true);
   const healthState = readJsonFile(HEALTH_STATE_PATH, {
     generatedAt: null,
     status: "init",
@@ -330,6 +333,9 @@ const main = async () => {
       successStreak: Number(healthState?.successStreak || 0),
       triggered: false,
       failOnTriggered: invalidStreakAlertFail
+    },
+    auth: {
+      hardFail: authHardFail
     },
     runtime: {
       maxRuntimeMs,
@@ -453,6 +459,7 @@ const main = async () => {
       console.log(
         `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`
       );
+      if (authHardFail) hardFailAfterFinally = true;
       return;
     }
 
@@ -594,10 +601,19 @@ const main = async () => {
         report.reason = `invalid_meta_streak(${nextHealth.invalidMetaNoItemsStreak}/${invalidStreakAlertThreshold})`;
       }
     }
+    if (authHardFail && isAuthFailureReason(report.reason)) {
+      hardFailAfterFinally = true;
+      report.status = "fail_auth_required";
+      report.reason = "not_authenticated_or_notebook_access_denied";
+      report.auth.nextAction = "run setup_auth (show_browser=true) on self-hosted runner and retry";
+    }
     writeJsonFile(HEALTH_STATE_PATH, nextHealth);
     writeJsonFile(REPORT_PATH, report);
   }
   if (hardFailAfterFinally) {
+    if (isAuthFailureReason(report.reason)) {
+      throw new Error("NotebookLM MCP auth required: setup_auth(show_browser=true) 후 재실행 필요");
+    }
     throw new Error(`NotebookLM MCP invalid-meta streak threshold exceeded (${invalidStreakAlertThreshold})`);
   }
 };

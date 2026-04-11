@@ -227,6 +227,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY`
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD` (default `2`, invalid meta 응답 연속 감지 임계치)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL` (default `true`, 임계치 초과 시 fail 여부)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL` (default `true`, NotebookLM 인증/접근 실패 시 즉시 fail)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `2`, 필요 시 증가)
@@ -240,6 +241,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_PLAYBOOK_PATH` (default `docs/MARKET_INTEL_AUTOTRADING_UPLIFT_PLAYBOOK_2026-04-10.md`)
   - `KNOWLEDGE_PIPELINE_APPLY` (default `false`, 권장: 초기 queue-only)
   - `KNOWLEDGE_PIPELINE_REQUIRED` (default `false`)
+  - `KNOWLEDGE_PIPELINE_ENFORCE_STRICT` (default `true`, strict profile 미충족 시 워크플로우 fail)
   - `KNOWLEDGE_PIPELINE_PENDING_STATUS` (default `승인대기`)
   - `KNOWLEDGE_PIPELINE_APPROVED_STATUS` (default `승인`)
   - `KNOWLEDGE_PIPELINE_REFLECT_STATUS` (default `코드반영`)
@@ -273,7 +275,8 @@ Optional knowledge pipeline automation:
   - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)
   - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
   - 운영 안정화 메모:
-    - workflow 기본 timeout은 45분이며, NotebookLM MCP 수집 step은 `continue-on-error`로 구성되어 파이프라인 전체 중단을 방지
+    - workflow 기본 timeout은 45분이며, strict profile 검증(step)으로 fail-open 설정을 사전 차단
+    - NotebookLM 인증이 만료되면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL=true` 기준으로 즉시 실패 처리되어 무효 런이 녹색으로 숨겨지지 않음
     - NotebookLM 수집 시간이 길면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS`를 먼저 낮추고 관측 후 점진 증가 권장
     - NotebookLM 수집 스크립트는 내부 런타임 가드(`...MAX_RUNTIME_MS`)가 있어 종료 마진이 부족하면 `ok_partial`로 조기 종료
     - NotebookLM invalid meta 응답이 연속 발생하면 `state/notebooklm-mcp-health.json`에 streak가 누적되고 alert 기준을 넘으면 로그에 경고 출력
