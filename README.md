@@ -210,7 +210,9 @@ Optional knowledge pipeline automation:
   - `source_mode=notion|hybrid`: `NOTION_TOKEN`, `NOTION_WORK_LIST`
   - `source_mode=notebooklm_json`: `state/notebooklm-intake.json` 파일
 - optional vars:
-  - `KNOWLEDGE_PIPELINE_RUNS_ON` (default `ubuntu-latest`, Obsidian 무인 반영 시 `self-hosted` 권장)
+  - `KNOWLEDGE_PIPELINE_RUNS_ON` (legacy string, default `ubuntu-latest`)
+  - `KNOWLEDGE_PIPELINE_RUNS_ON_JSON` (권장, 예: `["self-hosted","macOS","X64","knowledge-intake","obsidian-local"]`)
+  - `KNOWLEDGE_PIPELINE_REQUIRE_SELF_HOSTED` (default `false`, `true`면 strict 모드에서 github-hosted 실행을 차단)
   - `KNOWLEDGE_PIPELINE_SOURCE_MODE` (default `notion`, `notion|notebooklm_json|hybrid`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH` (default `state/notebooklm-intake.json`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED` (default `true`, notebooklm 소스 필수화)
@@ -268,6 +270,8 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_DAYS` (default `90`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE` (default `200`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID` (default `true`, 누적 모드에서 placeholder/가드 문구 노트 자동 제외)
+  - `KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON` (default `fail`, `always|fail|never`)
+  - Telegram alert uses `TELEGRAM_TOKEN` + `TELEGRAM_ALERT_CHAT_ID` (fallback: `TELEGRAM_SIMULATION_CHAT_ID`)
   - Graph note role guide:
     - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference
     - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서
@@ -287,6 +291,7 @@ Optional knowledge pipeline automation:
     - Archive는 기본 90일 보존 후 자동 정리(런당 삭제 상한 적용)됨
 - 권장 세팅/전환 기준 문서:
   - `docs/KNOWLEDGE_PIPELINE_GITHUB_VARIABLE_MATRIX_2026-04-09.md`
+  - `docs/SELF_HOSTED_OBSIDIAN_AUTOMATION_RUNBOOK_2026-04-12.md`
 
 Optional master control-plane scaffold (manual-only):
 
