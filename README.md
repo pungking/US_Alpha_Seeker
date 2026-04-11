@@ -229,6 +229,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `2`, 필요 시 증가)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` (default `false`)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS` (default `true`, 시스템 가드 문구 응답은 큐/그래프에서 자동 제외)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` (default `seed_pack`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_OVERWRITE` (default `false`)
@@ -256,6 +257,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP` (default `true`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR` (default `99_Automation/NotebookLM/Archive`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID` (default `true`, 누적 모드에서 placeholder/가드 문구 노트 자동 제외)
   - Graph note role guide:
     - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference
     - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서

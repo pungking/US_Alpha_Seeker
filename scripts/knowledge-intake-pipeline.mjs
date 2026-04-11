@@ -218,6 +218,13 @@ const invalidNotebookLmSummary = () => {
   lines.push("- 수집 성공 후 본 노트를 최신 응답으로 덮어쓰기");
   return `${lines.join("\n")}`.trim();
 };
+const isInvalidNotebookSummaryPlaceholder = (value) => {
+  const text = String(value || "");
+  return (
+    /NotebookLM 응답이 유효하지 않아 본문을 반영하지 않았습니다\./.test(text) ||
+    /시스템 가드 문구\(분석 본문 아님\)가 수집되었습니다\./.test(text)
+  );
+};
 const sanitizeNotebookSummary = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return "";
@@ -986,13 +993,28 @@ const cleanupObsidianLegacyPaths = async ({ baseUrl, apiKey, legacyPaths }) => {
 
 const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeURIComponent(part)).join("/");
 
-const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limit) => {
+const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limit, options = {}) => {
+  const dropInvalidItems = options?.dropInvalidItems !== false;
   if (!fs.existsSync(jsonPath)) {
-    return { status: "skip_missing_file", reason: `missing ${path.relative(CWD, jsonPath)}`, items: [] };
+    return {
+      status: "skip_missing_file",
+      reason: `missing ${path.relative(CWD, jsonPath)}`,
+      items: [],
+      invalidItemsDropped: 0,
+      totalRows: 0,
+      dropInvalidItems
+    };
   }
   const raw = fs.readFileSync(jsonPath, "utf8").trim();
   if (!raw) {
-    return { status: "skip_empty_file", reason: `empty ${path.relative(CWD, jsonPath)}`, items: [] };
+    return {
+      status: "skip_empty_file",
+      reason: `empty ${path.relative(CWD, jsonPath)}`,
+      items: [],
+      invalidItemsDropped: 0,
+      totalRows: 0,
+      dropInvalidItems
+    };
   }
   let parsed;
   try {
@@ -1001,38 +1023,61 @@ const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limi
     return {
       status: "fail_parse",
       reason: `invalid json ${path.relative(CWD, jsonPath)}: ${error?.message || error}`,
-      items: []
+      items: [],
+      invalidItemsDropped: 0,
+      totalRows: 0,
+      dropInvalidItems
     };
   }
   const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
   const rows = list.slice(0, Math.max(1, limit));
-  const items = rows.map((row, index) => {
-    const rawTitle = String(row?.title || row?.topic || row?.headline || "").trim();
-    const summaryRaw = String(row?.summary || row?.insight || row?.notes || "").trim();
-    const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
-    const summarySanitized = sanitizeNotebookSummary(summaryRaw);
-    const summary = isSeedPlaceholder(summaryRaw) ? seedPlaceholderSummary(sourceUrl) : summarySanitized;
-    const category = String(row?.category || row?.area || fallbackCategory || "").trim();
-    const priority = String(row?.priority || fallbackPriority || "").trim();
-    const sourceRef = String(row?.sourceRef || row?.notebook || row?.notebookId || "").trim();
-    const idBase = safeId(row?.id, `notebooklm-${index + 1}`);
-    const title = readableHeadline(rawTitle, sourceUrl, `NotebookLM Item ${index + 1}`);
-    return {
-      pageId: idBase,
-      title,
-      status: "승인",
-      category: categoryLabelKo(category || "NotebookLM"),
-      priority: priority || "P2",
-      summary,
-      sourceUrl,
-      sourceRef,
-      sourceType: "notebooklm_json"
-    };
-  });
+  let invalidItemsDropped = 0;
+  const items = rows
+    .map((row, index) => {
+      const rawTitle = String(row?.title || row?.topic || row?.headline || "").trim();
+      const summaryRaw = String(row?.summary || row?.insight || row?.notes || "").trim();
+      if (dropInvalidItems && isInvalidNotebookLmMetaAnswer(summaryRaw)) {
+        invalidItemsDropped += 1;
+        return null;
+      }
+      const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
+      const summarySanitized = sanitizeNotebookSummary(summaryRaw);
+      if (dropInvalidItems && isInvalidNotebookSummaryPlaceholder(summarySanitized)) {
+        invalidItemsDropped += 1;
+        return null;
+      }
+      const summary = isSeedPlaceholder(summaryRaw) ? seedPlaceholderSummary(sourceUrl) : summarySanitized;
+      const category = String(row?.category || row?.area || fallbackCategory || "").trim();
+      const priority = String(row?.priority || fallbackPriority || "").trim();
+      const sourceRef = String(row?.sourceRef || row?.notebook || row?.notebookId || "").trim();
+      const idBase = safeId(row?.id, `notebooklm-${index + 1}`);
+      const title = readableHeadline(rawTitle, sourceUrl, `NotebookLM Item ${index + 1}`);
+      return {
+        pageId: idBase,
+        title,
+        status: "승인",
+        category: categoryLabelKo(category || "NotebookLM"),
+        priority: priority || "P2",
+        summary,
+        sourceUrl,
+        sourceRef,
+        sourceType: "notebooklm_json"
+      };
+    })
+    .filter(Boolean);
+  let status = "ok";
+  let reason = "";
+  if (items.length === 0 && rows.length > 0 && invalidItemsDropped > 0) {
+    status = "ok_filtered_empty";
+    reason = `invalid_items_filtered:${invalidItemsDropped}/${rows.length}`;
+  }
   return {
-    status: "ok",
-    reason: "",
-    items
+    status,
+    reason,
+    items,
+    invalidItemsDropped,
+    totalRows: rows.length,
+    dropInvalidItems
   };
 };
 
@@ -1101,9 +1146,12 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR",
     "99_Automation/NotebookLM/Archive"
   );
+  const obsidianGraphDropInvalid = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID", true);
+  const notebooklmDropInvalidItems = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS", true);
 
   const report = {
     generatedAt: new Date().toISOString(),
+    status: "init",
     apply,
     required,
     source: {
@@ -1112,7 +1160,9 @@ const main = async () => {
       notebooklmRequired,
       notebooklmStatus: "skip",
       notebooklmReason: "",
-      notebooklmLoaded: 0
+      notebooklmLoaded: 0,
+      notebooklmDropInvalidItems,
+      notebooklmInvalidDropped: 0
     },
     statusFlow: { pendingStatus, approvedStatus, reflectStatus },
     notion: {
@@ -1156,9 +1206,11 @@ const main = async () => {
       graphRunLimit: obsidianGraphRunLimit,
       graphThemeTargets: obsidianGraphThemeTargets,
       graphArchiveDir: obsidianGraphArchiveDir,
+      graphDropInvalidEnabled: obsidianGraphDropInvalid,
       graphLegacyDeleted: 0,
       graphStaleArchived: 0,
       graphStaleDeleted: 0,
+      graphInvalidDroppedFromAccumulated: 0,
       graphManifestWritten: false
     }
   };
@@ -1233,9 +1285,12 @@ const main = async () => {
   }
 
   if (["notebooklm_json", "hybrid"].includes(sourceMode)) {
-    const notebooklm = parseNotebooklmQueue(notebooklmJsonPath, categoryFilter, "P2", limit);
+    const notebooklm = parseNotebooklmQueue(notebooklmJsonPath, categoryFilter, "P2", limit, {
+      dropInvalidItems: notebooklmDropInvalidItems
+    });
     report.source.notebooklmStatus = notebooklm.status;
     report.source.notebooklmReason = notebooklm.reason;
+    report.source.notebooklmInvalidDropped = notebooklm.invalidItemsDropped || 0;
     notebooklmItems = notebooklm.items;
     report.source.notebooklmLoaded = notebooklmItems.length;
   } else {
@@ -1408,6 +1463,11 @@ const main = async () => {
             const baseKey = String(row?.mergeKey || "").trim() || mergeKeyFromItem(row);
             const hasIdentity = Boolean(String(row?.sourceUrl || "").trim() || String(row?.title || "").trim() || String(row?.pageId || "").trim());
             if (!baseKey || !hasIdentity || !row?.path) continue;
+            const summarySanitized = sanitizeNotebookSummary(String(row?.summary || "").trim());
+            if (obsidianGraphDropInvalid && isInvalidNotebookSummaryPlaceholder(summarySanitized)) {
+              report.obsidian.graphInvalidDroppedFromAccumulated += 1;
+              continue;
+            }
             const canonical = themeCanonicalFromAny(row?.themeCanonical || row?.theme);
             const themeLabel = obsidianGraphKoreanTitle ? themeLabelKo(canonical) : canonical;
             const themeSlug = slugifyFileName(themeLabel, "general-market-intel");
@@ -1598,6 +1658,13 @@ const main = async () => {
   }
 
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
+  if (report.obsidian.status === "fail" || report.notion.status === "fail") {
+    report.status = "fail";
+  } else if (report.obsidian.status === "ok_empty_queue") {
+    report.status = "ok_empty_queue";
+  } else {
+    report.status = "ok";
+  }
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   console.log(
