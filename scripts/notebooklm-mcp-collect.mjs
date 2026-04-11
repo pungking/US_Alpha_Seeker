@@ -302,6 +302,8 @@ const main = async () => {
   );
   const invalidStreakAlertFail = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL", false);
   const authHardFail = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL", true);
+  const authAutoSetup = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_AUTO_SETUP", true);
+  const authAutoSetupShowBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_AUTO_SETUP_SHOW_BROWSER", false);
   const healthState = readJsonFile(HEALTH_STATE_PATH, {
     generatedAt: null,
     status: "init",
@@ -335,7 +337,9 @@ const main = async () => {
       failOnTriggered: invalidStreakAlertFail
     },
     auth: {
-      hardFail: authHardFail
+      hardFail: authHardFail,
+      autoSetup: authAutoSetup,
+      autoSetupShowBrowser: authAutoSetupShowBrowser
     },
     runtime: {
       maxRuntimeMs,
@@ -375,10 +379,17 @@ const main = async () => {
     };
     await refreshHealth();
 
-    // If auth is missing and browser mode is enabled, request one-time manual auth first.
-    if (report.health.authenticated === false && showBrowser) {
+    // If auth is missing, try one recovery path before failing.
+    if (report.health.authenticated === false && authAutoSetup) {
       try {
-        await client.request("tools/call", { name: "setup_auth", arguments: { show_browser: true } });
+        await client.request("tools/call", {
+          name: "setup_auth",
+          arguments: { show_browser: authAutoSetupShowBrowser || showBrowser }
+        });
+        report.authSetup = {
+          status: "attempted",
+          showBrowser: authAutoSetupShowBrowser || showBrowser
+        };
       } catch (authErr) {
         report.authSetup = { status: "failed", reason: authErr?.message || String(authErr) };
       }
