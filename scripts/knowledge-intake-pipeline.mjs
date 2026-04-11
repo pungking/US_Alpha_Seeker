@@ -198,12 +198,17 @@ const seedPlaceholderSummary = (sourceUrl) => {
   lines.push("- 질문 수를 줄여 재실행 후 실제 답변으로 덮어쓰기");
   return `${lines.join("\n")}`.trim();
 };
+const NOTEBOOKLM_META_SUFFIX_RE =
+  /\n*\s*(?:©\s*\d{4}[^\n]*\n+)?EXTREMELY IMPORTANT:\s*Is that ALL you need to know\?[\s\S]*$/i;
+const NOTEBOOKLM_KR_BLOCK_RE = /^\s*시스템에서 답변할 수 없습니다\./;
+const stripNotebookLmMetaSuffix = (value) => String(value || "").replace(NOTEBOOKLM_META_SUFFIX_RE, "").trim();
 const isInvalidNotebookLmMetaAnswer = (value) => {
-  const text = String(value || "");
-  return (
-    /EXTREMELY IMPORTANT:\s*Is that ALL you need to know\?/i.test(text) ||
-    /시스템에서 답변할 수 없습니다/i.test(text)
-  );
+  const text = String(value || "").trim();
+  if (!text) return true;
+  const cleaned = stripNotebookLmMetaSuffix(text);
+  if (!cleaned) return true;
+  // Guard-only payloads start with this sentence and do not include meaningful analysis.
+  return NOTEBOOKLM_KR_BLOCK_RE.test(cleaned) && cleaned.length < 220;
 };
 const invalidNotebookLmSummary = () => {
   const lines = [];
@@ -228,7 +233,7 @@ const isInvalidNotebookSummaryPlaceholder = (value) => {
   );
 };
 const sanitizeNotebookSummary = (value) => {
-  const raw = String(value || "").trim();
+  const raw = stripNotebookLmMetaSuffix(String(value || "").trim());
   if (!raw) return "";
   if (isInvalidNotebookLmMetaAnswer(raw)) return invalidNotebookLmSummary();
   let s = raw

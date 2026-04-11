@@ -135,10 +135,19 @@ const extractAnswerText = (resultText, parsed) => {
   return resultText;
 };
 
+const META_SUFFIX_RE =
+  /\n*\s*(?:©\s*\d{4}[^\n]*\n+)?EXTREMELY IMPORTANT:\s*Is that ALL you need to know\?[\s\S]*$/i;
+const KR_BLOCK_RE = /^\s*시스템에서 답변할 수 없습니다\./;
+
+const stripAssistantMetaSuffix = (text) => String(text || "").replace(META_SUFFIX_RE, "").trim();
+
 const isInvalidAssistantMetaAnswer = (text) => {
-  const s = String(text || "");
-  if (!s.trim()) return true;
-  return /EXTREMELY IMPORTANT: Is that ALL you need to know\?/i.test(s) || /시스템에서 답변할 수 없습니다/i.test(s);
+  const raw = String(text || "").trim();
+  if (!raw) return true;
+  const cleaned = stripAssistantMetaSuffix(raw);
+  if (!cleaned) return true;
+  // Guard-only responses start with this Korean fallback sentence and carry no analysis body.
+  return KR_BLOCK_RE.test(cleaned) && cleaned.length < 220;
 };
 
 const isNoSourceUiError = (text) => {
@@ -507,7 +516,7 @@ const main = async () => {
         }
         continue;
       }
-      const answer = extractAnswerText(parsed.text, parsed.parsed);
+      const answer = stripAssistantMetaSuffix(extractAnswerText(parsed.text, parsed.parsed));
       if (!answer) continue;
       if (isInvalidAssistantMetaAnswer(answer)) {
         invalidAnswerCount += 1;
