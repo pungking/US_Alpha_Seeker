@@ -325,11 +325,16 @@ const parseThemeTargets = (value) => {
   return out;
 };
 const mergeKeyFromItem = (item, index = 0) => {
-  const sourceUrl = String(item?.sourceUrl || "").trim().toLowerCase();
-  if (sourceUrl) return `url:${sourceUrl}`;
   const pageId = String(item?.pageId || "").trim().toLowerCase();
   if (pageId) return `id:${pageId}`;
+  const sourceUrl = String(item?.sourceUrl || "").trim().toLowerCase();
+  const sourceRef = String(item?.sourceRef || "").trim().toLowerCase();
   const title = slugifyFileName(item?.displayTitle || item?.title || `item-${index + 1}`, `item-${index + 1}`);
+  // NotebookLM item URLs are often the same notebook URL for every question.
+  // Use title/sourceRef to avoid collapsing all entries into one merge key.
+  if (sourceUrl.includes("notebooklm.google.com/notebook/")) return `nlm:${sourceRef || "na"}:${title}`;
+  if (sourceUrl) return `url:${sourceUrl}`;
+  if (sourceRef) return `ref:${sourceRef}:${title}`;
   return `title:${title}`;
 };
 const scoreQueueItem = (item, index) => {
