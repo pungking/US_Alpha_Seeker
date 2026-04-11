@@ -896,7 +896,7 @@ const parseManifest = (text) => {
         pageId: String(row?.pageId || "").trim(),
         title: String(row?.title || "").trim(),
         displayTitle: String(row?.displayTitle || "").trim(),
-        summary: String(row?.summary || "").trim(),
+        summary: sanitizeNotebookSummary(String(row?.summary || "").trim()),
         sourceType: String(row?.sourceType || "").trim(),
         sourceUrl: String(row?.sourceUrl || "").trim(),
         sourceRef: String(row?.sourceRef || "").trim(),
@@ -1281,12 +1281,6 @@ const main = async () => {
   if (!obsidianApply) {
     report.obsidian.status = "skip_disabled";
     report.obsidian.reason = "KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=false";
-  } else if (queueItems.length === 0) {
-    report.obsidian.status = "skip_no_queue";
-    report.obsidian.reason =
-      sourceMode === "notebooklm_json"
-        ? `approved queue is empty (${report.source.notebooklmStatus}${report.source.notebooklmReason ? `: ${report.source.notebooklmReason}` : ""})`
-        : "approved queue is empty";
   } else if (!obsidianApiKey || !obsidianBaseUrl) {
     report.obsidian.status = "skip_missing_env";
     report.obsidian.reason = "OBSIDIAN_API_KEY or OBSIDIAN_BASE_URL missing";
@@ -1485,6 +1479,15 @@ const main = async () => {
         }
         const preparedByTheme = new Map();
         for (const item of prepared) {
+          if (!themeHubMap.has(item.theme)) {
+            const canonical = themeCanonicalFromAny(item.themeCanonical || item.theme);
+            const label = obsidianGraphKoreanTitle ? themeLabelKo(canonical) : canonical;
+            const slug = slugifyFileName(label, "general-market-intel");
+            const themeHubPath =
+              item.themeHubPath || `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${slug}.md`;
+            const themeHubName = item.themeHubName || noteNameFromPath(themeHubPath);
+            themeHubMap.set(item.theme, { themeHubPath, themeHubName });
+          }
           if (!preparedByTheme.has(item.theme)) preparedByTheme.set(item.theme, []);
           preparedByTheme.get(item.theme).push(item);
         }
@@ -1576,7 +1579,16 @@ const main = async () => {
         report.obsidian.graphUploadedHub = true;
         report.obsidian.graphManifestWritten = true;
       }
-      report.obsidian.status = "ok";
+      if (queueItems.length === 0) {
+        report.obsidian.status = "ok_empty_queue";
+        report.obsidian.reason =
+          sourceMode === "notebooklm_json"
+            ? `approved queue is empty (${report.source.notebooklmStatus}${report.source.notebooklmReason ? `: ${report.source.notebooklmReason}` : ""})`
+            : "approved queue is empty";
+      } else {
+        report.obsidian.status = "ok";
+        report.obsidian.reason = "";
+      }
       report.obsidian.uploaded = true;
       report.obsidian.bytes = totalBytes;
     } catch (error) {
