@@ -5,6 +5,7 @@ import { spawn } from "node:child_process";
 const CWD = process.cwd();
 const DEFAULT_OUTPUT = path.join(CWD, "state", "notebooklm-intake.json");
 const REPORT_PATH = path.join(CWD, "state", "notebooklm-mcp-collect-report.json");
+const HEALTH_STATE_PATH = path.join(CWD, "state", "notebooklm-mcp-health.json");
 
 const parseDotEnv = (filePath) => {
   const out = {};
@@ -61,6 +62,18 @@ const safeJsonParse = (text, fallback = null) => {
   } catch {
     return fallback;
   }
+};
+
+const readJsonFile = (filePath, fallback = null) => {
+  if (!fs.existsSync(filePath)) return fallback;
+  const raw = fs.readFileSync(filePath, "utf8").trim();
+  if (!raw) return fallback;
+  return safeJsonParse(raw, fallback);
+};
+
+const writeJsonFile = (filePath, payload) => {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 };
 
 const parseJsonArrayEnv = (name, fallback) => {
@@ -281,6 +294,19 @@ const main = async () => {
   const questions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions).slice(0, maxItems);
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
   const bootstrapUrls = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS", []);
+  const invalidStreakAlertThreshold = Math.max(
+    1,
+    numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD", 2)
+  );
+  const invalidStreakAlertFail = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL", false);
+  const healthState = readJsonFile(HEALTH_STATE_PATH, {
+    generatedAt: null,
+    status: "init",
+    reason: "",
+    invalidMetaNoItemsStreak: 0,
+    noItemsStreak: 0,
+    successStreak: 0
+  });
 
   const report = {
     generatedAt: new Date().toISOString(),
@@ -294,8 +320,17 @@ const main = async () => {
     rpcTimeoutMs,
     notebook: { requestedId: notebookId || null, requestedUrl: notebookUrl || null, query: notebookQuery || null, selected: null },
     health: { authenticated: null, status: null },
+    healthStatePath: path.relative(CWD, HEALTH_STATE_PATH),
     asked: 0,
     collected: 0,
+    alert: {
+      invalidMetaNoItemsThreshold: invalidStreakAlertThreshold,
+      invalidMetaNoItemsStreak: Number(healthState?.invalidMetaNoItemsStreak || 0),
+      noItemsStreak: Number(healthState?.noItemsStreak || 0),
+      successStreak: Number(healthState?.successStreak || 0),
+      triggered: false,
+      failOnTriggered: invalidStreakAlertFail
+    },
     runtime: {
       maxRuntimeMs,
       minQuestionBudgetMs,
@@ -323,6 +358,7 @@ const main = async () => {
   if (env("GEMINI_API_KEY")) commandEnv.GOOGLE_API_KEY = env("GEMINI_API_KEY");
 
   const client = new JsonLineRpcClient({ command, args, commandEnv, timeoutMs: rpcTimeoutMs });
+  let hardFailAfterFinally = false;
   try {
     await client.start();
     const refreshHealth = async () => {
@@ -522,12 +558,47 @@ const main = async () => {
       console.log(`[NOTEBOOKLM_MCP_COLLECT] status=fail reason=${report.reason}`);
     }
     if (required && !["ok", "no_items"].includes(report.status)) {
-      fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+      writeJsonFile(REPORT_PATH, report);
       throw new Error(`NotebookLM MCP collect failed: ${report.reason}`);
     }
   } finally {
     await client.stop();
-    fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
+    const nowIso = new Date().toISOString();
+    const invalidNoItems =
+      report.status === "no_items" && /invalid_assistant_meta_answer/i.test(String(report.reason || ""));
+    const nextHealth = {
+      generatedAt: nowIso,
+      status: report.status,
+      reason: report.reason,
+      invalidMetaNoItemsStreak: invalidNoItems
+        ? Number(healthState?.invalidMetaNoItemsStreak || 0) + 1
+        : 0,
+      noItemsStreak:
+        report.status === "no_items" ? Number(healthState?.noItemsStreak || 0) + 1 : 0,
+      successStreak:
+        report.status === "ok" || report.status === "ok_partial"
+          ? Number(healthState?.successStreak || 0) + 1
+          : 0
+    };
+    report.alert.invalidMetaNoItemsStreak = nextHealth.invalidMetaNoItemsStreak;
+    report.alert.noItemsStreak = nextHealth.noItemsStreak;
+    report.alert.successStreak = nextHealth.successStreak;
+    report.alert.triggered = nextHealth.invalidMetaNoItemsStreak >= invalidStreakAlertThreshold;
+    if (report.alert.triggered) {
+      console.log(
+        `[NOTEBOOKLM_MCP_COLLECT][ALERT] invalid_meta_streak=${nextHealth.invalidMetaNoItemsStreak}/${invalidStreakAlertThreshold}`
+      );
+      if (invalidStreakAlertFail) {
+        hardFailAfterFinally = true;
+        report.status = "fail_invalid_meta_streak";
+        report.reason = `invalid_meta_streak(${nextHealth.invalidMetaNoItemsStreak}/${invalidStreakAlertThreshold})`;
+      }
+    }
+    writeJsonFile(HEALTH_STATE_PATH, nextHealth);
+    writeJsonFile(REPORT_PATH, report);
+  }
+  if (hardFailAfterFinally) {
+    throw new Error(`NotebookLM MCP invalid-meta streak threshold exceeded (${invalidStreakAlertThreshold})`);
   }
 };
 

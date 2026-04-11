@@ -225,6 +225,8 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_STEP_TIMEOUT_MIN` (default `30`)
   - `KNOWLEDGE_PIPELINE_JOB_TIMEOUT_MIN` (default `45`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY`
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD` (default `2`, invalid meta 응답 연속 감지 임계치)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL` (default `false`, 임계치 초과 시 fail 여부)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `2`, 필요 시 증가)
@@ -242,6 +244,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_APPROVED_STATUS` (default `승인`)
   - `KNOWLEDGE_PIPELINE_REFLECT_STATUS` (default `코드반영`)
   - `KNOWLEDGE_PIPELINE_CATEGORY_FILTER` (default `MCP`)
+  - `KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY` (default `true`, source가 비면 last-good 큐로 자동 폴백)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY` (default `false`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED` (default `false`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN` (default `false`)
@@ -257,6 +260,9 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP` (default `true`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR` (default `99_Automation/NotebookLM/Archive`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_ENABLED` (default `true`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_DAYS` (default `90`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE` (default `200`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID` (default `true`, 누적 모드에서 placeholder/가드 문구 노트 자동 제외)
   - Graph note role guide:
     - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference
@@ -270,6 +276,9 @@ Optional knowledge pipeline automation:
     - workflow 기본 timeout은 45분이며, NotebookLM MCP 수집 step은 `continue-on-error`로 구성되어 파이프라인 전체 중단을 방지
     - NotebookLM 수집 시간이 길면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS`를 먼저 낮추고 관측 후 점진 증가 권장
     - NotebookLM 수집 스크립트는 내부 런타임 가드(`...MAX_RUNTIME_MS`)가 있어 종료 마진이 부족하면 `ok_partial`로 조기 종료
+    - NotebookLM invalid meta 응답이 연속 발생하면 `state/notebooklm-mcp-health.json`에 streak가 누적되고 alert 기준을 넘으면 로그에 경고 출력
+    - NotebookLM source가 비어도 `last-good` 큐 폴백이 켜져 있으면 `Knowledge Approved Queue`가 즉시 0이 되지 않음
+    - Archive는 기본 90일 보존 후 자동 정리(런당 삭제 상한 적용)됨
 - 권장 세팅/전환 기준 문서:
   - `docs/KNOWLEDGE_PIPELINE_GITHUB_VARIABLE_MATRIX_2026-04-09.md`
 

@@ -5,6 +5,7 @@ const CWD = process.cwd();
 const NOTION_VERSION = "2022-06-28";
 const REPORT_PATH = path.join(CWD, "state", "knowledge-intake-pipeline-report.json");
 const QUEUE_JSON_PATH = path.join(CWD, "state", "knowledge-approved-queue.json");
+const QUEUE_LAST_GOOD_JSON_PATH = path.join(CWD, "state", "knowledge-approved-queue.last-good.json");
 const QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue.md");
 const OBSIDIAN_QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue-obsidian.md");
 const NOTEBOOKLM_DEFAULT_JSON_PATH = path.join(CWD, "state", "notebooklm-intake.json");
@@ -546,7 +547,7 @@ const statusPatch = (statusProperty, optionName) => {
   return { [statusProperty.name]: { select: { name: optionName } } };
 };
 
-const markdownQueue = ({ generatedAt, apply, pendingStatus, approvedStatus, reflectStatus, items }) => {
+const markdownQueue = ({ generatedAt, apply, pendingStatus, approvedStatus, reflectStatus, items, fallbackInfo = null }) => {
   const lines = [];
   lines.push(`# Knowledge Approved Queue`);
   lines.push("");
@@ -554,6 +555,10 @@ const markdownQueue = ({ generatedAt, apply, pendingStatus, approvedStatus, refl
   lines.push(`- apply: \`${apply}\``);
   lines.push(`- status flow: \`${pendingStatus} -> ${approvedStatus} -> ${reflectStatus}\``);
   lines.push(`- approved count: \`${items.length}\``);
+  if (fallbackInfo?.applied) {
+    lines.push(`- fallback: \`last_good\` (\`${fallbackInfo.count || 0}\`)`);
+    if (fallbackInfo?.reason) lines.push(`- fallback reason: \`${fallbackInfo.reason}\``);
+  }
   lines.push("");
   lines.push("## Queue");
   lines.push("");
@@ -601,12 +606,18 @@ const markdownQueue = ({ generatedAt, apply, pendingStatus, approvedStatus, refl
   return `${lines.join("\n")}\n`;
 };
 
-const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items }) => {
+const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items, fallbackInfo = null }) => {
   const lines = [];
   lines.push("---");
   lines.push(`generatedAt: "${generatedAt}"`);
   lines.push(`sourceQueue: "${sourcePath}"`);
   lines.push(`statusFlow: "${statusFlow}"`);
+  lines.push(`fallbackApplied: "${fallbackInfo?.applied ? "true" : "false"}"`);
+  if (fallbackInfo?.applied) {
+    lines.push(`fallbackSource: "last_good"`);
+    lines.push(`fallbackCount: ${Math.max(0, Number(fallbackInfo?.count || 0))}`);
+    if (fallbackInfo?.reason) lines.push(`fallbackReason: "${String(fallbackInfo.reason).replace(/"/g, '\\"')}"`);
+  }
   lines.push("---");
   lines.push("");
   lines.push("# Knowledge Intake Queue (Approved)");
@@ -919,6 +930,37 @@ const parseManifest = (text) => {
     .filter(Boolean);
 };
 
+const parseQueueSnapshot = (jsonPath) => {
+  if (!fs.existsSync(jsonPath)) return { status: "skip_missing_file", reason: `missing ${path.relative(CWD, jsonPath)}`, items: [] };
+  const raw = fs.readFileSync(jsonPath, "utf8").trim();
+  if (!raw) return { status: "skip_empty_file", reason: `empty ${path.relative(CWD, jsonPath)}`, items: [] };
+  const parsed = parseJsonOrNull(raw);
+  if (!parsed) return { status: "fail_parse", reason: `invalid json ${path.relative(CWD, jsonPath)}`, items: [] };
+  const list = Array.isArray(parsed?.queueItems) ? parsed.queueItems : [];
+  const items = list
+    .map((row, index) => {
+      const rawTitle = String(row?.title || row?.topic || row?.headline || "").trim();
+      const summaryRaw = String(row?.summary || row?.insight || row?.notes || "").trim();
+      const sourceUrl = String(row?.sourceUrl || row?.url || row?.source || "").trim();
+      const title = readableHeadline(rawTitle, sourceUrl, `Queue Item ${index + 1}`);
+      const summary = sanitizeNotebookSummary(summaryRaw);
+      if (!title || !summary || isInvalidNotebookSummaryPlaceholder(summary)) return null;
+      return {
+        pageId: safeId(row?.pageId, `fallback-${index + 1}`),
+        title,
+        status: String(row?.status || "승인").trim() || "승인",
+        category: String(row?.category || "시장 인텔").trim() || "시장 인텔",
+        priority: String(row?.priority || "P2").trim() || "P2",
+        summary,
+        sourceUrl,
+        sourceRef: String(row?.sourceRef || "").trim(),
+        sourceType: String(row?.sourceType || "notebooklm_json").trim() || "notebooklm_json"
+      };
+    })
+    .filter(Boolean);
+  return { status: "ok", reason: "", items };
+};
+
 const buildManifest = ({ generatedAt, sourceMode, itemDir, items }) => ({
   generatedAt,
   sourceMode,
@@ -989,6 +1031,73 @@ const cleanupObsidianLegacyPaths = async ({ baseUrl, apiKey, legacyPaths }) => {
     if (removed.deleted) deleted += 1;
   }
   return { deleted };
+};
+
+const parseArchiveStampFromName = (fileName) => {
+  const match = String(fileName || "").match(/__archived_(\d{4})(\d{2})(\d{2})\.md$/i);
+  if (!match) return null;
+  const year = Number.parseInt(match[1], 10);
+  const month = Number.parseInt(match[2], 10);
+  const day = Number.parseInt(match[3], 10);
+  if (!Number.isFinite(year) || !Number.isFinite(month) || !Number.isFinite(day)) return null;
+  return new Date(Date.UTC(year, Math.max(0, month - 1), day));
+};
+
+const cleanupObsidianArchiveRetention = async ({
+  baseUrl,
+  apiKey,
+  archiveDir,
+  retentionDays,
+  maxDelete,
+  generatedAt
+}) => {
+  const stats = {
+    scanned: 0,
+    eligible: 0,
+    deleted: 0,
+    skippedNoStamp: 0,
+    capped: false,
+    missing: false
+  };
+  const archiveBase = archiveDir.replace(/\/+$/, "");
+  const listRoute = `/vault/${encodeVaultPath(`${archiveBase}/`)}`;
+  const listing = await obsidianRawRequest({
+    baseUrl,
+    apiKey,
+    method: "GET",
+    route: listRoute,
+    contentType: "application/json"
+  });
+  if (listing.status === 404) {
+    stats.missing = true;
+    return stats;
+  }
+  if (!listing.ok) {
+    throw new Error(`Obsidian ${listRoute} failed (${listing.status}): ${short(listing.text, 400)}`);
+  }
+  const parsed = parseJsonOrNull(listing.text);
+  const files = Array.isArray(parsed?.files) ? parsed.files.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const nowMs = new Date(String(generatedAt || new Date().toISOString())).getTime();
+  const dayMs = 24 * 60 * 60 * 1000;
+  for (const fileName of files) {
+    stats.scanned += 1;
+    const stamp = parseArchiveStampFromName(fileName);
+    if (!stamp) {
+      stats.skippedNoStamp += 1;
+      continue;
+    }
+    const ageDays = Math.floor((nowMs - stamp.getTime()) / dayMs);
+    if (!Number.isFinite(ageDays) || ageDays <= retentionDays) continue;
+    stats.eligible += 1;
+    if (stats.deleted >= maxDelete) {
+      stats.capped = true;
+      continue;
+    }
+    const route = `/vault/${encodeVaultPath(`${archiveBase}/${fileName}`)}`;
+    const removed = await obsidianDeleteIfExists({ baseUrl, apiKey, route });
+    if (removed.deleted) stats.deleted += 1;
+  }
+  return stats;
 };
 
 const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeURIComponent(part)).join("/");
@@ -1086,6 +1195,7 @@ const main = async () => {
   const sourceMode = ["notion", "notebooklm_json", "hybrid"].includes(sourceModeRaw) ? sourceModeRaw : "notion";
   const notebooklmJsonPath = resolvePath(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH"), NOTEBOOKLM_DEFAULT_JSON_PATH);
   const notebooklmRequired = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED", false);
+  const queueKeepLastGoodOnEmpty = boolFromEnv("KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY", true);
 
   const notionToken = env("NOTION_TOKEN");
   const notionWorkList = env("NOTION_WORK_LIST");
@@ -1146,6 +1256,18 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR",
     "99_Automation/NotebookLM/Archive"
   );
+  const obsidianGraphArchiveRetentionEnabled = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_ENABLED",
+    true
+  );
+  const obsidianGraphArchiveRetentionDays = Number.parseInt(
+    env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_DAYS", "90"),
+    10
+  ) || 90;
+  const obsidianGraphArchiveRetentionMaxDelete = Number.parseInt(
+    env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE", "200"),
+    10
+  ) || 200;
   const obsidianGraphDropInvalid = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID", true);
   const notebooklmDropInvalidItems = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS", true);
 
@@ -1174,8 +1296,19 @@ const main = async () => {
     },
     queue: {
       pathJson: path.relative(CWD, QUEUE_JSON_PATH),
+      lastGoodPath: path.relative(CWD, QUEUE_LAST_GOOD_JSON_PATH),
       pathMd: path.relative(CWD, QUEUE_MD_PATH),
-      count: 0
+      count: 0,
+      sourceCount: 0,
+      keepLastGoodOnEmpty: queueKeepLastGoodOnEmpty,
+      fallbackApplied: false,
+      fallbackSource: "none",
+      fallbackReason: "",
+      fallbackCount: 0,
+      lastGoodStatus: "skip",
+      lastGoodReason: "",
+      lastGoodCount: 0,
+      lastGoodUpdated: false
     },
     obsidian: {
       apply: obsidianApply,
@@ -1201,6 +1334,9 @@ const main = async () => {
       graphArchiveEnabled: obsidianGraphArchiveEnabled,
       graphAccumulateEnabled: obsidianGraphAccumulateEnabled,
       graphAccumulateMax: obsidianGraphAccumulateMax,
+      graphArchiveRetentionEnabled: obsidianGraphArchiveRetentionEnabled,
+      graphArchiveRetentionDays: obsidianGraphArchiveRetentionDays,
+      graphArchiveRetentionMaxDelete: obsidianGraphArchiveRetentionMaxDelete,
       graphThemeQuotaEnabled: obsidianGraphThemeQuotaEnabled,
       graphThemeQuotaMin: obsidianGraphThemeQuotaMin,
       graphRunLimit: obsidianGraphRunLimit,
@@ -1210,6 +1346,12 @@ const main = async () => {
       graphLegacyDeleted: 0,
       graphStaleArchived: 0,
       graphStaleDeleted: 0,
+      graphArchiveRetentionScanned: 0,
+      graphArchiveRetentionEligible: 0,
+      graphArchiveRetentionDeleted: 0,
+      graphArchiveRetentionSkippedNoStamp: 0,
+      graphArchiveRetentionCapped: false,
+      graphArchiveRetentionMissing: false,
       graphInvalidDroppedFromAccumulated: 0,
       graphManifestWritten: false
     }
@@ -1306,6 +1448,24 @@ const main = async () => {
     // hybrid mode
     queueItems = [...notionItems, ...notebooklmItems];
   }
+  const sourceQueueCount = queueItems.length;
+  report.queue.sourceCount = sourceQueueCount;
+
+  const lastGoodQueue = parseQueueSnapshot(QUEUE_LAST_GOOD_JSON_PATH);
+  report.queue.lastGoodStatus = lastGoodQueue.status;
+  report.queue.lastGoodReason = lastGoodQueue.reason;
+  report.queue.lastGoodCount = lastGoodQueue.items.length;
+
+  if (queueKeepLastGoodOnEmpty && sourceQueueCount === 0 && lastGoodQueue.items.length > 0) {
+    queueItems = lastGoodQueue.items;
+    report.queue.fallbackApplied = true;
+    report.queue.fallbackSource = "last_good";
+    report.queue.fallbackReason =
+      sourceMode === "notebooklm_json"
+        ? `source_empty:${report.source.notebooklmStatus}${report.source.notebooklmReason ? `:${report.source.notebooklmReason}` : ""}`
+        : "source_empty";
+    report.queue.fallbackCount = queueItems.length;
+  }
   report.queue.count = queueItems.length;
 
   fs.mkdirSync(path.dirname(OBSIDIAN_QUEUE_MD_PATH), { recursive: true });
@@ -1315,7 +1475,12 @@ const main = async () => {
       generatedAt: report.generatedAt,
       sourcePath: report.queue.pathMd,
       statusFlow: `${pendingStatus} -> ${approvedStatus} -> ${reflectStatus}`,
-      items: queueItems
+      items: queueItems,
+      fallbackInfo: {
+        applied: report.queue.fallbackApplied,
+        count: report.queue.fallbackCount,
+        reason: report.queue.fallbackReason
+      }
     }),
     "utf8"
   );
@@ -1327,11 +1492,24 @@ const main = async () => {
       pendingStatus,
       approvedStatus,
       reflectStatus,
-      items: queueItems
+      items: queueItems,
+      fallbackInfo: {
+        applied: report.queue.fallbackApplied,
+        count: report.queue.fallbackCount,
+        reason: report.queue.fallbackReason
+      }
     }),
     "utf8"
   );
   fs.writeFileSync(QUEUE_JSON_PATH, `${JSON.stringify({ generatedAt: report.generatedAt, sourceMode, queueItems }, null, 2)}\n`, "utf8");
+  if (sourceQueueCount > 0) {
+    fs.writeFileSync(
+      QUEUE_LAST_GOOD_JSON_PATH,
+      `${JSON.stringify({ generatedAt: report.generatedAt, sourceMode, queueItems }, null, 2)}\n`,
+      "utf8"
+    );
+    report.queue.lastGoodUpdated = true;
+  }
 
   if (!obsidianApply) {
     report.obsidian.status = "skip_disabled";
@@ -1537,6 +1715,22 @@ const main = async () => {
             report.obsidian.graphStaleDeleted = staleResult.deleted;
           }
         }
+        if (obsidianGraphArchiveEnabled && obsidianGraphArchiveRetentionEnabled) {
+          const retention = await cleanupObsidianArchiveRetention({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            archiveDir: obsidianGraphArchiveDir,
+            retentionDays: Math.max(1, obsidianGraphArchiveRetentionDays),
+            maxDelete: Math.max(1, obsidianGraphArchiveRetentionMaxDelete),
+            generatedAt: report.generatedAt
+          });
+          report.obsidian.graphArchiveRetentionScanned = retention.scanned;
+          report.obsidian.graphArchiveRetentionEligible = retention.eligible;
+          report.obsidian.graphArchiveRetentionDeleted = retention.deleted;
+          report.obsidian.graphArchiveRetentionSkippedNoStamp = retention.skippedNoStamp;
+          report.obsidian.graphArchiveRetentionCapped = retention.capped;
+          report.obsidian.graphArchiveRetentionMissing = retention.missing;
+        }
         const preparedByTheme = new Map();
         for (const item of prepared) {
           if (!themeHubMap.has(item.theme)) {
@@ -1660,6 +1854,8 @@ const main = async () => {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   if (report.obsidian.status === "fail" || report.notion.status === "fail") {
     report.status = "fail";
+  } else if (report.queue.fallbackApplied) {
+    report.status = "ok_fallback_last_good";
   } else if (report.obsidian.status === "ok_empty_queue") {
     report.status = "ok_empty_queue";
   } else {

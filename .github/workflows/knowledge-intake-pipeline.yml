@@ -38,6 +38,8 @@ jobs:
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY || '' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD || '2' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL || 'false' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS || '2' }}
@@ -55,6 +57,7 @@ jobs:
       KNOWLEDGE_PIPELINE_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_APPLY || 'false' }}
       KNOWLEDGE_PIPELINE_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_REQUIRED || 'false' }}
       KNOWLEDGE_PIPELINE_LIMIT: ${{ vars.KNOWLEDGE_PIPELINE_LIMIT || '20' }}
+      KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY: ${{ vars.KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY || 'true' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY || 'false' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED || 'false' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN || 'false' }}
@@ -70,6 +73,9 @@ jobs:
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP || 'true' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED || 'true' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_DIR || '99_Automation/NotebookLM/Archive' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_ENABLED || 'true' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_DAYS: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_DAYS || '90' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE || '200' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_ENABLED || 'true' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_MAX: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_MAX || '200' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_QUOTA_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_QUOTA_ENABLED || 'true' }}
@@ -94,10 +100,12 @@ jobs:
           mkdir -p state
           [ -f state/knowledge-intake-pipeline-report.json ] || echo '{}' > state/knowledge-intake-pipeline-report.json
           [ -f state/knowledge-approved-queue.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.json
+          [ -f state/knowledge-approved-queue.last-good.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.last-good.json
           [ -f state/knowledge-approved-queue.md ] || printf '# Knowledge Approved Queue\n\n- (pending)\n' > state/knowledge-approved-queue.md
           [ -f state/knowledge-approved-queue-obsidian.md ] || printf '# Knowledge Approved Queue (Obsidian)\n\n- (pending)\n' > state/knowledge-approved-queue-obsidian.md
           [ -f state/notebooklm-intake.json ] || echo '{"generatedAt":"","items":[]}' > state/notebooklm-intake.json
           [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
+          [ -f state/notebooklm-mcp-health.json ] || echo '{}' > state/notebooklm-mcp-health.json
 
       - name: Collect from NotebookLM MCP (optional)
         timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_STEP_TIMEOUT_MIN || '30') }}
@@ -118,8 +126,10 @@ jobs:
           path: |
             state/knowledge-intake-pipeline-report.json
             state/knowledge-approved-queue.json
+            state/knowledge-approved-queue.last-good.json
             state/knowledge-approved-queue.md
             state/knowledge-approved-queue-obsidian.md
             state/notebooklm-intake.json
             state/notebooklm-mcp-collect-report.json
+            state/notebooklm-mcp-health.json
           if-no-files-found: warn
