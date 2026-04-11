@@ -6,6 +6,7 @@ const CWD = process.cwd();
 const DEFAULT_OUTPUT = path.join(CWD, "state", "notebooklm-intake.json");
 const REPORT_PATH = path.join(CWD, "state", "notebooklm-mcp-collect-report.json");
 const HEALTH_STATE_PATH = path.join(CWD, "state", "notebooklm-mcp-health.json");
+const QUESTION_CURSOR_PATH = path.join(CWD, "state", "notebooklm-mcp-question-cursor.json");
 
 const parseDotEnv = (filePath) => {
   const out = {};
@@ -92,6 +93,56 @@ const resolvePath = (value, fallbackPath) => {
   if (!raw) return fallbackPath;
   if (path.isAbsolute(raw)) return raw;
   return path.join(CWD, raw);
+};
+
+const readQuestionCursor = (filePath) => {
+  const payload = readJsonFile(filePath, {});
+  const cursor = Number.parseInt(String(payload?.cursor ?? "0"), 10);
+  return Number.isFinite(cursor) && cursor >= 0 ? cursor : 0;
+};
+
+const writeQuestionCursor = (filePath, cursor) => {
+  writeJsonFile(filePath, {
+    generatedAt: new Date().toISOString(),
+    cursor: Number.isFinite(cursor) && cursor >= 0 ? Math.floor(cursor) : 0
+  });
+};
+
+const selectQuestions = ({ allQuestions, maxItems, rotate, startCursor }) => {
+  const source = Array.isArray(allQuestions) ? allQuestions : [];
+  const cap = Math.max(1, Number(maxItems) || source.length || 1);
+  if (source.length <= cap) {
+    return {
+      selected: [...source],
+      selectedIndexes: source.map((_, index) => index),
+      startCursor: 0,
+      nextCursor: 0
+    };
+  }
+  if (!rotate) {
+    const selected = source.slice(0, cap);
+    return {
+      selected,
+      selectedIndexes: selected.map((_, index) => index),
+      startCursor: 0,
+      nextCursor: 0
+    };
+  }
+  const len = source.length;
+  const cursor = Math.max(0, Number(startCursor) || 0) % len;
+  const selected = [];
+  const selectedIndexes = [];
+  for (let offset = 0; offset < cap; offset += 1) {
+    const idx = (cursor + offset) % len;
+    selected.push(source[idx]);
+    selectedIndexes.push(idx);
+  }
+  return {
+    selected,
+    selectedIndexes,
+    startCursor: cursor,
+    nextCursor: (cursor + selected.length) % len
+  };
 };
 
 const parseToolTextResult = (toolResult) => {
@@ -299,10 +350,22 @@ const main = async () => {
   const notebookUrl = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL", "");
   const notebookQuery = env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY", "");
   const maxItems = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS", 10);
+  const rotateQuestions = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_ROTATE_QUESTIONS", true);
+  const questionCursorPath = resolvePath(
+    env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTION_CURSOR_PATH"),
+    QUESTION_CURSOR_PATH
+  );
   const maxRuntimeMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS", 24 * 60 * 1000);
   const minQuestionBudgetMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS", 90 * 1000);
   const rpcTimeoutMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 300000);
-  const questions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions).slice(0, maxItems);
+  const allQuestions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions);
+  const questionPlan = selectQuestions({
+    allQuestions,
+    maxItems,
+    rotate: rotateQuestions,
+    startCursor: readQuestionCursor(questionCursorPath)
+  });
+  const questions = questionPlan.selected;
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
   const bootstrapUrls = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS", []);
   const invalidStreakAlertThreshold = Math.max(
@@ -329,6 +392,7 @@ const main = async () => {
     status: "skip_disabled",
     reason: "",
     outputPath: path.relative(CWD, outputPath),
+    questionCursorPath: path.relative(CWD, questionCursorPath),
     command,
     args,
     rpcTimeoutMs,
@@ -337,6 +401,15 @@ const main = async () => {
     healthStatePath: path.relative(CWD, HEALTH_STATE_PATH),
     asked: 0,
     collected: 0,
+    questionSelection: {
+      rotateQuestions,
+      totalQuestions: allQuestions.length,
+      requestedMaxItems: maxItems,
+      selectedCount: questions.length,
+      startCursor: questionPlan.startCursor,
+      nextCursor: questionPlan.nextCursor,
+      selectedIndexes: questionPlan.selectedIndexes
+    },
     alert: {
       invalidMetaNoItemsThreshold: invalidStreakAlertThreshold,
       invalidMetaNoItemsStreak: Number(healthState?.invalidMetaNoItemsStreak || 0),
@@ -479,6 +552,7 @@ const main = async () => {
       console.log(
         `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`
       );
+      if (rotateQuestions && allQuestions.length > 0) writeQuestionCursor(questionCursorPath, questionPlan.nextCursor);
       if (authHardFail) hardFailAfterFinally = true;
       return;
     }
@@ -576,6 +650,7 @@ const main = async () => {
     console.log(
       `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`
     );
+    if (rotateQuestions && allQuestions.length > 0) writeQuestionCursor(questionCursorPath, questionPlan.nextCursor);
   } catch (error) {
     if (report.status === "skip_no_notebook") {
       console.log(`[NOTEBOOKLM_MCP_COLLECT] status=skip_no_notebook available=${report.notebook.available || 0}`);

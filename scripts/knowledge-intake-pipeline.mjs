@@ -302,13 +302,62 @@ const extractKeywords = (item) => {
     .map(([word]) => word);
 };
 const inferTheme = (item) => {
-  const text = `${item?.title || ""} ${item?.summary || ""} ${item?.sourceUrl || ""}`.toLowerCase();
-  if (/(federalreserve|fomc|fedwatch|cpi|employment|gdp|rates|interest)/.test(text)) return "Macro & Rates";
-  if (/(vix|volatility|cboe|drawdown|risk|hedge)/.test(text)) return "Volatility & Risk";
-  if (/(earnings|guidance|revenue|profit|season)/.test(text)) return "Earnings & Fundamentals";
-  if (/(sector|rotation|flow|momentum|trend)/.test(text)) return "Sector & Trend";
-  if (/(policy|regulation|sec|edgar)/.test(text)) return "Policy & Compliance";
-  return "General Market Intel";
+  const title = String(item?.title || "").toLowerCase();
+  const summary = String(item?.summary || "").toLowerCase();
+  const sourceUrl = String(item?.sourceUrl || "").toLowerCase();
+  const category = String(item?.category || "").toLowerCase();
+  const scores = new Map([
+    ["Macro & Rates", 0],
+    ["Volatility & Risk", 0],
+    ["Earnings & Fundamentals", 0],
+    ["Sector & Trend", 0],
+    ["Policy & Compliance", 0]
+  ]);
+  const add = (theme, score) => scores.set(theme, (scores.get(theme) || 0) + score);
+  const applyTextScore = (text, score) => {
+    if (!text) return;
+    if (/(federalreserve|fomc|fedwatch|cpi|employment|payroll|gdp|pce|rates?|treasury|inflation)/.test(text)) {
+      add("Macro & Rates", score);
+    }
+    if (/(vix|volatility|skew|cboe|drawdown|risk[- ]?off|tail[- ]?risk|hedge|var\b)/.test(text)) {
+      add("Volatility & Risk", score);
+    }
+    if (/(earnings|guidance|revenue|eps\b|profit|margin|season)/.test(text)) {
+      add("Earnings & Fundamentals", score);
+    }
+    if (/(sector|rotation|flow|momentum|trend|relative strength|rs\b)/.test(text)) {
+      add("Sector & Trend", score);
+    }
+    if (/(policy|regulation|compliance|sec\b|edgar|filing)/.test(text)) {
+      add("Policy & Compliance", score);
+    }
+  };
+  applyTextScore(title, 5);
+  applyTextScore(summary, 2);
+  applyTextScore(sourceUrl, 1);
+  if (/(macro|거시|금리)/.test(category)) add("Macro & Rates", 3);
+  if (/(volatility|변동성|리스크)/.test(category)) add("Volatility & Risk", 3);
+  if (/(earning|실적|펀더멘털)/.test(category)) add("Earnings & Fundamentals", 3);
+  if (/(trend|섹터|트렌드)/.test(category)) add("Sector & Trend", 3);
+  if (/(policy|정책|컴플라이언스|규제)/.test(category)) add("Policy & Compliance", 3);
+
+  const priority = [
+    "Policy & Compliance",
+    "Earnings & Fundamentals",
+    "Sector & Trend",
+    "Volatility & Risk",
+    "Macro & Rates"
+  ];
+  let bestTheme = "General Market Intel";
+  let bestScore = 0;
+  for (const theme of priority) {
+    const score = scores.get(theme) || 0;
+    if (score > bestScore) {
+      bestScore = score;
+      bestTheme = theme;
+    }
+  }
+  return bestScore > 0 ? bestTheme : "General Market Intel";
 };
 const themeLabelKo = (theme) => {
   const key = String(theme || "");

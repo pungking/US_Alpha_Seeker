@@ -46,6 +46,8 @@ jobs:
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS || '' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS || '2' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_ROTATE_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_ROTATE_QUESTIONS || 'true' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTION_CURSOR_PATH: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTION_CURSOR_PATH || 'state/notebooklm-mcp-question-cursor.json' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER || 'false' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS || 'true' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED || 'true' }}
@@ -114,6 +116,7 @@ jobs:
           [ -f state/notebooklm-intake.json ] || echo '{"generatedAt":"","items":[]}' > state/notebooklm-intake.json
           [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
           [ -f state/notebooklm-mcp-health.json ] || echo '{}' > state/notebooklm-mcp-health.json
+          [ -f state/notebooklm-mcp-question-cursor.json ] || echo '{"cursor":0}' > state/notebooklm-mcp-question-cursor.json
 
       - name: Validate strict profile
         run: |
@@ -181,4 +184,5 @@ jobs:
             state/notebooklm-intake.json
             state/notebooklm-mcp-collect-report.json
             state/notebooklm-mcp-health.json
+            state/notebooklm-mcp-question-cursor.json
           if-no-files-found: warn

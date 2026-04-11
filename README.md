@@ -235,6 +235,8 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `2`, 필요 시 증가)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_ROTATE_QUESTIONS` (default `true`, 질문 목록을 런마다 라운드로빈 회전)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTION_CURSOR_PATH` (default `state/notebooklm-mcp-question-cursor.json`, 질문 회전 상태 파일)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` (default `false`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS` (default `true`, 시스템 가드 문구 응답은 큐/그래프에서 자동 제외)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` (default `true`)
