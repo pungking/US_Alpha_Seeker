@@ -9,6 +9,7 @@ const QUEUE_LAST_GOOD_JSON_PATH = path.join(CWD, "state", "knowledge-approved-qu
 const QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue.md");
 const OBSIDIAN_QUEUE_MD_PATH = path.join(CWD, "state", "knowledge-approved-queue-obsidian.md");
 const NOTEBOOKLM_DEFAULT_JSON_PATH = path.join(CWD, "state", "notebooklm-intake.json");
+const NOTEBOOKLM_MCP_COLLECT_REPORT_PATH = path.join(CWD, "state", "notebooklm-mcp-collect-report.json");
 const ENV_FILE_CANDIDATES = [
   path.join(CWD, ".env"),
   path.join(CWD, ".vscode", "mcp.env"),
@@ -1104,6 +1105,7 @@ const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeUR
 
 const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limit, options = {}) => {
   const dropInvalidItems = options?.dropInvalidItems !== false;
+  const collectReportPath = options?.collectReportPath || NOTEBOOKLM_MCP_COLLECT_REPORT_PATH;
   if (!fs.existsSync(jsonPath)) {
     return {
       status: "skip_missing_file",
@@ -1140,6 +1142,30 @@ const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limi
   }
   const list = Array.isArray(parsed) ? parsed : Array.isArray(parsed?.items) ? parsed.items : [];
   const rows = list.slice(0, Math.max(1, limit));
+  if (rows.length === 0) {
+    let status = "no_items";
+    let reason = "items_empty";
+    if (fs.existsSync(collectReportPath)) {
+      try {
+        const collectRaw = fs.readFileSync(collectReportPath, "utf8").trim();
+        const collectParsed = collectRaw ? JSON.parse(collectRaw) : {};
+        const collectStatus = String(collectParsed?.status || "").trim();
+        const collectReason = String(collectParsed?.reason || "").trim();
+        if (collectStatus) status = collectStatus === "ok" ? "no_items" : collectStatus;
+        if (collectReason) reason = `${reason}:${collectReason}`;
+      } catch {
+        // keep default no_items reason when report parse fails
+      }
+    }
+    return {
+      status,
+      reason,
+      items: [],
+      invalidItemsDropped: 0,
+      totalRows: 0,
+      dropInvalidItems
+    };
+  }
   let invalidItemsDropped = 0;
   const items = rows
     .map((row, index) => {
@@ -1428,7 +1454,8 @@ const main = async () => {
 
   if (["notebooklm_json", "hybrid"].includes(sourceMode)) {
     const notebooklm = parseNotebooklmQueue(notebooklmJsonPath, categoryFilter, "P2", limit, {
-      dropInvalidItems: notebooklmDropInvalidItems
+      dropInvalidItems: notebooklmDropInvalidItems,
+      collectReportPath: NOTEBOOKLM_MCP_COLLECT_REPORT_PATH
     });
     report.source.notebooklmStatus = notebooklm.status;
     report.source.notebooklmReason = notebooklm.reason;
@@ -1874,9 +1901,15 @@ const main = async () => {
     process.exit(1);
   }
   if (["notebooklm_json", "hybrid"].includes(sourceMode) && report.source.notebooklmStatus.startsWith("fail") && notebooklmRequired) {
+    console.error(
+      `[KNOWLEDGE_PIPELINE][EXIT] notebooklm required + source fail (${report.source.notebooklmStatus}:${report.source.notebooklmReason || "n/a"})`
+    );
     process.exit(1);
   }
   if (sourceMode === "notebooklm_json" && queueItems.length === 0 && notebooklmRequired) {
+    console.error(
+      `[KNOWLEDGE_PIPELINE][EXIT] notebooklm required + queue empty (status=${report.source.notebooklmStatus}, reason=${report.source.notebooklmReason || "n/a"})`
+    );
     process.exit(1);
   }
   if (report.obsidian.status === "fail" && obsidianRequired) {
