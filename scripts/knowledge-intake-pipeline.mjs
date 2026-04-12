@@ -80,6 +80,16 @@ const slugifyFileName = (value, fallback = "item") => {
     .replace(/^-+|-+$/g, "");
   return normalized || fallback;
 };
+const shortStableHash = (value, len = 6) => {
+  const text = String(value || "");
+  let hash = 0;
+  for (let i = 0; i < text.length; i += 1) {
+    hash = (hash * 31 + text.charCodeAt(i)) >>> 0;
+  }
+  const out = hash.toString(36);
+  if (!out) return "0".repeat(Math.max(1, len));
+  return out.padStart(Math.max(1, len), "0").slice(-Math.max(1, len));
+};
 const looksLikeUrl = (value) => /^https?:\/\//i.test(String(value || "").trim());
 const looksMachineTitle = (value) => {
   const text = String(value || "").trim().toLowerCase();
@@ -179,6 +189,38 @@ const inferSourceHintKo = ({ title, sourceUrl, summary, theme }) => {
   if (/(policy|regulation|sec|edgar|compliance)/.test(text)) return "정책/컴플라이언스";
   if (String(theme || "").trim()) return themeLabelKo(theme);
   return "";
+};
+const stripThemePrefixFromTitle = (title, themeLabel) => {
+  let out = String(title || "").trim();
+  const theme = String(themeLabel || "").trim();
+  if (!out || !theme) return out;
+  const prefixes = [theme, theme.replace(/\s+/g, "-"), theme.replace(/\s+/g, " ")].filter(Boolean);
+  for (const prefix of prefixes) {
+    const escaped = prefix.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const re = new RegExp(`^${escaped}\\s*(?:[·|:/-]\\s*)?`, "i");
+    out = out.replace(re, "").trim();
+  }
+  return out || String(title || "").trim();
+};
+const looksNoisyNoteName = (name) => {
+  const n = String(name || "").toLowerCase();
+  if (!n) return false;
+  return (
+    n.includes("-nlm-") ||
+    n.includes("-http-") ||
+    n.startsWith("seed-") ||
+    n.startsWith("nlm-") ||
+    /^.*-\d{10,}$/.test(n)
+  );
+};
+const buildFriendlyGraphNoteStem = ({ finalTitle, rawTitle, themeLabel, themeCanonical, sourceUrl, mergeKey, index }) => {
+  const stripped = stripThemePrefixFromTitle(finalTitle || rawTitle, themeLabel);
+  const sourceHint = inferSourceHintKo({ title: rawTitle, sourceUrl, summary: "", theme: themeCanonical || themeLabel });
+  const candidate = short(String(stripped || sourceHint || rawTitle || finalTitle || "").replace(/\s+/g, " "), 96).trim();
+  const core = candidate && !looksMachineTitle(candidate) && !looksNoisyNoteName(candidate) ? candidate : sourceHint || candidate;
+  const semantic = slugifyFileName(core, `insight-${index}`).slice(0, 44);
+  const stable = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}`, 6);
+  return `${semantic}-${stable}`;
 };
 const isSeedPlaceholder = (summary) => {
   const text = String(summary || "").toLowerCase();
@@ -1526,6 +1568,14 @@ const main = async () => {
     10
   ) || 200;
   const obsidianGraphDropInvalid = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID", true);
+  const obsidianGraphFriendlyFilenameEnabled = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED",
+    true
+  );
+  const obsidianGraphRenameLegacyNoisyFilenames = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES",
+    true
+  );
   const notebooklmDropInvalidItems = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS", true);
 
   const report = {
@@ -1607,7 +1657,10 @@ const main = async () => {
       graphThemeTargets: obsidianGraphThemeTargets,
       graphArchiveDir: obsidianGraphArchiveDir,
       graphDropInvalidEnabled: obsidianGraphDropInvalid,
+      graphFriendlyFilenameEnabled: obsidianGraphFriendlyFilenameEnabled,
+      graphRenameLegacyNoisyFilenamesEnabled: obsidianGraphRenameLegacyNoisyFilenames,
       graphLegacyDeleted: 0,
+      graphFriendlyRenamed: 0,
       graphStaleThemeScanned: 0,
       graphStaleThemeDeleted: 0,
       graphStaleThemeMissing: false,
@@ -1890,20 +1943,36 @@ const main = async () => {
           const previous = previousByKey.get(mergeKey);
           const themeSlug = slugifyFileName(theme, "general-market-intel");
           let notePath = "";
-          if (previous?.path) {
+          const previousNoteName = noteNameFromPath(previous?.path || "");
+          const shouldRenameNoisyLegacyPath =
+            Boolean(previous?.path) &&
+            obsidianGraphFriendlyFilenameEnabled &&
+            obsidianGraphRenameLegacyNoisyFilenames &&
+            looksNoisyNoteName(previousNoteName);
+          if (previous?.path && !shouldRenameNoisyLegacyPath) {
             notePath = previous.path;
           } else {
-            const stableTail = slugifyFileName(
-              String(item?.pageId || item?.sourceUrl || mergeKey).slice(-32),
-              `i${index}`
-            ).slice(0, 12);
-            const baseStem = `${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}-${stableTail}`;
+            const baseStem = obsidianGraphFriendlyFilenameEnabled
+              ? buildFriendlyGraphNoteStem({
+                  finalTitle,
+                  rawTitle,
+                  themeLabel: theme,
+                  themeCanonical,
+                  sourceUrl: item.sourceUrl,
+                  mergeKey,
+                  index
+                })
+              : `${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}-${slugifyFileName(
+                  String(item?.pageId || item?.sourceUrl || mergeKey).slice(-32),
+                  `i${index}`
+                ).slice(0, 12)}`;
             notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
             let dupe = 2;
             while (usedNotePaths.has(notePath)) {
               notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}-${dupe}.md`;
               dupe += 1;
             }
+            if (shouldRenameNoisyLegacyPath) report.obsidian.graphFriendlyRenamed += 1;
           }
           usedNotePaths.add(notePath);
           const noteName = noteNameFromPath(notePath);

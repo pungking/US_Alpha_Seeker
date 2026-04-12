@@ -181,10 +181,11 @@ Smoke/health checks:
     - `KNOWLEDGE_PIPELINE_APPLY=true`일 때만 상태를 `코드반영`으로 전이
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY=true`면 승인 큐를 Obsidian 노트로 반영 시도
     - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY=true`면 item별 노트 + 허브 노트를 함께 생성해 Graph View 링크를 강화
-      - item 파일명은 `NN-<readable-title>.md` 형태로 생성(기계식 `seed-...` suffix 제거)
+      - item 파일명은 기본적으로 `핵심-헤드라인-<stable>.md` 형태(의미 중심 + 짧은 안정 suffix)
       - 기본적으로 한글 제목 모드가 활성화되어 영문 질문형 제목 대신 `거시-금리 인사이트 01` 형태로 저장
       - `Intake/<theme>/...` + `Intake/_themes/theme-...` 구조로 클러스터 구분
       - 레거시 `seed-*` 패턴 노트는 자동 정리(`KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP=true`)
+      - noisy 레거시 파일명(`...-nlm-...`, `seed-...`)은 새 파일명 정책으로 자동 교체 가능
       - stale 노트는 기본적으로 archive 후 제거(`...GRAPH_STALE_CLEANUP=true`, `...GRAPH_ARCHIVE_ENABLED=true`)
     - Obsidian 반영 실패 시에도 기본 fallback은 Notion 큐 산출물 유지(필요 시 hard-fail 가능)
   - 상태머신 기본값:
@@ -302,6 +303,8 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_DAYS` (default `90`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE` (default `200`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID` (default `true`, 누적 모드에서 placeholder/가드 문구 노트 자동 제외)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED` (default `true`, 의미 중심 파일명 생성)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES` (default `true`, noisy old filename 자동 교체)
   - `KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON` (default `fail`, `always|fail|never`)
   - Telegram alert uses `TELEGRAM_TOKEN` + `TELEGRAM_ALERT_CHAT_ID` (fallback: `TELEGRAM_SIMULATION_CHAT_ID`)
   - Graph note role guide:
@@ -309,7 +312,7 @@ Optional knowledge pipeline automation:
     - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서
     - `NotebookLM_Intake_Graph_Hub`: 전체 허브
     - `Intake/_themes/theme-...`: 주제별 허브
-    - `Intake/<theme>/NN-...`: 개별 intake 노트
+    - `Intake/<theme>/<headline>-<stable>`: 개별 intake 노트
   - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)
   - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
   - 운영 안정화 메모:
