@@ -208,6 +208,25 @@ const inferSourceHintKo = ({ title, sourceUrl, summary, theme }) => {
   if (String(theme || "").trim()) return themeLabelKo(theme);
   return "";
 };
+const inferActionHintKo = ({ title, summary, sourceUrl }) => {
+  const text = `${title || ""} ${summary || ""} ${sourceUrl || ""}`.toLowerCase();
+  if (/(ohlcv|entry|validation|checklist|false-positive)/.test(text)) return "진입검증";
+  if (/(risk[- ]?off|gating|guard|stop[- ]?loss|position[- ]?sizing|drawdown)/.test(text)) return "리스크게이팅";
+  if (/(sector|rotation|flow|momentum|trend)/.test(text)) return "섹터로테이션";
+  if (/(feature|model|win[- ]?rate|expectancy|precision)/.test(text)) return "모델개선";
+  if (/(monitor|incident|trigger|alert|ops)/.test(text)) return "운영트리거";
+  if (/(policy|compliance|sec|edgar|regulation)/.test(text)) return "정책준수";
+  if (/(earnings|guidance|fundamental|eps|revenue)/.test(text)) return "실적체크";
+  if (/(vix|volatility|tail risk|skew)/.test(text)) return "변동성대응";
+  return "";
+};
+const isGenericKoreanHeadline = (value) => {
+  const v = String(value || "").trim().toLowerCase();
+  if (!v) return true;
+  if (/(gdpnow\/성장|미국 cpi|변동성\/리스크|섹터\/트렌드|시장 인텔|거시체크|리스크게이팅)$/.test(v)) return true;
+  if (/^인사이트[- ]?\d+$/.test(v)) return true;
+  return false;
+};
 const stripThemePrefixFromTitle = (title, themeLabel) => {
   let out = String(title || "").trim();
   const theme = String(themeLabel || "").trim();
@@ -228,16 +247,38 @@ const looksNoisyNoteName = (name) => {
     n.includes("-http-") ||
     n.startsWith("seed-") ||
     n.startsWith("nlm-") ||
-    /^.*-\d{10,}$/.test(n)
+    /^.*-\d{10,}$/.test(n) ||
+    /^.+-\d{1,2}$/.test(n)
   );
 };
-const buildFriendlyGraphNoteStem = ({ finalTitle, rawTitle, themeLabel, themeCanonical, sourceUrl, mergeKey }) => {
+const stemKeywordHint = (keywords = []) => {
+  const uniq = [];
+  for (const kwRaw of Array.isArray(keywords) ? keywords : []) {
+    const kw = String(kwRaw || "").trim().toLowerCase();
+    if (!kw || kw.length < 2) continue;
+    if (uniq.includes(kw)) continue;
+    uniq.push(kw);
+    if (uniq.length >= 2) break;
+  }
+  return uniq.join("-");
+};
+const buildFriendlyGraphNoteStem = ({
+  finalTitle,
+  rawTitle,
+  themeLabel,
+  themeCanonical,
+  sourceUrl,
+  mergeKey,
+  keywords
+}) => {
   const stripped = stripThemePrefixFromTitle(finalTitle || rawTitle, themeLabel);
   const sourceHint = inferSourceHintKo({ title: rawTitle, sourceUrl, summary: "", theme: themeCanonical || themeLabel });
   const candidate = short(String(stripped || sourceHint || rawTitle || finalTitle || "").replace(/\s+/g, " "), 96).trim();
   const core = candidate && !looksMachineTitle(candidate) && !looksNoisyNoteName(candidate) ? candidate : sourceHint || candidate;
-  const fallbackSeed = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}|${finalTitle}`, 4);
-  return slugifyFileName(core, `insight-${fallbackSeed}`).slice(0, 52);
+  const keywordHint = stemKeywordHint(keywords);
+  const stable = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}|${finalTitle}|${keywordHint}`, 3);
+  const stitched = [core, keywordHint, stable].filter(Boolean).join(" ");
+  return slugifyFileName(stitched, `insight-${stable}`).slice(0, 64);
 };
 const allocateUniqueNotePath = ({ itemDir, themeSlug, baseStem, usedNotePaths }) => {
   const root = itemDir.replace(/\/+$/, "");
@@ -338,6 +379,8 @@ const prettifyNotebookSummaryMarkdown = (value) => {
       .replace(/^[\-*]\s*#\s*#\s+/g, "- ")
       .replace(/^\*\*\s*(.+?)\s*\*\*:?$/g, "### $1")
       .replace(/^\*\*\s*(.+?)\s*\*\*\s*$/g, "### $1")
+      .replace(/^[-–—=_]{3,}\s*(.+)$/g, "### $1")
+      .replace(/^\s*#+\s*([가-힣A-Za-z].+)\s*$/g, "## $1")
       .replace(/\s{2,}/g, " ");
     // Drop visual-noise separators copied from rich UI.
     if (/^[-–—=_]{3,}$/.test(line)) return "";
@@ -403,6 +446,12 @@ const sanitizeNotebookSummary = (value) => {
     .replace(/^\s*[*-]?\s*전략\s*해석[^\n]*$/gim, "## 전략 해석")
     .replace(/^\s*[*-]?\s*기술\s*검증[^\n]*$/gim, "## 기술 검증")
     .replace(/^\s*[*-]?\s*운영\s*체크포인트[^\n]*$/gim, "## 운영 체크포인트")
+    .replace(/^\s*(?:핵심\s*요약|Executive Summary)\s*[.:：]\s*/gim, "\n## 핵심 요약\n")
+    .replace(/^\s*(?:전략\s*해석|Strategic Analysis)\s*[.:：]\s*/gim, "\n## 전략 해석\n")
+    .replace(/^\s*(?:기술\s*검증|Technical Validation)\s*[.:：]\s*/gim, "\n## 기술 검증\n")
+    .replace(/^\s*(?:운영\s*체크포인트|Operational Checklist)\s*[.:：]\s*/gim, "\n## 운영 체크포인트\n")
+    .replace(/\s+((?!https)[A-Za-z가-힣0-9()\/+.-]{2,36}:)\s*/g, "\n- $1 ")
+    .replace(/^[-–—=_]{3,}\s*(Strategic Analysis|Technical Validation|Executive Summary|Operational Checklist)\s*$/gim, "\n## $1\n")
     .replace(/more_horiz/gi, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -433,7 +482,7 @@ const extractKeywords = (item) => {
   const text = `${item?.title || ""} ${item?.summary || ""} ${item?.sourceUrl || ""}`.toLowerCase();
   const raw = text
     .replace(/https?:\/\/[^\s]+/g, " ")
-    .replace(/[^a-z0-9\s]+/g, " ")
+    .replace(/[^\p{L}\p{N}\s]+/gu, " ")
     .split(/\s+/)
     .filter(Boolean);
   const stop = new Set([
@@ -451,11 +500,23 @@ const extractKeywords = (item) => {
     "analysis",
     "source",
     "notebooklm",
-    "seed"
+    "seed",
+    "핵심",
+    "요약",
+    "전략",
+    "해석",
+    "기술",
+    "검증",
+    "운영",
+    "체크포인트",
+    "시장",
+    "인텔",
+    "노트"
   ]);
   const freq = new Map();
   for (const token of raw) {
-    if (token.length < 3 || stop.has(token)) continue;
+    if (/^\d+$/.test(token)) continue;
+    if (token.length < 2 || stop.has(token)) continue;
     freq.set(token, (freq.get(token) || 0) + 1);
   }
   return [...freq.entries()]
@@ -658,12 +719,20 @@ const selectWithThemeQuota = ({ items, runLimit, enabled, minQuota, targets }) =
   }
   return selected.map(({ _idx, _themeCanonical, _score, ...row }) => ({ ...row, themeCanonical: _themeCanonical }));
 };
-const localizedDisplayTitle = ({ displayTitle, theme, index, preferKorean }) => {
+const localizedDisplayTitle = ({ displayTitle, theme, index, preferKorean, sourceUrl, summary }) => {
   const normalized = short(String(displayTitle || "").replace(/\s+/g, " "), 120).trim();
   if (!preferKorean) return normalized || `NotebookLM Insight ${index}`;
-  if (hasKorean(normalized)) return normalized;
-  if (normalized && !looksMachineTitle(normalized) && !looksLikeUrl(normalized)) return compactReadableTitle(normalized, 72);
-  return `${themeLabelKo(theme)} 인사이트 ${String(index).padStart(2, "0")}`;
+  const themeKo = themeLabelKo(theme);
+  const sourceHint = inferSourceHintKo({ title: normalized, sourceUrl, summary, theme });
+  const actionHint = inferActionHintKo({ title: normalized, summary, sourceUrl });
+  if (hasKorean(normalized) && !isGenericKoreanHeadline(normalized)) return normalized;
+  if (normalized && !looksMachineTitle(normalized) && !looksLikeUrl(normalized)) {
+    const readable = compactReadableTitle(normalized, 72);
+    if (hasKorean(readable) && !isGenericKoreanHeadline(readable)) return readable;
+  }
+  const core = sourceHint || "시장 인텔";
+  if (actionHint) return `${themeKo} · ${core} · ${actionHint}`;
+  return `${themeKo} · ${core}`;
 };
 const resolvePath = (value, fallbackPath) => {
   const raw = String(value || "").trim();
@@ -2016,10 +2085,19 @@ const main = async () => {
             summary: item.summary,
             theme: themeCanonical
           });
-          const finalTitle =
-            obsidianGraphKoreanTitle && hintTitle && !hasKorean(displayTitle)
+          const actionHint = inferActionHintKo({
+            title: rawTitle,
+            sourceUrl: item.sourceUrl,
+            summary: item.summary
+          });
+          const baseDisplay =
+            obsidianGraphKoreanTitle && hintTitle && isGenericKoreanHeadline(displayTitle)
               ? `${themeLabelKo(themeCanonical)} · ${hintTitle}`
               : displayTitle;
+          const finalTitle =
+            obsidianGraphKoreanTitle && actionHint && !String(baseDisplay).includes(actionHint)
+              ? `${baseDisplay} · ${actionHint}`
+              : baseDisplay;
           const keywords = extractKeywords({ ...item, title: rawTitle });
           const mergeKey = mergeKeyFromItem({ ...item, displayTitle: finalTitle, title: rawTitle }, index);
           const previous = previousByKey.get(mergeKey);
@@ -2041,7 +2119,8 @@ const main = async () => {
                   themeLabel: theme,
                   themeCanonical,
                   sourceUrl: item.sourceUrl,
-                  mergeKey
+                  mergeKey,
+                  keywords
                 })
               : `${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}-${slugifyFileName(
                   String(item?.pageId || item?.sourceUrl || mergeKey).slice(-32),
@@ -2120,9 +2199,12 @@ const main = async () => {
             manifestOrder += 1;
           }
           for (const row of preparedCurrent) accumulatedMap.set(row.mergeKey, row);
+          const accumulateCap = obsidianGraphRebuildFilenames
+            ? Number.MAX_SAFE_INTEGER
+            : Math.max(1, obsidianGraphAccumulateMax);
           prepared = [...accumulatedMap.values()]
             .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
-            .slice(0, Math.max(1, obsidianGraphAccumulateMax));
+            .slice(0, accumulateCap);
         }
         if (obsidianGraphFriendlyFilenameEnabled && obsidianGraphRenameLegacyNoisyFilenames && prepared.length > 0) {
           const normalized = [];
@@ -2151,7 +2233,8 @@ const main = async () => {
                 themeLabel,
                 themeCanonical: canonical,
                 sourceUrl,
-                mergeKey
+                mergeKey,
+                keywords: row?.keywords
               });
               const nextPath = allocateUniqueNotePath({
                 itemDir: obsidianGraphItemDir,

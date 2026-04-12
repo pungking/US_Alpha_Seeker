@@ -235,7 +235,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_FLOOR_MS` (default `300000`, 런타임 하한)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS` (default `90000`, 다음 질문 시작 최소 잔여시간)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_QUESTION_CHARS` (default `220`, 질문 타이핑 길이 상한)
-  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_ANSWER_MAX_CHARS` (default `2200`, NotebookLM 답변 본문 길이 상한)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_ANSWER_MAX_CHARS` (default `4200`, NotebookLM 답변 본문 길이 상한; 줄바꿈/불릿을 보존한 상태로 저장)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_STEP_TIMEOUT_MIN` (default `30`)
   - `KNOWLEDGE_PIPELINE_JOB_TIMEOUT_MIN` (default `45`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_VALIDATE_TIMEOUT_MIN` (default `20`, 야간 Obsidian 엄격 검증 타임아웃)
@@ -306,7 +306,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_RETENTION_MAX_DELETE` (default `200`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID` (default `true`, 누적 모드에서 placeholder/가드 문구 노트 자동 제외)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED` (default `true`, 의미 중심 파일명 생성)
-  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES` (default `true`, noisy old filename 자동 교체)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES` (default `true`, noisy old filename 자동 교체: `seed-*`, `*-nlm-*`, `*-1`/`*-2` 등)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_REBUILD_FILENAMES` (default `false`, `true`면 누적 노트 파일명을 전량 최신 규칙으로 재할당)
   - `KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON` (default `fail`, `always|fail|never`)
   - Telegram alert uses `TELEGRAM_TOKEN` + `TELEGRAM_ALERT_CHAT_ID` (fallback: `TELEGRAM_SIMULATION_CHAT_ID`)
@@ -326,6 +326,7 @@ One-shot legacy title/format backfill:
 - workflow: `.github/workflows/knowledge-intake-obsidian-backfill.yml`
 - trigger: manual `workflow_dispatch` only
 - purpose: 기존 누적 문서까지 최신 sanitize + friendly filename 규칙으로 일괄 재작성
+- note: 과거 런에서 이미 잘린 본문은 포맷만 복구 가능하며, 원문 복구는 NotebookLM 재수집으로 갱신 필요
 - recommended input:
   - `accumulate_max=1200` (vault 규모에 맞게 조정)
   - `timeout_min=45`

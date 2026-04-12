@@ -63,6 +63,108 @@ const clampMin = (value, floor) => {
 };
 
 const short = (value, max = 240) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
+const truncateAtNaturalBoundary = (value, max = 4200) => {
+  const text = String(value || "");
+  if (!text || text.length <= max) return text;
+  const hard = Math.max(700, max);
+  const head = text.slice(0, hard);
+  const candidates = [
+    head.lastIndexOf("\n\n"),
+    head.lastIndexOf("\n"),
+    head.lastIndexOf(". "),
+    head.lastIndexOf("! "),
+    head.lastIndexOf("? "),
+    head.lastIndexOf("다. "),
+    head.lastIndexOf(" ")
+  ].filter((idx) => idx >= Math.max(240, hard - 320));
+  const cut = candidates.length > 0 ? Math.max(...candidates) : hard;
+  return `${head.slice(0, cut).trim()}\n\n- (원문 길이 제한으로 일부 생략)`;
+};
+const sanitizeNotebookAnswerForStorage = (answer, maxChars) => {
+  const raw = String(answer || "")
+    .replace(/\r\n/g, "\n")
+    .replace(/\u00a0/g, " ")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!raw) return "";
+  return truncateAtNaturalBoundary(raw, Math.max(1200, Number(maxChars) || 4200));
+};
+const headingFromAnswer = (answer) => {
+  const lines = String(answer || "")
+    .split(/\r?\n/)
+    .map((line) => String(line || "").trim())
+    .filter(Boolean);
+  const skip = new Set([
+    "핵심 요약",
+    "전략 해석",
+    "기술 검증",
+    "운영 체크포인트",
+    "executive summary",
+    "strategic analysis",
+    "technical validation",
+    "operational checklist"
+  ]);
+  for (const line of lines) {
+    const cleaned = line
+      .replace(/^#+\s*/, "")
+      .replace(/^[-*]\s+/, "")
+      .replace(/^\d+[.)]\s*/, "")
+      .replace(/\*\*/g, "")
+      .replace(/`/g, "")
+      .replace(/\[[^\]]+\]\([^)]+\)/g, "")
+      .replace(/\s+/g, " ")
+      .trim();
+    if (!cleaned) continue;
+    if (skip.has(cleaned.toLowerCase())) continue;
+    if (cleaned.length < 6) continue;
+    return short(cleaned, 84);
+  }
+  return "";
+};
+const inferActionHintKo = (question, answer, category) => {
+  const text = `${String(question || "")} ${String(answer || "")}`.toLowerCase();
+  if (/(ohlcv|entry|validation|checklist|false-positive)/.test(text)) return "진입검증";
+  if (/(risk[- ]?off|gating|guard|stop[- ]?loss|position[- ]?sizing|drawdown)/.test(text)) return "리스크게이팅";
+  if (/(sector|rotation|flow|momentum|trend)/.test(text)) return "섹터로테이션";
+  if (/(feature|model|win[- ]?rate|expectancy|precision)/.test(text)) return "모델개선";
+  if (/(monitor|incident|trigger|alert|ops)/.test(text)) return "운영트리거";
+  if (/(policy|compliance|sec|edgar|regulation)/.test(text)) return "정책준수";
+  if (/(earnings|guidance|fundamental|eps|revenue)/.test(text)) return "실적체크";
+  if (/(vix|volatility|tail risk|skew)/.test(text)) return "변동성대응";
+  if (String(category || "").toLowerCase() === "macro") return "거시체크";
+  return "";
+};
+const categoryPrefixKo = (category) => {
+  const key = String(category || "").toLowerCase();
+  if (key.includes("macro")) return "거시-금리";
+  if (key.includes("volatility")) return "변동성-리스크";
+  if (key.includes("earning")) return "실적-펀더멘털";
+  if (key.includes("trend")) return "섹터-트렌드";
+  if (key.includes("policy")) return "정책-컴플라이언스";
+  return "시장-인텔";
+};
+const buildItemTitle = ({ question, answer, category, index }) => {
+  const heading = headingFromAnswer(answer);
+  const action = inferActionHintKo(question, answer, category);
+  const prefix = categoryPrefixKo(category);
+  const questionHint = short(
+    String(question || "")
+      .replace(/\s+/g, " ")
+      .replace(/[?.!]+$/g, "")
+      .trim(),
+    56
+  );
+  const core = heading || action || questionHint || `인사이트-${index}`;
+  const compactCore = short(
+    String(core || "")
+      .replace(/\s+/g, " ")
+      .replace(/[.:：]\s*$/g, "")
+      .trim(),
+    68
+  );
+  return compactCore.startsWith(prefix) ? compactCore : `${prefix} · ${compactCore}`;
+};
 
 const safeJsonParse = (text, fallback = null) => {
   try {
@@ -401,7 +503,7 @@ const main = async () => {
   const rpcTimeoutFloorMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_FLOOR_MS", 300000);
   const rpcTimeoutMs = clampMin(rpcTimeoutMsRaw, rpcTimeoutFloorMs);
   const maxQuestionChars = Math.max(80, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_QUESTION_CHARS", 220));
-  const answerMaxChars = Math.max(800, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_ANSWER_MAX_CHARS", 2200));
+  const answerMaxChars = Math.max(1200, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_ANSWER_MAX_CHARS", 4200));
   const allQuestions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions);
   const questionPlan = selectQuestions({
     allQuestions,
@@ -723,11 +825,12 @@ const main = async () => {
           invalidAnswerCount += 1;
           continue;
         }
+        const category = guessCategory(question, answer);
         collected.push({
           id: `nlm-${Date.now()}-${index}`,
-          title: short(question, 120),
-          summary: short(answer, answerMaxChars),
-          category: guessCategory(question, answer),
+          title: buildItemTitle({ question, answer, category, index }),
+          summary: sanitizeNotebookAnswerForStorage(answer, answerMaxChars),
+          category,
           priority: index <= 3 ? "P1" : "P2",
           sourceUrl: selected?.url || "",
           sourceRef: `notebooklm_mcp:${selected?.id || "url"}`,
