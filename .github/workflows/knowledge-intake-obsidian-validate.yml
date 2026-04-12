@@ -1,0 +1,79 @@
+name: Knowledge Obsidian Nightly Validate
+
+on:
+  schedule:
+    # Weekdays 15:20 UTC (00:20 KST next day)
+    - cron: "20 15 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: knowledge-obsidian-validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  obsidian-validate:
+    runs-on: ${{ vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON != '' && fromJSON(vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON) || vars.KNOWLEDGE_PIPELINE_RUNS_ON || 'ubuntu-latest' }}
+    timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_OBSIDIAN_VALIDATE_TIMEOUT_MIN || '20') }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      # validation scope: Obsidian write-path only (NotebookLM queue empty여도 실패시키지 않음)
+      KNOWLEDGE_PIPELINE_SOURCE_MODE: notebooklm_json
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED: false
+      KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY: true
+
+      KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY: true
+      KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED: true
+      KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN: false
+      KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON: ${{ vars.KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON || 'fail' }}
+
+      KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH || '99_Automation/Knowledge Approved Queue.md' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY || 'true' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH || '99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR || '99_Automation/NotebookLM/Intake' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH || '99_Automation/NotebookLM/Intake/_meta/generated-manifest.json' }}
+
+      OBSIDIAN_BASE_URL: ${{ vars.OBSIDIAN_BASE_URL || 'http://127.0.0.1:27123' }}
+      OBSIDIAN_API_KEY: ${{ secrets.OBSIDIAN_API_KEY }}
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID || vars.TELEGRAM_ALERT_CHAT_ID || secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Prepare state placeholders
+        run: |
+          mkdir -p state
+          [ -f state/knowledge-intake-pipeline-report.json ] || echo '{}' > state/knowledge-intake-pipeline-report.json
+          [ -f state/knowledge-approved-queue.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.json
+          [ -f state/knowledge-approved-queue.last-good.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.last-good.json
+          [ -f state/knowledge-approved-queue.md ] || printf '# Knowledge Approved Queue\n\n- (pending)\n' > state/knowledge-approved-queue.md
+          [ -f state/knowledge-approved-queue-obsidian.md ] || printf '# Knowledge Approved Queue (Obsidian)\n\n- (pending)\n' > state/knowledge-approved-queue-obsidian.md
+          [ -f state/notebooklm-intake.json ] || echo '{"generatedAt":"","items":[]}' > state/notebooklm-intake.json
+          [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
+
+      - name: Run knowledge intake pipeline (Obsidian strict validate)
+        run: npm run ops:knowledge:pipeline
+
+      - name: Notify Telegram
+        if: always()
+        run: npm run ops:knowledge:alert
+
+      - name: Upload validation artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: knowledge-obsidian-validate
+          path: |
+            state/knowledge-intake-pipeline-report.json
+            state/knowledge-approved-queue.md
+            state/knowledge-approved-queue-obsidian.md
+            state/notebooklm-intake.json
+            state/notebooklm-mcp-collect-report.json
+          if-no-files-found: warn

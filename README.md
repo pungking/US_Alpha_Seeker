@@ -206,6 +206,10 @@ Optional knowledge pipeline automation:
 
 - workflow: `.github/workflows/knowledge-intake-pipeline.yml`
 - schedule: weekdays `09:40 UTC` (`18:40 KST`)
+- 운영 목적: 수집/큐/그래프 메인 런 (주간 안정 운용, Obsidian 실패는 기본 soft)
+- workflow(야간 엄격 검증): `.github/workflows/knowledge-intake-obsidian-validate.yml`
+- schedule: weekdays `15:20 UTC` (`00:20 KST`, 다음날)  
+  (`OBSIDIAN_REQUIRED=true`, `NOTEBOOKLM_REQUIRED=false`로 write-path만 강검증)
 - required (source mode에 따라 달라짐):
   - `source_mode=notion|hybrid`: `NOTION_TOKEN`, `NOTION_WORK_LIST`
   - `source_mode=notebooklm_json`: `state/notebooklm-intake.json` 파일
@@ -226,6 +230,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS` (default `90000`, 다음 질문 시작 최소 잔여시간)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_STEP_TIMEOUT_MIN` (default `30`)
   - `KNOWLEDGE_PIPELINE_JOB_TIMEOUT_MIN` (default `45`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_VALIDATE_TIMEOUT_MIN` (default `20`, 야간 Obsidian 엄격 검증 타임아웃)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_ID` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_URL` / `KNOWLEDGE_PIPELINE_NOTEBOOKLM_NOTEBOOK_QUERY`
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_THRESHOLD` (default `2`, invalid meta 응답 연속 감지 임계치)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_INVALID_STREAK_ALERT_FAIL` (default `true`, 임계치 초과 시 fail 여부)
