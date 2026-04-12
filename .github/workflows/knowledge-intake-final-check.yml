@@ -1,0 +1,91 @@
+name: Knowledge Intake Final Check
+
+on:
+  schedule:
+    # Weekdays 12:55 UTC (21:55 KST)
+    - cron: "55 12 * * 1-5"
+  workflow_dispatch:
+
+concurrency:
+  group: knowledge-intake-final-check-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  final-check:
+    runs-on: ${{ vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON != '' && fromJSON(vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON) || vars.KNOWLEDGE_PIPELINE_RUNS_ON || 'ubuntu-latest' }}
+    timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_TIMEOUT_MIN || '20') }}
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+
+      # lightweight pre-open check
+      KNOWLEDGE_PIPELINE_SOURCE_MODE: notebooklm_json
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED: true
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_ENABLED: true
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_REQUIRED: true
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_OVERWRITE: true
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MAX_ITEMS || '1' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_ROTATE_QUESTIONS: false
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MCP_TIMEOUT_MS || '180000' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MAX_RUNTIME_MS || '480000' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MIN_QUESTION_BUDGET_MS || '45000' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_QUESTIONS || '["Give three concise pre-open checks for US long-only automation tonight covering volatility regime guard, entry quality gate, and max risk sizing cap. Return numeric thresholds and pass or fail criteria."]' }}
+
+      # fail fast on empty/invalid source for pre-open readiness
+      KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY: false
+
+      # final-check는 quick health 목적이라 obsidian write를 강제하지 않음
+      KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY: false
+      KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED: false
+      KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN: false
+
+      KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON: ${{ vars.KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON || 'fail' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH || 'state/notebooklm-intake.json' }}
+
+      TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
+      TELEGRAM_ALERT_CHAT_ID: ${{ secrets.TELEGRAM_ALERT_CHAT_ID || vars.TELEGRAM_ALERT_CHAT_ID || secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID || '' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Prepare state placeholders
+        run: |
+          mkdir -p state
+          [ -f state/knowledge-intake-pipeline-report.json ] || echo '{}' > state/knowledge-intake-pipeline-report.json
+          [ -f state/knowledge-approved-queue.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.json
+          [ -f state/knowledge-approved-queue.last-good.json ] || echo '{"items":[]}' > state/knowledge-approved-queue.last-good.json
+          [ -f state/knowledge-approved-queue.md ] || printf '# Knowledge Approved Queue\n\n- (pending)\n' > state/knowledge-approved-queue.md
+          [ -f state/knowledge-approved-queue-obsidian.md ] || printf '# Knowledge Approved Queue (Obsidian)\n\n- (pending)\n' > state/knowledge-approved-queue-obsidian.md
+          [ -f state/notebooklm-intake.json ] || echo '{"generatedAt":"","items":[]}' > state/notebooklm-intake.json
+          [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
+          [ -f state/notebooklm-mcp-health.json ] || echo '{}' > state/notebooklm-mcp-health.json
+          [ -f state/notebooklm-mcp-question-cursor.json ] || echo '{"cursor":0}' > state/notebooklm-mcp-question-cursor.json
+
+      - name: Collect from NotebookLM MCP
+        timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_COLLECT_TIMEOUT_MIN || '12') }}
+        run: npm run ops:knowledge:notebooklm
+
+      - name: Run knowledge intake pipeline
+        run: npm run ops:knowledge:pipeline
+
+      - name: Notify Telegram
+        if: always()
+        run: npm run ops:knowledge:alert
+
+      - name: Upload final-check artifacts
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: knowledge-intake-final-check
+          path: |
+            state/knowledge-intake-pipeline-report.json
+            state/knowledge-approved-queue.md
+            state/notebooklm-intake.json
+            state/notebooklm-mcp-collect-report.json
+            state/notebooklm-mcp-health.json
+          if-no-files-found: warn
