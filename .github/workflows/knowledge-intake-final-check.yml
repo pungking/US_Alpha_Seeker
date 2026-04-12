@@ -13,7 +13,7 @@ concurrency:
 jobs:
   final-check:
     runs-on: ${{ vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON != '' && fromJSON(vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON) || vars.KNOWLEDGE_PIPELINE_RUNS_ON || 'ubuntu-latest' }}
-    timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_TIMEOUT_MIN || '20') }}
+    timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_TIMEOUT_MIN || '25') }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
@@ -25,10 +25,10 @@ jobs:
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_OVERWRITE: true
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MAX_ITEMS || '1' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_ROTATE_QUESTIONS: false
-      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MCP_TIMEOUT_MS || '180000' }}
-      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MAX_RUNTIME_MS || '480000' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MCP_TIMEOUT_MS || '420000' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MAX_RUNTIME_MS || '600000' }}
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_MIN_QUESTION_BUDGET_MS || '45000' }}
-      KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_QUESTIONS || '["Give three concise pre-open checks for US long-only automation tonight covering volatility regime guard, entry quality gate, and max risk sizing cap. Return numeric thresholds and pass or fail criteria."]' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS: ${{ vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_QUESTIONS || '["3 pre-open checks with numbers for volatility guard, entry quality gate, and max risk cap."]' }}
 
       # fail fast on empty/invalid source for pre-open readiness
       KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY: false
@@ -67,7 +67,7 @@ jobs:
           [ -f state/notebooklm-mcp-question-cursor.json ] || echo '{"cursor":0}' > state/notebooklm-mcp-question-cursor.json
 
       - name: Collect from NotebookLM MCP
-        timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_COLLECT_TIMEOUT_MIN || '12') }}
+        timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_FINAL_CHECK_COLLECT_TIMEOUT_MIN || '18') }}
         run: npm run ops:knowledge:notebooklm
 
       - name: Run knowledge intake pipeline
