@@ -177,6 +177,23 @@ const summaryOneLiner = (summary) => {
   if (!text) return "";
   return short(text, 120);
 };
+const truncateAtNaturalBoundary = (value, max = 2600) => {
+  const text = String(value || "");
+  if (!text || text.length <= max) return text;
+  const hard = Math.max(400, max);
+  const slice = text.slice(0, hard);
+  const candidates = [
+    slice.lastIndexOf("\n\n"),
+    slice.lastIndexOf("\n"),
+    slice.lastIndexOf(". "),
+    slice.lastIndexOf("! "),
+    slice.lastIndexOf("? "),
+    slice.lastIndexOf("다. "),
+    slice.lastIndexOf(" ")
+  ].filter((x) => x >= Math.max(120, hard - 240));
+  const cut = candidates.length > 0 ? Math.max(...candidates) : hard;
+  return `${slice.slice(0, cut).trim()}\n\n- (본문 길이 제한으로 일부 생략)`;
+};
 const inferSourceHintKo = ({ title, sourceUrl, summary, theme }) => {
   const text = `${title || ""} ${summary || ""} ${sourceUrl || ""}`.toLowerCase();
   if (/(fomc|federalreserve|monetary)/.test(text)) return "연준 통화정책";
@@ -220,9 +237,7 @@ const buildFriendlyGraphNoteStem = ({ finalTitle, rawTitle, themeLabel, themeCan
   const candidate = short(String(stripped || sourceHint || rawTitle || finalTitle || "").replace(/\s+/g, " "), 96).trim();
   const core = candidate && !looksMachineTitle(candidate) && !looksNoisyNoteName(candidate) ? candidate : sourceHint || candidate;
   const fallbackSeed = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}|${finalTitle}`, 4);
-  const semantic = slugifyFileName(core, `insight-${fallbackSeed}`).slice(0, 44);
-  const stable = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}`, 6);
-  return `${semantic}-${stable}`;
+  return slugifyFileName(core, `insight-${fallbackSeed}`).slice(0, 52);
 };
 const allocateUniqueNotePath = ({ itemDir, themeSlug, baseStem, usedNotePaths }) => {
   const root = itemDir.replace(/\/+$/, "");
@@ -396,7 +411,7 @@ const sanitizeNotebookSummary = (value) => {
     s = `## 핵심 요약\n${s}`;
   }
   s = prettifyNotebookSummaryMarkdown(s);
-  return short(s, NOTEBOOKLM_SANITIZED_MAX_CHARS);
+  return truncateAtNaturalBoundary(s, NOTEBOOKLM_SANITIZED_MAX_CHARS);
 };
 const categoryLabelKo = (value) => {
   const key = String(value || "").trim().toLowerCase();
@@ -571,9 +586,9 @@ const parseThemeTargets = (value) => {
 };
 const isEphemeralNotebooklmPageId = (pageId, sourceType) => {
   const pid = String(pageId || "").trim().toLowerCase();
-  const src = String(sourceType || "").trim().toLowerCase();
   if (!pid) return false;
-  if (!src.includes("notebooklm_mcp")) return false;
+  const src = String(sourceType || "").trim().toLowerCase();
+  if (src && !src.includes("notebooklm")) return false;
   return /^nlm-\d{10,}-\d+$/.test(pid);
 };
 const mergeKeyFromItem = (item, index = 0) => {
@@ -1636,6 +1651,10 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES",
     true
   );
+  const obsidianGraphRebuildFilenames = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_REBUILD_FILENAMES",
+    false
+  );
   const notebooklmDropInvalidItems = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS", true);
 
   const report = {
@@ -1719,6 +1738,7 @@ const main = async () => {
       graphDropInvalidEnabled: obsidianGraphDropInvalid,
       graphFriendlyFilenameEnabled: obsidianGraphFriendlyFilenameEnabled,
       graphRenameLegacyNoisyFilenamesEnabled: obsidianGraphRenameLegacyNoisyFilenames,
+      graphRebuildFilenamesEnabled: obsidianGraphRebuildFilenames,
       graphLegacyDeleted: 0,
       graphFriendlyRenamed: 0,
       graphStaleThemeScanned: 0,
@@ -2009,8 +2029,8 @@ const main = async () => {
           const shouldRenameNoisyLegacyPath =
             Boolean(previous?.path) &&
             obsidianGraphFriendlyFilenameEnabled &&
-            obsidianGraphRenameLegacyNoisyFilenames &&
-            looksNoisyNoteName(previousNoteName);
+            (obsidianGraphRebuildFilenames ||
+              (obsidianGraphRenameLegacyNoisyFilenames && looksNoisyNoteName(previousNoteName)));
           if (previous?.path && !shouldRenameNoisyLegacyPath) {
             notePath = previous.path;
           } else {
@@ -2119,7 +2139,10 @@ const main = async () => {
             const finalTitle = String(row?.displayTitle || row?.title || "").trim();
             let notePath = String(row?.notePath || "").trim();
             const noteName = noteNameFromPath(notePath);
-            const needsRename = !notePath || looksNoisyNoteName(noteName);
+            const needsRename =
+              obsidianGraphRebuildFilenames ||
+              !notePath ||
+              (obsidianGraphRenameLegacyNoisyFilenames && looksNoisyNoteName(noteName));
             if (needsRename) {
               const themeSlug = slugifyFileName(themeLabel, "general-market-intel");
               const baseStem = buildFriendlyGraphNoteStem({

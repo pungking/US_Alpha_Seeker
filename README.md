@@ -307,6 +307,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_DROP_INVALID` (default `true`, 누적 모드에서 placeholder/가드 문구 노트 자동 제외)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED` (default `true`, 의미 중심 파일명 생성)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES` (default `true`, noisy old filename 자동 교체)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_REBUILD_FILENAMES` (default `false`, `true`면 누적 노트 파일명을 전량 최신 규칙으로 재할당)
   - `KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON` (default `fail`, `always|fail|never`)
   - Telegram alert uses `TELEGRAM_TOKEN` + `TELEGRAM_ALERT_CHAT_ID` (fallback: `TELEGRAM_SIMULATION_CHAT_ID`)
   - Graph note role guide:
