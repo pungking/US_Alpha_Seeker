@@ -384,6 +384,10 @@ const sanitizeNotebookSummary = (value) => {
     .replace(/\*\*\s*Strategic Analysis\s*:\s*([^*]+?)\s*\*\*:?\s*/gi, "\n## 전략 해석\n")
     .replace(/\*\*\s*Technical Validation\s*:\s*([^*]+?)\s*\*\*:?\s*/gi, "\n## 기술 검증\n")
     .replace(/\*\*\s*Operational Checklist\s*:\s*([^*]+?)\s*\*\*:?\s*/gi, "\n## 운영 체크포인트\n")
+    .replace(/^\s*[*-]?\s*핵심\s*요약[^\n]*$/gim, "## 핵심 요약")
+    .replace(/^\s*[*-]?\s*전략\s*해석[^\n]*$/gim, "## 전략 해석")
+    .replace(/^\s*[*-]?\s*기술\s*검증[^\n]*$/gim, "## 기술 검증")
+    .replace(/^\s*[*-]?\s*운영\s*체크포인트[^\n]*$/gim, "## 운영 체크포인트")
     .replace(/more_horiz/gi, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -565,9 +569,17 @@ const parseThemeTargets = (value) => {
   }
   return out;
 };
+const isEphemeralNotebooklmPageId = (pageId, sourceType) => {
+  const pid = String(pageId || "").trim().toLowerCase();
+  const src = String(sourceType || "").trim().toLowerCase();
+  if (!pid) return false;
+  if (!src.includes("notebooklm_mcp")) return false;
+  return /^nlm-\d{10,}-\d+$/.test(pid);
+};
 const mergeKeyFromItem = (item, index = 0) => {
+  const sourceType = String(item?.sourceType || "").trim().toLowerCase();
   const pageId = String(item?.pageId || "").trim().toLowerCase();
-  if (pageId) return `id:${pageId}`;
+  if (pageId && !isEphemeralNotebooklmPageId(pageId, sourceType)) return `id:${pageId}`;
   const sourceUrl = String(item?.sourceUrl || "").trim().toLowerCase();
   const sourceRef = String(item?.sourceRef || "").trim().toLowerCase();
   const title = slugifyFileName(item?.displayTitle || item?.title || `item-${index + 1}`, `item-${index + 1}`);
@@ -1165,6 +1177,17 @@ const parseManifest = (text) => {
       };
     })
     .filter(Boolean);
+};
+const normalizeManifestMergeKey = (entry, fallbackIndex = 0) => {
+  const raw = String(entry?.mergeKey || "").trim().toLowerCase();
+  if (raw.startsWith("id:")) {
+    const pageId = raw.slice(3);
+    if (isEphemeralNotebooklmPageId(pageId, entry?.sourceType || "")) {
+      return mergeKeyFromItem({ ...entry, pageId: "" }, fallbackIndex);
+    }
+  }
+  if (raw) return raw;
+  return mergeKeyFromItem(entry, fallbackIndex);
 };
 
 const parseQueueSnapshot = (jsonPath) => {
@@ -1923,10 +1946,12 @@ const main = async () => {
         const previousManifestEntries = previousManifest.exists ? parseManifest(previousManifest.text) : [];
         const previousManifestPaths = previousManifestEntries.map((x) => String(x?.path || "").trim()).filter(Boolean);
         const previousByKey = new Map();
+        let previousOrder = 1;
         for (const entry of previousManifestEntries) {
-          const key = String(entry?.mergeKey || "").trim() || mergeKeyFromItem(entry);
+          const key = normalizeManifestMergeKey(entry, previousOrder);
           if (!key) continue;
           previousByKey.set(key, { ...entry, mergeKey: key });
+          previousOrder += 1;
         }
         const queueSelected = selectWithThemeQuota({
           items: queueItems,
@@ -2036,8 +2061,9 @@ const main = async () => {
         let prepared = preparedCurrent;
         if (obsidianGraphAccumulateEnabled) {
           const accumulatedMap = new Map();
+          let manifestOrder = 1;
           for (const row of previousManifestEntries) {
-            const baseKey = String(row?.mergeKey || "").trim() || mergeKeyFromItem(row);
+            const baseKey = normalizeManifestMergeKey(row, manifestOrder);
             const hasIdentity = Boolean(String(row?.sourceUrl || "").trim() || String(row?.title || "").trim() || String(row?.pageId || "").trim());
             if (!baseKey || !hasIdentity || !row?.path) continue;
             const summarySanitized = sanitizeNotebookSummary(String(row?.summary || "").trim());
@@ -2071,6 +2097,7 @@ const main = async () => {
               generatedAt: row.generatedAt || report.generatedAt,
               updatedAt: row.updatedAt || row.generatedAt || "1970-01-01T00:00:00.000Z"
             });
+            manifestOrder += 1;
           }
           for (const row of preparedCurrent) accumulatedMap.set(row.mergeKey, row);
           prepared = [...accumulatedMap.values()]
