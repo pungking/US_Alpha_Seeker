@@ -401,6 +401,7 @@ const main = async () => {
   const rpcTimeoutFloorMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_FLOOR_MS", 300000);
   const rpcTimeoutMs = clampMin(rpcTimeoutMsRaw, rpcTimeoutFloorMs);
   const maxQuestionChars = Math.max(80, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_QUESTION_CHARS", 220));
+  const answerMaxChars = Math.max(800, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_ANSWER_MAX_CHARS", 2200));
   const allQuestions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions);
   const questionPlan = selectQuestions({
     allQuestions,
@@ -508,6 +509,7 @@ const main = async () => {
   report.rpcTimeoutMsRaw = rpcTimeoutMsRaw;
   report.rpcTimeoutFloorMs = rpcTimeoutFloorMs;
   report.maxQuestionChars = maxQuestionChars;
+  report.answerMaxChars = answerMaxChars;
   if (rpcTimeoutMsRaw < rpcTimeoutFloorMs) {
     report.runtime.timeoutClamped = true;
     report.runtime.timeoutClampReason = `rpc_timeout_floor_applied(${rpcTimeoutMsRaw}->${rpcTimeoutMs})`;
@@ -724,7 +726,7 @@ const main = async () => {
         collected.push({
           id: `nlm-${Date.now()}-${index}`,
           title: short(question, 120),
-          summary: short(answer, 1200),
+          summary: short(answer, answerMaxChars),
           category: guessCategory(question, answer),
           priority: index <= 3 ? "P1" : "P2",
           sourceUrl: selected?.url || "",

@@ -57,6 +57,7 @@ const boolFromEnv = (name, fallback = false) => {
   if (["0", "false", "no", "off"].includes(raw)) return false;
   return fallback;
 };
+const NOTEBOOKLM_SANITIZED_MAX_CHARS = Number.parseInt(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS", "2600"), 10) || 2600;
 
 const short = (value, max = 1800) => String(value ?? "").trim().slice(0, max);
 const safeId = (value, fallback) => {
@@ -313,7 +314,22 @@ const bulletizeDenseParagraph = (value, maxItems = 8) => {
 const prettifyNotebookSummaryMarkdown = (value) => {
   const lines = String(value || "").split(/\r?\n/);
   const out = [];
-  const flushBuffer = (buffer) => {
+  const normalizeLine = (lineRaw) => {
+    let line = String(lineRaw || "").trim();
+    if (!line) return "";
+    line = line
+      .replace(/^#\s*#\s+/g, "## ")
+      .replace(/^#{4,}\s+/g, "### ")
+      .replace(/^[\-*]\s*#\s*#\s+/g, "- ")
+      .replace(/^\*\*\s*(.+?)\s*\*\*:?$/g, "### $1")
+      .replace(/^\*\*\s*(.+?)\s*\*\*\s*$/g, "### $1")
+      .replace(/\s{2,}/g, " ");
+    // Drop visual-noise separators copied from rich UI.
+    if (/^[-–—=_]{3,}$/.test(line)) return "";
+    if (/^[`"'“”‘’]+$/.test(line)) return "";
+    return line;
+  };
+  const flushBuffer = (buffer, sectionTitle = "") => {
     if (!Array.isArray(buffer) || buffer.length === 0) return;
     const paragraph = buffer.join(" ").replace(/\s+/g, " ").trim();
     if (!paragraph) return;
@@ -322,31 +338,37 @@ const prettifyNotebookSummaryMarkdown = (value) => {
       out.push(paragraph);
       return;
     }
-    if (paragraph.length >= 180 || splitSummarySentences(paragraph).length >= 3) {
-      out.push(...bulletizeDenseParagraph(paragraph, 8));
+    const section = String(sectionTitle || "").toLowerCase();
+    const sentenceCount = splitSummarySentences(paragraph).length;
+    const shouldBullet =
+      section.includes("핵심 요약") || paragraph.length >= 180 || sentenceCount >= 3;
+    if (shouldBullet) {
+      out.push(...bulletizeDenseParagraph(paragraph, section.includes("핵심 요약") ? 6 : 8));
       return;
     }
     out.push(paragraph);
   };
   let buffer = [];
+  let currentSection = "";
   for (const lineRaw of lines) {
-    const line = String(lineRaw || "").trim();
+    const line = normalizeLine(lineRaw);
     if (!line) {
-      flushBuffer(buffer);
+      flushBuffer(buffer, currentSection);
       buffer = [];
       if (out.length > 0 && out[out.length - 1] !== "") out.push("");
       continue;
     }
     if (/^##\s+/.test(line) || /^[-*]\s+/.test(line)) {
-      flushBuffer(buffer);
+      flushBuffer(buffer, currentSection);
       buffer = [];
       if (out.length > 0 && out[out.length - 1] !== "") out.push("");
       out.push(line);
+      if (/^##\s+/.test(line)) currentSection = line.replace(/^##\s+/, "").trim();
       continue;
     }
     buffer.push(line);
   }
-  flushBuffer(buffer);
+  flushBuffer(buffer, currentSection);
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
 };
 const sanitizeNotebookSummary = (value) => {
@@ -358,6 +380,10 @@ const sanitizeNotebookSummary = (value) => {
     .replace(/\[Strategic Analysis\]/gi, "\n## 전략 해석\n")
     .replace(/\[Technical Validation[^\]]*\]/gi, "\n## 기술 검증\n")
     .replace(/\[Operational Checklist[^\]]*\]/gi, "\n## 운영 체크포인트\n")
+    .replace(/\*\*\s*Executive Summary\s*\*\*:?\s*/gi, "\n## 핵심 요약\n")
+    .replace(/\*\*\s*Strategic Analysis\s*:\s*([^*]+?)\s*\*\*:?\s*/gi, "\n## 전략 해석\n")
+    .replace(/\*\*\s*Technical Validation\s*:\s*([^*]+?)\s*\*\*:?\s*/gi, "\n## 기술 검증\n")
+    .replace(/\*\*\s*Operational Checklist\s*:\s*([^*]+?)\s*\*\*:?\s*/gi, "\n## 운영 체크포인트\n")
     .replace(/more_horiz/gi, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
@@ -366,7 +392,7 @@ const sanitizeNotebookSummary = (value) => {
     s = `## 핵심 요약\n${s}`;
   }
   s = prettifyNotebookSummaryMarkdown(s);
-  return short(s, 1800);
+  return short(s, NOTEBOOKLM_SANITIZED_MAX_CHARS);
 };
 const categoryLabelKo = (value) => {
   const key = String(value || "").trim().toLowerCase();
@@ -1996,6 +2022,7 @@ const main = async () => {
             updatedAt: report.generatedAt,
             title: rawTitle,
             displayTitle: finalTitle,
+            summary: sanitizeNotebookSummary(String(item?.summary || "")),
             keywords,
             theme,
             themeCanonical,
@@ -2030,7 +2057,7 @@ const main = async () => {
               status: "승인",
               category: row.category || "시장 인텔",
               priority: row.priority || "P2",
-              summary: row.summary || "",
+              summary: summarySanitized || "",
               sourceUrl: row.sourceUrl || "",
               sourceRef: row.sourceRef || "",
               sourceType: row.sourceType || "notebooklm_json",
