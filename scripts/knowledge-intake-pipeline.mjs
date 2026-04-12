@@ -396,6 +396,18 @@ const themeCanonicalFromAny = (value) => {
   if (lower.includes("policy") || lower.includes("compliance") || lower.includes("정책")) return "Policy & Compliance";
   return "General Market Intel";
 };
+const BASE_THEME_CANONICALS = [
+  "Macro & Rates",
+  "Volatility & Risk",
+  "Sector & Trend",
+  "Earnings & Fundamentals",
+  "Policy & Compliance",
+  "General Market Intel"
+];
+const themeDisplayLabel = (themeCanonical, preferKorean) =>
+  preferKorean ? themeLabelKo(themeCanonical) : themeCanonical;
+const themeHubPathFromLabel = (itemDir, themeLabel) =>
+  `${itemDir.replace(/\/+$/, "")}/_themes/theme-${slugifyFileName(themeLabel, "general-market-intel")}.md`;
 const parseThemeTargets = (value) => {
   const raw = String(value || "").trim();
   if (!raw) return [];
@@ -759,7 +771,16 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink,
   return `${lines.join("\n")}\n`;
 };
 
-const markdownThemeHub = ({ generatedAt, theme, items, hubLink, packLink, playbookLink }) => {
+const markdownThemeHub = ({
+  generatedAt,
+  theme,
+  items,
+  hubLink,
+  packLink,
+  playbookLink,
+  includeHubLink = false,
+  relatedThemeLinks = []
+}) => {
   const lines = [];
   const keywords = new Map();
   for (const item of items) {
@@ -785,12 +806,21 @@ const markdownThemeHub = ({ generatedAt, theme, items, hubLink, packLink, playbo
   lines.push(`- 중심 키워드: ${topKeywords.slice(0, 4).join(", ") || "(none)"}`);
   lines.push("");
   lines.push("## 연결");
-  lines.push(`- [[${hubLink}]]`);
+  if (includeHubLink) lines.push(`- [[${hubLink}]]`);
+  else lines.push(`- graphHub: ${hubLink}`);
   lines.push(`- pack: ${packLink}`);
   lines.push(`- playbook: ${playbookLink}`);
   lines.push("");
+  lines.push("## 연관 테마");
+  if (!Array.isArray(relatedThemeLinks) || relatedThemeLinks.length === 0) {
+    lines.push("- (직접 연관 테마 없음)");
+  } else {
+    for (const row of relatedThemeLinks) lines.push(`- [[${row.noteName}]] · 공통 키워드: ${row.keywords.join(", ")}`);
+  }
+  lines.push("");
   lines.push("## 인사이트 노트");
-  for (const item of items) lines.push(`- [[${item.noteName}]] · ${item.displayTitle || item.title}`);
+  if (items.length === 0) lines.push("- (현재 테마 노트 없음)");
+  else for (const item of items) lines.push(`- [[${item.noteName}]] · ${item.displayTitle || item.title}`);
   lines.push("");
   lines.push("## 키워드 렌즈");
   if (topKeywords.length === 0) lines.push("- (none)");
@@ -799,7 +829,7 @@ const markdownThemeHub = ({ generatedAt, theme, items, hubLink, packLink, playbo
   return `${lines.join("\n")}\n`;
 };
 
-const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLink }) => {
+const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLink, linkThemeNodes = false }) => {
   const themeMap = new Map();
   const keywordCounts = new Map();
   for (const item of items) {
@@ -838,7 +868,12 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
         .slice(0, 4)
         .map(([w]) => w)
         .join(", ");
-      lines.push(`- [[${rows[0]?.themeHubName || theme}]] · ${rows.length}개 노트 · 키워드: ${top || "(none)"}`);
+      const themeRef = rows[0]?.themeHubName || theme;
+      lines.push(
+        linkThemeNodes
+          ? `- [[${themeRef}]] · ${rows.length}개 노트 · 키워드: ${top || "(none)"}`
+          : `- ${themeRef} · ${rows.length}개 노트 · 키워드: ${top || "(none)"}`
+      );
     }
     lines.push("");
     lines.push("## 테마 상관관계");
@@ -853,8 +888,12 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
         const overlap = [...setA].filter((x) => setB.has(x)).slice(0, 4);
         if (overlap.length === 0) continue;
         relationCount += 1;
+        const themeRefA = rowsA[0]?.themeHubName || themeA;
+        const themeRefB = rowsB[0]?.themeHubName || themeB;
         lines.push(
-          `- [[${rowsA[0]?.themeHubName || themeA}]] ↔ [[${rowsB[0]?.themeHubName || themeB}]] · 공통 키워드: ${overlap.join(", ")}`
+          linkThemeNodes
+            ? `- [[${themeRefA}]] ↔ [[${themeRefB}]] · 공통 키워드: ${overlap.join(", ")}`
+            : `- ${themeRefA} ↔ ${themeRefB} · 공통 키워드: ${overlap.join(", ")}`
         );
       }
     }
@@ -1088,6 +1127,46 @@ const cleanupObsidianLegacyPaths = async ({ baseUrl, apiKey, legacyPaths }) => {
   return { deleted };
 };
 
+const cleanupObsidianThemeHubPaths = async ({ baseUrl, apiKey, themesDir, currentPaths }) => {
+  const stats = { scanned: 0, stale: 0, deleted: 0, missing: false };
+  const baseDir = String(themesDir || "").replace(/\/+$/, "");
+  if (!baseDir) return stats;
+  const listRoute = `/vault/${encodeVaultPath(`${baseDir}/`)}`;
+  const listing = await obsidianRawRequest({
+    baseUrl,
+    apiKey,
+    method: "GET",
+    route: listRoute,
+    contentType: "application/json"
+  });
+  if (listing.status === 404) {
+    stats.missing = true;
+    return stats;
+  }
+  if (!listing.ok) {
+    throw new Error(`Obsidian ${listRoute} failed (${listing.status}): ${short(listing.text, 400)}`);
+  }
+  const parsed = parseJsonOrNull(listing.text);
+  const files = Array.isArray(parsed?.files) ? parsed.files.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const allowSet = new Set((Array.isArray(currentPaths) ? currentPaths : []).map((x) => String(x || "").trim()).filter(Boolean));
+  for (const fileName of files) {
+    if (!fileName || fileName.endsWith("/")) continue;
+    if (!fileName.toLowerCase().endsWith(".md")) continue;
+    if (!fileName.toLowerCase().startsWith("theme-")) continue;
+    stats.scanned += 1;
+    const fullPath = `${baseDir}/${fileName}`;
+    if (allowSet.has(fullPath)) continue;
+    stats.stale += 1;
+    const removed = await obsidianDeleteIfExists({
+      baseUrl,
+      apiKey,
+      route: `/vault/${encodeVaultPath(fullPath)}`
+    });
+    if (removed.deleted) stats.deleted += 1;
+  }
+  return stats;
+};
+
 const parseArchiveStampFromName = (fileName) => {
   const match = String(fileName || "").match(/__archived_(\d{4})(\d{2})(\d{2})\.md$/i);
   if (!match) return null;
@@ -1311,6 +1390,16 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH",
     "99_Automation/NotebookLM/Intake/_meta/generated-manifest.json"
   );
+  const obsidianGraphThemeHubKeepBase = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_HUB_KEEP_BASE",
+    true
+  );
+  const obsidianGraphThemeHubLinkHub = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_HUB_LINK_HUB", false);
+  const obsidianGraphHubLinkThemes = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_LINK_THEMES", false);
+  const obsidianGraphThemeCrosslinkEnabled = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_CROSSLINK_ENABLED",
+    true
+  );
   const obsidianGraphKoreanTitle = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_KOREAN_TITLE", true);
   const obsidianGraphLegacyCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP", true);
   const obsidianGraphStaleCleanup = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP", true);
@@ -1408,7 +1497,11 @@ const main = async () => {
       graphUploadedItems: 0,
       graphUploadedHub: false,
       graphManifestPath: obsidianGraphManifestPath,
+      graphThemeHubKeepBaseEnabled: obsidianGraphThemeHubKeepBase,
       graphKoreanTitleEnabled: obsidianGraphKoreanTitle,
+      graphThemeHubLinkHubEnabled: obsidianGraphThemeHubLinkHub,
+      graphHubLinkThemesEnabled: obsidianGraphHubLinkThemes,
+      graphThemeCrosslinkEnabled: obsidianGraphThemeCrosslinkEnabled,
       graphLegacyCleanupEnabled: obsidianGraphLegacyCleanup,
       graphStaleCleanupEnabled: obsidianGraphStaleCleanup,
       graphArchiveEnabled: obsidianGraphArchiveEnabled,
@@ -1424,6 +1517,9 @@ const main = async () => {
       graphArchiveDir: obsidianGraphArchiveDir,
       graphDropInvalidEnabled: obsidianGraphDropInvalid,
       graphLegacyDeleted: 0,
+      graphStaleThemeScanned: 0,
+      graphStaleThemeDeleted: 0,
+      graphStaleThemeMissing: false,
       graphStaleArchived: 0,
       graphStaleDeleted: 0,
       graphArchiveRetentionScanned: 0,
@@ -1650,6 +1746,20 @@ const main = async () => {
         const preparedCurrent = [];
         const usedNotePaths = new Set(previousManifestPaths);
         const themeHubMap = new Map();
+        const ensureThemeHub = (themeLabel) => {
+          if (themeHubMap.has(themeLabel)) return themeHubMap.get(themeLabel);
+          const themeHubPath = themeHubPathFromLabel(obsidianGraphItemDir, themeLabel);
+          const themeHubName = noteNameFromPath(themeHubPath);
+          const entry = { themeHubPath, themeHubName };
+          themeHubMap.set(themeLabel, entry);
+          return entry;
+        };
+        if (obsidianGraphThemeHubKeepBase) {
+          for (const canonical of BASE_THEME_CANONICALS) {
+            const label = themeDisplayLabel(canonical, obsidianGraphKoreanTitle);
+            ensureThemeHub(label);
+          }
+        }
         let index = 1;
         for (const item of queueSelected) {
           const rawTitle = readableHeadline(item.title, item.sourceUrl, `NotebookLM Insight ${index}`);
@@ -1695,9 +1805,9 @@ const main = async () => {
           }
           usedNotePaths.add(notePath);
           const noteName = noteNameFromPath(notePath);
-          const themeHubPath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`;
-          const themeHubName = noteNameFromPath(themeHubPath);
-          if (!themeHubMap.has(theme)) themeHubMap.set(theme, { themeHubPath, themeHubName });
+          const themeHub = ensureThemeHub(theme);
+          const themeHubPath = themeHub.themeHubPath;
+          const themeHubName = themeHub.themeHubName;
           preparedCurrent.push({
             ...item,
             mergeKey,
@@ -1728,9 +1838,9 @@ const main = async () => {
               continue;
             }
             const canonical = themeCanonicalFromAny(row?.themeCanonical || row?.theme);
-            const themeLabel = obsidianGraphKoreanTitle ? themeLabelKo(canonical) : canonical;
-            const themeSlug = slugifyFileName(themeLabel, "general-market-intel");
+            const themeLabel = themeDisplayLabel(canonical, obsidianGraphKoreanTitle);
             const notePath = row.path;
+            const themeHub = ensureThemeHub(themeLabel);
             accumulatedMap.set(baseKey, {
               mergeKey: baseKey,
               pageId: row.pageId || "",
@@ -1748,8 +1858,8 @@ const main = async () => {
               theme: themeLabel,
               notePath,
               noteName: noteNameFromPath(notePath),
-              themeHubPath: `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`,
-              themeHubName: noteNameFromPath(`${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${themeSlug}.md`),
+              themeHubPath: themeHub.themeHubPath,
+              themeHubName: themeHub.themeHubName,
               generatedAt: row.generatedAt || report.generatedAt,
               updatedAt: row.updatedAt || row.generatedAt || "1970-01-01T00:00:00.000Z"
             });
@@ -1814,17 +1924,48 @@ const main = async () => {
         }
         const preparedByTheme = new Map();
         for (const item of prepared) {
-          if (!themeHubMap.has(item.theme)) {
-            const canonical = themeCanonicalFromAny(item.themeCanonical || item.theme);
-            const label = obsidianGraphKoreanTitle ? themeLabelKo(canonical) : canonical;
-            const slug = slugifyFileName(label, "general-market-intel");
-            const themeHubPath =
-              item.themeHubPath || `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes/theme-${slug}.md`;
-            const themeHubName = item.themeHubName || noteNameFromPath(themeHubPath);
-            themeHubMap.set(item.theme, { themeHubPath, themeHubName });
-          }
+          if (!themeHubMap.has(item.theme)) ensureThemeHub(item.theme);
           if (!preparedByTheme.has(item.theme)) preparedByTheme.set(item.theme, []);
           preparedByTheme.get(item.theme).push(item);
+        }
+        const themeKeywordSets = new Map();
+        for (const [theme, rows] of preparedByTheme.entries()) {
+          const set = new Set();
+          for (const row of rows) for (const keyword of row.keywords || []) set.add(keyword);
+          themeKeywordSets.set(theme, set);
+        }
+        const themeRelations = new Map();
+        for (const theme of themeHubMap.keys()) themeRelations.set(theme, []);
+        if (obsidianGraphThemeCrosslinkEnabled) {
+          const themes = [...preparedByTheme.keys()];
+          for (let i = 0; i < themes.length; i += 1) {
+            for (let j = i + 1; j < themes.length; j += 1) {
+              const themeA = themes[i];
+              const themeB = themes[j];
+              const setA = themeKeywordSets.get(themeA) || new Set();
+              const setB = themeKeywordSets.get(themeB) || new Set();
+              const overlap = [...setA].filter((x) => setB.has(x)).slice(0, 4);
+              if (overlap.length === 0) continue;
+              themeRelations.get(themeA).push({ targetTheme: themeB, keywords: overlap, score: overlap.length });
+              themeRelations.get(themeB).push({ targetTheme: themeA, keywords: overlap, score: overlap.length });
+            }
+          }
+          for (const [theme, rows] of themeRelations.entries()) {
+            rows.sort((a, b) => b.score - a.score || a.targetTheme.localeCompare(b.targetTheme));
+            themeRelations.set(theme, rows.slice(0, 4));
+          }
+        }
+        if (obsidianGraphStaleCleanup) {
+          const themeHubPaths = [...themeHubMap.values()].map((x) => x.themeHubPath);
+          const staleThemeResult = await cleanupObsidianThemeHubPaths({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            themesDir: `${obsidianGraphItemDir.replace(/\/+$/, "")}/_themes`,
+            currentPaths: themeHubPaths
+          });
+          report.obsidian.graphStaleThemeScanned = staleThemeResult.scanned;
+          report.obsidian.graphStaleThemeDeleted = staleThemeResult.deleted;
+          report.obsidian.graphStaleThemeMissing = staleThemeResult.missing;
         }
         for (const item of prepared) {
           const peers = preparedByTheme.get(item.theme) || [];
@@ -1857,15 +1998,23 @@ const main = async () => {
           });
           totalBytes += Buffer.byteLength(markdown, "utf8");
         }
-        for (const [theme, rows] of preparedByTheme.entries()) {
-          const themeHub = themeHubMap.get(theme);
+        for (const [theme, themeHub] of themeHubMap.entries()) {
+          const rows = preparedByTheme.get(theme) || [];
+          const relatedThemeLinks = (themeRelations.get(theme) || [])
+            .map((row) => ({
+              noteName: themeHubMap.get(row.targetTheme)?.themeHubName || row.targetTheme,
+              keywords: row.keywords
+            }))
+            .filter((row) => !!row.noteName);
           const themeMarkdown = markdownThemeHub({
             generatedAt: report.generatedAt,
             theme,
             items: rows,
             hubLink,
             packLink,
-            playbookLink
+            playbookLink,
+            includeHubLink: obsidianGraphThemeHubLinkHub,
+            relatedThemeLinks
           });
           const themeRoute = `/vault/${encodeVaultPath(themeHub.themeHubPath)}`;
           await obsidianRequest({
@@ -1883,7 +2032,8 @@ const main = async () => {
           sourceMode,
           items: prepared,
           packLink,
-          playbookLink
+          playbookLink,
+          linkThemeNodes: obsidianGraphHubLinkThemes
         });
         const hubRoute = `/vault/${encodeVaultPath(obsidianGraphHubPath)}`;
         await obsidianRequest({
