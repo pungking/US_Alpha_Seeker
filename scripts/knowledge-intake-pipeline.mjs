@@ -232,6 +232,20 @@ const isInvalidNotebookSummaryPlaceholder = (value) => {
     /시스템 가드 문구\(분석 본문 아님\)가 수집되었습니다\./.test(text)
   );
 };
+const stripNotebookCitationNoise = (value) => {
+  let s = String(value || "");
+  // Bracket/paren citations like [1], [1,2], (1, 2)
+  s = s
+    .replace(/\s*\[(?:\d{1,2}(?:\s*,\s*\d{1,2})*)\]/g, "")
+    .replace(/\s*\((?:\d{1,2}(?:\s*,\s*\d{1,2})*)\)/g, "");
+  // Spaced citation tails that leak from NotebookLM body extraction, e.g. "... 이르렀습니다 2 ."
+  s = s
+    .replace(/\s(?:[1-9]|[12]\d)(?:\s(?:[1-9]|[12]\d)){1,}(?=\s*[.,;:!?](?!\d)|\s*$)/g, "")
+    .replace(/\s(?:[1-9]|[12]\d)(?=\s*[.,;:!?](?!\d)|\s*$)/g, "");
+  // Cleanup punctuation spacing after citation strip.
+  s = s.replace(/\s+([.,;:!?])/g, "$1");
+  return s;
+};
 const splitSummarySentences = (value) =>
   String(value || "")
     .replace(/\s+/g, " ")
@@ -286,13 +300,12 @@ const sanitizeNotebookSummary = (value) => {
   const raw = stripNotebookLmMetaSuffix(String(value || "").trim());
   if (!raw) return "";
   if (isInvalidNotebookLmMetaAnswer(raw)) return invalidNotebookLmSummary();
-  let s = raw
+  let s = stripNotebookCitationNoise(raw)
     .replace(/\[Executive Summary\]/gi, "\n## 핵심 요약\n")
     .replace(/\[Strategic Analysis\]/gi, "\n## 전략 해석\n")
     .replace(/\[Technical Validation[^\]]*\]/gi, "\n## 기술 검증\n")
     .replace(/\[Operational Checklist[^\]]*\]/gi, "\n## 운영 체크포인트\n")
     .replace(/more_horiz/gi, " ")
-    .replace(/\s+\d+(?:\s+\d+){1,}/g, " ")
     .replace(/[ \t]+\n/g, "\n")
     .replace(/\n{3,}/g, "\n\n")
     .trim();
