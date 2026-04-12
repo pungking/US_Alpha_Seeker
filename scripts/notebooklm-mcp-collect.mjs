@@ -54,6 +54,13 @@ const numberFromEnv = (name, fallback) => {
   const raw = Number.parseInt(env(name, ""), 10);
   return Number.isFinite(raw) ? raw : fallback;
 };
+const clampMin = (value, floor) => {
+  const v = Number(value);
+  const f = Number(floor);
+  if (!Number.isFinite(v)) return Number.isFinite(f) ? f : value;
+  if (!Number.isFinite(f)) return v;
+  return Math.max(v, f);
+};
 
 const short = (value, max = 240) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 
@@ -213,9 +220,18 @@ const isNoItemsReason = (status, reason) =>
     `${String(status || "")} ${String(reason || "")}`
   );
 
-const deriveNoItemsReason = ({ noSourceUiBlocked, authenticated, invalidAnswerCount, asked, failCount }) => {
+const deriveNoItemsReason = ({
+  noSourceUiBlocked,
+  authenticated,
+  invalidAnswerCount,
+  asked,
+  failCount,
+  timeoutCount = 0
+}) => {
   if (noSourceUiBlocked) return "notebook_has_no_sources_or_query_disabled";
   if (authenticated === false) return "not_authenticated_or_notebook_access_denied";
+  if (timeoutCount > 0 && timeoutCount === asked) return "ask_question_timeout_for_all_items";
+  if (timeoutCount > 0) return "ask_question_timeout_partial";
   if (invalidAnswerCount > 0 && invalidAnswerCount === asked) return "invalid_assistant_meta_answer_for_all_items";
   if (invalidAnswerCount > 0) return "invalid_assistant_meta_answer_partial";
   if (failCount > 0) return "ask_question_failed_for_all_items";
@@ -354,6 +370,8 @@ class JsonLineRpcClient {
 const defaultQuestions = [
   "Summarize the top macro risks for US equities this week with citations.",
   "List actionable trend/sector signals that can improve automated long-only entry timing.",
+  "Summarize the next 2-6 week earnings/fundamental checkpoints that should gate long entries.",
+  "List policy/compliance signals that should trigger tighter risk control in automation.",
   "What volatility and drawdown guard rules should we tighten for live auto-trading?",
   "Propose 3 measurable feature ideas for higher win-rate and lower false-positive entries.",
   "What monitoring/incident triggers should be added for autonomous risk response?"
@@ -375,9 +393,14 @@ const main = async () => {
     env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTION_CURSOR_PATH"),
     QUESTION_CURSOR_PATH
   );
-  const maxRuntimeMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS", 24 * 60 * 1000);
+  const maxRuntimeMsRaw = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_MS", 24 * 60 * 1000);
+  const maxRuntimeFloorMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_RUNTIME_FLOOR_MS", 300000);
+  const maxRuntimeMs = clampMin(maxRuntimeMsRaw, maxRuntimeFloorMs);
   const minQuestionBudgetMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MIN_QUESTION_BUDGET_MS", 90 * 1000);
-  const rpcTimeoutMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 300000);
+  const rpcTimeoutMsRaw = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_MS", 300000);
+  const rpcTimeoutFloorMs = numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MCP_TIMEOUT_FLOOR_MS", 300000);
+  const rpcTimeoutMs = clampMin(rpcTimeoutMsRaw, rpcTimeoutFloorMs);
+  const maxQuestionChars = Math.max(80, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_QUESTION_CHARS", 220));
   const allQuestions = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS", defaultQuestions);
   const questionPlan = selectQuestions({
     allQuestions,
@@ -385,7 +408,14 @@ const main = async () => {
     rotate: rotateQuestions,
     startCursor: readQuestionCursor(questionCursorPath)
   });
-  const questions = questionPlan.selected;
+  const questions = questionPlan.selected.map((q) =>
+    short(
+      String(q || "")
+        .replace(/\s+/g, " ")
+        .trim(),
+      maxQuestionChars
+    )
+  );
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
   const bootstrapUrls = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS", []);
   const invalidStreakAlertThreshold = Math.max(
@@ -469,10 +499,23 @@ const main = async () => {
     },
     runtime: {
       maxRuntimeMs,
+      maxRuntimeMsRaw,
+      maxRuntimeFloorMs,
       minQuestionBudgetMs,
       budgetStop: false
     }
   };
+  report.rpcTimeoutMsRaw = rpcTimeoutMsRaw;
+  report.rpcTimeoutFloorMs = rpcTimeoutFloorMs;
+  report.maxQuestionChars = maxQuestionChars;
+  if (rpcTimeoutMsRaw < rpcTimeoutFloorMs) {
+    report.runtime.timeoutClamped = true;
+    report.runtime.timeoutClampReason = `rpc_timeout_floor_applied(${rpcTimeoutMsRaw}->${rpcTimeoutMs})`;
+  }
+  if (maxRuntimeMsRaw < maxRuntimeFloorMs) {
+    report.runtime.maxRuntimeClamped = true;
+    report.runtime.maxRuntimeClampReason = `max_runtime_floor_applied(${maxRuntimeMsRaw}->${maxRuntimeMs})`;
+  }
 
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
 
@@ -631,6 +674,7 @@ const main = async () => {
     const startedAtMs = Date.now();
     const runQuestionBatch = async (batchQuestions) => {
       let failCount = 0;
+      let timeoutCount = 0;
       let invalidAnswerCount = 0;
       let noSourceUiBlocked = false;
       let askedCount = 0;
@@ -650,9 +694,17 @@ const main = async () => {
         };
         if (selected?.id) args.notebook_id = selected.id;
         if (selected?.url && !selected?.id) args.notebook_url = selected.url;
-        const callRes = await client.request("tools/call", { name: "ask_question", arguments: args });
         report.asked += 1;
         askedCount += 1;
+        let callRes = null;
+        try {
+          callRes = await client.request("tools/call", { name: "ask_question", arguments: args });
+        } catch (requestError) {
+          failCount += 1;
+          const reason = String(requestError?.message || requestError);
+          if (/timeout\s+tools\/call/i.test(reason)) timeoutCount += 1;
+          continue;
+        }
         const parsed = parseToolTextResult(callRes);
         const ok = parsed.parsed?.success !== false;
         if (!ok) {
@@ -681,7 +733,7 @@ const main = async () => {
         });
         index += 1;
       }
-      return { items: collected, failCount, invalidAnswerCount, noSourceUiBlocked, askedCount };
+      return { items: collected, failCount, timeoutCount, invalidAnswerCount, noSourceUiBlocked, askedCount };
     };
 
     const primaryBatch = await runQuestionBatch(questions);
@@ -692,7 +744,8 @@ const main = async () => {
       authenticated: report.health.authenticated,
       invalidAnswerCount: primaryBatch.invalidAnswerCount,
       asked: Math.max(0, primaryBatch.askedCount),
-      failCount: primaryBatch.failCount
+      failCount: primaryBatch.failCount,
+      timeoutCount: primaryBatch.timeoutCount
     });
     const predictedNoItemsStreak = Number(healthState?.noItemsStreak || 0) + 1;
 
@@ -722,7 +775,8 @@ const main = async () => {
             authenticated: report.health.authenticated,
             invalidAnswerCount: retryBatch.invalidAnswerCount,
             asked: Math.max(0, retryBatch.askedCount),
-            failCount: retryBatch.failCount
+            failCount: retryBatch.failCount,
+            timeoutCount: retryBatch.timeoutCount
           });
           report.retry.reason = `retry_exhausted:${retryReason}`;
         } else {

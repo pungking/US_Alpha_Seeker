@@ -232,6 +232,56 @@ const isInvalidNotebookSummaryPlaceholder = (value) => {
     /시스템 가드 문구\(분석 본문 아님\)가 수집되었습니다\./.test(text)
   );
 };
+const splitSummarySentences = (value) =>
+  String(value || "")
+    .replace(/\s+/g, " ")
+    .split(/(?<=[.!?]|다\.)\s+/)
+    .map((x) => x.trim())
+    .filter(Boolean);
+const bulletizeDenseParagraph = (value, maxItems = 8) => {
+  const sentences = splitSummarySentences(value);
+  if (sentences.length <= 1) return [String(value || "").trim()];
+  return sentences.slice(0, Math.max(1, maxItems)).map((x) => `- ${x}`);
+};
+const prettifyNotebookSummaryMarkdown = (value) => {
+  const lines = String(value || "").split(/\r?\n/);
+  const out = [];
+  const flushBuffer = (buffer) => {
+    if (!Array.isArray(buffer) || buffer.length === 0) return;
+    const paragraph = buffer.join(" ").replace(/\s+/g, " ").trim();
+    if (!paragraph) return;
+    const hasBullets = /(^|\n)\s*[-*]\s+/.test(paragraph);
+    if (hasBullets) {
+      out.push(paragraph);
+      return;
+    }
+    if (paragraph.length >= 180 || splitSummarySentences(paragraph).length >= 3) {
+      out.push(...bulletizeDenseParagraph(paragraph, 8));
+      return;
+    }
+    out.push(paragraph);
+  };
+  let buffer = [];
+  for (const lineRaw of lines) {
+    const line = String(lineRaw || "").trim();
+    if (!line) {
+      flushBuffer(buffer);
+      buffer = [];
+      if (out.length > 0 && out[out.length - 1] !== "") out.push("");
+      continue;
+    }
+    if (/^##\s+/.test(line) || /^[-*]\s+/.test(line)) {
+      flushBuffer(buffer);
+      buffer = [];
+      if (out.length > 0 && out[out.length - 1] !== "") out.push("");
+      out.push(line);
+      continue;
+    }
+    buffer.push(line);
+  }
+  flushBuffer(buffer);
+  return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
+};
 const sanitizeNotebookSummary = (value) => {
   const raw = stripNotebookLmMetaSuffix(String(value || "").trim());
   if (!raw) return "";
@@ -249,6 +299,7 @@ const sanitizeNotebookSummary = (value) => {
   if (!s.includes("## ")) {
     s = `## 핵심 요약\n${s}`;
   }
+  s = prettifyNotebookSummaryMarkdown(s);
   return short(s, 1800);
 };
 const categoryLabelKo = (value) => {
