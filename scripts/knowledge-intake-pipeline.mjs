@@ -213,14 +213,25 @@ const looksNoisyNoteName = (name) => {
     /^.*-\d{10,}$/.test(n)
   );
 };
-const buildFriendlyGraphNoteStem = ({ finalTitle, rawTitle, themeLabel, themeCanonical, sourceUrl, mergeKey, index }) => {
+const buildFriendlyGraphNoteStem = ({ finalTitle, rawTitle, themeLabel, themeCanonical, sourceUrl, mergeKey }) => {
   const stripped = stripThemePrefixFromTitle(finalTitle || rawTitle, themeLabel);
   const sourceHint = inferSourceHintKo({ title: rawTitle, sourceUrl, summary: "", theme: themeCanonical || themeLabel });
   const candidate = short(String(stripped || sourceHint || rawTitle || finalTitle || "").replace(/\s+/g, " "), 96).trim();
   const core = candidate && !looksMachineTitle(candidate) && !looksNoisyNoteName(candidate) ? candidate : sourceHint || candidate;
-  const semantic = slugifyFileName(core, `insight-${index}`).slice(0, 44);
+  const fallbackSeed = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}|${finalTitle}`, 4);
+  const semantic = slugifyFileName(core, `insight-${fallbackSeed}`).slice(0, 44);
   const stable = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}`, 6);
   return `${semantic}-${stable}`;
+};
+const allocateUniqueNotePath = ({ itemDir, themeSlug, baseStem, usedNotePaths }) => {
+  const root = itemDir.replace(/\/+$/, "");
+  let notePath = `${root}/${themeSlug}/${baseStem}.md`;
+  let dupe = 2;
+  while (usedNotePaths.has(notePath)) {
+    notePath = `${root}/${themeSlug}/${baseStem}-${dupe}.md`;
+    dupe += 1;
+  }
+  return notePath;
 };
 const isSeedPlaceholder = (summary) => {
   const text = String(summary || "").toLowerCase();
@@ -1959,19 +1970,18 @@ const main = async () => {
                   themeLabel: theme,
                   themeCanonical,
                   sourceUrl: item.sourceUrl,
-                  mergeKey,
-                  index
+                  mergeKey
                 })
               : `${slugifyFileName(finalTitle, `insight-${index}`).slice(0, 56)}-${slugifyFileName(
                   String(item?.pageId || item?.sourceUrl || mergeKey).slice(-32),
                   `i${index}`
                 ).slice(0, 12)}`;
-            notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}.md`;
-            let dupe = 2;
-            while (usedNotePaths.has(notePath)) {
-              notePath = `${obsidianGraphItemDir.replace(/\/+$/, "")}/${themeSlug}/${baseStem}-${dupe}.md`;
-              dupe += 1;
-            }
+            notePath = allocateUniqueNotePath({
+              itemDir: obsidianGraphItemDir,
+              themeSlug,
+              baseStem,
+              usedNotePaths
+            });
             if (shouldRenameNoisyLegacyPath) report.obsidian.graphFriendlyRenamed += 1;
           }
           usedNotePaths.add(notePath);
@@ -2039,6 +2049,66 @@ const main = async () => {
           prepared = [...accumulatedMap.values()]
             .sort((a, b) => String(b.updatedAt || "").localeCompare(String(a.updatedAt || "")))
             .slice(0, Math.max(1, obsidianGraphAccumulateMax));
+        }
+        if (obsidianGraphFriendlyFilenameEnabled && obsidianGraphRenameLegacyNoisyFilenames && prepared.length > 0) {
+          const normalized = [];
+          const usedPreparedPaths = new Set();
+          let renamedCount = 0;
+          let order = 1;
+          for (const row of prepared) {
+            const canonical = themeCanonicalFromAny(row?.themeCanonical || row?.theme);
+            const themeLabel = themeDisplayLabel(canonical, obsidianGraphKoreanTitle);
+            const themeHub = ensureThemeHub(themeLabel);
+            const mergeKey = String(row?.mergeKey || "").trim() || mergeKeyFromItem(row, order);
+            const sourceUrl = String(row?.sourceUrl || "").trim();
+            const rawTitle = String(row?.title || row?.displayTitle || "").trim();
+            const finalTitle = String(row?.displayTitle || row?.title || "").trim();
+            let notePath = String(row?.notePath || "").trim();
+            const noteName = noteNameFromPath(notePath);
+            const needsRename = !notePath || looksNoisyNoteName(noteName);
+            if (needsRename) {
+              const themeSlug = slugifyFileName(themeLabel, "general-market-intel");
+              const baseStem = buildFriendlyGraphNoteStem({
+                finalTitle,
+                rawTitle,
+                themeLabel,
+                themeCanonical: canonical,
+                sourceUrl,
+                mergeKey
+              });
+              const nextPath = allocateUniqueNotePath({
+                itemDir: obsidianGraphItemDir,
+                themeSlug,
+                baseStem,
+                usedNotePaths: usedPreparedPaths
+              });
+              if (nextPath !== notePath) renamedCount += 1;
+              notePath = nextPath;
+            } else if (usedPreparedPaths.has(notePath)) {
+              const themeSlug = slugifyFileName(themeLabel, "general-market-intel");
+              const baseStem = slugifyFileName(noteName || finalTitle || rawTitle || `insight-${order}`, `insight-${order}`);
+              notePath = allocateUniqueNotePath({
+                itemDir: obsidianGraphItemDir,
+                themeSlug,
+                baseStem,
+                usedNotePaths: usedPreparedPaths
+              });
+            }
+            usedPreparedPaths.add(notePath);
+            normalized.push({
+              ...row,
+              mergeKey,
+              themeCanonical: canonical,
+              theme: themeLabel,
+              notePath,
+              noteName: noteNameFromPath(notePath),
+              themeHubPath: themeHub.themeHubPath,
+              themeHubName: themeHub.themeHubName
+            });
+            order += 1;
+          }
+          prepared = normalized;
+          report.obsidian.graphFriendlyRenamed += renamedCount;
         }
         report.obsidian.graphSelectedThisRun = queueSelected.length;
         report.obsidian.graphAccumulatedTotal = prepared.length;
