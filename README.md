@@ -232,6 +232,11 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL` (default `true`, NotebookLM 인증/접근 실패 시 즉시 fail)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_AUTO_SETUP` (default `true`, 인증 실패 시 setup_auth 자동 재시도)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_AUTO_SETUP_SHOW_BROWSER` (default `false`, auto setup 시 브라우저 표시 여부)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_ENABLED` (default `true`, no_items/auth 연속 시 단순 질문 1회 재시도)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_TRIGGER_STREAK` (default `2`, 재시도 시작 연속 실패 기준)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_SIMPLE_MAX_ITEMS` (default `1`, 재시도 시 질문 수 축소)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_SIMPLE_QUESTIONS` (선택, 재시도 전용 질문 세트; `||` 또는 JSON array)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_AUTH_SHOW_BROWSER` (default `false`, auth 재시도 setup_auth 브라우저 표시)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS` (선택, `||` 구분 또는 JSON array; notebook library가 비어있을 때 자동 등록)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTIONS` (`||` 구분 또는 JSON array)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS` (default `2`, 필요 시 증가)
@@ -293,6 +298,7 @@ Optional knowledge pipeline automation:
     - NotebookLM 수집 시간이 길면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS`를 먼저 낮추고 관측 후 점진 증가 권장
     - NotebookLM 수집 스크립트는 내부 런타임 가드(`...MAX_RUNTIME_MS`)가 있어 종료 마진이 부족하면 `ok_partial`로 조기 종료
     - NotebookLM invalid meta 응답이 연속 발생하면 `state/notebooklm-mcp-health.json`에 streak가 누적되고 alert 기준을 넘으면 로그에 경고 출력
+    - pipeline 요약/알림에 zero queue reason code가 포함됨 (`auth|guard|timeout|empty|source|other`) → 원인 식별을 로그/텔레그램에서 즉시 가능
     - NotebookLM source가 비어도 `last-good` 큐 폴백이 켜져 있으면 `Knowledge Approved Queue`가 즉시 0이 되지 않음
     - Archive는 기본 90일 보존 후 자동 정리(런당 삭제 상한 적용)됨
 - 권장 세팅/전환 기준 문서:

@@ -207,6 +207,26 @@ const isNoSourceUiError = (text) => {
 };
 
 const isAuthFailureReason = (reason) => /not_authenticated_or_notebook_access_denied/i.test(String(reason || ""));
+const isNoItemsReason = (status, reason) =>
+  String(status || "").trim() === "no_items" ||
+  /(items_empty|ask_question_returned_no_content|invalid_assistant_meta_answer|no_items)/i.test(
+    `${String(status || "")} ${String(reason || "")}`
+  );
+
+const deriveNoItemsReason = ({ noSourceUiBlocked, authenticated, invalidAnswerCount, asked, failCount }) => {
+  if (noSourceUiBlocked) return "notebook_has_no_sources_or_query_disabled";
+  if (authenticated === false) return "not_authenticated_or_notebook_access_denied";
+  if (invalidAnswerCount > 0 && invalidAnswerCount === asked) return "invalid_assistant_meta_answer_for_all_items";
+  if (invalidAnswerCount > 0) return "invalid_assistant_meta_answer_partial";
+  if (failCount > 0) return "ask_question_failed_for_all_items";
+  return "ask_question_returned_no_content";
+};
+
+const defaultRetryQuestions = [
+  "Summarize one actionable US equity risk-on vs risk-off signal for this week with numeric trigger.",
+  "Give one volatility guard rule (entry block + size reduction) with exact thresholds.",
+  "Provide one OHLCV validation rule to reduce false-positive long entries with numeric cutoff."
+];
 
 class JsonLineRpcClient {
   constructor({ command, args, commandEnv, timeoutMs = 90000 }) {
@@ -376,12 +396,24 @@ const main = async () => {
   const authHardFail = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL", true);
   const authAutoSetup = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_AUTO_SETUP", true);
   const authAutoSetupShowBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_AUTO_SETUP_SHOW_BROWSER", false);
+  const retryEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_ENABLED", true);
+  const retryTriggerStreak = Math.max(2, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_TRIGGER_STREAK", 2));
+  const retrySimpleMaxItems = Math.max(1, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_SIMPLE_MAX_ITEMS", 1));
+  const retrySimpleQuestionsRaw = parseJsonArrayEnv(
+    "KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_SIMPLE_QUESTIONS",
+    defaultRetryQuestions
+  );
+  const retryAuthShowBrowser = boolFromEnv(
+    "KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_AUTH_SHOW_BROWSER",
+    authAutoSetupShowBrowser || showBrowser
+  );
   const healthState = readJsonFile(HEALTH_STATE_PATH, {
     generatedAt: null,
     status: "init",
     reason: "",
     invalidMetaNoItemsStreak: 0,
     noItemsStreak: 0,
+    authFailureStreak: 0,
     successStreak: 0
   });
 
@@ -414,6 +446,7 @@ const main = async () => {
       invalidMetaNoItemsThreshold: invalidStreakAlertThreshold,
       invalidMetaNoItemsStreak: Number(healthState?.invalidMetaNoItemsStreak || 0),
       noItemsStreak: Number(healthState?.noItemsStreak || 0),
+      authFailureStreak: Number(healthState?.authFailureStreak || 0),
       successStreak: Number(healthState?.successStreak || 0),
       triggered: false,
       failOnTriggered: invalidStreakAlertFail
@@ -422,6 +455,17 @@ const main = async () => {
       hardFail: authHardFail,
       autoSetup: authAutoSetup,
       autoSetupShowBrowser: authAutoSetupShowBrowser
+    },
+    retry: {
+      enabled: retryEnabled,
+      triggerStreak: retryTriggerStreak,
+      simpleMaxItems: retrySimpleMaxItems,
+      attempted: false,
+      attempts: 1,
+      triggeredBy: "",
+      reason: "",
+      collectedOnRetry: 0,
+      authShowBrowser: retryAuthShowBrowser
     },
     runtime: {
       maxRuntimeMs,
@@ -529,6 +573,28 @@ const main = async () => {
       url: selected.url || notebookUrl || null
     };
 
+    const predictedAuthFailureStreak = Number(healthState?.authFailureStreak || 0) + 1;
+    if (
+      report.health.authenticated === false &&
+      retryEnabled &&
+      authAutoSetup &&
+      predictedAuthFailureStreak >= retryTriggerStreak
+    ) {
+      report.retry.attempted = true;
+      report.retry.attempts = 2;
+      report.retry.triggeredBy = "auth_failure_streak";
+      try {
+        await client.request("tools/call", {
+          name: "setup_auth",
+          arguments: { show_browser: retryAuthShowBrowser }
+        });
+        report.authSetupRetry = { status: "attempted", showBrowser: retryAuthShowBrowser };
+      } catch (authRetryErr) {
+        report.authSetupRetry = { status: "failed", reason: authRetryErr?.message || String(authRetryErr) };
+      }
+      await refreshHealth();
+    }
+
     if (report.health.authenticated === false) {
       fs.mkdirSync(path.dirname(outputPath), { recursive: true });
       fs.writeFileSync(
@@ -549,6 +615,9 @@ const main = async () => {
       report.status = "no_items";
       report.reason = "not_authenticated_or_notebook_access_denied";
       report.collected = 0;
+      if (report.retry.triggeredBy === "auth_failure_streak") {
+        report.retry.reason = "retry_auth_setup_exhausted";
+      }
       console.log(
         `[NOTEBOOKLM_MCP_COLLECT] status=${report.status} notebooks=${notebooks.length} asked=${report.asked} collected=${report.collected} output=${path.relative(CWD, outputPath)}`
       );
@@ -558,55 +627,108 @@ const main = async () => {
     }
 
     const items = [];
-    let failCount = 0;
-    let invalidAnswerCount = 0;
     let index = 1;
-    let noSourceUiBlocked = false;
     const startedAtMs = Date.now();
-    for (const question of questions) {
-      const elapsedMs = Date.now() - startedAtMs;
-      const remainingMs = maxRuntimeMs - elapsedMs;
-      if (remainingMs < minQuestionBudgetMs) {
-        report.runtime.budgetStop = true;
-        report.runtime.elapsedMs = elapsedMs;
-        report.runtime.remainingMs = remainingMs;
-        break;
-      }
-      const args = {
-        question,
-        show_browser: showBrowser
-      };
-      if (selected?.id) args.notebook_id = selected.id;
-      if (selected?.url && !selected?.id) args.notebook_url = selected.url;
-      const callRes = await client.request("tools/call", { name: "ask_question", arguments: args });
-      report.asked += 1;
-      const parsed = parseToolTextResult(callRes);
-      const ok = parsed.parsed?.success !== false;
-      if (!ok) {
-        failCount += 1;
-        if (isNoSourceUiError(parsed.text)) {
-          noSourceUiBlocked = true;
+    const runQuestionBatch = async (batchQuestions) => {
+      let failCount = 0;
+      let invalidAnswerCount = 0;
+      let noSourceUiBlocked = false;
+      let askedCount = 0;
+      const collected = [];
+      for (const question of batchQuestions) {
+        const elapsedMs = Date.now() - startedAtMs;
+        const remainingMs = maxRuntimeMs - elapsedMs;
+        if (remainingMs < minQuestionBudgetMs) {
+          report.runtime.budgetStop = true;
+          report.runtime.elapsedMs = elapsedMs;
+          report.runtime.remainingMs = remainingMs;
           break;
         }
-        continue;
+        const args = {
+          question,
+          show_browser: showBrowser
+        };
+        if (selected?.id) args.notebook_id = selected.id;
+        if (selected?.url && !selected?.id) args.notebook_url = selected.url;
+        const callRes = await client.request("tools/call", { name: "ask_question", arguments: args });
+        report.asked += 1;
+        askedCount += 1;
+        const parsed = parseToolTextResult(callRes);
+        const ok = parsed.parsed?.success !== false;
+        if (!ok) {
+          failCount += 1;
+          if (isNoSourceUiError(parsed.text)) {
+            noSourceUiBlocked = true;
+            break;
+          }
+          continue;
+        }
+        const answer = stripAssistantMetaSuffix(extractAnswerText(parsed.text, parsed.parsed));
+        if (!answer) continue;
+        if (isInvalidAssistantMetaAnswer(answer)) {
+          invalidAnswerCount += 1;
+          continue;
+        }
+        collected.push({
+          id: `nlm-${Date.now()}-${index}`,
+          title: short(question, 120),
+          summary: short(answer, 1200),
+          category: guessCategory(question, answer),
+          priority: index <= 3 ? "P1" : "P2",
+          sourceUrl: selected?.url || "",
+          sourceRef: `notebooklm_mcp:${selected?.id || "url"}`,
+          sourceType: "notebooklm_mcp"
+        });
+        index += 1;
       }
-      const answer = stripAssistantMetaSuffix(extractAnswerText(parsed.text, parsed.parsed));
-      if (!answer) continue;
-      if (isInvalidAssistantMetaAnswer(answer)) {
-        invalidAnswerCount += 1;
-        continue;
+      return { items: collected, failCount, invalidAnswerCount, noSourceUiBlocked, askedCount };
+    };
+
+    const primaryBatch = await runQuestionBatch(questions);
+    items.push(...primaryBatch.items);
+
+    const primaryNoItemsReason = deriveNoItemsReason({
+      noSourceUiBlocked: primaryBatch.noSourceUiBlocked,
+      authenticated: report.health.authenticated,
+      invalidAnswerCount: primaryBatch.invalidAnswerCount,
+      asked: Math.max(0, primaryBatch.askedCount),
+      failCount: primaryBatch.failCount
+    });
+    const predictedNoItemsStreak = Number(healthState?.noItemsStreak || 0) + 1;
+
+    if (
+      retryEnabled &&
+      items.length === 0 &&
+      !primaryBatch.noSourceUiBlocked &&
+      predictedNoItemsStreak >= retryTriggerStreak &&
+      isNoItemsReason("no_items", primaryNoItemsReason) &&
+      !report.runtime.budgetStop
+    ) {
+      const simpleQuestions = retrySimpleQuestionsRaw
+        .map((x) => String(x || "").trim())
+        .filter(Boolean)
+        .slice(0, retrySimpleMaxItems);
+      if (simpleQuestions.length > 0) {
+        report.retry.attempted = true;
+        report.retry.attempts = 2;
+        report.retry.triggeredBy = "no_items_streak";
+        report.retry.reason = primaryNoItemsReason;
+        const retryBatch = await runQuestionBatch(simpleQuestions);
+        items.push(...retryBatch.items);
+        report.retry.collectedOnRetry = retryBatch.items.length;
+        if (retryBatch.items.length === 0) {
+          const retryReason = deriveNoItemsReason({
+            noSourceUiBlocked: retryBatch.noSourceUiBlocked,
+            authenticated: report.health.authenticated,
+            invalidAnswerCount: retryBatch.invalidAnswerCount,
+            asked: Math.max(0, retryBatch.askedCount),
+            failCount: retryBatch.failCount
+          });
+          report.retry.reason = `retry_exhausted:${retryReason}`;
+        } else {
+          report.retry.reason = "retry_recovered_simple_questions";
+        }
       }
-      items.push({
-        id: `nlm-${Date.now()}-${index}`,
-        title: short(question, 120),
-        summary: short(answer, 1200),
-        category: guessCategory(question, answer),
-        priority: index <= 3 ? "P1" : "P2",
-        sourceUrl: selected?.url || "",
-        sourceRef: `notebooklm_mcp:${selected?.id || "url"}`,
-        sourceType: "notebooklm_mcp"
-      });
-      index += 1;
     }
 
     fs.mkdirSync(path.dirname(outputPath), { recursive: true });
@@ -627,24 +749,18 @@ const main = async () => {
     );
 
     report.status = items.length > 0 ? "ok" : "no_items";
-    if (items.length > 0) {
-      report.reason = "";
-    } else if (noSourceUiBlocked) {
-      report.reason = "notebook_has_no_sources_or_query_disabled";
-    } else if (report.health.authenticated === false) {
-      report.reason = "not_authenticated_or_notebook_access_denied";
-    } else if (invalidAnswerCount > 0 && invalidAnswerCount === report.asked) {
-      report.reason = "invalid_assistant_meta_answer_for_all_items";
-    } else if (invalidAnswerCount > 0) {
-      report.reason = "invalid_assistant_meta_answer_partial";
-    } else if (failCount > 0) {
-      report.reason = "ask_question_failed_for_all_items";
-    } else {
-      report.reason = "ask_question_returned_no_content";
-    }
     if (items.length > 0 && report.runtime.budgetStop) {
       report.status = "ok_partial";
       report.reason = "runtime_budget_guard";
+    } else if (items.length > 0 && report.retry.attempted && report.retry.collectedOnRetry > 0) {
+      report.status = "ok_retry";
+      report.reason = report.retry.reason || "";
+    } else if (items.length > 0) {
+      report.reason = "";
+    } else {
+      report.reason = report.retry.attempted
+        ? report.retry.reason || primaryNoItemsReason
+        : primaryNoItemsReason;
     }
     report.collected = items.length;
     console.log(
@@ -659,7 +775,7 @@ const main = async () => {
       report.reason = error?.message || String(error);
       console.log(`[NOTEBOOKLM_MCP_COLLECT] status=fail reason=${report.reason}`);
     }
-    if (required && !["ok", "no_items"].includes(report.status)) {
+    if (required && !["ok", "ok_partial", "ok_retry", "no_items"].includes(report.status)) {
       writeJsonFile(REPORT_PATH, report);
       throw new Error(`NotebookLM MCP collect failed: ${report.reason}`);
     }
@@ -677,13 +793,17 @@ const main = async () => {
         : 0,
       noItemsStreak:
         report.status === "no_items" ? Number(healthState?.noItemsStreak || 0) + 1 : 0,
+      authFailureStreak: isAuthFailureReason(report.reason)
+        ? Number(healthState?.authFailureStreak || 0) + 1
+        : 0,
       successStreak:
-        report.status === "ok" || report.status === "ok_partial"
+        report.status === "ok" || report.status === "ok_partial" || report.status === "ok_retry"
           ? Number(healthState?.successStreak || 0) + 1
           : 0
     };
     report.alert.invalidMetaNoItemsStreak = nextHealth.invalidMetaNoItemsStreak;
     report.alert.noItemsStreak = nextHealth.noItemsStreak;
+    report.alert.authFailureStreak = nextHealth.authFailureStreak;
     report.alert.successStreak = nextHealth.successStreak;
     report.alert.triggered = nextHealth.invalidMetaNoItemsStreak >= invalidStreakAlertThreshold;
     if (report.alert.triggered) {

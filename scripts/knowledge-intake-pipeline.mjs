@@ -1055,6 +1055,30 @@ const parseQueueSnapshot = (jsonPath) => {
   return { status: "ok", reason: "", items };
 };
 
+const safeReadJson = (jsonPath) => {
+  if (!fs.existsSync(jsonPath)) return null;
+  const raw = fs.readFileSync(jsonPath, "utf8").trim();
+  if (!raw) return null;
+  try {
+    return JSON.parse(raw);
+  } catch {
+    return null;
+  }
+};
+
+const notebooklmZeroReasonCode = ({ sourceStatus, sourceReason, collectStatus, collectReason, queueCount }) => {
+  if (Number(queueCount || 0) > 0) return "ok";
+  const text = `${String(sourceStatus || "")} ${String(sourceReason || "")} ${String(collectStatus || "")} ${String(
+    collectReason || ""
+  )}`.toLowerCase();
+  if (/not_authenticated_or_notebook_access_denied|fail_auth_required|auth_required/.test(text)) return "auth";
+  if (/invalid_assistant_meta_answer|extremely important|시스템에서 답변할 수 없습니다/.test(text)) return "guard";
+  if (/runtime_budget_guard|timeout|time(?:d)? out|max_runtime/.test(text)) return "timeout";
+  if (/items_empty|ask_question_returned_no_content|no_items|approved queue is empty/.test(text)) return "empty";
+  if (/missing|fail_parse|skip_empty_file|skip_missing_file/.test(text)) return "source";
+  return "other";
+};
+
 const buildManifest = ({ generatedAt, sourceMode, itemDir, items }) => ({
   generatedAt,
   sourceMode,
@@ -1451,6 +1475,9 @@ const main = async () => {
       notebooklmRequired,
       notebooklmStatus: "skip",
       notebooklmReason: "",
+      notebooklmCollectStatus: "skip",
+      notebooklmCollectReason: "",
+      notebooklmZeroReasonCode: "n/a",
       notebooklmLoaded: 0,
       notebooklmDropInvalidItems,
       notebooklmInvalidDropped: 0
@@ -1532,6 +1559,10 @@ const main = async () => {
       graphManifestWritten: false
     }
   };
+
+  const collectReport = safeReadJson(NOTEBOOKLM_MCP_COLLECT_REPORT_PATH) || {};
+  report.source.notebooklmCollectStatus = String(collectReport?.status || "skip").trim() || "skip";
+  report.source.notebooklmCollectReason = String(collectReport?.reason || "").trim();
 
   let queueItems = [];
   let notionItems = [];
@@ -1644,6 +1675,13 @@ const main = async () => {
     report.queue.fallbackCount = queueItems.length;
   }
   report.queue.count = queueItems.length;
+  report.source.notebooklmZeroReasonCode = notebooklmZeroReasonCode({
+    sourceStatus: report.source.notebooklmStatus,
+    sourceReason: report.source.notebooklmReason,
+    collectStatus: report.source.notebooklmCollectStatus,
+    collectReason: report.source.notebooklmCollectReason,
+    queueCount: report.queue.count
+  });
 
   fs.mkdirSync(path.dirname(OBSIDIAN_QUEUE_MD_PATH), { recursive: true });
   fs.writeFileSync(
@@ -2095,7 +2133,7 @@ const main = async () => {
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   console.log(
-    `[KNOWLEDGE_PIPELINE] source=${sourceMode} notebooklm=${report.source.notebooklmStatus}/${report.source.notebooklmLoaded} notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
+    `[KNOWLEDGE_PIPELINE] source=${sourceMode} notebooklm=${report.source.notebooklmStatus}/${report.source.notebooklmLoaded} collect=${report.source.notebooklmCollectStatus} zeroCode=${report.source.notebooklmZeroReasonCode} notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
       CWD,
       QUEUE_MD_PATH
     )} obsidianQueue=${path.relative(CWD, OBSIDIAN_QUEUE_MD_PATH)} report=${path.relative(CWD, REPORT_PATH)}`
@@ -2106,13 +2144,13 @@ const main = async () => {
   }
   if (["notebooklm_json", "hybrid"].includes(sourceMode) && report.source.notebooklmStatus.startsWith("fail") && notebooklmRequired) {
     console.error(
-      `[KNOWLEDGE_PIPELINE][EXIT] notebooklm required + source fail (${report.source.notebooklmStatus}:${report.source.notebooklmReason || "n/a"})`
+      `[KNOWLEDGE_PIPELINE][EXIT] notebooklm required + source fail (${report.source.notebooklmStatus}:${report.source.notebooklmReason || "n/a"}) code=${report.source.notebooklmZeroReasonCode}`
     );
     process.exit(1);
   }
   if (sourceMode === "notebooklm_json" && queueItems.length === 0 && notebooklmRequired) {
     console.error(
-      `[KNOWLEDGE_PIPELINE][EXIT] notebooklm required + queue empty (status=${report.source.notebooklmStatus}, reason=${report.source.notebooklmReason || "n/a"})`
+      `[KNOWLEDGE_PIPELINE][EXIT] notebooklm required + queue empty (status=${report.source.notebooklmStatus}, reason=${report.source.notebooklmReason || "n/a"}, collect=${report.source.notebooklmCollectStatus}/${report.source.notebooklmCollectReason || "n/a"}, code=${report.source.notebooklmZeroReasonCode})`
     );
     process.exit(1);
   }

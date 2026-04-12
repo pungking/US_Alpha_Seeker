@@ -50,6 +50,7 @@ const classify = (report, collectReport) => {
 
   const sourceStatus = String(report?.source?.notebooklmStatus || "").trim();
   const sourceReason = String(report?.source?.notebooklmReason || "").trim();
+  const sourceZeroCode = String(report?.source?.notebooklmZeroReasonCode || "").trim();
   const required = String(report?.source?.notebooklmRequired || "").trim() === "true";
   const queueCount = Number(report?.queue?.count || 0);
   const overallStatus = String(report?.status || "").trim();
@@ -62,20 +63,41 @@ const classify = (report, collectReport) => {
       code: "NOTEBOOKLM_FAIL",
       reason: sourceReason || collectReason || "notebooklm failure",
       sourceStatus,
-      collectStatus
+      collectStatus,
+      zeroCode: sourceZeroCode || "other"
     };
   }
 
-  if (
-    sourceStatus === "no_items" &&
-    /invalid_assistant_meta_answer_for_all_items/i.test(`${sourceReason} ${collectReason}`)
-  ) {
+  if (queueCount === 0 && sourceZeroCode === "guard") {
     return {
       shouldNotify: true,
-      code: "NOTEBOOKLM_INVALID_META",
-      reason: sourceReason || collectReason || "all answers invalid meta",
+      code: "NOTEBOOKLM_GUARD",
+      reason: sourceReason || collectReason || "invalid assistant/system guard response",
       sourceStatus,
-      collectStatus
+      collectStatus,
+      zeroCode: sourceZeroCode
+    };
+  }
+
+  if (queueCount === 0 && sourceZeroCode === "auth") {
+    return {
+      shouldNotify: true,
+      code: "NOTEBOOKLM_AUTH",
+      reason: sourceReason || collectReason || "auth required",
+      sourceStatus,
+      collectStatus,
+      zeroCode: sourceZeroCode
+    };
+  }
+
+  if (queueCount === 0 && sourceZeroCode === "timeout") {
+    return {
+      shouldNotify: true,
+      code: "NOTEBOOKLM_TIMEOUT",
+      reason: sourceReason || collectReason || "runtime timeout/budget",
+      sourceStatus,
+      collectStatus,
+      zeroCode: sourceZeroCode
     };
   }
 
@@ -85,7 +107,8 @@ const classify = (report, collectReport) => {
       code: "NOTEBOOKLM_REQUIRED_EMPTY",
       reason: sourceReason || "required mode + queue empty",
       sourceStatus,
-      collectStatus
+      collectStatus,
+      zeroCode: sourceZeroCode || "empty"
     };
   }
 
@@ -95,7 +118,8 @@ const classify = (report, collectReport) => {
       code: "PIPELINE_FAIL",
       reason: sourceReason || "pipeline fail",
       sourceStatus,
-      collectStatus
+      collectStatus,
+      zeroCode: sourceZeroCode || "other"
     };
   }
 
@@ -104,7 +128,8 @@ const classify = (report, collectReport) => {
     code: "OK",
     reason: "",
     sourceStatus,
-    collectStatus
+    collectStatus,
+    zeroCode: sourceZeroCode || "ok"
   };
 };
 
@@ -138,6 +163,7 @@ const main = async () => {
   lines.push(`reason=${decision.reason || "n/a"}`);
   if (decision.sourceStatus) lines.push(`sourceStatus=${decision.sourceStatus}`);
   if (decision.collectStatus) lines.push(`collectStatus=${decision.collectStatus}`);
+  if (decision.zeroCode) lines.push(`zeroQueueCode=${decision.zeroCode}`);
   lines.push(`report=${path.relative(CWD, REPORT_PATH)}`);
   if (runUrl) lines.push(`run=${runUrl}`);
   const text = lines.join("\n");
