@@ -57,7 +57,7 @@ const boolFromEnv = (name, fallback = false) => {
   if (["0", "false", "no", "off"].includes(raw)) return false;
   return fallback;
 };
-const NOTEBOOKLM_SANITIZED_MAX_CHARS = Number.parseInt(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS", "2600"), 10) || 2600;
+const NOTEBOOKLM_SANITIZED_MAX_CHARS = Number.parseInt(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS", "7000"), 10) || 7000;
 
 const short = (value, max = 1800) => String(value ?? "").trim().slice(0, max);
 const safeId = (value, fallback) => {
@@ -273,11 +273,12 @@ const buildFriendlyGraphNoteStem = ({
 }) => {
   const stripped = stripThemePrefixFromTitle(finalTitle || rawTitle, themeLabel);
   const sourceHint = inferSourceHintKo({ title: rawTitle, sourceUrl, summary: "", theme: themeCanonical || themeLabel });
-  const candidate = short(String(stripped || sourceHint || rawTitle || finalTitle || "").replace(/\s+/g, " "), 96).trim();
+  const actionHint = inferActionHintKo({ title: rawTitle, summary: "", sourceUrl });
+  const candidate = short(String(stripped || `${sourceHint} ${actionHint}` || rawTitle || finalTitle || "").replace(/\s+/g, " "), 96).trim();
   const core = candidate && !looksMachineTitle(candidate) && !looksNoisyNoteName(candidate) ? candidate : sourceHint || candidate;
   const keywordHint = stemKeywordHint(keywords);
   const stable = shortStableHash(`${mergeKey}|${sourceUrl}|${rawTitle}|${finalTitle}|${keywordHint}`, 3);
-  const stitched = [core, keywordHint, stable].filter(Boolean).join(" ");
+  const stitched = [core, actionHint, keywordHint, stable].filter(Boolean).join(" ");
   return slugifyFileName(stitched, `insight-${stable}`).slice(0, 64);
 };
 const allocateUniqueNotePath = ({ itemDir, themeSlug, baseStem, usedNotePaths }) => {
@@ -356,6 +357,43 @@ const stripNotebookCitationNoise = (value) => {
   s = s.replace(/\s+([.,;:!?])/g, "$1");
   return s;
 };
+const canonicalSectionHeading = (value) => {
+  const token = String(value || "").trim().toLowerCase();
+  if (!token) return "";
+  if (/(executive|summary|핵심\s*요약)/.test(token)) return "핵심 요약";
+  if (/(strategic|analysis|전략\s*해석)/.test(token)) return "전략 해석";
+  if (/(technical|validation|기술\s*검증)/.test(token)) return "기술 검증";
+  if (/(operational|checklist|운영\s*체크포인트)/.test(token)) return "운영 체크포인트";
+  return "";
+};
+const looksDegradedMarkdown = (value) => {
+  const lines = String(value || "")
+    .split(/\r?\n/)
+    .map((line) => String(line || "").trim());
+  if (lines.length === 0) return false;
+  const nonEmpty = lines.filter(Boolean);
+  if (nonEmpty.length === 0) return true;
+  const emptyBullets = nonEmpty.filter((line) => /^[-*•]\s*$/.test(line)).length;
+  const shortNoise = nonEmpty.filter((line) => /^[^가-힣A-Za-z0-9]{1,3}$/.test(line)).length;
+  const ratio = (emptyBullets + shortNoise) / nonEmpty.length;
+  return ratio >= 0.18;
+};
+const conservativeMarkdownRepair = (value) => {
+  let out = String(value || "").trim();
+  if (!out) return "";
+  out = out
+    .replace(/\[Executive Summary\]/gi, "\n## 핵심 요약\n")
+    .replace(/\[Strategic[^\]]*\]/gi, "\n## 전략 해석\n")
+    .replace(/\[Technical[^\]]*\]/gi, "\n## 기술 검증\n")
+    .replace(/\[Operational[^\]]*\]/gi, "\n## 운영 체크포인트\n")
+    .replace(/^[-–—=_]{4,}\s*$/gim, "\n")
+    .replace(/\n[-*•]\s*\n/g, "\n")
+    .replace(/[ \t]+\n/g, "\n")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+  if (!/^##\s+/m.test(out)) out = `## 핵심 요약\n${out}`;
+  return out;
+};
 const splitSummarySentences = (value) =>
   String(value || "")
     .replace(/\s+/g, " ")
@@ -373,6 +411,7 @@ const prettifyNotebookSummaryMarkdown = (value) => {
   const normalizeLine = (lineRaw) => {
     let line = String(lineRaw || "").trim();
     if (!line) return "";
+    if (/^[-*•]\s*$/.test(line)) return "";
     line = line
       .replace(/^#\s*#\s+/g, "## ")
       .replace(/^#{4,}\s+/g, "### ")
@@ -382,9 +421,12 @@ const prettifyNotebookSummaryMarkdown = (value) => {
       .replace(/^[-–—=_]{3,}\s*(.+)$/g, "### $1")
       .replace(/^\s*#+\s*([가-힣A-Za-z].+)\s*$/g, "## $1")
       .replace(/\s{2,}/g, " ");
+    const sectionLabel = canonicalSectionHeading(line.replace(/^[\[\]-]+|[\]-]+$/g, ""));
+    if (sectionLabel) return `## ${sectionLabel}`;
     // Drop visual-noise separators copied from rich UI.
     if (/^[-–—=_]{3,}$/.test(line)) return "";
     if (/^[`"'“”‘’]+$/.test(line)) return "";
+    if (/^[-*]\s*(?:\[[^\]]*\])?\s*$/.test(line)) return "";
     return line;
   };
   const flushBuffer = (buffer, sectionTitle = "") => {
@@ -450,7 +492,15 @@ const sanitizeNotebookSummary = (value) => {
     .replace(/^\s*(?:전략\s*해석|Strategic Analysis)\s*[.:：]\s*/gim, "\n## 전략 해석\n")
     .replace(/^\s*(?:기술\s*검증|Technical Validation)\s*[.:：]\s*/gim, "\n## 기술 검증\n")
     .replace(/^\s*(?:운영\s*체크포인트|Operational Checklist)\s*[.:：]\s*/gim, "\n## 운영 체크포인트\n")
-    .replace(/\s+((?!https)[A-Za-z가-힣0-9()\/+.-]{2,36}:)\s*/g, "\n- $1 ")
+    .replace(/\[Strategic\]/gi, "\n## 전략 해석\n")
+    .replace(/\[Analysis[^\]]*\]/gi, "\n## 전략 해석\n")
+    .replace(/\[Technical[^\]]*\]/gi, "\n## 기술 검증\n")
+    .replace(/\[Operational[^\]]*\]/gi, "\n## 운영 체크포인트\n")
+    .replace(/^[-–—=_]{3,}\s*Strategic\s*$/gim, "\n## 전략 해석\n")
+    .replace(/^[-–—=_]{3,}\s*Technical\s*$/gim, "\n## 기술 검증\n")
+    .replace(/^[-–—=_]{3,}\s*Executive\s*$/gim, "\n## 핵심 요약\n")
+    .replace(/^[-–—=_]{3,}\s*Operational\s*$/gim, "\n## 운영 체크포인트\n")
+    .replace(/\n[-*•]\s*\n/g, "\n")
     .replace(/^[-–—=_]{3,}\s*(Strategic Analysis|Technical Validation|Executive Summary|Operational Checklist)\s*$/gim, "\n## $1\n")
     .replace(/more_horiz/gi, " ")
     .replace(/[ \t]+\n/g, "\n")
@@ -460,6 +510,10 @@ const sanitizeNotebookSummary = (value) => {
     s = `## 핵심 요약\n${s}`;
   }
   s = prettifyNotebookSummaryMarkdown(s);
+  if (looksDegradedMarkdown(s)) {
+    s = conservativeMarkdownRepair(raw);
+    s = prettifyNotebookSummaryMarkdown(s);
+  }
   return truncateAtNaturalBoundary(s, NOTEBOOKLM_SANITIZED_MAX_CHARS);
 };
 const categoryLabelKo = (value) => {
@@ -2174,6 +2228,11 @@ const main = async () => {
             const themeLabel = themeDisplayLabel(canonical, obsidianGraphKoreanTitle);
             const notePath = row.path;
             const themeHub = ensureThemeHub(themeLabel);
+            const keywordNormalized = extractKeywords({
+              title: row.title || row.displayTitle || "",
+              summary: summarySanitized || row.summary || "",
+              sourceUrl: row.sourceUrl || ""
+            });
             accumulatedMap.set(baseKey, {
               mergeKey: baseKey,
               pageId: row.pageId || "",
@@ -2186,7 +2245,7 @@ const main = async () => {
               sourceUrl: row.sourceUrl || "",
               sourceRef: row.sourceRef || "",
               sourceType: row.sourceType || "notebooklm_json",
-              keywords: Array.isArray(row.keywords) ? row.keywords : [],
+              keywords: keywordNormalized.length > 0 ? keywordNormalized : Array.isArray(row.keywords) ? row.keywords : [],
               themeCanonical: canonical,
               theme: themeLabel,
               notePath,

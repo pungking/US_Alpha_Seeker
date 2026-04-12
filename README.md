@@ -267,7 +267,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_QUESTION_CURSOR_PATH` (default `state/notebooklm-mcp-question-cursor.json`, 질문 회전 상태 파일)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER` (default `false`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS` (default `true`, 시스템 가드 문구 응답은 큐/그래프에서 자동 제외)
-  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS` (default `2600`, Obsidian 반영 전 Markdown 정리 본문 길이 상한)
+  - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS` (default `7000`, Obsidian 반영 전 Markdown 정리 본문 길이 상한)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_MODE` (default `seed_pack`)
   - `KNOWLEDGE_PIPELINE_NOTEBOOKLM_BRIDGE_OVERWRITE` (default `false`)
