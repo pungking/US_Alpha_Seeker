@@ -1,41 +1,50 @@
-name: Knowledge Obsidian Nightly Validate
+name: Knowledge Obsidian Backfill (One-shot)
 
 on:
-  schedule:
-    # Weekdays 15:20 UTC (00:20 KST next day)
-    - cron: "20 15 * * 1-5"
   workflow_dispatch:
+    inputs:
+      accumulate_max:
+        description: "Max accumulated notes to rewrite in one run"
+        required: false
+        default: "1200"
+      timeout_min:
+        description: "Workflow timeout minutes"
+        required: false
+        default: "45"
 
 concurrency:
-  group: knowledge-obsidian-validate-${{ github.ref }}
-  cancel-in-progress: true
+  group: knowledge-obsidian-backfill-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  obsidian-validate:
+  obsidian-backfill:
     runs-on: ${{ vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON != '' && fromJSON(vars.KNOWLEDGE_PIPELINE_RUNS_ON_JSON) || vars.KNOWLEDGE_PIPELINE_RUNS_ON || 'ubuntu-latest' }}
-    timeout-minutes: ${{ fromJSON(vars.KNOWLEDGE_PIPELINE_OBSIDIAN_VALIDATE_TIMEOUT_MIN || '20') }}
+    timeout-minutes: ${{ fromJSON(github.event.inputs.timeout_min || '45') }}
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
 
-      # validation scope: Obsidian write-path only (NotebookLM queue empty여도 실패시키지 않음)
+      # Backfill runs rewrite existing notes from manifest + queue snapshot.
       KNOWLEDGE_PIPELINE_SOURCE_MODE: notebooklm_json
       KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED: false
       KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY: true
-      KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS || '2600' }}
 
       KNOWLEDGE_PIPELINE_OBSIDIAN_APPLY: true
       KNOWLEDGE_PIPELINE_OBSIDIAN_REQUIRED: true
       KNOWLEDGE_PIPELINE_OBSIDIAN_DRY_RUN: false
-      KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON: ${{ vars.KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON || 'fail' }}
+      KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS: ${{ vars.KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS || '2600' }}
 
-      KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_NOTE_PATH || '99_Automation/Knowledge Approved Queue.md' }}
-      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY || 'true' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_APPLY: true
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_PATH || '99_Automation/NotebookLM/NotebookLM_Intake_Graph_Hub.md' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ITEM_DIR || '99_Automation/NotebookLM/Intake' }}
       KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_MANIFEST_PATH || '99_Automation/NotebookLM/Intake/_meta/generated-manifest.json' }}
-      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED || 'true' }}
-      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES: ${{ vars.KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES || 'true' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_ENABLED: true
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ACCUMULATE_MAX: ${{ github.event.inputs.accumulate_max || '1200' }}
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED: true
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES: true
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP: true
+      KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_ARCHIVE_ENABLED: true
 
+      KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON: ${{ vars.KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON || 'fail' }}
       OBSIDIAN_BASE_URL: ${{ vars.OBSIDIAN_BASE_URL || 'http://127.0.0.1:27123' }}
       OBSIDIAN_API_KEY: ${{ secrets.OBSIDIAN_API_KEY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -48,7 +57,7 @@ jobs:
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
-          node-version: "20"
+          node-version: "24"
 
       - name: Prepare state placeholders
         run: |
@@ -61,18 +70,18 @@ jobs:
           [ -f state/notebooklm-intake.json ] || echo '{"generatedAt":"","items":[]}' > state/notebooklm-intake.json
           [ -f state/notebooklm-mcp-collect-report.json ] || echo '{}' > state/notebooklm-mcp-collect-report.json
 
-      - name: Run knowledge intake pipeline (Obsidian strict validate)
+      - name: Run knowledge intake pipeline (backfill)
         run: npm run ops:knowledge:pipeline
 
       - name: Notify Telegram
         if: always()
         run: npm run ops:knowledge:alert
 
-      - name: Upload validation artifacts
+      - name: Upload backfill artifacts
         if: always()
         uses: actions/upload-artifact@v5
         with:
-          name: knowledge-obsidian-validate
+          name: knowledge-obsidian-backfill
           path: |
             state/knowledge-intake-pipeline-report.json
             state/knowledge-approved-queue.md

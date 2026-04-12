@@ -319,6 +319,18 @@ Optional knowledge pipeline automation:
   - `OBSIDIAN_API_KEY` (secret, Obsidian Local REST API 사용 시)
   - 운영 안정화 메모:
     - workflow 기본 timeout은 45분이며, strict profile 검증(step)으로 fail-open 설정을 사전 차단
+
+One-shot legacy title/format backfill:
+
+- workflow: `.github/workflows/knowledge-intake-obsidian-backfill.yml`
+- trigger: manual `workflow_dispatch` only
+- purpose: 기존 누적 문서까지 최신 sanitize + friendly filename 규칙으로 일괄 재작성
+- recommended input:
+  - `accumulate_max=1200` (vault 규모에 맞게 조정)
+  - `timeout_min=45`
+- verify in `state/knowledge-intake-pipeline-report.json`:
+  - `obsidian.graphFriendlyRenamed`
+  - `obsidian.graphAccumulatedTotal`
     - NotebookLM 인증이 만료되면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_AUTH_HARD_FAIL=true` 기준으로 즉시 실패 처리되어 무효 런이 녹색으로 숨겨지지 않음
     - 인증 만료 시 `...AUTH_AUTO_SETUP=true` 이면 `setup_auth`를 1회 자동 시도하고, 실패 시에만 hard-fail 처리
     - NotebookLM 수집 시간이 길면 `KNOWLEDGE_PIPELINE_NOTEBOOKLM_MAX_ITEMS`를 먼저 낮추고 관측 후 점진 증가 권장
