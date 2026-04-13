@@ -296,6 +296,8 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_HUB_KEEP_BASE` (default `true`, 6개 기본 테마 허브를 _themes에 항상 유지)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_HUB_LINK_HUB` (default `false`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_LINK_THEMES` (default `false`)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_ENABLED` (default `false`, `true`일 때만 `NotebookLM_Intake_Graph_Hub` 생성/유지)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_CORE_DOCS_ENABLED` (default `false`, `true`일 때만 pack/playbook 링크를 노트에 표시)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_CROSSLINK_ENABLED` (default `true`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_LEGACY_CLEANUP` (default `true`)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_STALE_CLEANUP` (default `true`)
@@ -312,9 +314,9 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON` (default `fail`, `always|fail|never`)
   - Telegram alert uses `TELEGRAM_TOKEN` + `TELEGRAM_ALERT_CHAT_ID` (fallback: `TELEGRAM_SIMULATION_CHAT_ID`)
   - Graph note role guide:
-    - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference
-    - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서
-    - `NotebookLM_Intake_Graph_Hub`: 전체 허브
+    - `NotebookLM_US_Stock_Research_Pack...`: source bundle reference (core docs enabled일 때만 표시)
+    - `Market_Intel_AutoTrading_Uplift_Playbook...`: 대응안/실험 아이디어 기준 문서 (core docs enabled일 때만 표시)
+    - `NotebookLM_Intake_Graph_Hub`: 전체 허브 (hub enabled일 때만 생성)
     - `Intake/_themes/theme-...`: 주제별 허브
     - `Intake/<theme>/<headline>-<stable>`: 개별 intake 노트
   - `OBSIDIAN_BASE_URL` (default `http://127.0.0.1:27123`)

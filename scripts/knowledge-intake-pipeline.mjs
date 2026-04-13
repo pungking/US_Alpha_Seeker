@@ -1007,7 +1007,17 @@ const markdownObsidianQueue = ({ generatedAt, sourcePath, statusFlow, items, fal
   return `${lines.join("\n")}\n`;
 };
 
-const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink, themeHubLink, relatedLinks = [] }) => {
+const markdownGraphItem = ({
+  generatedAt,
+  item,
+  hubLink,
+  packLink,
+  playbookLink,
+  themeHubLink,
+  relatedLinks = [],
+  includeGraphHubRef = false,
+  includeCoreDocs = false
+}) => {
   const lines = [];
   const keywords = Array.isArray(item?.keywords) ? item.keywords : [];
   const oneLiner = summaryOneLiner(item.summary);
@@ -1052,9 +1062,9 @@ const markdownGraphItem = ({ generatedAt, item, hubLink, packLink, playbookLink,
   lines.push("## 실행 메모");
   lines.push(`- category: ${item.category || "N/A"}`);
   lines.push(`- priority: ${item.priority || "N/A"}`);
-  lines.push(`- graphHub: ${hubLink}`);
-  lines.push(`- pack: ${packLink}`);
-  lines.push(`- playbook: ${playbookLink}`);
+  if (includeGraphHubRef && hubLink) lines.push(`- graphHub: ${hubLink}`);
+  if (includeCoreDocs && packLink) lines.push(`- pack: ${packLink}`);
+  if (includeCoreDocs && playbookLink) lines.push(`- playbook: ${playbookLink}`);
   lines.push("");
   lines.push("## 대응안(초안)");
   lines.push("- [ ] 시그널/지표 반영 포인트 정리");
@@ -1072,7 +1082,9 @@ const markdownThemeHub = ({
   packLink,
   playbookLink,
   includeHubLink = false,
-  relatedThemeLinks = []
+  relatedThemeLinks = [],
+  includeGraphHubRef = false,
+  includeCoreDocs = false
 }) => {
   const lines = [];
   const keywords = new Map();
@@ -1098,12 +1110,16 @@ const markdownThemeHub = ({
   lines.push(`- 노트 수: ${items.length}`);
   lines.push(`- 중심 키워드: ${topKeywords.slice(0, 4).join(", ") || "(none)"}`);
   lines.push("");
-  lines.push("## 연결");
-  if (includeHubLink) lines.push(`- [[${hubLink}]]`);
-  else lines.push(`- graphHub: ${hubLink}`);
-  lines.push(`- pack: ${packLink}`);
-  lines.push(`- playbook: ${playbookLink}`);
-  lines.push("");
+  if (includeGraphHubRef || includeCoreDocs) {
+    lines.push("## 연결");
+    if (includeGraphHubRef && hubLink) {
+      if (includeHubLink) lines.push(`- [[${hubLink}]]`);
+      else lines.push(`- graphHub: ${hubLink}`);
+    }
+    if (includeCoreDocs && packLink) lines.push(`- pack: ${packLink}`);
+    if (includeCoreDocs && playbookLink) lines.push(`- playbook: ${playbookLink}`);
+    lines.push("");
+  }
   lines.push("## 연관 테마");
   if (!Array.isArray(relatedThemeLinks) || relatedThemeLinks.length === 0) {
     lines.push("- (직접 연관 테마 없음)");
@@ -1122,7 +1138,15 @@ const markdownThemeHub = ({
   return `${lines.join("\n")}\n`;
 };
 
-const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLink, linkThemeNodes = false }) => {
+const markdownGraphHub = ({
+  generatedAt,
+  sourceMode,
+  items,
+  packLink,
+  playbookLink,
+  linkThemeNodes = false,
+  includeCoreDocs = false
+}) => {
   const themeMap = new Map();
   const keywordCounts = new Map();
   for (const item of items) {
@@ -1145,10 +1169,12 @@ const markdownGraphHub = ({ generatedAt, sourceMode, items, packLink, playbookLi
   lines.push("");
   lines.push("# NotebookLM 인테이크 그래프 허브");
   lines.push("");
-  lines.push("## Core Docs");
-  lines.push(`- pack: ${packLink}`);
-  lines.push(`- playbook: ${playbookLink}`);
-  lines.push("");
+  if (includeCoreDocs) {
+    lines.push("## Core Docs");
+    if (packLink) lines.push(`- pack: ${packLink}`);
+    if (playbookLink) lines.push(`- playbook: ${playbookLink}`);
+    lines.push("");
+  }
   lines.push("## 테마 클러스터");
   if (items.length === 0) {
     lines.push("- (none)");
@@ -1832,6 +1858,8 @@ const main = async () => {
   );
   const obsidianGraphThemeHubLinkHub = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_HUB_LINK_HUB", false);
   const obsidianGraphHubLinkThemes = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_LINK_THEMES", false);
+  const obsidianGraphHubEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_HUB_ENABLED", false);
+  const obsidianGraphCoreDocsEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_CORE_DOCS_ENABLED", false);
   const obsidianGraphThemeCrosslinkEnabled = boolFromEnv(
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_CROSSLINK_ENABLED",
     true
@@ -1955,6 +1983,8 @@ const main = async () => {
       graphKoreanTitleEnabled: obsidianGraphKoreanTitle,
       graphThemeHubLinkHubEnabled: obsidianGraphThemeHubLinkHub,
       graphHubLinkThemesEnabled: obsidianGraphHubLinkThemes,
+      graphHubEnabled: obsidianGraphHubEnabled,
+      graphCoreDocsEnabled: obsidianGraphCoreDocsEnabled,
       graphThemeCrosslinkEnabled: obsidianGraphThemeCrosslinkEnabled,
       graphLegacyCleanupEnabled: obsidianGraphLegacyCleanup,
       graphStaleCleanupEnabled: obsidianGraphStaleCleanup,
@@ -2195,9 +2225,9 @@ const main = async () => {
       });
       let totalBytes = Buffer.byteLength(verify, "utf8");
       if (obsidianGraphApply) {
-        const hubLink = noteNameFromPath(obsidianGraphHubPath);
-        const packLink = noteNameFromPath(obsidianGraphPackNote);
-        const playbookLink = noteNameFromPath(obsidianGraphPlaybookNote);
+        const hubLink = obsidianGraphHubEnabled ? noteNameFromPath(obsidianGraphHubPath) : "";
+        const packLink = obsidianGraphCoreDocsEnabled ? noteNameFromPath(obsidianGraphPackNote) : "";
+        const playbookLink = obsidianGraphCoreDocsEnabled ? noteNameFromPath(obsidianGraphPlaybookNote) : "";
         const manifestRoute = obsidianManifestRoute(obsidianGraphManifestPath);
         if (obsidianGraphResetEnabled) {
           report.obsidian.graphResetApplied = true;
@@ -2593,7 +2623,9 @@ const main = async () => {
             packLink,
             playbookLink,
             themeHubLink: item.themeHubName,
-            relatedLinks: scored
+            relatedLinks: scored,
+            includeGraphHubRef: obsidianGraphHubEnabled,
+            includeCoreDocs: obsidianGraphCoreDocsEnabled
           });
           const itemRoute = `/vault/${encodeVaultPath(item.notePath)}`;
           await obsidianRequest({
@@ -2622,7 +2654,9 @@ const main = async () => {
             packLink,
             playbookLink,
             includeHubLink: obsidianGraphThemeHubLinkHub,
-            relatedThemeLinks
+            relatedThemeLinks,
+            includeGraphHubRef: obsidianGraphHubEnabled,
+            includeCoreDocs: obsidianGraphCoreDocsEnabled
           });
           const themeRoute = `/vault/${encodeVaultPath(themeHub.themeHubPath)}`;
           await obsidianRequest({
@@ -2635,24 +2669,33 @@ const main = async () => {
           });
           totalBytes += Buffer.byteLength(themeMarkdown, "utf8");
         }
-        const hubMarkdown = markdownGraphHub({
-          generatedAt: report.generatedAt,
-          sourceMode,
-          items: prepared,
-          packLink,
-          playbookLink,
-          linkThemeNodes: obsidianGraphHubLinkThemes
-        });
-        const hubRoute = `/vault/${encodeVaultPath(obsidianGraphHubPath)}`;
-        await obsidianRequest({
-          baseUrl: obsidianBaseUrl,
-          apiKey: obsidianApiKey,
-          method: "PUT",
-          route: hubRoute,
-          body: hubMarkdown,
-          contentType: "text/markdown"
-        });
-        totalBytes += Buffer.byteLength(hubMarkdown, "utf8");
+        if (obsidianGraphHubEnabled) {
+          const hubMarkdown = markdownGraphHub({
+            generatedAt: report.generatedAt,
+            sourceMode,
+            items: prepared,
+            packLink,
+            playbookLink,
+            linkThemeNodes: obsidianGraphHubLinkThemes,
+            includeCoreDocs: obsidianGraphCoreDocsEnabled
+          });
+          const hubRoute = `/vault/${encodeVaultPath(obsidianGraphHubPath)}`;
+          await obsidianRequest({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            method: "PUT",
+            route: hubRoute,
+            body: hubMarkdown,
+            contentType: "text/markdown"
+          });
+          totalBytes += Buffer.byteLength(hubMarkdown, "utf8");
+        } else {
+          await obsidianDeleteIfExists({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            route: `/vault/${encodeVaultPath(obsidianGraphHubPath)}`
+          });
+        }
         const manifest = buildManifest({
           generatedAt: report.generatedAt,
           sourceMode,
@@ -2669,7 +2712,7 @@ const main = async () => {
         });
         totalBytes += Buffer.byteLength(JSON.stringify(manifest), "utf8");
         report.obsidian.graphUploadedItems = prepared.length;
-        report.obsidian.graphUploadedHub = true;
+        report.obsidian.graphUploadedHub = obsidianGraphHubEnabled;
         report.obsidian.graphManifestWritten = true;
       }
       if (queueItems.length === 0) {
