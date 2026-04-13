@@ -61,6 +61,7 @@ const clampMin = (value, floor) => {
   if (!Number.isFinite(f)) return v;
   return Math.max(v, f);
 };
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, Math.max(0, ms)));
 
 const short = (value, max = 240) => String(value ?? "").replace(/\s+/g, " ").trim().slice(0, max);
 const truncateAtNaturalBoundary = (value, max = 4200) => {
@@ -340,6 +341,12 @@ const deriveNoItemsReason = ({
   return "ask_question_returned_no_content";
 };
 
+const isAskQuestionTimeoutReason = (reason) =>
+  /(timeout\s+tools\/call|page\.goto:\s*Timeout|timed out)/i.test(String(reason || ""));
+
+const buildNotebooklmSessionId = (label = "s") =>
+  `kp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}-${label}`;
+
 const defaultRetryQuestions = [
   "Summarize one actionable US equity risk-on vs risk-off signal for this week with numeric trigger.",
   "Give one volatility guard rule (entry block + size reduction) with exact thresholds.",
@@ -540,6 +547,10 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_NOTEBOOKLM_RETRY_AUTH_SHOW_BROWSER",
     authAutoSetupShowBrowser || showBrowser
   );
+  const sessionReuseEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_REUSE_SESSION", true);
+  const callRetryOnTimeout = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_CALL_RETRY_ON_TIMEOUT", true);
+  const callRetryMax = Math.max(0, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_CALL_RETRY_MAX", 1));
+  const callRetryBackoffMs = Math.max(250, numberFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_CALL_RETRY_BACKOFF_MS", 1500));
   const healthState = readJsonFile(HEALTH_STATE_PATH, {
     generatedAt: null,
     status: "init",
@@ -599,6 +610,13 @@ const main = async () => {
       reason: "",
       collectedOnRetry: 0,
       authShowBrowser: retryAuthShowBrowser
+    },
+    askQuestion: {
+      sessionReuseEnabled,
+      callRetryOnTimeout,
+      callRetryMax,
+      callRetryBackoffMs,
+      timeoutRetryAttempts: 0
     },
     runtime: {
       maxRuntimeMs,
@@ -783,6 +801,7 @@ const main = async () => {
       let noSourceUiBlocked = false;
       let askedCount = 0;
       const collected = [];
+      let sessionId = sessionReuseEnabled ? buildNotebooklmSessionId("batch") : "";
       for (const question of batchQuestions) {
         const elapsedMs = Date.now() - startedAtMs;
         const remainingMs = maxRuntimeMs - elapsedMs;
@@ -796,23 +815,42 @@ const main = async () => {
           question,
           show_browser: showBrowser
         };
+        if (sessionReuseEnabled && sessionId) args.session_id = sessionId;
         if (selected?.id) args.notebook_id = selected.id;
         if (selected?.url && !selected?.id) args.notebook_url = selected.url;
         report.asked += 1;
         askedCount += 1;
         let callRes = null;
-        try {
-          callRes = await client.request("tools/call", { name: "ask_question", arguments: args });
-        } catch (requestError) {
-          failCount += 1;
-          const reason = String(requestError?.message || requestError);
-          if (/timeout\s+tools\/call/i.test(reason)) timeoutCount += 1;
-          continue;
+        let attempt = 0;
+        while (attempt <= callRetryMax) {
+          attempt += 1;
+          try {
+            callRes = await client.request("tools/call", { name: "ask_question", arguments: args });
+            break;
+          } catch (requestError) {
+            const reason = String(requestError?.message || requestError);
+            const timeoutHit = isAskQuestionTimeoutReason(reason);
+            if (timeoutHit) timeoutCount += 1;
+            if (timeoutHit && callRetryOnTimeout && attempt <= callRetryMax) {
+              report.askQuestion.timeoutRetryAttempts += 1;
+              if (sessionReuseEnabled) {
+                sessionId = buildNotebooklmSessionId(`retry${attempt}`);
+                args.session_id = sessionId;
+              }
+              await sleep(callRetryBackoffMs * attempt);
+              continue;
+            }
+            failCount += 1;
+            callRes = null;
+            break;
+          }
         }
+        if (!callRes) continue;
         const parsed = parseToolTextResult(callRes);
         const ok = parsed.parsed?.success !== false;
         if (!ok) {
           failCount += 1;
+          if (isAskQuestionTimeoutReason(parsed.text)) timeoutCount += 1;
           if (isNoSourceUiError(parsed.text)) {
             noSourceUiBlocked = true;
             break;
@@ -853,13 +891,13 @@ const main = async () => {
       timeoutCount: primaryBatch.timeoutCount
     });
     const predictedNoItemsStreak = Number(healthState?.noItemsStreak || 0) + 1;
+    const timeoutAllPrimary = /ask_question_timeout_for_all_items/i.test(primaryNoItemsReason);
 
     if (
       retryEnabled &&
       items.length === 0 &&
       !primaryBatch.noSourceUiBlocked &&
-      predictedNoItemsStreak >= retryTriggerStreak &&
-      isNoItemsReason("no_items", primaryNoItemsReason) &&
+      (timeoutAllPrimary || (predictedNoItemsStreak >= retryTriggerStreak && isNoItemsReason("no_items", primaryNoItemsReason))) &&
       !report.runtime.budgetStop
     ) {
       const simpleQuestions = retrySimpleQuestionsRaw
@@ -869,7 +907,7 @@ const main = async () => {
       if (simpleQuestions.length > 0) {
         report.retry.attempted = true;
         report.retry.attempts = 2;
-        report.retry.triggeredBy = "no_items_streak";
+        report.retry.triggeredBy = timeoutAllPrimary ? "timeout_all_primary" : "no_items_streak";
         report.retry.reason = primaryNoItemsReason;
         const retryBatch = await runQuestionBatch(simpleQuestions);
         items.push(...retryBatch.items);
