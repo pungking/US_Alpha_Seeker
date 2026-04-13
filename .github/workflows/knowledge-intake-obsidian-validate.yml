@@ -7,8 +7,8 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: knowledge-obsidian-validate-${{ github.ref }}
-  cancel-in-progress: true
+  group: knowledge-notebooklm-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
   obsidian-validate:

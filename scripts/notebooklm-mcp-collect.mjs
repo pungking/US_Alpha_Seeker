@@ -527,6 +527,14 @@ const main = async () => {
     )
   );
   const showBrowser = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SHOW_BROWSER", false);
+  const browserTimeoutMs = Math.max(
+    30000,
+    numberFromEnv(
+      "KNOWLEDGE_PIPELINE_NOTEBOOKLM_BROWSER_TIMEOUT_MS",
+      numberFromEnv("BROWSER_TIMEOUT", 90000)
+    )
+  );
+  const browserHeadless = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BROWSER_HEADLESS", !showBrowser);
   const bootstrapUrls = parseJsonArrayEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_BOOTSTRAP_URLS", []);
   const invalidStreakAlertThreshold = Math.max(
     1,
@@ -616,6 +624,8 @@ const main = async () => {
       callRetryOnTimeout,
       callRetryMax,
       callRetryBackoffMs,
+      browserTimeoutMs,
+      browserHeadless,
       timeoutRetryAttempts: 0
     },
     runtime: {
@@ -657,8 +667,17 @@ const main = async () => {
 
   const commandEnv = { ...process.env };
   if (env("GEMINI_API_KEY")) commandEnv.GOOGLE_API_KEY = env("GEMINI_API_KEY");
+  commandEnv.BROWSER_TIMEOUT = String(browserTimeoutMs);
 
   const client = new JsonLineRpcClient({ command, args, commandEnv, timeoutMs: rpcTimeoutMs });
+  const buildBrowserOptions = ({ forceShow } = {}) => {
+    const show = typeof forceShow === "boolean" ? forceShow : showBrowser;
+    return {
+      show,
+      headless: show ? false : browserHeadless,
+      timeout_ms: browserTimeoutMs
+    };
+  };
   let hardFailAfterFinally = false;
   try {
     await client.start();
@@ -675,7 +694,10 @@ const main = async () => {
       try {
         await client.request("tools/call", {
           name: "setup_auth",
-          arguments: { show_browser: authAutoSetupShowBrowser || showBrowser }
+          arguments: {
+            show_browser: authAutoSetupShowBrowser || showBrowser,
+            browser_options: buildBrowserOptions({ forceShow: authAutoSetupShowBrowser || showBrowser })
+          }
         });
         report.authSetup = {
           status: "attempted",
@@ -751,7 +773,10 @@ const main = async () => {
       try {
         await client.request("tools/call", {
           name: "setup_auth",
-          arguments: { show_browser: retryAuthShowBrowser }
+          arguments: {
+            show_browser: retryAuthShowBrowser,
+            browser_options: buildBrowserOptions({ forceShow: retryAuthShowBrowser })
+          }
         });
         report.authSetupRetry = { status: "attempted", showBrowser: retryAuthShowBrowser };
       } catch (authRetryErr) {
@@ -813,7 +838,8 @@ const main = async () => {
         }
         const args = {
           question,
-          show_browser: showBrowser
+          show_browser: showBrowser,
+          browser_options: buildBrowserOptions()
         };
         if (sessionReuseEnabled && sessionId) args.session_id = sessionId;
         if (selected?.id) args.notebook_id = selected.id;

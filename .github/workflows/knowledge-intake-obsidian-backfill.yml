@@ -17,7 +17,7 @@ on:
         default: "off"
 
 concurrency:
-  group: knowledge-obsidian-backfill-${{ github.ref }}
+  group: knowledge-notebooklm-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
