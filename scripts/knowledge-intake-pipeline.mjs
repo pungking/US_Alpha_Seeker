@@ -1222,11 +1222,17 @@ const obsidianRawRequest = async ({ baseUrl, apiKey, method = "GET", route = "/"
   const url = `${baseUrl.replace(/\/+$/, "")}${route}`;
   const headers = { Authorization: `Bearer ${apiKey}` };
   if (contentType) headers["Content-Type"] = contentType;
-  const response = await fetch(url, {
-    method,
-    headers,
-    body: body == null ? undefined : body
-  });
+  let response;
+  try {
+    response = await fetch(url, {
+      method,
+      headers,
+      body: body == null ? undefined : body
+    });
+  } catch (error) {
+    const message = error?.cause?.message || error?.message || String(error);
+    throw new Error(`Obsidian ${method} ${route} fetch failed (${url}): ${message}`);
+  }
   const text = await response.text();
   return { status: response.status, ok: response.ok, text };
 };
@@ -1585,8 +1591,30 @@ const listObsidianDirEntries = async ({ baseUrl, apiKey, dirPath }) => {
   return { missing: false, files, folders };
 };
 
+const normalizeListedPath = ({ rootDir, currentDir, entry, forceDirectory = false }) => {
+  const root = String(rootDir || "").replace(/^\/+|\/+$/g, "");
+  const current = String(currentDir || "").replace(/^\/+|\/+$/g, "");
+  let raw = String(entry || "").trim();
+  if (!root || !current || !raw) return null;
+  const treatedAsDirectory = forceDirectory || raw.endsWith("/");
+  raw = raw.replace(/^\/+|\/+$/g, "");
+  if (!raw) return null;
+  let pathValue = "";
+  if (raw === root || raw.startsWith(`${root}/`)) {
+    pathValue = raw;
+  } else if (raw === current || raw.startsWith(`${current}/`)) {
+    pathValue = raw;
+  } else {
+    pathValue = `${current}/${raw}`;
+  }
+  pathValue = pathValue.replace(/\/{2,}/g, "/").replace(/^\/+|\/+$/g, "");
+  if (!pathValue) return null;
+  if (pathValue !== root && !pathValue.startsWith(`${root}/`)) return null;
+  return { path: pathValue, isDirectory: treatedAsDirectory };
+};
+
 const collectObsidianTreeFiles = async ({ baseUrl, apiKey, rootDir, maxScan = 20000 }) => {
-  const root = String(rootDir || "").replace(/\/+$/, "");
+  const root = String(rootDir || "").replace(/^\/+|\/+$/g, "");
   if (!root) return { missing: true, files: [], scannedDirs: 0, capped: false };
   const queue = [root];
   const seenDirs = new Set();
@@ -1605,15 +1633,18 @@ const collectObsidianTreeFiles = async ({ baseUrl, apiKey, rootDir, maxScan = 20
     const listed = await listObsidianDirEntries({ baseUrl, apiKey, dirPath: current });
     if (listed.missing) continue;
     for (const fileNameRaw of listed.files) {
-      const fileName = String(fileNameRaw || "").replace(/^\/+/, "");
-      const fullPath = fileName.includes("/") ? fileName : `${current}/${fileName}`;
-      files.push(fullPath.replace(/\/{2,}/g, "/"));
+      const normalized = normalizeListedPath({ rootDir: root, currentDir: current, entry: fileNameRaw });
+      if (!normalized) continue;
+      if (normalized.isDirectory) {
+        queue.push(normalized.path);
+        continue;
+      }
+      files.push(normalized.path);
     }
     for (const folderRaw of listed.folders) {
-      const folderName = String(folderRaw || "").replace(/^\/+/, "").replace(/\/+$/, "");
-      if (!folderName) continue;
-      const nextPath = folderName.includes("/") ? folderName : `${current}/${folderName}`;
-      queue.push(nextPath.replace(/\/{2,}/g, "/"));
+      const normalized = normalizeListedPath({ rootDir: root, currentDir: current, entry: folderRaw, forceDirectory: true });
+      if (!normalized) continue;
+      queue.push(normalized.path);
     }
   }
   return { missing: false, files: [...new Set(files)], scannedDirs, capped };
