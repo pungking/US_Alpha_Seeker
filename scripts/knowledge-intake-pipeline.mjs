@@ -1562,6 +1562,83 @@ const cleanupObsidianArchiveRetention = async ({
   return stats;
 };
 
+const listObsidianDirEntries = async ({ baseUrl, apiKey, dirPath }) => {
+  const normalizedDir = String(dirPath || "").replace(/\/+$/, "");
+  if (!normalizedDir) return { missing: true, files: [], folders: [] };
+  const route = `/vault/${encodeVaultPath(`${normalizedDir}/`)}`;
+  const listing = await obsidianRawRequest({
+    baseUrl,
+    apiKey,
+    method: "GET",
+    route,
+    contentType: "application/json"
+  });
+  if (listing.status === 404) return { missing: true, files: [], folders: [] };
+  if (!listing.ok) {
+    throw new Error(`Obsidian ${route} failed (${listing.status}): ${short(listing.text, 400)}`);
+  }
+  const parsed = parseJsonOrNull(listing.text);
+  const files = Array.isArray(parsed?.files) ? parsed.files.map((x) => String(x || "").trim()).filter(Boolean) : [];
+  const folders = Array.isArray(parsed?.folders)
+    ? parsed.folders.map((x) => String(x || "").trim()).filter(Boolean)
+    : [];
+  return { missing: false, files, folders };
+};
+
+const collectObsidianTreeFiles = async ({ baseUrl, apiKey, rootDir, maxScan = 20000 }) => {
+  const root = String(rootDir || "").replace(/\/+$/, "");
+  if (!root) return { missing: true, files: [], scannedDirs: 0, capped: false };
+  const queue = [root];
+  const seenDirs = new Set();
+  const files = [];
+  let scannedDirs = 0;
+  let capped = false;
+  while (queue.length > 0) {
+    const current = queue.shift();
+    if (!current || seenDirs.has(current)) continue;
+    seenDirs.add(current);
+    scannedDirs += 1;
+    if (scannedDirs > maxScan) {
+      capped = true;
+      break;
+    }
+    const listed = await listObsidianDirEntries({ baseUrl, apiKey, dirPath: current });
+    if (listed.missing) continue;
+    for (const fileNameRaw of listed.files) {
+      const fileName = String(fileNameRaw || "").replace(/^\/+/, "");
+      const fullPath = fileName.includes("/") ? fileName : `${current}/${fileName}`;
+      files.push(fullPath.replace(/\/{2,}/g, "/"));
+    }
+    for (const folderRaw of listed.folders) {
+      const folderName = String(folderRaw || "").replace(/^\/+/, "").replace(/\/+$/, "");
+      if (!folderName) continue;
+      const nextPath = folderName.includes("/") ? folderName : `${current}/${folderName}`;
+      queue.push(nextPath.replace(/\/{2,}/g, "/"));
+    }
+  }
+  return { missing: false, files: [...new Set(files)], scannedDirs, capped };
+};
+
+const purgeObsidianTreeFiles = async ({ baseUrl, apiKey, rootDir, maxScan = 20000 }) => {
+  const listed = await collectObsidianTreeFiles({ baseUrl, apiKey, rootDir, maxScan });
+  const stats = {
+    rootDir: String(rootDir || ""),
+    missing: listed.missing,
+    scannedDirs: listed.scannedDirs || 0,
+    capped: listed.capped || false,
+    foundFiles: Array.isArray(listed.files) ? listed.files.length : 0,
+    deletedFiles: 0
+  };
+  if (listed.missing || !Array.isArray(listed.files) || listed.files.length === 0) return stats;
+  const sortedFiles = [...listed.files].sort((a, b) => b.length - a.length || a.localeCompare(b));
+  for (const filePath of sortedFiles) {
+    const route = `/vault/${encodeVaultPath(filePath)}`;
+    const removed = await obsidianDeleteIfExists({ baseUrl, apiKey, route });
+    if (removed.deleted) stats.deletedFiles += 1;
+  }
+  return stats;
+};
+
 const encodeVaultPath = (filePath) => filePath.split("/").map((part) => encodeURIComponent(part)).join("/");
 
 const parseNotebooklmQueue = (jsonPath, fallbackCategory, fallbackPriority, limit, options = {}) => {
@@ -1778,6 +1855,9 @@ const main = async () => {
     "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_REBUILD_FILENAMES",
     false
   );
+  const obsidianGraphResetMode = env("KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RESET_MODE", "off").toLowerCase();
+  const obsidianGraphResetEnabled = ["true", "1", "yes", "on", "intake", "full"].includes(obsidianGraphResetMode);
+  const obsidianGraphResetPurgeArchive = ["full", "all", "archive"].includes(obsidianGraphResetMode);
   const notebooklmDropInvalidItems = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_DROP_INVALID_ITEMS", true);
 
   const report = {
@@ -1862,6 +1942,14 @@ const main = async () => {
       graphFriendlyFilenameEnabled: obsidianGraphFriendlyFilenameEnabled,
       graphRenameLegacyNoisyFilenamesEnabled: obsidianGraphRenameLegacyNoisyFilenames,
       graphRebuildFilenamesEnabled: obsidianGraphRebuildFilenames,
+      graphResetMode: obsidianGraphResetMode,
+      graphResetEnabled: obsidianGraphResetEnabled,
+      graphResetPurgeArchiveEnabled: obsidianGraphResetPurgeArchive,
+      graphResetApplied: false,
+      graphResetDeletedIntakeFiles: 0,
+      graphResetDeletedArchiveFiles: 0,
+      graphResetDeletedHub: false,
+      graphResetDeletedManifest: false,
       graphLegacyDeleted: 0,
       graphFriendlyRenamed: 0,
       graphStaleThemeScanned: 0,
@@ -2080,6 +2168,35 @@ const main = async () => {
         const packLink = noteNameFromPath(obsidianGraphPackNote);
         const playbookLink = noteNameFromPath(obsidianGraphPlaybookNote);
         const manifestRoute = obsidianManifestRoute(obsidianGraphManifestPath);
+        if (obsidianGraphResetEnabled) {
+          report.obsidian.graphResetApplied = true;
+          const resetIntake = await purgeObsidianTreeFiles({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            rootDir: obsidianGraphItemDir
+          });
+          report.obsidian.graphResetDeletedIntakeFiles = resetIntake.deletedFiles;
+          if (obsidianGraphResetPurgeArchive) {
+            const resetArchive = await purgeObsidianTreeFiles({
+              baseUrl: obsidianBaseUrl,
+              apiKey: obsidianApiKey,
+              rootDir: obsidianGraphArchiveDir
+            });
+            report.obsidian.graphResetDeletedArchiveFiles = resetArchive.deletedFiles;
+          }
+          const removedHub = await obsidianDeleteIfExists({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            route: `/vault/${encodeVaultPath(obsidianGraphHubPath)}`
+          });
+          const removedManifest = await obsidianDeleteIfExists({
+            baseUrl: obsidianBaseUrl,
+            apiKey: obsidianApiKey,
+            route: manifestRoute
+          });
+          report.obsidian.graphResetDeletedHub = Boolean(removedHub.deleted);
+          report.obsidian.graphResetDeletedManifest = Boolean(removedManifest.deleted);
+        }
         const previousManifest = await obsidianReadIfExists({
           baseUrl: obsidianBaseUrl,
           apiKey: obsidianApiKey,

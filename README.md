@@ -308,6 +308,7 @@ Optional knowledge pipeline automation:
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_FRIENDLY_FILENAME_ENABLED` (default `true`, 의미 중심 파일명 생성)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RENAME_LEGACY_NOISY_FILENAMES` (default `true`, noisy old filename 자동 교체: `seed-*`, `*-nlm-*`, `*-1`/`*-2` 등)
   - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_REBUILD_FILENAMES` (default `false`, `true`면 누적 노트 파일명을 전량 최신 규칙으로 재할당)
+  - `KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_RESET_MODE` (default `off`, `intake`=Intake 트리 전체 초기화 후 재작성, `full`=Intake+Archive 전체 초기화 후 재작성)
   - `KNOWLEDGE_PIPELINE_ALERT_NOTIFY_ON` (default `fail`, `always|fail|never`)
   - Telegram alert uses `TELEGRAM_TOKEN` + `TELEGRAM_ALERT_CHAT_ID` (fallback: `TELEGRAM_SIMULATION_CHAT_ID`)
   - Graph note role guide:
@@ -330,6 +331,7 @@ One-shot legacy title/format backfill:
 - recommended input:
   - `accumulate_max=1200` (vault 규모에 맞게 조정)
   - `timeout_min=45`
+  - `reset_mode=off` (초기화가 필요하면 `intake` 또는 `full`)
 - verify in `state/knowledge-intake-pipeline-report.json`:
   - `obsidian.graphFriendlyRenamed`
   - `obsidian.graphAccumulatedTotal`
