@@ -763,6 +763,72 @@ Related:
 ## 5) Decision
 - Adopt / Hold / Reject:
 - Evidence link:
+`,
+  "Templates/06_Technical_Analysis_Insight.md": `# Technical Analysis Insight
+
+Related:
+- [[00_Ops_Hub]]
+- [[01_Daily_Log]]
+- [[03_Tuning_Note]]
+- [[05_NotebookLM_Intake]]
+
+## 1) Signal / Pattern
+- Indicator or chart pattern name:
+- Timeframe (daily/weekly/intraday):
+- Numeric threshold / trigger condition:
+
+## 2) Historical Win-Rate
+- Backtest period:
+- Sample size:
+- Win rate / Expectancy:
+- Max drawdown in test:
+
+## 3) Current Application
+- Current parameter in alpha-exec-engine:
+- Proposed change:
+- Risk impact assessment:
+
+## 4) Validation Plan
+- Shadow lane test duration:
+- Success metric:
+- Rollback condition:
+
+## 5) Decision
+- Adopt / Hold / Reject:
+- Evidence link:
+`,
+  "Templates/07_Portfolio_Optimization_Insight.md": `# Portfolio Optimization Insight
+
+Related:
+- [[00_Ops_Hub]]
+- [[01_Daily_Log]]
+- [[03_Tuning_Note]]
+- [[05_NotebookLM_Intake]]
+
+## 1) Optimization Target
+- Metric to improve (Sharpe/Sortino/Win-Rate/MDD):
+- Current value:
+- Target value:
+
+## 2) Proposed Change
+- Position sizing rule:
+- Sector allocation cap:
+- Correlation limit:
+- Kelly fraction adjustment:
+
+## 3) Risk Assessment
+- Worst-case scenario:
+- Impact on existing portfolio:
+- Diversification effect:
+
+## 4) Validation Plan
+- Paper trading test duration:
+- Benchmark comparison:
+- Rollback condition:
+
+## 5) Decision
+- Adopt / Hold / Reject:
+- Evidence link:
 `
 };
 

@@ -57,7 +57,7 @@ const boolFromEnv = (name, fallback = false) => {
   if (["0", "false", "no", "off"].includes(raw)) return false;
   return fallback;
 };
-const NOTEBOOKLM_SANITIZED_MAX_CHARS = Number.parseInt(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS", "7000"), 10) || 7000;
+const NOTEBOOKLM_SANITIZED_MAX_CHARS = Number.parseInt(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_SANITIZED_MAX_CHARS", "12000"), 10) || 12000;
 
 const short = (value, max = 1800) => String(value ?? "").trim().slice(0, max);
 const safeId = (value, fallback) => {
@@ -205,6 +205,9 @@ const inferSourceHintKo = ({ title, sourceUrl, summary, theme }) => {
   if (/(earnings|guidance|profit|revenue)/.test(text)) return "실적/펀더멘털";
   if (/(sector|rotation|momentum|trend)/.test(text)) return "섹터/트렌드";
   if (/(policy|regulation|sec|edgar|compliance)/.test(text)) return "정책/컴플라이언스";
+  if (/(rsi|macd|bollinger|breakout|chart[- ]?pattern|technical[- ]?analysis|candlestick|fibonacci|ichimoku|wyckoff|volume[- ]?profile)/.test(text)) return "기술적분석/차트";
+  if (/(portfolio|position[- ]?sizing|kelly|allocation|sharpe|sortino|diversif)/.test(text)) return "포트폴리오/사이징";
+  if (/(self[- ]?healing|circuit[- ]?breaker|flash[- ]?crash|auto[- ]?hedging|emergency)/.test(text)) return "자가치유/긴급대응";
   if (String(theme || "").trim()) return themeLabelKo(theme);
   return "";
 };
@@ -218,6 +221,9 @@ const inferActionHintKo = ({ title, summary, sourceUrl }) => {
   if (/(policy|compliance|sec|edgar|regulation)/.test(text)) return "정책준수";
   if (/(earnings|guidance|fundamental|eps|revenue)/.test(text)) return "실적체크";
   if (/(vix|volatility|tail risk|skew)/.test(text)) return "변동성대응";
+  if (/(rsi|macd|bollinger|breakout|chart|technical|candlestick|fibonacci|ichimoku|squeeze)/.test(text)) return "기술적신호";
+  if (/(portfolio|allocation|kelly|correlation|sharpe|rebalancing)/.test(text)) return "포트폴리오최적화";
+  if (/(self[- ]?healing|circuit[- ]?breaker|flash[- ]?crash|emergency|auto[- ]?hedge)/.test(text)) return "자가치유";
   return "";
 };
 const isGenericKoreanHeadline = (value) => {
@@ -345,14 +351,14 @@ const isInvalidNotebookSummaryPlaceholder = (value) => {
 };
 const stripNotebookCitationNoise = (value) => {
   let s = String(value || "");
-  // Bracket/paren citations like [1], [1,2], (1, 2)
-  s = s
-    .replace(/\s*\[(?:\d{1,2}(?:\s*,\s*\d{1,2})*)\]/g, "")
-    .replace(/\s*\((?:\d{1,2}(?:\s*,\s*\d{1,2})*)\)/g, "");
-  // Spaced citation tails that leak from NotebookLM body extraction, e.g. "... 이르렀습니다 2 ."
-  s = s
-    .replace(/\s(?:[1-9]|[12]\d)(?:\s(?:[1-9]|[12]\d)){1,}(?=\s*[.,;:!?](?!\d)|\s*$)/g, "")
-    .replace(/\s(?:[1-9]|[12]\d)(?=\s*[.,;:!?](?!\d)|\s*$)/g, "");
+  // Bracket citations only: [1], [1,2] — safe because bracket-number combos are almost always citations.
+  s = s.replace(/\s*\[(?:\d{1,2}(?:\s*,\s*\d{1,2})*)\]/g, "");
+  // Parenthesised citations only when clearly not numeric context (preceded by word char, not digit/%).
+  s = s.replace(/(?<=[가-힣a-zA-Z])\s*\((?:\d{1,2}(?:\s*,\s*\d{1,2})*)\)/g, "");
+  // NOTE: Removed aggressive spaced-number tail stripping that was deleting real numbers
+  // (e.g. "GDPNow 1.3%" → "GDPNow%", "Skew 99th" → "Skew th").
+  // Only strip trailing lone numbers at absolute end of line after Korean sentence-ender.
+  s = s.replace(/(?<=다)\s+\d{1,2}\s*\.\s*$/gm, ".");
   // Cleanup punctuation spacing after citation strip.
   s = s.replace(/\s+([.,;:!?])/g, "$1");
   return s;
@@ -588,7 +594,9 @@ const inferTheme = (item) => {
     ["Volatility & Risk", 0],
     ["Earnings & Fundamentals", 0],
     ["Sector & Trend", 0],
-    ["Policy & Compliance", 0]
+    ["Policy & Compliance", 0],
+    ["Technical & Chart", 0],
+    ["Portfolio & Sizing", 0]
   ]);
   const add = (theme, score) => scores.set(theme, (scores.get(theme) || 0) + score);
   const applyTextScore = (text, score) => {
@@ -596,17 +604,25 @@ const inferTheme = (item) => {
     if (/(federalreserve|fomc|fedwatch|cpi|employment|payroll|gdp|pce|rates?|treasury|inflation)/.test(text)) {
       add("Macro & Rates", score);
     }
-    if (/(vix|volatility|skew|cboe|drawdown|risk[- ]?off|tail[- ]?risk|hedge|var\b)/.test(text)) {
+    if (/(vix|volatility|skew|cboe|drawdown|risk[- ]?off|tail[- ]?risk|hedge|var\b|circuit[- ]?breaker|flash[- ]?crash)/.test(text)) {
       add("Volatility & Risk", score);
     }
     if (/(earnings|guidance|revenue|eps\b|profit|margin|season)/.test(text)) {
       add("Earnings & Fundamentals", score);
     }
-    if (/(sector|rotation|flow|momentum|trend|relative strength|rs\b)/.test(text)) {
+    if (/(sector|rotation|flow|momentum|trend|relative strength|rs\b|rebalancing|etf[- ]?flow)/.test(text)) {
       add("Sector & Trend", score);
     }
     if (/(policy|regulation|compliance|sec\b|edgar|filing)/.test(text)) {
       add("Policy & Compliance", score);
+    }
+    // Technical Analysis & Chart Patterns
+    if (/(rsi|macd|bollinger|moving average|breakout|head[- ]?and[- ]?shoulders|cup[- ]?and[- ]?handle|double[- ]?bottom|chart[- ]?pattern|candlestick|fibonacci|volume[- ]?profile|ichimoku|stochastic|technical[- ]?(analysis|indicator|signal)|ohlcv|wyckoff|regime[- ]?detection|breadth[- ]?divergence|squeeze|adaptive[- ]?ma)/.test(text)) {
+      add("Technical & Chart", score);
+    }
+    // Portfolio Construction & Position Sizing
+    if (/(portfolio|position[- ]?sizing|kelly[- ]?criterion|allocation|correlation|sharpe|sortino|risk[- ]?adjusted|diversif|max[- ]?drawdown|win[- ]?rate|false[- ]?positive|precision|expectancy|r[- ]?multiple)/.test(text)) {
+      add("Portfolio & Sizing", score);
     }
   };
   applyTextScore(title, 5);
@@ -617,8 +633,12 @@ const inferTheme = (item) => {
   if (/(earning|실적|펀더멘털)/.test(category)) add("Earnings & Fundamentals", 3);
   if (/(trend|섹터|트렌드)/.test(category)) add("Sector & Trend", 3);
   if (/(policy|정책|컴플라이언스|규제)/.test(category)) add("Policy & Compliance", 3);
+  if (/(technical|기술적|차트|패턴|지표)/.test(category)) add("Technical & Chart", 3);
+  if (/(portfolio|포트폴리오|포지션|사이징)/.test(category)) add("Portfolio & Sizing", 3);
 
   const priority = [
+    "Technical & Chart",
+    "Portfolio & Sizing",
     "Policy & Compliance",
     "Earnings & Fundamentals",
     "Sector & Trend",
@@ -644,6 +664,8 @@ const themeLabelKo = (theme) => {
     "Earnings & Fundamentals": "실적-펀더멘털",
     "Sector & Trend": "섹터-트렌드",
     "Policy & Compliance": "정책-컴플라이언스",
+    "Technical & Chart": "기술적분석-차트",
+    "Portfolio & Sizing": "포트폴리오-사이징",
     "General Market Intel": "시장-인텔"
   };
   return map[key] || "시장-인텔";
@@ -656,12 +678,16 @@ const themeCanonicalFromAny = (value) => {
     "Earnings & Fundamentals": "Earnings & Fundamentals",
     "Sector & Trend": "Sector & Trend",
     "Policy & Compliance": "Policy & Compliance",
+    "Technical & Chart": "Technical & Chart",
+    "Portfolio & Sizing": "Portfolio & Sizing",
     "General Market Intel": "General Market Intel",
     "거시-금리": "Macro & Rates",
     "변동성-리스크": "Volatility & Risk",
     "실적-펀더멘털": "Earnings & Fundamentals",
     "섹터-트렌드": "Sector & Trend",
     "정책-컴플라이언스": "Policy & Compliance",
+    "기술적분석-차트": "Technical & Chart",
+    "포트폴리오-사이징": "Portfolio & Sizing",
     "시장-인텔": "General Market Intel"
   };
   if (direct[raw]) return direct[raw];
@@ -671,6 +697,8 @@ const themeCanonicalFromAny = (value) => {
   if (lower.includes("earning") || lower.includes("실적")) return "Earnings & Fundamentals";
   if (lower.includes("sector") || lower.includes("trend") || lower.includes("섹터")) return "Sector & Trend";
   if (lower.includes("policy") || lower.includes("compliance") || lower.includes("정책")) return "Policy & Compliance";
+  if (lower.includes("technical") || lower.includes("chart") || lower.includes("차트") || lower.includes("기술적")) return "Technical & Chart";
+  if (lower.includes("portfolio") || lower.includes("sizing") || lower.includes("포트폴리오")) return "Portfolio & Sizing";
   return "General Market Intel";
 };
 const BASE_THEME_CANONICALS = [
@@ -679,6 +707,8 @@ const BASE_THEME_CANONICALS = [
   "Sector & Trend",
   "Earnings & Fundamentals",
   "Policy & Compliance",
+  "Technical & Chart",
+  "Portfolio & Sizing",
   "General Market Intel"
 ];
 const themeDisplayLabel = (themeCanonical, preferKorean) =>
@@ -1882,7 +1912,7 @@ const main = async () => {
   const obsidianGraphThemeTargets = parseThemeTargets(
     env(
       "KNOWLEDGE_PIPELINE_OBSIDIAN_GRAPH_THEME_TARGETS",
-      "Macro & Rates,Volatility & Risk,Sector & Trend,Earnings & Fundamentals,Policy & Compliance"
+      "Macro & Rates,Volatility & Risk,Sector & Trend,Earnings & Fundamentals,Policy & Compliance,Technical & Chart,Portfolio & Sizing"
     )
   );
   const obsidianGraphArchiveDir = env(
@@ -2728,8 +2758,59 @@ const main = async () => {
       report.obsidian.uploaded = true;
       report.obsidian.bytes = totalBytes;
     } catch (error) {
+      const errMsg = error?.message || String(error);
+      const isConnectionError = /EPERM|ECONNREFUSED|ECONNRESET|ETIMEDOUT|ENETUNREACH/.test(errMsg);
       report.obsidian.status = "fail";
-      report.obsidian.reason = error?.message || String(error);
+      report.obsidian.reason = errMsg;
+
+      // ── Filesystem fallback: save to local vault-sync directory ──
+      // When Obsidian REST API is unreachable, write files locally so they can
+      // be synced to the vault via Git/iCloud/Google Drive.
+      if (isConnectionError && queueItems.length > 0) {
+        const fallbackDir = path.join(CWD, "state", "obsidian-vault-sync");
+        try {
+          fs.mkdirSync(path.join(fallbackDir, "99_Automation", "NotebookLM", "Intake"), { recursive: true });
+          // Write the queue markdown
+          const queueContent = fs.readFileSync(OBSIDIAN_QUEUE_MD_PATH, "utf8");
+          fs.writeFileSync(
+            path.join(fallbackDir, "99_Automation", "Knowledge Approved Queue.md"),
+            queueContent,
+            "utf8"
+          );
+          // Write individual note files for each queue item
+          const hubLink = noteNameFromPath(obsidianGraphHubPath);
+          const packLink = obsidianGraphCoreDocsEnabled ? noteNameFromPath(obsidianGraphPackNote) : "";
+          const playbookLink = obsidianGraphCoreDocsEnabled ? noteNameFromPath(obsidianGraphPlaybookNote) : "";
+          for (const item of queueItems) {
+            const themeCanonical = themeCanonicalFromAny(item.themeCanonical || item.theme);
+            const themeLabel = themeDisplayLabel(themeCanonical, obsidianGraphKoreanTitle);
+            const themeHub = ensureThemeHub(themeLabel);
+            const markdown = markdownGraphItem({
+              generatedAt: report.generatedAt,
+              item: { ...item, themeCanonical, theme: themeLabel, themeHubName: themeHub.themeHubName },
+              hubLink,
+              packLink,
+              playbookLink,
+              themeHubLink: themeHub.themeHubName,
+              relatedLinks: [],
+              includeGraphHubRef: obsidianGraphHubEnabled,
+              includeCoreDocs: obsidianGraphCoreDocsEnabled
+            });
+            const notePath = item.notePath || `99_Automation/NotebookLM/Intake/${slugifyFileName(item.title || item.pageId, "insight")}.md`;
+            fs.mkdirSync(path.dirname(path.join(fallbackDir, notePath)), { recursive: true });
+            fs.writeFileSync(path.join(fallbackDir, notePath), markdown, "utf8");
+          }
+          report.obsidian.fallback = "filesystem_sync";
+          report.obsidian.fallbackDir = path.relative(CWD, fallbackDir);
+          report.obsidian.fallbackItems = queueItems.length;
+          console.log(
+            `[KNOWLEDGE_PIPELINE][OBSIDIAN_FALLBACK] REST API unreachable → wrote ${queueItems.length} items to ${path.relative(CWD, fallbackDir)}`
+          );
+        } catch (fallbackError) {
+          console.error(`[KNOWLEDGE_PIPELINE][OBSIDIAN_FALLBACK] filesystem write also failed: ${fallbackError?.message || fallbackError}`);
+          report.obsidian.fallback = "filesystem_fail";
+        }
+      }
     }
   }
 

@@ -477,13 +477,32 @@ class JsonLineRpcClient {
 }
 
 const defaultQuestions = [
+  // ── Macro & Rates ──
   "Summarize the top macro risks for US equities this week with citations.",
+  // ── Sector & Trend ──
   "List actionable trend/sector signals that can improve automated long-only entry timing.",
+  "Which sector rotation signals and relative strength metrics should trigger automated portfolio rebalancing this week?",
+  // ── Earnings & Fundamentals ──
   "Summarize the next 2-6 week earnings/fundamental checkpoints that should gate long entries.",
+  // ── Policy & Compliance ──
   "List policy/compliance signals that should trigger tighter risk control in automation.",
+  // ── Volatility & Risk ──
   "What volatility and drawdown guard rules should we tighten for live auto-trading?",
+  // ── Technical Analysis & Chart Patterns ──
+  "What technical analysis chart patterns (breakout, head-and-shoulders, cup-and-handle, double bottom) show the highest win-rate for US equities in the current market regime?",
+  "List the most reliable technical indicators (RSI divergence, MACD crossover, Bollinger Band squeeze, Volume Profile) for automated entry and exit timing with numeric thresholds.",
+  // ── Portfolio Construction ──
+  "What portfolio construction rules (position sizing, sector allocation caps, correlation limits, Kelly criterion) maximize risk-adjusted returns for an automated long-only system?",
+  // ── Trend Analysis Techniques ──
+  "What modern trend analysis techniques (adaptive moving averages, regime detection, breadth divergence, Wyckoff phases) can improve automated trend-following accuracy?",
+  // ── Win-Rate & Precision ──
   "Propose 3 measurable feature ideas for higher win-rate and lower false-positive entries.",
-  "What monitoring/incident triggers should be added for autonomous risk response?"
+  "How can OHLCV validation rules and volume confirmation reduce false-positive long entry signals with specific numeric cutoffs?",
+  // ── Risk Response & Self-Healing ──
+  "What monitoring/incident triggers should be added for autonomous risk response?",
+  "What self-healing and emergency response rules (circuit breakers, flash crash detection, position auto-hedging) should an autonomous trading system implement?",
+  // ── Financial Trend & Market Microstructure ──
+  "What current financial market trends (options flow, dark pool activity, institutional positioning, ETF fund flows) provide the most predictive signals for short-term US equity moves?"
 ];
 
 const main = async () => {
