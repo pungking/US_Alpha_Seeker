@@ -10,3 +10,4 @@ state/
 
 # Local GitHub Actions self-hosted runner files
 .github-runner/
+.DS_Store
