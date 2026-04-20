@@ -15,6 +15,8 @@ const readJson = (path) => {
 };
 
 const toNum = (value) => {
+  if (value === null || value === undefined) return null;
+  if (typeof value === "string" && !value.trim()) return null;
   const n = Number(value);
   return Number.isFinite(n) ? n : null;
 };
@@ -90,7 +92,11 @@ const buildSimulationSummary = (loop) => {
     fillRatePct: toNum(snap?.fillRatePct),
     avgR: toNum(snap?.avgR),
     medianHoldErrorDays: toNum(snap?.medianHoldErrorDays),
-    noReasonDrift: toNum(snap?.noReasonDrift)
+    noReasonDrift: toNum(snap?.noReasonDrift),
+    kpiSource:
+      typeof snap?.kpiSource === "string" && snap.kpiSource.trim()
+        ? snap.kpiSource
+        : "none"
   }));
 
   const bySymbol = new Map();
@@ -322,7 +328,7 @@ const buildMarkdown = ({ generatedAt, simulation, live }) => {
   );
   if (simulation.latestSnapshot) {
     lines.push(
-      `- simulation_latest_snapshot: \`tradeCount=${simulation.latestSnapshot.tradeCount} fillRatePct=${fmt(simulation.latestSnapshot.fillRatePct)} avgR=${fmt(simulation.latestSnapshot.avgR, 4)} noReasonDrift=${fmt(simulation.latestSnapshot.noReasonDrift, 0)}\``
+      `- simulation_latest_snapshot: \`source=${simulation.latestSnapshot.kpiSource ?? "none"} tradeCount=${simulation.latestSnapshot.tradeCount} fillRatePct=${fmt(simulation.latestSnapshot.fillRatePct)} avgR=${fmt(simulation.latestSnapshot.avgR, 4)} noReasonDrift=${fmt(simulation.latestSnapshot.noReasonDrift, 0)}\``
     );
   }
 
