@@ -1,3 +1,7 @@
+# ACTIVE WORKFLOW (US_Alpha_Seeker repo)
+# - This is the workflow GitHub Actions executes in this repository.
+# - It runs sidecar commands with working-directory=sidecar-template/alpha-exec-engine.
+# - Keep this file intentionally synced with the template workflow when behavior changes.
 name: sidecar-dry-run
 
 on:
