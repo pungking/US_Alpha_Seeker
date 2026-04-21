@@ -4798,6 +4798,14 @@ function toBrokerQtyString(value: number): string | null {
   return trimmed || null;
 }
 
+function toWholeShareQtyFromNotional(notional: number, limitPrice: number): string | null {
+  if (!Number.isFinite(notional) || !Number.isFinite(limitPrice)) return null;
+  if (notional <= 0 || limitPrice <= 0) return null;
+  const wholeQty = Math.floor(notional / limitPrice);
+  if (!Number.isFinite(wholeQty) || wholeQty < 1) return null;
+  return String(wholeQty);
+}
+
 function makeActionClientOrderId(baseClientOrderId: string, actionType: LifecycleActionType): string {
   const normalizedBase = baseClientOrderId.replace(/[^A-Za-z0-9_-]/g, "").slice(0, 36);
   const actionSuffix = actionType.toLowerCase().replace(/[^A-Za-z0-9_-]/g, "");
@@ -5234,6 +5242,16 @@ async function submitOrdersToBroker(
         continue;
       }
     }
+    let entryQtyForSubmit: string | null = null;
+    if (!isLifecycleExitAction(effectiveActionType)) {
+      entryQtyForSubmit = toWholeShareQtyFromNotional(payload.notional, payload.limit_price);
+      if (!entryQtyForSubmit) {
+        row.actionType = effectiveActionType ?? row.actionType;
+        row.reason = `entry_notional_below_limit_price(notional=${payload.notional.toFixed(2)},limit=${payload.limit_price.toFixed(2)})`;
+        summary.skipped += 1;
+        continue;
+      }
+    }
     row.actionType = effectiveActionType ?? row.actionType;
     row.attempted = true;
     summary.attempted += 1;
@@ -5257,6 +5275,10 @@ async function submitOrdersToBroker(
           exitSubmit.submittedQty
         );
       } else {
+        const submitQty = entryQtyForSubmit;
+        if (!submitQty) {
+          throw new Error("entry_qty_missing");
+        }
         const orderBody = {
           symbol: payload.symbol,
           side: payload.side,
@@ -5264,7 +5286,7 @@ async function submitOrdersToBroker(
           time_in_force: payload.time_in_force,
           order_class: payload.order_class,
           limit_price: payload.limit_price,
-          notional: payload.notional,
+          qty: submitQty,
           take_profit: payload.take_profit,
           stop_loss: payload.stop_loss,
           client_order_id: payload.client_order_id
