@@ -1,6 +1,7 @@
 # US Alpha Seeker Master Status Board (2026-04-01)
 
 Doc-Tier: P0 (Control Tower)
+Status: historical snapshot (superseded by `docs/PROGRAM_MASTER_STATUS_BOARD_2026-04-22.md`)
 
 ## 1) 현재 종합 상태
 | 영역 | 진행률 | 상태 | 근거 |
