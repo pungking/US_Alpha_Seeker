@@ -2,10 +2,51 @@
 # - Monitors sidecar freshness in pungking/alpha-exec-engine.
 # - If stale, dispatches sidecar dry-run workflow as fallback.
 # - Triggered manually or kicked by schedule.yml watchdog slot.
+# - Optional self-healing loop mode keeps dispatch cadence alive even if cron stalls.
 name: Sidecar Dispatch Watchdog
 
 on:
   workflow_dispatch:
+    inputs:
+      loop_enabled:
+        description: "Enable self-healing loop requeue"
+        required: false
+        default: "false"
+        type: choice
+        options:
+          - "false"
+          - "true"
+      loop_interval_min:
+        description: "Loop interval minutes"
+        required: false
+        default: "15"
+        type: choice
+        options:
+          - "5"
+          - "10"
+          - "15"
+          - "20"
+          - "30"
+          - "45"
+          - "60"
+      loop_max_runs:
+        description: "Loop max runs (guardrail)"
+        required: false
+        default: "48"
+        type: choice
+        options:
+          - "1"
+          - "4"
+          - "8"
+          - "12"
+          - "24"
+          - "48"
+          - "96"
+      loop_run_index:
+        description: "Internal loop index (do not edit)"
+        required: false
+        default: "0"
+        type: string
 
 concurrency:
   group: sidecar-dispatch-watchdog-${{ github.ref }}
@@ -17,14 +58,18 @@ permissions:
 jobs:
   bridge-watchdog:
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 75
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       TARGET_REPO: ${{ vars.SIDECAR_DISPATCH_REPO || 'pungking/alpha-exec-engine' }}
       TARGET_WORKFLOW: ${{ vars.SIDECAR_WATCHDOG_TARGET_WORKFLOW || 'dry-run.yml' }}
       TARGET_BRANCH: ${{ vars.SIDECAR_WATCHDOG_BRANCH || 'main' }}
-      STALE_MINUTES: ${{ vars.SIDECAR_BRIDGE_STALE_MINUTES || '45' }}
+      STALE_MINUTES: ${{ vars.SIDECAR_BRIDGE_STALE_MINUTES || vars.SIDECAR_WATCHDOG_STALE_MINUTES || '25' }}
       DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+      LOOP_ENABLED: ${{ inputs.loop_enabled || vars.SIDECAR_BRIDGE_LOOP_ENABLED || 'false' }}
+      LOOP_INTERVAL_MIN: ${{ inputs.loop_interval_min || vars.SIDECAR_BRIDGE_LOOP_INTERVAL_MIN || '15' }}
+      LOOP_MAX_RUNS: ${{ inputs.loop_max_runs || vars.SIDECAR_BRIDGE_LOOP_MAX_RUNS || '48' }}
+      LOOP_RUN_INDEX: ${{ inputs.loop_run_index || '0' }}
     steps:
       - name: Validate dispatch token
         run: |
@@ -34,6 +79,7 @@ jobs:
           fi
 
       - name: Evaluate sidecar freshness and dispatch fallback
+        id: eval
         uses: actions/github-script@v7
         with:
           github-token: ${{ env.DISPATCH_TOKEN }}
@@ -44,17 +90,31 @@ jobs:
               return Math.max(min, Math.min(max, n));
             };
 
+            const parseBool = (raw, fallback) => {
+              if (!raw || !String(raw).trim()) return fallback;
+              const normalized = String(raw).trim().toLowerCase();
+              if (["1", "true", "yes", "y", "on"].includes(normalized)) return true;
+              if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
+              return fallback;
+            };
+
             const targetRepoRaw = String(process.env.TARGET_REPO || "pungking/alpha-exec-engine").trim();
             const repoMatch = targetRepoRaw.match(/^([^/]+)\/([^/]+)$/);
             if (!repoMatch) {
               core.setFailed(`invalid TARGET_REPO: ${targetRepoRaw}`);
               return;
             }
+
             const targetOwner = repoMatch[1];
             const targetRepo = repoMatch[2];
             const targetWorkflow = String(process.env.TARGET_WORKFLOW || "dry-run.yml").trim() || "dry-run.yml";
             const targetBranch = String(process.env.TARGET_BRANCH || "main").trim() || "main";
-            const staleMinutes = parseNumber(process.env.STALE_MINUTES, 45, 15, 360);
+            const staleMinutes = parseNumber(process.env.STALE_MINUTES, 25, 15, 360);
+            const loopEnabled = parseBool(process.env.LOOP_ENABLED, false);
+            const loopIntervalMin = parseNumber(process.env.LOOP_INTERVAL_MIN, 15, 1, 60);
+            const loopMaxRuns = Math.round(parseNumber(process.env.LOOP_MAX_RUNS, 48, 1, 500));
+            const loopRunIndex = Math.round(parseNumber(process.env.LOOP_RUN_INDEX, 0, 0, 2000));
+            const loopNextIndex = loopRunIndex + 1;
             const activeStatuses = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
 
             const runsResp = await github.rest.actions.listWorkflowRuns({
@@ -112,6 +172,15 @@ jobs:
               });
             }
 
+            const loopContinue = loopEnabled && loopNextIndex < loopMaxRuns;
+
+            core.setOutput("loop_enabled", loopEnabled ? "true" : "false");
+            core.setOutput("loop_interval_min", String(loopIntervalMin));
+            core.setOutput("loop_max_runs", String(loopMaxRuns));
+            core.setOutput("loop_run_index", String(loopRunIndex));
+            core.setOutput("loop_next_index", String(loopNextIndex));
+            core.setOutput("loop_continue", loopContinue ? "true" : "false");
+
             const summaryLine = [
               `[BRIDGE_WATCHDOG] target=${targetOwner}/${targetRepo}`,
               `workflow=${targetWorkflow}`,
@@ -123,7 +192,10 @@ jobs:
               `latestStatus=${latestStatus}`,
               `latestEvent=${latestEvent}`,
               `latestConclusion=${latestConclusion}`,
-              `latestAgeMin=${ageMin == null ? "n/a" : ageMin}`
+              `latestAgeMin=${ageMin == null ? "n/a" : ageMin}`,
+              `loopEnabled=${loopEnabled}`,
+              `loopRun=${loopRunIndex + 1}/${loopMaxRuns}`,
+              `loopContinue=${loopContinue}`
             ].join(" ");
             core.notice(summaryLine);
 
@@ -133,3 +205,48 @@ jobs:
               .addRaw(`${summaryLine}\n`)
               .addRaw("```\n")
               .write();
+
+      - name: Loop wait before requeue
+        if: ${{ steps.eval.outputs.loop_continue == 'true' }}
+        env:
+          LOOP_INTERVAL_MIN: ${{ steps.eval.outputs.loop_interval_min }}
+        run: |
+          echo "[BRIDGE_WATCHDOG_LOOP] sleeping ${LOOP_INTERVAL_MIN} minutes before requeue"
+          sleep "$(( LOOP_INTERVAL_MIN * 60 ))"
+
+      - name: Requeue watchdog loop
+        if: ${{ steps.eval.outputs.loop_continue == 'true' }}
+        uses: actions/github-script@v7
+        env:
+          LOOP_INTERVAL_MIN: ${{ steps.eval.outputs.loop_interval_min }}
+          LOOP_MAX_RUNS: ${{ steps.eval.outputs.loop_max_runs }}
+          LOOP_NEXT_INDEX: ${{ steps.eval.outputs.loop_next_index }}
+        with:
+          github-token: ${{ env.DISPATCH_TOKEN }}
+          script: |
+            const ref = context.ref.replace("refs/heads/", "") || "main";
+            const loopIntervalMin = String(process.env.LOOP_INTERVAL_MIN || "15");
+            const loopMaxRuns = String(process.env.LOOP_MAX_RUNS || "48");
+            const loopNextIndex = String(process.env.LOOP_NEXT_INDEX || "1");
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              workflow_id: "sidecar-dispatch-watchdog.yml",
+              ref,
+              inputs: {
+                loop_enabled: "true",
+                loop_interval_min: loopIntervalMin,
+                loop_max_runs: loopMaxRuns,
+                loop_run_index: loopNextIndex
+              }
+            });
+
+            core.notice(
+              `[BRIDGE_WATCHDOG_LOOP] requeued ref=${ref} next=${Number(loopNextIndex) + 1}/${loopMaxRuns} intervalMin=${loopIntervalMin}`
+            );
+
+      - name: Loop completed
+        if: ${{ steps.eval.outputs.loop_enabled == 'true' && steps.eval.outputs.loop_continue != 'true' }}
+        run: |
+          echo "[BRIDGE_WATCHDOG_LOOP] completed at run $(( LOOP_RUN_INDEX + 1 )) / ${LOOP_MAX_RUNS}"
