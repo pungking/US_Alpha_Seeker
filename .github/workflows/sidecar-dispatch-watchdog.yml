@@ -1,0 +1,134 @@
+name: Sidecar Dispatch Watchdog
+
+on:
+  workflow_dispatch:
+  schedule:
+    # UTC weekdays, every 15 minutes during broad US cash-session window.
+    - cron: "8,23,38,53 13-21 * * 1-5"
+
+concurrency:
+  group: sidecar-dispatch-watchdog-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  bridge-watchdog:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      TARGET_REPO: ${{ vars.SIDECAR_DISPATCH_REPO || 'pungking/alpha-exec-engine' }}
+      TARGET_WORKFLOW: ${{ vars.SIDECAR_WATCHDOG_TARGET_WORKFLOW || 'dry-run.yml' }}
+      TARGET_BRANCH: ${{ vars.SIDECAR_WATCHDOG_BRANCH || 'main' }}
+      STALE_MINUTES: ${{ vars.SIDECAR_BRIDGE_STALE_MINUTES || '45' }}
+      DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+    steps:
+      - name: Validate dispatch token
+        run: |
+          if [ -z "${DISPATCH_TOKEN:-}" ]; then
+            echo "[ERROR] SIDECAR_DISPATCH_TOKEN is missing."
+            exit 1
+          fi
+
+      - name: Evaluate sidecar freshness and dispatch fallback
+        uses: actions/github-script@v7
+        with:
+          github-token: ${{ env.DISPATCH_TOKEN }}
+          script: |
+            const parseNumber = (raw, fallback, min, max) => {
+              const n = Number(raw);
+              if (!Number.isFinite(n)) return fallback;
+              return Math.max(min, Math.min(max, n));
+            };
+
+            const targetRepoRaw = String(process.env.TARGET_REPO || "pungking/alpha-exec-engine").trim();
+            const repoMatch = targetRepoRaw.match(/^([^/]+)\/([^/]+)$/);
+            if (!repoMatch) {
+              core.setFailed(`invalid TARGET_REPO: ${targetRepoRaw}`);
+              return;
+            }
+            const targetOwner = repoMatch[1];
+            const targetRepo = repoMatch[2];
+            const targetWorkflow = String(process.env.TARGET_WORKFLOW || "dry-run.yml").trim() || "dry-run.yml";
+            const targetBranch = String(process.env.TARGET_BRANCH || "main").trim() || "main";
+            const staleMinutes = parseNumber(process.env.STALE_MINUTES, 45, 15, 360);
+            const activeStatuses = new Set(["queued", "in_progress", "waiting", "pending", "requested"]);
+
+            const runsResp = await github.rest.actions.listWorkflowRuns({
+              owner: targetOwner,
+              repo: targetRepo,
+              workflow_id: targetWorkflow,
+              branch: targetBranch,
+              per_page: 20
+            });
+            const runs = Array.isArray(runsResp?.data?.workflow_runs) ? runsResp.data.workflow_runs : [];
+            const eligible = runs.filter((run) =>
+              ["schedule", "workflow_dispatch", "repository_dispatch"].includes(String(run.event || ""))
+            );
+            const latest = eligible[0] || null;
+
+            let dispatch = false;
+            let reason = "healthy_recent_run";
+            let ageMin = null;
+            let latestStatus = "n/a";
+            let latestEvent = "n/a";
+            let latestConclusion = "n/a";
+            let latestRunId = "n/a";
+
+            if (!latest) {
+              dispatch = true;
+              reason = "no_eligible_runs";
+            } else {
+              latestRunId = String(latest.id);
+              latestStatus = String(latest.status || "").toLowerCase();
+              latestEvent = String(latest.event || "");
+              latestConclusion = String(latest.conclusion || "n/a");
+              const createdMs = Date.parse(String(latest.created_at || ""));
+              if (Number.isFinite(createdMs)) {
+                ageMin = Number(((Date.now() - createdMs) / 60000).toFixed(1));
+              }
+
+              if (activeStatuses.has(latestStatus)) {
+                dispatch = false;
+                reason = "latest_run_active";
+              } else if (ageMin == null) {
+                dispatch = true;
+                reason = "latest_created_at_invalid";
+              } else if (ageMin > staleMinutes) {
+                dispatch = true;
+                reason = "latest_run_stale";
+              }
+            }
+
+            if (dispatch) {
+              await github.rest.actions.createWorkflowDispatch({
+                owner: targetOwner,
+                repo: targetRepo,
+                workflow_id: targetWorkflow,
+                ref: targetBranch
+              });
+            }
+
+            const summaryLine = [
+              `[BRIDGE_WATCHDOG] target=${targetOwner}/${targetRepo}`,
+              `workflow=${targetWorkflow}`,
+              `branch=${targetBranch}`,
+              `dispatch=${dispatch}`,
+              `reason=${reason}`,
+              `staleMin=${staleMinutes}`,
+              `latestRunId=${latestRunId}`,
+              `latestStatus=${latestStatus}`,
+              `latestEvent=${latestEvent}`,
+              `latestConclusion=${latestConclusion}`,
+              `latestAgeMin=${ageMin == null ? "n/a" : ageMin}`
+            ].join(" ");
+            core.notice(summaryLine);
+
+            await core.summary
+              .addHeading("Sidecar Dispatch Watchdog")
+              .addRaw("```text\n")
+              .addRaw(`${summaryLine}\n`)
+              .addRaw("```\n")
+              .write();
