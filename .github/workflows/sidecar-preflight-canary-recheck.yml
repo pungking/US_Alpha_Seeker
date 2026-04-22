@@ -24,6 +24,12 @@ on:
         default: "25"
         type: choice
         options: ["10", "15", "20", "25", "30", "40"]
+      run_allow_entry_outside_rth:
+        description: "Pass ALLOW_ENTRY_OUTSIDE_RTH=true to target dry-run for canary reliability"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
   contents: read
@@ -43,6 +49,7 @@ jobs:
       TARGET_REF: ${{ inputs.target_ref || 'main' }}
       TARGET_WORKFLOW: ${{ inputs.target_workflow || 'dry-run.yml' }}
       MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes || '25' }}
+      RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth || 'true' }}
     steps:
       - name: Validate dispatch token
         run: |
@@ -74,7 +81,7 @@ jobs:
 
             const inputs = {
               run_force_send_once: 'true',
-              run_allow_entry_outside_rth: 'false',
+              run_allow_entry_outside_rth: String(process.env.RUN_ALLOW_ENTRY_OUTSIDE_RTH || 'true'),
               run_disable_order_idempotency: 'true',
               run_dry_max_orders_override: '2',
               run_dry_max_total_notional_override: '200',
@@ -97,7 +104,7 @@ jobs:
             core.setOutput('target_workflow', workflowId);
             core.setOutput('target_ref', ref);
 
-            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} at=${dispatchAt}`;
+            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} at=${dispatchAt}`;
             core.notice(summaryLine);
             await core.summary
               .addHeading('Preflight Canary Dispatch')
