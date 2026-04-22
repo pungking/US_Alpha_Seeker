@@ -5,8 +5,6 @@ on:
   schedule:
     # 매일 UTC 09:00 (한국 시간 18:00, 미국 동부 표준시 04:00/05:00) 실행
     - cron: '0 9 * * 1-5'
-    # 사이드카 브릿지 워치독 킥오프 슬롯 (UTC, weekdays)
-    - cron: '8,23,38,53 13-21 * * 1-5'
   workflow_dispatch: # 수동 실행 버튼 (테스트용)
 
 concurrency:
@@ -14,28 +12,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  sidecar-watchdog-kicker:
-    name: Sidecar Watchdog Kicker
-    if: github.event_name == 'schedule' && github.event.schedule == '8,23,38,53 13-21 * * 1-5'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      actions: write
-      contents: read
-    steps:
-      - name: Trigger sidecar-dispatch-watchdog workflow
-        uses: actions/github-script@v7
-        with:
-          script: |
-            const ref = context.ref.replace("refs/heads/", "") || "main";
-            await github.rest.actions.createWorkflowDispatch({
-              owner: context.repo.owner,
-              repo: context.repo.repo,
-              workflow_id: "sidecar-dispatch-watchdog.yml",
-              ref
-            });
-            core.notice(`[WATCHDOG_KICKER] dispatched sidecar-dispatch-watchdog.yml ref=${ref}`);
-
   alpha-mining:
     name: Alpha Seeking Pipeline
     if: github.event_name != 'schedule' || github.event.schedule == '0 9 * * 1-5'

@@ -1,11 +1,14 @@
 # BRIDGE WATCHDOG (US_Alpha_Seeker repo)
 # - Monitors sidecar freshness in pungking/alpha-exec-engine.
 # - If stale, dispatches sidecar dry-run workflow as fallback.
-# - Triggered manually or kicked by schedule.yml watchdog slot.
+# - Triggered manually or by its own weekday UTC schedule.
 # - Optional self-healing loop mode keeps dispatch cadence alive even if cron stalls.
 name: Sidecar Dispatch Watchdog
 
 on:
+  schedule:
+    # UTC weekday cadence aligned with sidecar dry-run monitoring window.
+    - cron: '8,23,38,53 13-21 * * 1-5'
   workflow_dispatch:
     inputs:
       loop_enabled:
