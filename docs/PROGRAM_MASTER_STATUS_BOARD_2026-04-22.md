@@ -145,3 +145,24 @@ Direction principle:
   - bridge/knowledge lanes reach minimum reliability thresholds.
 
 At current snapshot, decision = **Hold (function partially proven, operations not yet stabilized)**.
+
+## 7) Automation Pipeline Connectivity Check (2026-04-22 update)
+
+Reference audit:
+- `sidecar-template/alpha-exec-engine/docs/AUTOMATION_PIPELINE_INTEGRATION_AUDIT_2026-04-22.md`
+
+Connectivity classification (current):
+- Connected: `13`
+- Partially connected: `5`
+- Not connected: `2`
+- Coverage: `65.0%`
+
+What this means:
+- Execution core lanes (dry-run/guard/canary/watchdog/preflight-submit) are connected.
+- Ops observability improved (Notion audit + ops daily report artifact), but governance is still artifact-centric.
+- Knowledge loop lanes (Notion/Obsidian/NotebookLM) are present, but not yet contract-bound to sidecar daily evidence.
+
+Immediate closure priorities:
+1. Consolidated daily Notion upsert from `state/ops-daily-report.json`.
+2. Daily report enrichment with canary quality markers (`preflight_pass`, `attempted`, `submitted`).
+3. Template/runtime workflow drift checker to control mirror divergence.
