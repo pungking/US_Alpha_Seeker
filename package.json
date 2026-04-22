@@ -25,6 +25,7 @@
     "ops:knowledge:notebooklm": "node scripts/notebooklm-mcp-collect.mjs",
     "ops:knowledge:bridge": "node scripts/notebooklm-intake-bridge.mjs",
     "ops:knowledge:pipeline": "node scripts/knowledge-intake-pipeline.mjs",
+    "ops:knowledge:quality": "node scripts/check-knowledge-markdown-quality.mjs",
     "ops:knowledge:alert": "node scripts/knowledge-pipeline-alert.mjs",
     "webhook:setup": "node scripts/setup-telegram-webhook.mjs",
     "webhook:info": "node scripts/setup-telegram-webhook.mjs --info",

@@ -166,3 +166,11 @@ Immediate closure priorities:
 1. Consolidated daily Notion upsert from `state/ops-daily-report.json`.
 2. Daily report enrichment with canary quality markers (`preflight_pass`, `attempted`, `submitted`).
 3. Template/runtime workflow drift checker to control mirror divergence.
+
+Knowledge loop hardening applied (2026-04-22):
+- `scripts/knowledge-intake-pipeline.mjs` sanitizer guard 강화(인용 숫자 잔류/구분자/레이블/중복헤더).
+- `.github/workflows/knowledge-intake-pipeline.yml`에 markdown quality gate 추가:
+  - `npm run ops:knowledge:quality`
+  - artifacts: `state/knowledge-markdown-quality-report.json`, `.md`
+- 운영 기준 문서:
+  - `docs/KNOWLEDGE_MARKDOWN_ERROR_PREVENTION_2026-04-22.md`

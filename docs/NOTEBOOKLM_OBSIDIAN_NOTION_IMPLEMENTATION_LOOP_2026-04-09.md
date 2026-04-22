@@ -86,3 +86,14 @@ Intake 노트를 Notion으로 승격하는 기준:
 - [ ] feature flag 기반으로 shadow 구현
 - [ ] dry-run 3회 이상 증적 수집
 - [ ] PASS 시에만 다음 단계(확장/승격) 진행
+
+## 7) Markdown 품질 재발 방지 (2026-04-22 추가)
+
+- 회귀 방지 기준 문서:
+  - `docs/KNOWLEDGE_MARKDOWN_ERROR_PREVENTION_2026-04-22.md`
+- 자동 점검 스크립트:
+  - `npm run ops:knowledge:quality`
+- 워크플로우 반영:
+  - `.github/workflows/knowledge-intake-pipeline.yml`에서 pipeline 직후 quality check 실행
+- Strict fail 옵션:
+  - `KNOWLEDGE_MARKDOWN_QUALITY_REQUIRED=true`일 때 품질 이슈 발생 시 workflow fail

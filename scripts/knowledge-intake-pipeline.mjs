@@ -359,6 +359,9 @@ const stripNotebookCitationNoise = (value) => {
   // (e.g. "GDPNow 1.3%" → "GDPNow%", "Skew 99th" → "Skew th").
   // Only strip trailing lone numbers at absolute end of line after Korean sentence-ender.
   s = s.replace(/(?<=다)\s+\d{1,2}\s*\.\s*$/gm, ".");
+  // Strip citation-like trailing numbers left behind after bracket removal.
+  // Example: "검증합니다 8" -> "검증합니다"
+  s = s.replace(/(?<=[가-힣A-Za-z])\s+\d{1,2}(?=\s*(?:[.!?…])?\s*$)/gm, "");
   // Cleanup punctuation spacing after citation strip.
   s = s.replace(/\s+([.,;:!?])/g, "$1");
   return s;
@@ -414,6 +417,7 @@ const bulletizeDenseParagraph = (value, maxItems = 8) => {
 const prettifyNotebookSummaryMarkdown = (value) => {
   const lines = String(value || "").split(/\r?\n/);
   const out = [];
+  let lastPushed = "";
   const normalizeLine = (lineRaw) => {
     let line = String(lineRaw || "").trim();
     if (!line) return "";
@@ -421,12 +425,19 @@ const prettifyNotebookSummaryMarkdown = (value) => {
     line = line
       .replace(/^#\s*#\s+/g, "## ")
       .replace(/^#{4,}\s+/g, "### ")
+      .replace(/^###\s*-\s*$/g, "---")
       .replace(/^[\-*]\s*#\s*#\s+/g, "- ")
       .replace(/^\*\*\s*(.+?)\s*\*\*:?$/g, "### $1")
       .replace(/^\*\*\s*(.+?)\s*\*\*\s*$/g, "### $1")
       .replace(/^[-–—=_]{3,}\s*(.+)$/g, "### $1")
       .replace(/^\s*#+\s*([가-힣A-Za-z].+)\s*$/g, "## $1")
       .replace(/\s{2,}/g, " ");
+    const inlineLabelMatch = line.match(/^[-*]\s*\[([^\]]{2,80})\]\s*(.*)$/);
+    if (inlineLabelMatch) {
+      const label = inlineLabelMatch[1].trim();
+      const rest = inlineLabelMatch[2].trim();
+      return rest ? `### ${label}\n- ${rest}` : `### ${label}`;
+    }
     const sectionLabel = canonicalSectionHeading(line.replace(/^[\[\]-]+|[\]-]+$/g, ""));
     if (sectionLabel) return `## ${sectionLabel}`;
     // Drop visual-noise separators copied from rich UI.
@@ -456,23 +467,41 @@ const prettifyNotebookSummaryMarkdown = (value) => {
   };
   let buffer = [];
   let currentSection = "";
-  for (const lineRaw of lines) {
-    const line = normalizeLine(lineRaw);
+  const processNormalizedLine = (line) => {
     if (!line) {
       flushBuffer(buffer, currentSection);
       buffer = [];
       if (out.length > 0 && out[out.length - 1] !== "") out.push("");
-      continue;
+      return;
     }
-    if (/^##\s+/.test(line) || /^[-*]\s+/.test(line)) {
+    const isSection = /^##\s+/.test(line);
+    const isBullet = /^[-*]\s+/.test(line);
+    const isDivider = /^---$/.test(line);
+    if (isSection || isBullet || isDivider) {
       flushBuffer(buffer, currentSection);
       buffer = [];
+      if (isSection && lastPushed === line) {
+        // Avoid noisy duplicate section headers from repeated inline labels.
+        return;
+      }
       if (out.length > 0 && out[out.length - 1] !== "") out.push("");
       out.push(line);
-      if (/^##\s+/.test(line)) currentSection = line.replace(/^##\s+/, "").trim();
-      continue;
+      lastPushed = line;
+      if (isSection) currentSection = line.replace(/^##\s+/, "").trim();
+      return;
     }
     buffer.push(line);
+  };
+  for (const lineRaw of lines) {
+    const normalized = normalizeLine(lineRaw);
+    if (!normalized) {
+      processNormalizedLine("");
+      continue;
+    }
+    const expanded = normalized.split("\n");
+    for (const row of expanded) {
+      processNormalizedLine(String(row || "").trim());
+    }
   }
   flushBuffer(buffer, currentSection);
   return out.join("\n").replace(/\n{3,}/g, "\n\n").trim();
