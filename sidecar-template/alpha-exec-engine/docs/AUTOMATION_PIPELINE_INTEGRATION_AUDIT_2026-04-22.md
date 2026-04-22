@@ -15,10 +15,10 @@ Not all implemented logic is fully connected into one end-to-end automated pipel
 - **Knowledge loop lanes** are implemented but still partially disconnected from sidecar daily outputs.
 
 Current integration score (operational connectivity):
-- **Connected:** 13
-- **Partially connected:** 5
+- **Connected:** 15
+- **Partially connected:** 3
 - **Not connected:** 2
-- **Coverage:** `13 / 20 = 65.0%`
+- **Coverage:** `15 / 20 = 75.0%`
 
 ---
 
@@ -41,8 +41,8 @@ Current integration score (operational connectivity):
 | Ops | Notion per-run sync (dry-run/guard) | `sync-notion-summary.mjs` in sidecar workflows | Connected | daily snapshot rows confirmed historically |
 | Ops | Notion data-quality audit | `ops:notion:audit` + `mcp-ops-daily.yml` | Connected | required-field/duplicate/stale checks wired |
 | Ops | ops daily report artifact | `ops:daily:report` + `mcp-ops-daily.yml` | Connected | json/md + step summary + artifacts |
-| Ops | consolidated daily Notion row | no upsert script yet | Partial | report exists but not auto-written to one daily row |
-| Ops | canary KPI ingestion into ops daily report (`preflight_pass`, `attempted`, `submitted`) | not parsed in current report script | Partial | currently workflow success-centric summary |
+| Ops | consolidated daily Notion row | `ops:daily:notion:sync` + `mcp-ops-daily.yml` | Connected | run key `ops-daily-YYYY-MM-DD` upsert |
+| Ops | canary KPI ingestion into ops daily report (`preflight_pass`, `attempted`, `submitted`) | `ops:daily:report` canary log parser | Connected | parses `[PREFLIGHT_CANARY_VERIFY]` markers |
 | Knowledge | Notion -> Obsidian -> NotebookLM routine | dedicated workflows/scripts exist | Partial | loop exists, linkage to sidecar daily report is weak |
 | Knowledge | sidecar daily report -> knowledge pipeline handoff | not enforced | Partial | no mandatory handoff contract |
 | Governance | template/runtime workflow drift control | manual sync discipline only | Partial | mirror drift remains operational risk |
@@ -57,8 +57,7 @@ Current integration score (operational connectivity):
 - Notion operational telemetry is no longer blind; audit + daily report artifacts exist.
 
 ### Weak
-- Consolidated daily governance record is still artifact-first, not Notion row-first.
-- KPI quality for ops daily report is still shallow (run conclusion bias).
+- Evidence URL mandatory-field enforcement in Notion daily row is not hard-validated yet.
 - Knowledge loop is operationally separate from sidecar evidence loop.
 - Mirror/template drift can silently increase runbook entropy.
 
@@ -67,14 +66,7 @@ Current integration score (operational connectivity):
 ## 4) Priority Gap Closure Plan
 
 ### P0 (immediate)
-1. Add `ops:daily:notion:sync` script:
-   - Input: `state/ops-daily-report.json`
-   - Output: one daily upsert row (`ops-daily-YYYY-MM-DD`) in Notion.
-2. Extend ops daily report script to parse canary verification markers:
-   - `preflight_pass=true`
-   - `attempted`
-   - `submitted`
-3. Add hard link in daily report row to evidence URLs (canary + dry-run).
+1. Add hard link in daily report row to evidence URLs (canary + dry-run).
 
 ### P1 (next)
 1. Add sidecar->knowledge handoff contract:
@@ -96,7 +88,6 @@ Target: **>= 90% connected coverage** and no critical partials in execution/ops 
 
 Required completion checks:
 1. Consolidated daily Notion row auto-upsert is live for 3 consecutive days.
-2. Daily report includes canary trade-quality KPIs (`preflight_pass`, `attempted`, `submitted`) from logs.
+2. Daily report includes canary trade-quality KPIs (`preflight_pass`, `attempted`, `submitted`) from logs. ✅
 3. Knowledge loop references the same daily report key without manual copy-paste.
 4. Template/runtime drift checker runs at least daily and reports explicit status.
-

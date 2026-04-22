@@ -152,10 +152,10 @@ Reference audit:
 - `sidecar-template/alpha-exec-engine/docs/AUTOMATION_PIPELINE_INTEGRATION_AUDIT_2026-04-22.md`
 
 Connectivity classification (current):
-- Connected: `13`
-- Partially connected: `5`
+- Connected: `15`
+- Partially connected: `3`
 - Not connected: `2`
-- Coverage: `65.0%`
+- Coverage: `75.0%`
 
 What this means:
 - Execution core lanes (dry-run/guard/canary/watchdog/preflight-submit) are connected.
@@ -163,8 +163,8 @@ What this means:
 - Knowledge loop lanes (Notion/Obsidian/NotebookLM) are present, but not yet contract-bound to sidecar daily evidence.
 
 Immediate closure priorities:
-1. Consolidated daily Notion upsert from `state/ops-daily-report.json`.
-2. Daily report enrichment with canary quality markers (`preflight_pass`, `attempted`, `submitted`).
+1. Consolidated daily Notion upsert from `state/ops-daily-report.json`. ✅
+2. Daily report enrichment with canary quality markers (`preflight_pass`, `attempted`, `submitted`). ✅
 3. Template/runtime workflow drift checker to control mirror divergence.
 
 Knowledge loop hardening applied (2026-04-22):
@@ -174,3 +174,13 @@ Knowledge loop hardening applied (2026-04-22):
   - artifacts: `state/knowledge-markdown-quality-report.json`, `.md`
 - 운영 기준 문서:
   - `docs/KNOWLEDGE_MARKDOWN_ERROR_PREVENTION_2026-04-22.md`
+
+Ops reporting hardening applied (2026-04-22):
+- `scripts/build-ops-daily-report.mjs` now parses canary verify markers from run logs and aggregates:
+  - `preflight_pass`, `attempted`, `submitted`, `submitPass`.
+- `scripts/sync-notion-ops-daily.mjs` added:
+  - consolidated daily Notion row upsert (`ops-daily-YYYY-MM-DD`).
+- `.github/workflows/mcp-ops-daily.yml` now runs:
+  - `ops:notion:audit`
+  - `ops:daily:report`
+  - `ops:daily:notion:sync`

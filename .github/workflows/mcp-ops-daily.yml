@@ -35,8 +35,11 @@ jobs:
       NOTION_AUDIT_PAGE_SIZE: ${{ vars.NOTION_AUDIT_PAGE_SIZE || '40' }}
       NOTION_AUDIT_STALE_MINUTES: ${{ vars.NOTION_AUDIT_STALE_MINUTES || '240' }}
       NOTION_AUDIT_RUNKEY_PREFIXES: ${{ vars.NOTION_AUDIT_RUNKEY_PREFIXES || 'sidecar-' }}
+      NOTION_OPS_DAILY_SYNC_ENABLED: ${{ vars.NOTION_OPS_DAILY_SYNC_ENABLED || 'true' }}
+      NOTION_OPS_DAILY_SYNC_REQUIRED: ${{ vars.NOTION_OPS_DAILY_SYNC_REQUIRED || 'false' }}
       OPS_REPORT_LOOKBACK_HOURS: ${{ vars.OPS_REPORT_LOOKBACK_HOURS || '24' }}
       OPS_REPORT_MAX_RUNS: ${{ vars.OPS_REPORT_MAX_RUNS || '30' }}
+      OPS_REPORT_CANARY_VERIFY_MAX_RUNS: ${{ vars.OPS_REPORT_CANARY_VERIFY_MAX_RUNS || '8' }}
       OPS_REPORT_CANARY_REPO: ${{ vars.OPS_REPORT_CANARY_REPO || 'pungking/US_Alpha_Seeker' }}
       OPS_REPORT_DRYRUN_REPO: ${{ vars.OPS_REPORT_DRYRUN_REPO || 'pungking/alpha-exec-engine' }}
       OPS_REPORT_CANARY_WORKFLOW: ${{ vars.OPS_REPORT_CANARY_WORKFLOW || 'sidecar-preflight-canary-recheck.yml' }}
@@ -65,6 +68,10 @@ jobs:
       - name: Build ops daily report
         run: npm run ops:daily:report --prefix sidecar-template/alpha-exec-engine
 
+      - name: Sync ops daily report to Notion
+        continue-on-error: ${{ vars.NOTION_OPS_DAILY_SYNC_REQUIRED != 'true' }}
+        run: npm run ops:daily:notion:sync --prefix sidecar-template/alpha-exec-engine
+
       - name: Publish Notion ops audit summary
         if: always()
         run: |
@@ -83,6 +90,28 @@ jobs:
           else
             echo "## Ops Daily Report (Auto)" >> "$GITHUB_STEP_SUMMARY"
             echo "- result: no daily ops report artifact generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Publish ops daily Notion sync summary
+        if: always()
+        run: |
+          if [ -f "sidecar-template/alpha-exec-engine/state/notion-ops-daily-sync.json" ]; then
+            node -e '
+              const fs=require("node:fs");
+              const p="sidecar-template/alpha-exec-engine/state/notion-ops-daily-sync.json";
+              const j=JSON.parse(fs.readFileSync(p,"utf8"));
+              const lines=[
+                "## Ops Daily Notion Sync",
+                `- status: \`${j.status || "unknown"}\``,
+                `- action: \`${j.action || "n/a"}\``,
+                `- runKey: \`${j.runKey || "n/a"}\``,
+                `- reason: \`${j.reason || "n/a"}\``
+              ];
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\\n")}\\n`);
+            '
+          else
+            echo "## Ops Daily Notion Sync" >> "$GITHUB_STEP_SUMMARY"
+            echo "- result: no sync artifact generated" >> "$GITHUB_STEP_SUMMARY"
           fi
 
       - name: Upload MCP smoke report
@@ -111,4 +140,5 @@ jobs:
           path: |
             sidecar-template/alpha-exec-engine/state/ops-daily-report.json
             sidecar-template/alpha-exec-engine/state/ops-daily-report.md
+            sidecar-template/alpha-exec-engine/state/notion-ops-daily-sync.json
           if-no-files-found: ignore
