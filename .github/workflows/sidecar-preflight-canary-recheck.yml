@@ -193,7 +193,8 @@ jobs:
           rm -rf "$artifact_dir"
           mkdir -p "$artifact_dir"
           gh run download "$run_id" --repo "$TARGET_REPO" --dir "$artifact_dir"
-          preview_path="$(find "$artifact_dir" -type f -name 'last-dry-exec-preview.json' | head -n 1)"
+          # Prefer the run-level preview (depth<=2) and avoid payload-probe previews.
+          preview_path="$(find "$artifact_dir" -maxdepth 2 -type f -name 'last-dry-exec-preview.json' | head -n 1)"
           if [ -z "${preview_path}" ]; then
             echo "[ERROR] last-dry-exec-preview.json not found in downloaded artifacts"
             find "$artifact_dir" -maxdepth 3 -type f | sed -n '1,120p'
