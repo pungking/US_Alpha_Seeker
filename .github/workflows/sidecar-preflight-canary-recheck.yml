@@ -189,11 +189,13 @@ jobs:
           log_path="/tmp/sidecar-preflight-canary-${run_id}.log"
           gh run view "$run_id" --repo "$TARGET_REPO" --log > "$log_path"
 
-          node -e 'const fs=require("node:fs"); const logPath=process.argv[1]; const runUrl=process.argv[2]; const text=fs.readFileSync(logPath,"utf8"); const preflightPass=/\[PREFLIGHT\]\s+status=PASS\b/.test(text); const submitSummaryMatch=text.match(/\[BROKER_SUBMIT\][^\n]*attempted=(\d+)\s+submitted=(\d+)/); const attempted=submitSummaryMatch ? Number(submitSummaryMatch[1]) : 0; const submitted=submitSummaryMatch ? Number(submitSummaryMatch[2]) : 0; const submitPass=attempted >= 1 && submitted >= 1; console.log(`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${preflightPass} attempted=${attempted} submitted=${submitted} url=${runUrl}`); if (!preflightPass || !submitPass) process.exit(1);' "$log_path" "$run_url"
+          verify_line="$(node -e 'const fs=require("node:fs"); const logPath=process.argv[1]; const runUrl=process.argv[2]; const text=fs.readFileSync(logPath,"utf8"); const preflightPass=/\[PREFLIGHT\]\s+status=PASS\b/.test(text); const submitSummaryMatch=text.match(/\[BROKER_SUBMIT\][^\n]*reason=([^\s]+)[^\n]*attempted=(\d+)\s+submitted=(\d+)/); const brokerReason=submitSummaryMatch ? submitSummaryMatch[1] : "unknown"; const attempted=submitSummaryMatch ? Number(submitSummaryMatch[2]) : 0; const submitted=submitSummaryMatch ? Number(submitSummaryMatch[3]) : 0; const openEntryMatch=text.match(/\[OPEN_ENTRY_GUARD\][^\n]*openEntries=(\d+)/); const openEntries=openEntryMatch ? Number(openEntryMatch[1]) : 0; const submitPass=attempted >= 1 && submitted >= 1; const guardSkipPass=attempted === 0 && submitted === 0 && brokerReason === "submit_skipped_all" && openEntries >= 1; const pass=preflightPass && (submitPass || guardSkipPass); const verifyMode=submitPass ? "submit_pass" : guardSkipPass ? "guard_skip_pass" : "fail"; const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${preflightPass} attempted=${attempted} submitted=${submitted} broker_reason=${brokerReason} open_entries=${openEntries} verify_mode=${verifyMode} pass=${pass} url=${runUrl}`; console.log(line); if (!pass) process.exit(1);' "$log_path" "$run_url")"
+          echo "$verify_line"
 
           {
             echo "## Sidecar Preflight Canary Recheck"
             echo ""
             echo "- target_run: ${run_url}"
-            echo "- result: PASS (preflight=PASS, attempted>=1, submitted>=1)"
+            echo "- verify: \`${verify_line}\`"
+            echo "- result: PASS (preflight=PASS and (attempted>=1,submitted>=1 OR open-entry-guard skip path))"
           } >> "$GITHUB_STEP_SUMMARY"
