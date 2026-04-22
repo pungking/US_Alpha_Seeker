@@ -40,6 +40,7 @@ jobs:
       OPS_REPORT_LOOKBACK_HOURS: ${{ vars.OPS_REPORT_LOOKBACK_HOURS || '24' }}
       OPS_REPORT_MAX_RUNS: ${{ vars.OPS_REPORT_MAX_RUNS || '30' }}
       OPS_REPORT_CANARY_VERIFY_MAX_RUNS: ${{ vars.OPS_REPORT_CANARY_VERIFY_MAX_RUNS || '8' }}
+      OPS_REPORT_CANARY_FRESH_MAX_MIN: ${{ vars.OPS_REPORT_CANARY_FRESH_MAX_MIN || '360' }}
       OPS_REPORT_CANARY_REPO: ${{ vars.OPS_REPORT_CANARY_REPO || 'pungking/US_Alpha_Seeker' }}
       OPS_REPORT_DRYRUN_REPO: ${{ vars.OPS_REPORT_DRYRUN_REPO || 'pungking/alpha-exec-engine' }}
       OPS_REPORT_CANARY_WORKFLOW: ${{ vars.OPS_REPORT_CANARY_WORKFLOW || 'sidecar-preflight-canary-recheck.yml' }}

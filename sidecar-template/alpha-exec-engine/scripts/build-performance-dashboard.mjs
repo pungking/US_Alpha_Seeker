@@ -154,7 +154,7 @@ const buildSimulationSummary = (loop) => {
   const avgClosedR =
     closedRows.filter((row) => row.rMultiple != null).length > 0
       ? closedRows.reduce((acc, row) => acc + (row.rMultiple || 0), 0) /
-        closedRows.filter((row) => row.rMultiple != null).length
+      closedRows.filter((row) => row.rMultiple != null).length
       : null;
 
   const latestSnapshot = snapshots[snapshots.length - 1] || null;

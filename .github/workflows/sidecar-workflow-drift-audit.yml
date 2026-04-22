@@ -1,0 +1,47 @@
+name: Sidecar Workflow Drift Audit
+
+on:
+  schedule:
+    - cron: "25 0 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: sidecar-workflow-drift-audit-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v5
+        with:
+          node-version: "20"
+
+      - name: Run sidecar workflow drift audit
+        run: npm run ops:sidecar:drift:audit
+
+      - name: Publish summary
+        if: always()
+        run: |
+          if [ -f "state/sidecar-workflow-drift-audit.md" ]; then
+            cat "state/sidecar-workflow-drift-audit.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Sidecar Workflow Drift Audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "- result: no audit markdown generated" >> "$GITHUB_STEP_SUMMARY"
+            exit 1
+          fi
+
+      - name: Upload drift audit artifact
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: sidecar-workflow-drift-audit
+          path: |
+            state/sidecar-workflow-drift-audit.json
+            state/sidecar-workflow-drift-audit.md
+          if-no-files-found: error

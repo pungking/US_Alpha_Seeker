@@ -180,6 +180,8 @@ const main = async () => {
     `canary=${report?.canary?.success ?? 0}/${report?.canary?.completed ?? 0}`,
     `dryrun=${report?.dryRun?.success ?? 0}/${report?.dryRun?.completed ?? 0}`,
     `verify=${report?.canaryVerify?.parsed ?? 0}/${report?.canaryVerify?.inspected ?? 0}`,
+    `canaryFresh=${String(report?.canaryFreshness?.status || "unknown")}`,
+    `execReady=${String(report?.execReadinessNow?.status || "UNKNOWN")}`,
     `preflight=${report?.canaryVerify?.preflightPassRuns ?? 0}/${report?.canaryVerify?.parsed ?? 0}`,
     `submit=${report?.canaryVerify?.submittedTotal ?? 0}/${report?.canaryVerify?.attemptedTotal ?? 0}`,
     `notionAudit=${String(report?.notionAudit?.status || "n/a")}`
