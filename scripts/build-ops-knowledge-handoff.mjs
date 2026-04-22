@@ -18,6 +18,7 @@ const DEFAULT_NOTION_SYNC_PATH = path.join(
 );
 const DEFAULT_OUTPUT_PATH = path.join(CWD, "state", "ops-knowledge-handoff.json");
 const DEFAULT_OUTPUT_MD_PATH = path.join(CWD, "state", "ops-knowledge-handoff.md");
+const DEFAULT_HISTORY_PATH = path.join(CWD, "state", "ops-knowledge-handoff-history.jsonl");
 
 const env = (name, fallback = "") => String(process.env[name] ?? fallback).trim();
 const boolFromEnv = (name, fallback = false) => {
@@ -52,6 +53,26 @@ const writeText = (filePath, data) => {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, data, "utf8");
 };
+const readJsonl = (filePath) => {
+  if (!fs.existsSync(filePath)) return [];
+  return String(fs.readFileSync(filePath, "utf8") || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      try {
+        return JSON.parse(line);
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean);
+};
+const writeJsonl = (filePath, rows) => {
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  const payload = rows.map((row) => JSON.stringify(row)).join("\n");
+  fs.writeFileSync(filePath, payload ? `${payload}\n` : "", "utf8");
+};
 const toIso = (value) => {
   const dt = new Date(String(value || ""));
   return Number.isNaN(dt.getTime()) ? null : dt.toISOString();
@@ -67,10 +88,13 @@ const main = () => {
   const notionSyncPath = resolvePath(env("OPS_DAILY_NOTION_SYNC_PATH"), DEFAULT_NOTION_SYNC_PATH);
   const outputPath = resolvePath(env("OPS_KNOWLEDGE_HANDOFF_PATH"), DEFAULT_OUTPUT_PATH);
   const outputMdPath = resolvePath(env("OPS_KNOWLEDGE_HANDOFF_MD_PATH"), DEFAULT_OUTPUT_MD_PATH);
+  const historyPath = resolvePath(env("OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH"), DEFAULT_HISTORY_PATH);
 
   const maxAgeMin = Math.max(30, Math.min(10080, numFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_MAX_AGE_MIN", 1440)));
   const requireExecReady = boolFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_EXEC_READY", false);
   const requireCanaryFresh = boolFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_CANARY_FRESH", false);
+  const historyMax = Math.max(20, Math.min(2000, numFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_HISTORY_MAX", 200)));
+  const trendWindow = Math.max(3, Math.min(60, numFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_TREND_WINDOW", 7)));
 
   const report = readJson(reportPath);
   const notionSync = readJson(notionSyncPath);
@@ -174,6 +198,43 @@ const main = () => {
     }
   };
 
+  const historySeed = readJsonl(historyPath);
+  const historyRows = historySeed
+    .filter((row) => {
+      const key = String(row?.runKey || "").trim();
+      const at = String(row?.generatedAt || "").trim();
+      return !(key === contract.runKey && at === contract.generatedAt);
+    })
+    .concat([
+      {
+        generatedAt: contract.generatedAt,
+        runKey: contract.runKey,
+        handoffStatus: contract.handoffStatus,
+        handoffReason: contract.handoffReason,
+        opsDailyStatus: contract.opsDaily.status,
+        execReadinessNow: contract.execution.execReadinessNow,
+        canaryFreshness: contract.canary.freshness
+      }
+    ])
+    .slice(-historyMax);
+  writeJsonl(historyPath, historyRows);
+
+  const trendPool = historyRows.slice(-trendWindow);
+  const passCount = trendPool.filter((row) => String(row?.handoffStatus || "").toUpperCase() === "PASS").length;
+  const holdCount = trendPool.filter((row) => String(row?.handoffStatus || "").toUpperCase() === "HOLD").length;
+  const blockCount = trendPool.filter((row) => String(row?.handoffStatus || "").toUpperCase() === "BLOCK").length;
+  const passRatePct =
+    trendPool.length > 0 ? Number(((passCount / trendPool.length) * 100).toFixed(2)) : null;
+  contract.trend = {
+    historyPath: path.relative(CWD, historyPath),
+    historySize: historyRows.length,
+    windowSize: trendPool.length,
+    passCount,
+    holdCount,
+    blockCount,
+    passRatePct
+  };
+
   const lines = [];
   lines.push("## Ops -> Knowledge Handoff Contract");
   lines.push(`- generatedAt: \`${contract.generatedAt}\``);
@@ -189,6 +250,9 @@ const main = () => {
   );
   lines.push(
     `- guard: mode=\`${contract.marketGuard.mode || "n/a"}\` level=\`${contract.marketGuard.level || "n/a"}\` source=\`${contract.marketGuard.source || "n/a"}\``
+  );
+  lines.push(
+    `- trend: passRate=\`${contract.trend.passRatePct ?? "N/A"}%\` pass/hold/block=\`${contract.trend.passCount}/${contract.trend.holdCount}/${contract.trend.blockCount}\` window=\`${contract.trend.windowSize}\``
   );
   if (contract.requiredMissing.length > 0) {
     lines.push(`- requiredMissing: \`${contract.requiredMissing.join(",")}\``);

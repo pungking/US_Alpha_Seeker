@@ -120,10 +120,13 @@ jobs:
       KNOWLEDGE_PIPELINE_HANDOFF_MAX_AGE_MIN: ${{ vars.KNOWLEDGE_PIPELINE_HANDOFF_MAX_AGE_MIN || '1440' }}
       KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_EXEC_READY: ${{ vars.KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_EXEC_READY || 'false' }}
       KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_CANARY_FRESH: ${{ vars.KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_CANARY_FRESH || 'false' }}
+      KNOWLEDGE_PIPELINE_HANDOFF_HISTORY_MAX: ${{ vars.KNOWLEDGE_PIPELINE_HANDOFF_HISTORY_MAX || '200' }}
+      KNOWLEDGE_PIPELINE_HANDOFF_TREND_WINDOW: ${{ vars.KNOWLEDGE_PIPELINE_HANDOFF_TREND_WINDOW || '7' }}
       OPS_DAILY_REPORT_PATH: ${{ vars.OPS_DAILY_REPORT_PATH || 'sidecar-template/alpha-exec-engine/state/ops-daily-report.json' }}
       OPS_DAILY_NOTION_SYNC_PATH: ${{ vars.OPS_DAILY_NOTION_SYNC_PATH || 'sidecar-template/alpha-exec-engine/state/notion-ops-daily-sync.json' }}
       OPS_KNOWLEDGE_HANDOFF_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_PATH || 'state/ops-knowledge-handoff.json' }}
       OPS_KNOWLEDGE_HANDOFF_MD_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_MD_PATH || 'state/ops-knowledge-handoff.md' }}
+      OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH || 'state/ops-knowledge-handoff-history.jsonl' }}
       OBSIDIAN_BASE_URL: ${{ vars.OBSIDIAN_BASE_URL || 'http://127.0.0.1:27123' }}
       OBSIDIAN_API_KEY: ${{ secrets.OBSIDIAN_API_KEY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -152,6 +155,7 @@ jobs:
           [ -f state/notebooklm-mcp-question-cursor.json ] || echo '{"cursor":0}' > state/notebooklm-mcp-question-cursor.json
           [ -f state/ops-knowledge-handoff.json ] || echo '{}' > state/ops-knowledge-handoff.json
           [ -f state/ops-knowledge-handoff.md ] || printf '## Ops -> Knowledge Handoff Contract\n\n- (pending)\n' > state/ops-knowledge-handoff.md
+          [ -f state/ops-knowledge-handoff-history.jsonl ] || touch state/ops-knowledge-handoff-history.jsonl
 
       - name: Validate strict profile
         run: |
@@ -241,6 +245,7 @@ jobs:
             state/notebooklm-mcp-question-cursor.json
             state/ops-knowledge-handoff.json
             state/ops-knowledge-handoff.md
+            state/ops-knowledge-handoff-history.jsonl
             state/knowledge-markdown-quality-report.json
             state/knowledge-markdown-quality-report.md
           if-no-files-found: warn
