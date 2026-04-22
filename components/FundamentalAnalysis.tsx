@@ -666,7 +666,8 @@ const triggerGitHubHarvester = async (meta?: {
   triggerFile?: string;
 }): Promise<{ ok: boolean; status: number; detail: string }> => {
   if (!GITHUB_DISPATCH_CONFIG.TOKEN) {
-    const detail = 'missing_dispatch_token(VITE_GITHUB_PAT|VITE_GH_PAT|VITE_SIDECAR_DISPATCH_TOKEN)';
+    const detail =
+      'missing_dispatch_token(VITE_GITHUB_TOKEN|VITE_GITHUB_PAT|VITE_GH_PAT|VITE_SIDECAR_DISPATCH_TOKEN)';
     console.error(`[GITHUB DISPATCH] ❌ ${detail}`);
     return { ok: false, status: 0, detail };
   }

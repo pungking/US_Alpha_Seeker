@@ -145,8 +145,10 @@ jobs:
       VITE_APPROVAL_REQUIRED: ${{ vars.APPROVAL_REQUIRED || 'true' }}      
 
       # GitHub Dispatch (Stage3 -> Harvester)
-      GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
-      VITE_GITHUB_PAT: ${{ secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
+      GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      VITE_GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      GITHUB_PAT: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      VITE_GITHUB_PAT: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       
       # Google Drive OAuth
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -230,7 +232,7 @@ jobs:
       - name: 7.2 Sidecar Dry-Run 트리거 (repository_dispatch)
         if: success()
         env:
-          SIDECAR_DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+          SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
           STAGE6_FILE: ${{ steps.stage6_dispatch_meta.outputs.stage6_file }}
           STAGE6_HASH: ${{ steps.stage6_dispatch_meta.outputs.stage6_hash }}
           SOURCE_RUN_ID: ${{ steps.stage6_dispatch_meta.outputs.source_run_id }}
@@ -241,7 +243,7 @@ jobs:
           (async () => {
             const token = String(process.env.SIDECAR_DISPATCH_TOKEN || "").trim();
             if (!token) {
-              console.log("[WARN] SIDECAR_DISPATCH_TOKEN is not set; skip repository_dispatch.");
+              console.log("[WARN] dispatch token is not set (GITHUB_TOKEN|MCP_GITHUB_TOKEN|GH_PAT|SIDECAR_DISPATCH_TOKEN); skip repository_dispatch.");
               process.exit(0);
             }
 

@@ -24,7 +24,7 @@ jobs:
       MCP_SENTRY_COMMAND_PACKAGE: "@sentry/mcp-server"
 
       # Tokens / secrets
-      GITHUB_TOKEN: ${{ secrets.MCP_GITHUB_TOKEN || secrets.GITHUB_PAT || secrets.SIDECAR_DISPATCH_TOKEN }}
+      GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       VERCEL_TOKEN: ${{ secrets.VERCEL_TOKEN }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}

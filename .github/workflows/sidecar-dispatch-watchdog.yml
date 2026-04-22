@@ -65,7 +65,7 @@ jobs:
       TARGET_WORKFLOW: ${{ vars.SIDECAR_WATCHDOG_TARGET_WORKFLOW || 'dry-run.yml' }}
       TARGET_BRANCH: ${{ vars.SIDECAR_WATCHDOG_BRANCH || 'main' }}
       STALE_MINUTES: ${{ vars.SIDECAR_BRIDGE_STALE_MINUTES || vars.SIDECAR_WATCHDOG_STALE_MINUTES || '25' }}
-      DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+      DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       LOOP_ENABLED: ${{ inputs.loop_enabled || vars.SIDECAR_BRIDGE_LOOP_ENABLED || 'false' }}
       LOOP_INTERVAL_MIN: ${{ inputs.loop_interval_min || vars.SIDECAR_BRIDGE_LOOP_INTERVAL_MIN || '15' }}
       LOOP_MAX_RUNS: ${{ inputs.loop_max_runs || vars.SIDECAR_BRIDGE_LOOP_MAX_RUNS || '48' }}
@@ -74,7 +74,7 @@ jobs:
       - name: Validate dispatch token
         run: |
           if [ -z "${DISPATCH_TOKEN:-}" ]; then
-            echo "[ERROR] SIDECAR_DISPATCH_TOKEN is missing."
+            echo "[ERROR] dispatch token is missing (GITHUB_TOKEN|MCP_GITHUB_TOKEN|GH_PAT|SIDECAR_DISPATCH_TOKEN)."
             exit 1
           fi
 

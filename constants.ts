@@ -54,6 +54,7 @@ const getEnvVar = (key: string): string => {
         TELEGRAM_ADMIN_CHAT_ID: process.env.TELEGRAM_ADMIN_CHAT_ID,
         TELEGRAM_WEBHOOK_SECRET: process.env.TELEGRAM_WEBHOOK_SECRET,
         PAPER_MODE: process.env.PAPER_MODE,        
+        GITHUB_TOKEN: process.env.GITHUB_TOKEN,
         GITHUB_PAT: process.env.GITHUB_PAT,
         GH_PAT: process.env.GH_PAT,
         SIDECAR_DISPATCH_TOKEN: process.env.SIDECAR_DISPATCH_TOKEN
@@ -129,7 +130,11 @@ export const GITHUB_DISPATCH_CONFIG = {
   OWNER: 'pungking',
   REPO: 'US_Alpha_Seeker_Harvester',
   EVENT_TYPE: 'stage3_completed',
-  TOKEN: getEnvVar('GITHUB_PAT') || getEnvVar('GH_PAT') || getEnvVar('SIDECAR_DISPATCH_TOKEN'),
+  TOKEN:
+    getEnvVar('GITHUB_TOKEN') ||
+    getEnvVar('GITHUB_PAT') ||
+    getEnvVar('GH_PAT') ||
+    getEnvVar('SIDECAR_DISPATCH_TOKEN'),
   get API_URL() {
     return `https://api.github.com/repos/${this.OWNER}/${this.REPO}/dispatches`;
   }

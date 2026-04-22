@@ -210,7 +210,7 @@ Paper canary recheck automation:
   - `[BROKER_SUBMIT] ... attempted>=1, submitted>=1`
 - schedule: daily `00:15 UTC` (`09:15 KST`)
 - required secrets/vars:
-  - `MCP_GITHUB_TOKEN` (or fallback `GITHUB_PAT` / `SIDECAR_DISPATCH_TOKEN`)
+  - `MCP_GITHUB_TOKEN` (or fallback `GITHUB_TOKEN` / `GH_PAT` / `SIDECAR_DISPATCH_TOKEN`)
   - `VERCEL_TOKEN`
   - `TELEGRAM_TOKEN`
   - `TELEGRAM_SIMULATION_CHAT_ID` (secret or repo variable)

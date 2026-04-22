@@ -123,12 +123,12 @@ jobs:
     timeout-minutes: 5
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
-      SIDECAR_DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+      SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
     steps:
       - name: Validate dispatch token
         run: |
           if [ -z "${SIDECAR_DISPATCH_TOKEN:-}" ]; then
-            echo "[ERROR] SIDECAR_DISPATCH_TOKEN is missing."
+            echo "[ERROR] dispatch token is missing (GITHUB_TOKEN|MCP_GITHUB_TOKEN|GH_PAT|SIDECAR_DISPATCH_TOKEN)."
             exit 1
           fi
 
