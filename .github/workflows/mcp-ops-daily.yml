@@ -43,8 +43,10 @@ jobs:
       OPS_REPORT_CANARY_FRESH_MAX_MIN: ${{ vars.OPS_REPORT_CANARY_FRESH_MAX_MIN || '360' }}
       OPS_REPORT_CANARY_REPO: ${{ vars.OPS_REPORT_CANARY_REPO || 'pungking/US_Alpha_Seeker' }}
       OPS_REPORT_DRYRUN_REPO: ${{ vars.OPS_REPORT_DRYRUN_REPO || 'pungking/alpha-exec-engine' }}
+      OPS_REPORT_GUARD_REPO: ${{ vars.OPS_REPORT_GUARD_REPO || 'pungking/alpha-exec-engine' }}
       OPS_REPORT_CANARY_WORKFLOW: ${{ vars.OPS_REPORT_CANARY_WORKFLOW || 'sidecar-preflight-canary-recheck.yml' }}
       OPS_REPORT_DRYRUN_WORKFLOW: ${{ vars.OPS_REPORT_DRYRUN_WORKFLOW || 'dry-run.yml' }}
+      OPS_REPORT_GUARD_WORKFLOW: ${{ vars.OPS_REPORT_GUARD_WORKFLOW || 'market-guard.yml' }}
 
       # Base MCP placeholders (google-drive in mcp.base.json)
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
