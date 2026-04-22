@@ -49,6 +49,19 @@ const buildEnvMap = () => {
     if (value == null) continue;
     map[key] = String(value);
   }
+  // Alpaca MCP compatibility aliases/defaults:
+  // - Some local setups only define ALPACA_KEY (legacy) without ALPACA_KEY_ID.
+  // - Keep paper + read-only toolset defaults when not explicitly set.
+  if (!String(map.ALPACA_KEY_ID || "").trim() && String(map.ALPACA_KEY || "").trim()) {
+    map.ALPACA_KEY_ID = String(map.ALPACA_KEY || "").trim();
+  }
+  if (!String(map.MCP_ALPACA_PAPER_TRADE || "").trim()) {
+    map.MCP_ALPACA_PAPER_TRADE = "true";
+  }
+  if (!String(map.MCP_ALPACA_TOOLSETS_READONLY || "").trim()) {
+    map.MCP_ALPACA_TOOLSETS_READONLY =
+      "assets,stock-data,crypto-data,options-data,corporate-actions,news";
+  }
   return map;
 };
 

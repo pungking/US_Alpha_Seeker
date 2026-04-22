@@ -51,7 +51,9 @@ req.end();`
 const strict = readBool(process.env.ALPACA_CLI_HEALTH_STRICT, false);
 const httpProbe = readBool(process.env.ALPACA_CLI_HEALTH_HTTP_PROBE, false);
 const baseUrl = String(process.env.ALPACA_BASE_URL || "https://paper-api.alpaca.markets").trim();
-const keyId = String(process.env.ALPACA_KEY_ID || process.env.ALPACA_API_KEY || "").trim();
+const keyId = String(
+  process.env.ALPACA_KEY_ID || process.env.ALPACA_API_KEY || process.env.ALPACA_KEY || ""
+).trim();
 const secretKey = String(process.env.ALPACA_SECRET_KEY || "").trim();
 
 const checks = [];
