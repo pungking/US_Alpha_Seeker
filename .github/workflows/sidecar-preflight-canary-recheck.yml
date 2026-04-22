@@ -79,6 +79,15 @@ jobs:
             const workflowId = String(process.env.TARGET_WORKFLOW || '').trim() || 'dry-run.yml';
             const ref = String(process.env.TARGET_REF || '').trim() || 'main';
 
+            const beforeRuns = await github.rest.actions.listWorkflowRuns({
+              owner,
+              repo,
+              workflow_id: workflowId,
+              event: 'workflow_dispatch',
+              per_page: 1
+            });
+            const baselineRunId = Number(beforeRuns.data?.workflow_runs?.[0]?.id || 0);
+
             const inputs = {
               run_force_send_once: 'true',
               run_allow_entry_outside_rth: String(process.env.RUN_ALLOW_ENTRY_OUTSIDE_RTH || 'true'),
@@ -103,8 +112,9 @@ jobs:
             core.setOutput('target_repo', repo);
             core.setOutput('target_workflow', workflowId);
             core.setOutput('target_ref', ref);
+            core.setOutput('baseline_run_id', String(baselineRunId));
 
-            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} at=${dispatchAt}`;
+            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} baselineRunId=${baselineRunId} at=${dispatchAt}`;
             core.notice(summaryLine);
             await core.summary
               .addHeading('Preflight Canary Dispatch')
@@ -119,6 +129,7 @@ jobs:
           TARGET_REPO: ${{ env.TARGET_REPO }}
           TARGET_WORKFLOW: ${{ steps.dispatch.outputs.target_workflow || env.TARGET_WORKFLOW }}
           DISPATCH_AT: ${{ steps.dispatch.outputs.dispatch_at }}
+          BASELINE_RUN_ID: ${{ steps.dispatch.outputs.baseline_run_id }}
           MAX_WAIT_MINUTES: ${{ env.MAX_WAIT_MINUTES }}
         run: |
           set -euo pipefail
@@ -126,6 +137,10 @@ jobs:
           if [ -z "${DISPATCH_AT:-}" ]; then
             echo "[ERROR] DISPATCH_AT is empty"
             exit 1
+          fi
+          baseline_run_id="${BASELINE_RUN_ID:-0}"
+          if ! [[ "$baseline_run_id" =~ ^[0-9]+$ ]]; then
+            baseline_run_id="0"
           fi
 
           max_wait_s=$(( MAX_WAIT_MINUTES * 60 ))
@@ -137,7 +152,7 @@ jobs:
 
           while [ "$elapsed" -le "$max_wait_s" ]; do
             payload="$(gh run list --repo "$TARGET_REPO" --workflow "$TARGET_WORKFLOW" --event workflow_dispatch --limit 30 --json databaseId,createdAt,status,conclusion,url)"
-            picked="$(node -e 'const dispatchAt=process.argv[1]; const payload=process.argv[2] || "[]"; const rows=JSON.parse(payload); const dispatchMs=Date.parse(dispatchAt); const eligible=rows.filter((r)=>Number.isFinite(Date.parse(String(r.createdAt || "")))).filter((r)=>Date.parse(String(r.createdAt)) >= dispatchMs - 1000).sort((a,b)=>Date.parse(String(b.createdAt))-Date.parse(String(a.createdAt))); process.stdout.write(eligible.length ? JSON.stringify(eligible[0]) : "{}");' "$DISPATCH_AT" "$payload")"
+            picked="$(node -e 'const baseline=Number(process.argv[1] || "0"); const payload=process.argv[2] || "[]"; const rows=JSON.parse(payload); const eligible=rows.filter((r)=>Number(r.databaseId||0) > baseline).sort((a,b)=>Number(b.databaseId||0)-Number(a.databaseId||0)); process.stdout.write(eligible.length ? JSON.stringify(eligible[0]) : "{}");' "$baseline_run_id" "$payload")"
 
             status="$(node -e 'const r=JSON.parse(process.argv[1]); console.log(r.status || "")' "$picked")"
             if [ "$status" = "completed" ]; then
