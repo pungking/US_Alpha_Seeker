@@ -4,6 +4,20 @@ import path from "node:path";
 import { spawnSync } from "node:child_process";
 
 const CWD = process.cwd();
+const DEFAULT_REPORT_PATH = path.join(
+  CWD,
+  "sidecar-template",
+  "alpha-exec-engine",
+  "state",
+  "ops-daily-report.json"
+);
+const DEFAULT_NOTION_SYNC_PATH = path.join(
+  CWD,
+  "sidecar-template",
+  "alpha-exec-engine",
+  "state",
+  "notion-ops-daily-sync.json"
+);
 
 const env = (name, fallback = "") => String(process.env[name] ?? fallback).trim();
 const boolFromEnv = (name, fallback = false) => {
@@ -16,6 +30,42 @@ const boolFromEnv = (name, fallback = false) => {
 const numFromEnv = (name, fallback) => {
   const n = Number(env(name, String(fallback)));
   return Number.isFinite(n) ? n : fallback;
+};
+const resolvePath = (raw, fallbackPath) => {
+  const value = String(raw || "").trim();
+  if (!value) return fallbackPath;
+  if (path.isAbsolute(value)) return value;
+  return path.join(CWD, value);
+};
+const normalizeSlash = (value) => String(value || "").replace(/\\/g, "/");
+
+const collectFiles = (rootDir) => {
+  const out = [];
+  const walk = (dir) => {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    for (const entry of entries) {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) {
+        walk(full);
+      } else if (entry.isFile()) {
+        out.push(full);
+      }
+    }
+  };
+  if (fs.existsSync(rootDir)) walk(rootDir);
+  return out;
+};
+
+const locateExtractedFile = (allFiles, expectedRelative) => {
+  const expectedNorm = normalizeSlash(expectedRelative).replace(/^\/+/, "");
+  const bySuffix = allFiles.find((filePath) => {
+    const norm = normalizeSlash(filePath);
+    return norm.endsWith(expectedNorm);
+  });
+  if (bySuffix) return bySuffix;
+  const basename = path.basename(expectedNorm);
+  const byName = allFiles.filter((filePath) => path.basename(filePath) === basename);
+  return byName.length === 1 ? byName[0] : null;
 };
 
 const requestJson = async (token, url) => {
@@ -69,6 +119,8 @@ const main = async () => {
   const workflow = env("OPS_DAILY_SOURCE_WORKFLOW", "mcp-ops-daily.yml");
   const artifactName = env("OPS_DAILY_SOURCE_ARTIFACT_NAME", "ops-daily-report");
   const maxRuns = Math.max(5, Math.min(50, numFromEnv("OPS_DAILY_SOURCE_MAX_RUNS", 20)));
+  const reportPath = resolvePath(env("OPS_DAILY_REPORT_PATH"), DEFAULT_REPORT_PATH);
+  const notionSyncPath = resolvePath(env("OPS_DAILY_NOTION_SYNC_PATH"), DEFAULT_NOTION_SYNC_PATH);
 
   const match = repoRaw.match(/^([^/]+)\/([^/]+)$/);
   if (!match) {
@@ -112,9 +164,11 @@ const main = async () => {
 
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "ops-daily-artifact-"));
   const zipPath = path.join(tmpDir, "ops-daily-report.zip");
+  const extractDir = path.join(tmpDir, "extract");
   try {
     await downloadArtifactZip(token, artifact.archive_download_url, zipPath);
-    const unzip = spawnSync("unzip", ["-o", zipPath, "-d", CWD], {
+    fs.mkdirSync(extractDir, { recursive: true });
+    const unzip = spawnSync("unzip", ["-o", zipPath, "-d", extractDir], {
       encoding: "utf8",
       maxBuffer: 20 * 1024 * 1024
     });
@@ -122,8 +176,23 @@ const main = async () => {
       const stderr = String(unzip.stderr || "").trim();
       throw new Error(`unzip_failed:${stderr.slice(0, 200) || "unknown"}`);
     }
+    const extractedFiles = collectFiles(extractDir);
+    const reportSrc = locateExtractedFile(extractedFiles, path.relative(CWD, reportPath));
+    if (!reportSrc) {
+      throw new Error(
+        `required_report_missing expected=${path.relative(CWD, reportPath)} extracted=${extractedFiles.length}`
+      );
+    }
+    fs.mkdirSync(path.dirname(reportPath), { recursive: true });
+    fs.copyFileSync(reportSrc, reportPath);
+
+    const notionSrc = locateExtractedFile(extractedFiles, path.relative(CWD, notionSyncPath));
+    if (notionSrc) {
+      fs.mkdirSync(path.dirname(notionSyncPath), { recursive: true });
+      fs.copyFileSync(notionSrc, notionSyncPath);
+    }
     console.log(
-      `[OPS_DAILY_ARTIFACT_PULL] status=ok repo=${owner}/${repo} workflow=${workflow} runId=${run.id} artifact=${artifactName}`
+      `[OPS_DAILY_ARTIFACT_PULL] status=ok repo=${owner}/${repo} workflow=${workflow} runId=${run.id} artifact=${artifactName} report=${path.relative(CWD, reportPath)} notionSync=${notionSrc ? path.relative(CWD, notionSyncPath) : "missing"}`
     );
   } finally {
     fs.rmSync(tmpDir, { recursive: true, force: true });
