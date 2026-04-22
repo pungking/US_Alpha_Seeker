@@ -30,6 +30,12 @@ on:
         default: "true"
         type: choice
         options: ["true", "false"]
+      run_actionable_include_speculative_buy:
+        description: "Toggle actionable verdict set to avoid same hash/mode dedupe in repeated canary runs"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
 
 permissions:
   contents: read
@@ -50,6 +56,7 @@ jobs:
       TARGET_WORKFLOW: ${{ inputs.target_workflow || 'dry-run.yml' }}
       MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes || '25' }}
       RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth || 'true' }}
+      RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY: ${{ inputs.run_actionable_include_speculative_buy || 'true' }}
     steps:
       - name: Validate dispatch token
         run: |
@@ -91,6 +98,9 @@ jobs:
             const inputs = {
               run_force_send_once: 'true',
               run_allow_entry_outside_rth: String(process.env.RUN_ALLOW_ENTRY_OUTSIDE_RTH || 'true'),
+              run_actionable_include_speculative_buy: String(
+                process.env.RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY || 'true'
+              ),
               run_disable_order_idempotency: 'true',
               run_dry_max_orders_override: '2',
               run_dry_max_total_notional_override: '200',
@@ -114,7 +124,7 @@ jobs:
             core.setOutput('target_ref', ref);
             core.setOutput('baseline_run_id', String(baselineRunId));
 
-            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} baselineRunId=${baselineRunId} at=${dispatchAt}`;
+            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} baselineRunId=${baselineRunId} at=${dispatchAt}`;
             core.notice(summaryLine);
             await core.summary
               .addHeading('Preflight Canary Dispatch')
