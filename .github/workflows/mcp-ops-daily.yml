@@ -15,6 +15,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       # MCP package defaults
       MCP_GITHUB_COMMAND_PACKAGE: mcp-remote
       MCP_GITHUB_URL: https://api.githubcopilot.com/mcp/
@@ -67,7 +68,7 @@ jobs:
 
       - name: Upload MCP smoke report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: mcp-smoke-report
           path: state/mcp-smoke-report.json
@@ -75,7 +76,7 @@ jobs:
 
       - name: Upload Notion ops audit report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: notion-ops-audit
           path: |
