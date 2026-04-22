@@ -119,7 +119,7 @@ jobs:
 
       - name: Upload MCP smoke report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: mcp-smoke-report
           path: state/mcp-smoke-report.json
@@ -127,7 +127,7 @@ jobs:
 
       - name: Upload Notion ops audit report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: notion-ops-audit
           path: |
@@ -137,7 +137,7 @@ jobs:
 
       - name: Upload ops daily report
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: ops-daily-report
           path: |

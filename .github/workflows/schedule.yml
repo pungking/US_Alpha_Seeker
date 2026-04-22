@@ -319,7 +319,7 @@ jobs:
 
       - name: 8. 결과 증거물 저장 (Screenshots)
         if: always() # 성공/실패 여부와 관계없이 실행
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: automation-evidence
           path: |

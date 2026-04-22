@@ -38,7 +38,7 @@ jobs:
 
       - name: Upload drift audit artifact
         if: always()
-        uses: actions/upload-artifact@v5
+        uses: actions/upload-artifact@v7
         with:
           name: sidecar-workflow-drift-audit
           path: |
