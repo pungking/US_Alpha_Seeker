@@ -189,7 +189,18 @@ jobs:
           log_path="/tmp/sidecar-preflight-canary-${run_id}.log"
           gh run view "$run_id" --repo "$TARGET_REPO" --log > "$log_path"
 
-          verify_line="$(node -e 'const fs=require("node:fs"); const logPath=process.argv[1]; const runUrl=process.argv[2]; const text=fs.readFileSync(logPath,"utf8"); const preflightPass=/\[PREFLIGHT\]\s+status=PASS\b/.test(text); const submitSummaryMatch=text.match(/\[BROKER_SUBMIT\][^\n]*reason=([^\s]+)[^\n]*attempted=(\d+)\s+submitted=(\d+)/); const brokerReason=submitSummaryMatch ? submitSummaryMatch[1] : "unknown"; const attempted=submitSummaryMatch ? Number(submitSummaryMatch[2]) : 0; const submitted=submitSummaryMatch ? Number(submitSummaryMatch[3]) : 0; const openEntryMatch=text.match(/\[OPEN_ENTRY_GUARD\][^\n]*openEntries=(\d+)/); const openEntries=openEntryMatch ? Number(openEntryMatch[1]) : 0; const submitPass=attempted >= 1 && submitted >= 1; const guardSkipPass=attempted === 0 && submitted === 0 && brokerReason === "submit_skipped_all" && openEntries >= 1; const pass=preflightPass && (submitPass || guardSkipPass); const verifyMode=submitPass ? "submit_pass" : guardSkipPass ? "guard_skip_pass" : "fail"; const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${preflightPass} attempted=${attempted} submitted=${submitted} broker_reason=${brokerReason} open_entries=${openEntries} verify_mode=${verifyMode} pass=${pass} url=${runUrl}`; console.log(line); if (!pass) process.exit(1);' "$log_path" "$run_url")"
+          artifact_dir="/tmp/sidecar-preflight-canary-${run_id}-artifact"
+          rm -rf "$artifact_dir"
+          mkdir -p "$artifact_dir"
+          gh run download "$run_id" --repo "$TARGET_REPO" --dir "$artifact_dir"
+          preview_path="$(find "$artifact_dir" -type f -name 'last-dry-exec-preview.json' | head -n 1)"
+          if [ -z "${preview_path}" ]; then
+            echo "[ERROR] last-dry-exec-preview.json not found in downloaded artifacts"
+            find "$artifact_dir" -maxdepth 3 -type f | sed -n '1,120p'
+            exit 1
+          fi
+
+          verify_line="$(node -e 'const fs=require("node:fs"); const previewPath=process.argv[1]; const runUrl=process.argv[2]; const p=JSON.parse(fs.readFileSync(previewPath,"utf8")); const preflight=typeof p.preflight==="object" && p.preflight ? p.preflight : {}; const preflightStatus=String(preflight.status || "").toLowerCase(); const preflightCode=String(preflight.code || ""); const preflightPass=preflightStatus==="pass" && preflightCode==="PREFLIGHT_PASS"; const broker=typeof p.brokerSubmission==="object" && p.brokerSubmission ? p.brokerSubmission : {}; const attempted=Number.isFinite(Number(broker.attempted)) ? Number(broker.attempted) : 0; const submitted=Number.isFinite(Number(broker.submitted)) ? Number(broker.submitted) : 0; const brokerReason=String(broker.reason || "unknown"); const orderRows=broker.orders && typeof broker.orders==="object" ? Object.values(broker.orders) : []; const guardReasonCount=orderRows.filter((row)=>{ const reason=String((row && row.reason) || ""); return reason.startsWith("open_entry_order_exists") || reason.startsWith("open_entry_duplicate_exists"); }).length; const submitPass=attempted>=1 && submitted>=1; const guardSkipPass=attempted===0 && submitted===0 && brokerReason==="submit_skipped_all" && guardReasonCount>=1; const pass=preflightPass && (submitPass || guardSkipPass); const verifyMode=submitPass ? "submit_pass" : guardSkipPass ? "guard_skip_pass" : "fail"; const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${preflightPass} preflight_code=${preflightCode || "N/A"} attempted=${attempted} submitted=${submitted} broker_reason=${brokerReason} guard_reason_count=${guardReasonCount} verify_mode=${verifyMode} pass=${pass} preview=${previewPath} url=${runUrl}`; console.log(line); if (!pass) process.exit(1);' "$preview_path" "$run_url")"
           echo "$verify_line"
 
           {
