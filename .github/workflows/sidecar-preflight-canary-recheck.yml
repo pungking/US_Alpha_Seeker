@@ -1,0 +1,167 @@
+name: Sidecar Preflight Canary Recheck
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Target sidecar repository (owner/repo)"
+        required: false
+        default: "pungking/alpha-exec-engine"
+        type: string
+      target_ref:
+        description: "Target sidecar branch/ref"
+        required: false
+        default: "main"
+        type: string
+      target_workflow:
+        description: "Target workflow file"
+        required: false
+        default: "dry-run.yml"
+        type: string
+      max_wait_minutes:
+        description: "Max wait for target run completion"
+        required: false
+        default: "25"
+        type: choice
+        options: ["10", "15", "20", "25", "30", "40"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sidecar-preflight-canary-recheck-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  recheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 55
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      SIDECAR_DISPATCH_TOKEN: ${{ secrets.SIDECAR_DISPATCH_TOKEN }}
+      TARGET_REPO: ${{ inputs.target_repo || 'pungking/alpha-exec-engine' }}
+      TARGET_REF: ${{ inputs.target_ref || 'main' }}
+      TARGET_WORKFLOW: ${{ inputs.target_workflow || 'dry-run.yml' }}
+      MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes || '25' }}
+    steps:
+      - name: Validate dispatch token
+        run: |
+          if [ -z "${SIDECAR_DISPATCH_TOKEN:-}" ]; then
+            echo "[ERROR] SIDECAR_DISPATCH_TOKEN is missing."
+            exit 1
+          fi
+
+      - name: Dispatch canary run (normal preflight mode)
+        id: dispatch
+        uses: actions/github-script@v7
+        env:
+          TARGET_REPO: ${{ env.TARGET_REPO }}
+          TARGET_REF: ${{ env.TARGET_REF }}
+          TARGET_WORKFLOW: ${{ env.TARGET_WORKFLOW }}
+        with:
+          github-token: ${{ env.SIDECAR_DISPATCH_TOKEN }}
+          script: |
+            const targetRepoRaw = String(process.env.TARGET_REPO || '').trim();
+            const repoMatch = targetRepoRaw.match(/^([^/]+)\/([^/]+)$/);
+            if (!repoMatch) {
+              core.setFailed(`invalid TARGET_REPO: ${targetRepoRaw}`);
+              return;
+            }
+            const owner = repoMatch[1];
+            const repo = repoMatch[2];
+            const workflowId = String(process.env.TARGET_WORKFLOW || '').trim() || 'dry-run.yml';
+            const ref = String(process.env.TARGET_REF || '').trim() || 'main';
+
+            const inputs = {
+              run_force_send_once: 'true',
+              run_allow_entry_outside_rth: 'false',
+              run_disable_order_idempotency: 'true',
+              run_dry_max_orders_override: '2',
+              run_dry_max_total_notional_override: '200',
+              validation_pack: 'false',
+              payload_probe: 'false'
+            };
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: workflowId,
+              ref,
+              inputs
+            });
+
+            const dispatchAt = new Date().toISOString();
+            core.setOutput('dispatch_at', dispatchAt);
+            core.setOutput('target_owner', owner);
+            core.setOutput('target_repo', repo);
+            core.setOutput('target_workflow', workflowId);
+            core.setOutput('target_ref', ref);
+
+            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} at=${dispatchAt}`;
+            core.notice(summaryLine);
+            await core.summary
+              .addHeading('Preflight Canary Dispatch')
+              .addRaw('```text\n')
+              .addRaw(`${summaryLine}\n`)
+              .addRaw('```\n')
+              .write();
+
+      - name: Wait target run and verify preflight/broker submit
+        env:
+          GH_TOKEN: ${{ env.SIDECAR_DISPATCH_TOKEN }}
+          TARGET_REPO: ${{ env.TARGET_REPO }}
+          TARGET_WORKFLOW: ${{ steps.dispatch.outputs.target_workflow || env.TARGET_WORKFLOW }}
+          DISPATCH_AT: ${{ steps.dispatch.outputs.dispatch_at }}
+          MAX_WAIT_MINUTES: ${{ env.MAX_WAIT_MINUTES }}
+        run: |
+          set -euo pipefail
+
+          if [ -z "${DISPATCH_AT:-}" ]; then
+            echo "[ERROR] DISPATCH_AT is empty"
+            exit 1
+          fi
+
+          max_wait_s=$(( MAX_WAIT_MINUTES * 60 ))
+          sleep_s=15
+          elapsed=0
+          run_id=""
+          run_url=""
+          run_conclusion=""
+
+          while [ "$elapsed" -le "$max_wait_s" ]; do
+            payload="$(gh run list --repo "$TARGET_REPO" --workflow "$TARGET_WORKFLOW" --event workflow_dispatch --limit 30 --json databaseId,createdAt,status,conclusion,url)"
+            picked="$(node -e 'const dispatchAt=process.argv[1]; const payload=process.argv[2] || "[]"; const rows=JSON.parse(payload); const dispatchMs=Date.parse(dispatchAt); const eligible=rows.filter((r)=>Number.isFinite(Date.parse(String(r.createdAt || "")))).filter((r)=>Date.parse(String(r.createdAt)) >= dispatchMs - 1000).sort((a,b)=>Date.parse(String(b.createdAt))-Date.parse(String(a.createdAt))); process.stdout.write(eligible.length ? JSON.stringify(eligible[0]) : "{}");' "$DISPATCH_AT" "$payload")"
+
+            status="$(node -e 'const r=JSON.parse(process.argv[1]); console.log(r.status || "")' "$picked")"
+            if [ "$status" = "completed" ]; then
+              run_id="$(node -e 'const r=JSON.parse(process.argv[1]); console.log(r.databaseId || "")' "$picked")"
+              run_url="$(node -e 'const r=JSON.parse(process.argv[1]); console.log(r.url || "")' "$picked")"
+              run_conclusion="$(node -e 'const r=JSON.parse(process.argv[1]); console.log(r.conclusion || "")' "$picked")"
+              break
+            fi
+
+            sleep "$sleep_s"
+            elapsed=$(( elapsed + sleep_s ))
+          done
+
+          if [ -z "$run_id" ]; then
+            echo "[ERROR] target run not completed within ${MAX_WAIT_MINUTES} minutes"
+            exit 1
+          fi
+
+          if [ "$run_conclusion" != "success" ]; then
+            echo "[ERROR] target run completed but not success: conclusion=$run_conclusion url=$run_url"
+            exit 1
+          fi
+
+          log_path="/tmp/sidecar-preflight-canary-${run_id}.log"
+          gh run view "$run_id" --repo "$TARGET_REPO" --log > "$log_path"
+
+          node -e 'const fs=require("node:fs"); const logPath=process.argv[1]; const runUrl=process.argv[2]; const text=fs.readFileSync(logPath,"utf8"); const preflightPass=/\[PREFLIGHT\]\s+status=PASS\b/.test(text); const submitSummaryMatch=text.match(/\[BROKER_SUBMIT\][^\n]*attempted=(\d+)\s+submitted=(\d+)/); const attempted=submitSummaryMatch ? Number(submitSummaryMatch[1]) : 0; const submitted=submitSummaryMatch ? Number(submitSummaryMatch[2]) : 0; const submitPass=attempted >= 1 && submitted >= 1; console.log(`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${preflightPass} attempted=${attempted} submitted=${submitted} url=${runUrl}`); if (!preflightPass || !submitPass) process.exit(1);' "$log_path" "$run_url"
+
+          {
+            echo "## Sidecar Preflight Canary Recheck"
+            echo ""
+            echo "- target_run: ${run_url}"
+            echo "- result: PASS (preflight=PASS, attempted>=1, submitted>=1)"
+          } >> "$GITHUB_STEP_SUMMARY"

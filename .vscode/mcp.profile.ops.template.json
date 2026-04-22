@@ -81,6 +81,18 @@
         "${MCP_CLOUDFLARE_COMMAND_PACKAGE}",
         "${MCP_CLOUDFLARE_URL}"
       ]
+    },
+    "alpaca-mcp": {
+      "command": "uvx",
+      "args": [
+        "alpaca-mcp-server"
+      ],
+      "env": {
+        "ALPACA_API_KEY": "${ALPACA_KEY_ID}",
+        "ALPACA_SECRET_KEY": "${ALPACA_SECRET_KEY}",
+        "ALPACA_PAPER_TRADE": "${MCP_ALPACA_PAPER_TRADE}",
+        "ALPACA_TOOLSETS": "${MCP_ALPACA_TOOLSETS_READONLY}"
+      }
     }
   },
   "inputs": []

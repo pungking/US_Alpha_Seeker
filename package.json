@@ -19,6 +19,8 @@
     "mcp:sync:research": "MCP_PROFILE=research node scripts/sync-mcp-profile.mjs",
     "mcp:sync:full": "MCP_PROFILE=full node scripts/sync-mcp-profile.mjs",
     "mcp:ops:daily": "npm run mcp:sync:ops && MCP_CHECK_STRICT=true npm run mcp:check && npm run mcp:health",
+    "ops:alpaca:cli:health": "node scripts/alpaca-cli-healthcheck.mjs",
+    "ops:alpaca:cli:health:strict": "ALPACA_CLI_HEALTH_STRICT=true node scripts/alpaca-cli-healthcheck.mjs",
     "ops:knowledge:sync": "node scripts/sync-knowledge-routines.mjs",
     "ops:knowledge:notebooklm": "node scripts/notebooklm-mcp-collect.mjs",
     "ops:knowledge:bridge": "node scripts/notebooklm-intake-bridge.mjs",

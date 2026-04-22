@@ -91,13 +91,14 @@ This document includes:
 ## Optional: MCP Collaboration Setup
 
 For smoother Codex+operator collaboration, keep the active MCP config and profile templates separate.
+Detailed ops procedure: `docs/ALPACA_CLI_MCP_OPERATIONS_RUNBOOK_2026-04-22.md`
 
 - Active config:
   - `.vscode/mcp.json`
 - Base config:
   - `.vscode/mcp.base.json` (Notion + Google Drive)
 - Profile templates:
-  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright/Grafana/PagerDuty/Cloudflare)
+  - `.vscode/mcp.profile.ops.template.json` (GitHub/Vercel/Telegram/Sentry/Playwright/Grafana/PagerDuty/Cloudflare/Alpaca-MCP(read-only))
   - `.vscode/mcp.profile.research.template.json` (Perplexity/Obsidian optional)
 - Optional all-in-one template:
   - `.vscode/mcp.online.template.json`
@@ -107,6 +108,9 @@ For smoother Codex+operator collaboration, keep the active MCP config and profil
   - Grafana vars (recommended read-only MCP): `MCP_GRAFANA_COMMAND=uvx`, `MCP_GRAFANA_COMMAND_PACKAGE=mcp-grafana`, `GRAFANA_URL`, `GRAFANA_SERVICE_ACCOUNT_TOKEN`
   - PagerDuty vars (recommended read-only MCP): `MCP_PAGERDUTY_COMMAND=uvx`, `MCP_PAGERDUTY_COMMAND_PACKAGE=pagerduty-mcp`, `PAGERDUTY_USER_API_KEY`, `PAGERDUTY_API_HOST=https://api.pagerduty.com`
   - Cloudflare vars (remote MCP bridge): `MCP_CLOUDFLARE_COMMAND_PACKAGE=mcp-remote`, `MCP_CLOUDFLARE_URL` (optional: `CLOUDFLARE_API_TOKEN`)
+  - Alpaca MCP vars (read-only baseline):
+    - `MCP_ALPACA_PAPER_TRADE=true`
+    - `MCP_ALPACA_TOOLSETS_READONLY=assets,stock-data,crypto-data,options-data,corporate-actions,news`
   - optional Obsidian vars: `MCP_OBSIDIAN_COMMAND_PACKAGE`, `OBSIDIAN_API_KEY`, `OBSIDIAN_BASE_URL`
   - telegram routing defaults can use `TELEGRAM_SIMULATION_CHAT_ID`
 
@@ -150,6 +154,10 @@ Smoke/health checks:
   - `npm run mcp:health:always`
 - one-shot daily ops routine:
   - `npm run mcp:ops:daily`
+- Alpaca CLI workstation health checks:
+  - `npm run ops:alpaca:cli:health`
+  - `npm run ops:alpaca:cli:health:strict`
+  - optional account probe: `ALPACA_CLI_HEALTH_HTTP_PROBE=true npm run ops:alpaca:cli:health`
 - Repo↔Notion↔Obsidian 운영 루틴 동기화:
   - `npm run ops:knowledge:sync`
   - 결과 리포트: `state/knowledge-routine-sync-report.json`
@@ -194,6 +202,12 @@ Smoke/health checks:
 Optional GitHub Actions daily automation:
 
 - workflow: `.github/workflows/mcp-ops-daily.yml`
+
+Paper canary recheck automation:
+- workflow: `.github/workflows/sidecar-preflight-canary-recheck.yml`
+- dispatches `pungking/alpha-exec-engine` dry-run with normal preflight condition and validates:
+  - `[PREFLIGHT] status=PASS`
+  - `[BROKER_SUBMIT] ... attempted>=1, submitted>=1`
 - schedule: daily `00:15 UTC` (`09:15 KST`)
 - required secrets/vars:
   - `MCP_GITHUB_TOKEN` (or fallback `GITHUB_PAT` / `SIDECAR_DISPATCH_TOKEN`)
