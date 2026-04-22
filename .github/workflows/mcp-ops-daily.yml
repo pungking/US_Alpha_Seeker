@@ -29,6 +29,11 @@ jobs:
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
       TELEGRAM_SIMULATION_CHAT_ID: ${{ secrets.TELEGRAM_SIMULATION_CHAT_ID || vars.TELEGRAM_SIMULATION_CHAT_ID }}
       SENTRY_ACCESS_TOKEN: ${{ secrets.SENTRY_ACCESS_TOKEN }}
+      NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+      NOTION_DB_DAILY_SNAPSHOT: ${{ vars.NOTION_DB_DAILY_SNAPSHOT }}
+      NOTION_AUDIT_PAGE_SIZE: ${{ vars.NOTION_AUDIT_PAGE_SIZE || '40' }}
+      NOTION_AUDIT_STALE_MINUTES: ${{ vars.NOTION_AUDIT_STALE_MINUTES || '240' }}
+      NOTION_AUDIT_RUNKEY_PREFIXES: ${{ vars.NOTION_AUDIT_RUNKEY_PREFIXES || 'sidecar-' }}
 
       # Base MCP placeholders (google-drive in mcp.base.json)
       GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
@@ -47,10 +52,33 @@ jobs:
       - name: Run MCP ops daily routine
         run: npm run mcp:ops:daily
 
+      - name: Run Notion ops audit
+        run: npm run ops:notion:audit --prefix sidecar-template/alpha-exec-engine
+
+      - name: Publish Notion ops audit summary
+        if: always()
+        run: |
+          if [ -f "sidecar-template/alpha-exec-engine/state/notion-ops-audit.md" ]; then
+            cat "sidecar-template/alpha-exec-engine/state/notion-ops-audit.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Notion Ops Audit" >> "$GITHUB_STEP_SUMMARY"
+            echo "- result: no audit artifact generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload MCP smoke report
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: mcp-smoke-report
           path: state/mcp-smoke-report.json
+          if-no-files-found: ignore
+
+      - name: Upload Notion ops audit report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: notion-ops-audit
+          path: |
+            sidecar-template/alpha-exec-engine/state/notion-ops-audit.json
+            sidecar-template/alpha-exec-engine/state/notion-ops-audit.md
           if-no-files-found: ignore
