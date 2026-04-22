@@ -83,7 +83,7 @@ jobs:
 
       - name: Evaluate sidecar freshness and dispatch fallback
         id: eval
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         with:
           github-token: ${{ env.DISPATCH_TOKEN }}
           script: |
@@ -219,7 +219,7 @@ jobs:
 
       - name: Requeue watchdog loop
         if: ${{ steps.eval.outputs.loop_continue == 'true' }}
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           LOOP_INTERVAL_MIN: ${{ steps.eval.outputs.loop_interval_min }}
           LOOP_MAX_RUNS: ${{ steps.eval.outputs.loop_max_runs }}

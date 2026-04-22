@@ -133,7 +133,7 @@ jobs:
           fi
 
       - name: Dispatch sidecar dry-run workflow
-        uses: actions/github-script@v7
+        uses: actions/github-script@v8
         env:
           TARGET_REPO: ${{ inputs.target_repo }}
           TARGET_REF: ${{ inputs.target_ref }}
