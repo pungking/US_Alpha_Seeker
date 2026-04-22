@@ -42,6 +42,22 @@ on:
         default: "auto"
         type: choice
         options: ["auto", "submit_pass", "guard_skip_pass"]
+      verify_replace_tuning:
+        description: "Verify ENTRY_OPEN_ORDER_REPLACE_* tuning markers against expected values"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      expected_replace_min_delta_bps:
+        description: "Expected OPEN_ENTRY_RDEL value in sidecar startup summary"
+        required: false
+        default: "10"
+        type: string
+      expected_replace_max_chase_bps:
+        description: "Expected OPEN_ENTRY_RMAX value in sidecar startup summary"
+        required: false
+        default: "120"
+        type: string
 
 permissions:
   contents: read
@@ -64,6 +80,9 @@ jobs:
       RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth || 'true' }}
       RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY: ${{ inputs.run_actionable_include_speculative_buy || 'true' }}
       VERIFY_MODE: ${{ inputs.verify_mode || 'auto' }}
+      VERIFY_REPLACE_TUNING: ${{ inputs.verify_replace_tuning || 'true' }}
+      EXPECT_REPLACE_MIN_DELTA_BPS: ${{ inputs.expected_replace_min_delta_bps || '10' }}
+      EXPECT_REPLACE_MAX_CHASE_BPS: ${{ inputs.expected_replace_max_chase_bps || '120' }}
     steps:
       - name: Validate dispatch token
         run: |
@@ -149,6 +168,9 @@ jobs:
           BASELINE_RUN_ID: ${{ steps.dispatch.outputs.baseline_run_id }}
           MAX_WAIT_MINUTES: ${{ env.MAX_WAIT_MINUTES }}
           VERIFY_MODE: ${{ env.VERIFY_MODE }}
+          VERIFY_REPLACE_TUNING: ${{ env.VERIFY_REPLACE_TUNING }}
+          EXPECT_REPLACE_MIN_DELTA_BPS: ${{ env.EXPECT_REPLACE_MIN_DELTA_BPS }}
+          EXPECT_REPLACE_MAX_CHASE_BPS: ${{ env.EXPECT_REPLACE_MAX_CHASE_BPS }}
         run: |
           set -euo pipefail
 
@@ -210,8 +232,8 @@ jobs:
           fi
 
           verify_json_path="/tmp/sidecar-preflight-canary-${run_id}-verify.json"
-          node -e 'const fs=require("node:fs"); const previewPath=process.argv[1]; const runUrl=process.argv[2]; const outputPath=process.argv[3]; const verifyModeRaw=String(process.argv[4] || "auto").trim().toLowerCase(); const verifyModeExpected=verifyModeRaw==="submit_pass" || verifyModeRaw==="guard_skip_pass" ? verifyModeRaw : "auto"; const p=JSON.parse(fs.readFileSync(previewPath,"utf8")); const preflight=typeof p.preflight==="object" && p.preflight ? p.preflight : {}; const preflightStatus=String(preflight.status || "").toLowerCase(); const preflightCode=String(preflight.code || ""); const preflightPass=preflightStatus==="pass" && preflightCode==="PREFLIGHT_PASS"; const broker=typeof p.brokerSubmission==="object" && p.brokerSubmission ? p.brokerSubmission : {}; const attempted=Number.isFinite(Number(broker.attempted)) ? Number(broker.attempted) : 0; const submitted=Number.isFinite(Number(broker.submitted)) ? Number(broker.submitted) : 0; const brokerReason=String(broker.reason || "unknown"); const orderRows=broker.orders && typeof broker.orders==="object" ? Object.values(broker.orders) : []; const guardReasonCount=orderRows.filter((row)=>{ const reason=String((row && row.reason) || ""); return reason.startsWith("open_entry_order_exists") || reason.startsWith("open_entry_duplicate_exists"); }).length; const submitPass=attempted>=1 && submitted>=1; const guardSkipPass=attempted===0 && submitted===0 && brokerReason==="submit_skipped_all" && guardReasonCount>=1; const verifyModeObserved=submitPass ? "submit_pass" : guardSkipPass ? "guard_skip_pass" : "fail"; const modePass = verifyModeExpected==="auto" ? (submitPass || guardSkipPass) : (verifyModeObserved === verifyModeExpected); const pass=preflightPass && modePass; const out={preflightPass,preflightCode:preflightCode || "N/A",attempted,submitted,brokerReason,guardReasonCount,verifyModeExpected,verifyModeObserved,modePass,pass,previewPath,runUrl}; fs.writeFileSync(outputPath, JSON.stringify(out)); const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${out.preflightPass} preflight_code=${out.preflightCode} attempted=${out.attempted} submitted=${out.submitted} broker_reason=${out.brokerReason} guard_reason_count=${out.guardReasonCount} verify_mode_expected=${out.verifyModeExpected} verify_mode_observed=${out.verifyModeObserved} mode_pass=${out.modePass} pass=${out.pass} preview=${out.previewPath} url=${out.runUrl}`; console.log(line); if (!out.pass) process.exit(1);' "$preview_path" "$run_url" "$verify_json_path" "${VERIFY_MODE}"
-          verify_line="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${x.preflightPass} preflight_code=${x.preflightCode} attempted=${x.attempted} submitted=${x.submitted} broker_reason=${x.brokerReason} guard_reason_count=${x.guardReasonCount} verify_mode_expected=${x.verifyModeExpected} verify_mode_observed=${x.verifyModeObserved} mode_pass=${x.modePass} pass=${x.pass} preview=${x.previewPath} url=${x.runUrl}`; process.stdout.write(line);' "$verify_json_path")"
+          node -e 'const fs=require("node:fs"); const previewPath=process.argv[1]; const runUrl=process.argv[2]; const outputPath=process.argv[3]; const verifyModeRaw=String(process.argv[4] || "auto").trim().toLowerCase(); const logPath=String(process.argv[5] || ""); const verifyReplaceRaw=String(process.argv[6] || "true").trim().toLowerCase(); const expectedReplaceMinRaw=String(process.argv[7] || "10").trim(); const expectedReplaceMaxRaw=String(process.argv[8] || "120").trim(); const verifyModeExpected=verifyModeRaw==="submit_pass" || verifyModeRaw==="guard_skip_pass" ? verifyModeRaw : "auto"; const verifyReplaceTuning=verifyReplaceRaw === "true"; const expectedReplaceMin=Number(expectedReplaceMinRaw); const expectedReplaceMax=Number(expectedReplaceMaxRaw); const p=JSON.parse(fs.readFileSync(previewPath,"utf8")); const preflight=typeof p.preflight==="object" && p.preflight ? p.preflight : {}; const preflightStatus=String(preflight.status || "").toLowerCase(); const preflightCode=String(preflight.code || ""); const preflightPass=preflightStatus==="pass" && preflightCode==="PREFLIGHT_PASS"; const broker=typeof p.brokerSubmission==="object" && p.brokerSubmission ? p.brokerSubmission : {}; const attempted=Number.isFinite(Number(broker.attempted)) ? Number(broker.attempted) : 0; const submitted=Number.isFinite(Number(broker.submitted)) ? Number(broker.submitted) : 0; const brokerReason=String(broker.reason || "unknown"); const orderRows=broker.orders && typeof broker.orders==="object" ? Object.values(broker.orders) : []; const guardReasonCount=orderRows.filter((row)=>{ const reason=String((row && row.reason) || ""); return reason.startsWith("open_entry_order_exists") || reason.startsWith("open_entry_duplicate_exists"); }).length; const submitPass=attempted>=1 && submitted>=1; const guardSkipPass=attempted===0 && submitted===0 && brokerReason==="submit_skipped_all" && guardReasonCount>=1; const verifyModeObserved=submitPass ? "submit_pass" : guardSkipPass ? "guard_skip_pass" : "fail"; const modePass = verifyModeExpected==="auto" ? (submitPass || guardSkipPass) : (verifyModeObserved === verifyModeExpected); const logText = logPath ? fs.readFileSync(logPath,"utf8") : ""; const rdelMatch = logText.match(/OPEN_ENTRY_RDEL\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)/); const rmaxMatch = logText.match(/OPEN_ENTRY_RMAX\\s*:\\s*([0-9]+(?:\\.[0-9]+)?)/); const observedReplaceMin = rdelMatch ? Number(rdelMatch[1]) : null; const observedReplaceMax = rmaxMatch ? Number(rmaxMatch[1]) : null; const expectedReplaceValid = Number.isFinite(expectedReplaceMin) && Number.isFinite(expectedReplaceMax) && expectedReplaceMin >= 0 && expectedReplaceMax >= 0; const observedReplacePresent = observedReplaceMin != null && observedReplaceMax != null; const replaceTuningPass = !verifyReplaceTuning ? true : (expectedReplaceValid && observedReplacePresent && observedReplaceMin === expectedReplaceMin && observedReplaceMax === expectedReplaceMax); const pass=preflightPass && modePass && replaceTuningPass; const out={preflightPass,preflightCode:preflightCode || "N/A",attempted,submitted,brokerReason,guardReasonCount,verifyModeExpected,verifyModeObserved,modePass,verifyReplaceTuning,expectedReplaceMin,expectedReplaceMax,observedReplaceMin,observedReplaceMax,replaceTuningPass,pass,previewPath,runUrl}; fs.writeFileSync(outputPath, JSON.stringify(out)); const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${out.preflightPass} preflight_code=${out.preflightCode} attempted=${out.attempted} submitted=${out.submitted} broker_reason=${out.brokerReason} guard_reason_count=${out.guardReasonCount} verify_mode_expected=${out.verifyModeExpected} verify_mode_observed=${out.verifyModeObserved} mode_pass=${out.modePass} verify_replace_tuning=${out.verifyReplaceTuning} replace_expected=${out.expectedReplaceMin}/${out.expectedReplaceMax} replace_observed=${out.observedReplaceMin ?? "n/a"}/${out.observedReplaceMax ?? "n/a"} replace_tuning_pass=${out.replaceTuningPass} pass=${out.pass} preview=${out.previewPath} url=${out.runUrl}`; console.log(line); if (!out.pass) process.exit(1);' "$preview_path" "$run_url" "$verify_json_path" "${VERIFY_MODE}" "$log_path" "${VERIFY_REPLACE_TUNING}" "${EXPECT_REPLACE_MIN_DELTA_BPS}" "${EXPECT_REPLACE_MAX_CHASE_BPS}"
+          verify_line="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${x.preflightPass} preflight_code=${x.preflightCode} attempted=${x.attempted} submitted=${x.submitted} broker_reason=${x.brokerReason} guard_reason_count=${x.guardReasonCount} verify_mode_expected=${x.verifyModeExpected} verify_mode_observed=${x.verifyModeObserved} mode_pass=${x.modePass} verify_replace_tuning=${x.verifyReplaceTuning} replace_expected=${x.expectedReplaceMin}/${x.expectedReplaceMax} replace_observed=${x.observedReplaceMin ?? "n/a"}/${x.observedReplaceMax ?? "n/a"} replace_tuning_pass=${x.replaceTuningPass} pass=${x.pass} preview=${x.previewPath} url=${x.runUrl}`; process.stdout.write(line);' "$verify_json_path")"
           echo "$verify_line"
 
           verify_mode_expected="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.verifyModeExpected));' "$verify_json_path")"
@@ -223,6 +245,12 @@ jobs:
           submitted="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.submitted));' "$verify_json_path")"
           broker_reason="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.brokerReason));' "$verify_json_path")"
           guard_reason_count="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.guardReasonCount));' "$verify_json_path")"
+          verify_replace_tuning="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.verifyReplaceTuning));' "$verify_json_path")"
+          expected_replace_min="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedReplaceMin));' "$verify_json_path")"
+          expected_replace_max="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedReplaceMax));' "$verify_json_path")"
+          observed_replace_min="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedReplaceMin));' "$verify_json_path")"
+          observed_replace_max="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedReplaceMax));' "$verify_json_path")"
+          replace_tuning_pass="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.replaceTuningPass));' "$verify_json_path")"
 
           {
             echo "## Sidecar Preflight Canary Recheck"
@@ -242,4 +270,8 @@ jobs:
             echo "| verify_mode_expected | \`${verify_mode_expected}\` |"
             echo "| verify_mode_observed | \`${verify_mode_observed}\` |"
             echo "| mode_pass | \`${mode_pass}\` |"
+            echo "| verify_replace_tuning | \`${verify_replace_tuning}\` |"
+            echo "| expected_replace_min/max_bps | \`${expected_replace_min}/${expected_replace_max}\` |"
+            echo "| observed_replace_min/max_bps | \`${observed_replace_min}/${observed_replace_max}\` |"
+            echo "| replace_tuning_pass | \`${replace_tuning_pass}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
