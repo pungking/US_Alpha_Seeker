@@ -124,9 +124,15 @@ jobs:
       KNOWLEDGE_PIPELINE_HANDOFF_TREND_WINDOW: ${{ vars.KNOWLEDGE_PIPELINE_HANDOFF_TREND_WINDOW || '7' }}
       OPS_DAILY_REPORT_PATH: ${{ vars.OPS_DAILY_REPORT_PATH || 'sidecar-template/alpha-exec-engine/state/ops-daily-report.json' }}
       OPS_DAILY_NOTION_SYNC_PATH: ${{ vars.OPS_DAILY_NOTION_SYNC_PATH || 'sidecar-template/alpha-exec-engine/state/notion-ops-daily-sync.json' }}
+      OPS_DAILY_ARTIFACT_PULL_ENABLED: ${{ vars.OPS_DAILY_ARTIFACT_PULL_ENABLED || 'true' }}
+      OPS_DAILY_SOURCE_REPO: ${{ vars.OPS_DAILY_SOURCE_REPO || github.repository }}
+      OPS_DAILY_SOURCE_WORKFLOW: ${{ vars.OPS_DAILY_SOURCE_WORKFLOW || 'mcp-ops-daily.yml' }}
+      OPS_DAILY_SOURCE_ARTIFACT_NAME: ${{ vars.OPS_DAILY_SOURCE_ARTIFACT_NAME || 'ops-daily-report' }}
+      OPS_DAILY_SOURCE_MAX_RUNS: ${{ vars.OPS_DAILY_SOURCE_MAX_RUNS || '20' }}
       OPS_KNOWLEDGE_HANDOFF_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_PATH || 'state/ops-knowledge-handoff.json' }}
       OPS_KNOWLEDGE_HANDOFF_MD_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_MD_PATH || 'state/ops-knowledge-handoff.md' }}
       OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH: ${{ vars.OPS_KNOWLEDGE_HANDOFF_HISTORY_PATH || 'state/ops-knowledge-handoff-history.jsonl' }}
+      GITHUB_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
       OBSIDIAN_BASE_URL: ${{ vars.OBSIDIAN_BASE_URL || 'http://127.0.0.1:27123' }}
       OBSIDIAN_API_KEY: ${{ secrets.OBSIDIAN_API_KEY }}
       TELEGRAM_TOKEN: ${{ secrets.TELEGRAM_TOKEN }}
@@ -194,6 +200,9 @@ jobs:
             echo "::error::Strict profile check failed. Update repository variables or disable strict mode intentionally."
             exit 1
           fi
+
+      - name: Pull latest ops daily artifact
+        run: npm run ops:knowledge:handoff:pull-ops-daily
 
       - name: Build ops->knowledge handoff contract
         run: npm run ops:knowledge:handoff:build

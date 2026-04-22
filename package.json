@@ -26,6 +26,7 @@
     "ops:knowledge:notebooklm": "node scripts/notebooklm-mcp-collect.mjs",
     "ops:knowledge:bridge": "node scripts/notebooklm-intake-bridge.mjs",
     "ops:knowledge:pipeline": "node scripts/knowledge-intake-pipeline.mjs",
+    "ops:knowledge:handoff:pull-ops-daily": "node scripts/fetch-latest-ops-daily-artifact.mjs",
     "ops:knowledge:handoff:build": "node scripts/build-ops-knowledge-handoff.mjs",
     "ops:knowledge:handoff:validate": "node scripts/validate-ops-knowledge-handoff.mjs",
     "ops:knowledge:quality": "node scripts/check-knowledge-markdown-quality.mjs",
