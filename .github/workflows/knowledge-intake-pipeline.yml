@@ -214,6 +214,16 @@ jobs:
         if: always()
         run: npm run ops:knowledge:alert
 
+      - name: Publish handoff summary
+        if: always()
+        run: |
+          if [ -f "state/ops-knowledge-handoff.md" ]; then
+            cat "state/ops-knowledge-handoff.md" >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "## Ops -> Knowledge Handoff Contract" >> "$GITHUB_STEP_SUMMARY"
+            echo "- result: no handoff markdown generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: Upload pipeline artifacts
         if: always()
         uses: actions/upload-artifact@v5

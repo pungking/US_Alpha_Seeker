@@ -1876,6 +1876,10 @@ const main = async () => {
   const notebooklmJsonPath = resolvePath(env("KNOWLEDGE_PIPELINE_NOTEBOOKLM_JSON_PATH"), NOTEBOOKLM_DEFAULT_JSON_PATH);
   const notebooklmRequired = boolFromEnv("KNOWLEDGE_PIPELINE_NOTEBOOKLM_REQUIRED", false);
   const queueKeepLastGoodOnEmpty = boolFromEnv("KNOWLEDGE_PIPELINE_QUEUE_KEEP_LAST_GOOD_ON_EMPTY", true);
+  const handoffEnabled = boolFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_ENABLED", true);
+  const handoffRequired = boolFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_REQUIRED", false);
+  const handoffRequirePass = boolFromEnv("KNOWLEDGE_PIPELINE_HANDOFF_REQUIRE_PASS", true);
+  const handoffPath = resolvePath(env("OPS_KNOWLEDGE_HANDOFF_PATH"), path.join(CWD, "state", "ops-knowledge-handoff.json"));
 
   const notionToken = env("NOTION_TOKEN");
   const notionWorkList = env("NOTION_WORK_LIST");
@@ -1996,6 +2000,20 @@ const main = async () => {
       notebooklmDropInvalidItems,
       notebooklmInvalidDropped: 0
     },
+    handoff: {
+      enabled: handoffEnabled,
+      required: handoffRequired,
+      requirePass: handoffRequirePass,
+      path: path.relative(CWD, handoffPath),
+      loaded: false,
+      schemaVersion: "",
+      status: "skip_disabled",
+      reason: "",
+      runKey: "",
+      generatedAt: "",
+      requiredMissingCount: 0,
+      gateAllowed: true
+    },
     statusFlow: { pendingStatus, approvedStatus, reflectStatus },
     notion: {
       status: "skip",
@@ -2091,6 +2109,33 @@ const main = async () => {
   const collectReport = safeReadJson(NOTEBOOKLM_MCP_COLLECT_REPORT_PATH) || {};
   report.source.notebooklmCollectStatus = String(collectReport?.status || "skip").trim() || "skip";
   report.source.notebooklmCollectReason = String(collectReport?.reason || "").trim();
+  if (!handoffEnabled) {
+    report.handoff.status = "skip_disabled";
+    report.handoff.reason = "KNOWLEDGE_PIPELINE_HANDOFF_ENABLED=false";
+    report.handoff.gateAllowed = true;
+  } else {
+    const handoff = safeReadJson(handoffPath);
+    if (!handoff) {
+      report.handoff.status = "fail_missing_file";
+      report.handoff.reason = "handoff_file_missing_or_invalid_json";
+      report.handoff.gateAllowed = !handoffRequired;
+    } else {
+      report.handoff.loaded = true;
+      report.handoff.schemaVersion = String(handoff?.schemaVersion || "").trim();
+      report.handoff.status = String(handoff?.handoffStatus || "UNKNOWN").trim().toUpperCase() || "UNKNOWN";
+      report.handoff.reason = String(handoff?.handoffReason || "").trim();
+      report.handoff.runKey = String(handoff?.runKey || "").trim();
+      report.handoff.generatedAt = String(handoff?.generatedAt || "").trim();
+      report.handoff.requiredMissingCount = Array.isArray(handoff?.requiredMissing)
+        ? handoff.requiredMissing.length
+        : 0;
+      if (handoffRequirePass) {
+        report.handoff.gateAllowed = report.handoff.status === "PASS";
+      } else {
+        report.handoff.gateAllowed = !["BLOCK"].includes(report.handoff.status);
+      }
+    }
+  }
 
   let queueItems = [];
   let notionItems = [];
@@ -2813,14 +2858,15 @@ const main = async () => {
           for (const item of queueItems) {
             const themeCanonical = themeCanonicalFromAny(item.themeCanonical || item.theme);
             const themeLabel = themeDisplayLabel(themeCanonical, obsidianGraphKoreanTitle);
-            const themeHub = ensureThemeHub(themeLabel);
+            const themeHubPath = themeHubPathFromLabel(obsidianGraphItemDir, themeLabel);
+            const themeHubName = noteNameFromPath(themeHubPath);
             const markdown = markdownGraphItem({
               generatedAt: report.generatedAt,
-              item: { ...item, themeCanonical, theme: themeLabel, themeHubName: themeHub.themeHubName },
+              item: { ...item, themeCanonical, theme: themeLabel, themeHubName },
               hubLink,
               packLink,
               playbookLink,
-              themeHubLink: themeHub.themeHubName,
+              themeHubLink: themeHubName,
               relatedLinks: [],
               includeGraphHubRef: obsidianGraphHubEnabled,
               includeCoreDocs: obsidianGraphCoreDocsEnabled
@@ -2846,6 +2892,8 @@ const main = async () => {
   fs.mkdirSync(path.dirname(REPORT_PATH), { recursive: true });
   if (report.obsidian.status === "fail" || report.notion.status === "fail") {
     report.status = "fail";
+  } else if (report.handoff.enabled && report.handoff.required && !report.handoff.gateAllowed) {
+    report.status = "fail";
   } else if (report.queue.fallbackApplied) {
     report.status = "ok_fallback_last_good";
   } else if (report.obsidian.status === "ok_empty_queue") {
@@ -2856,7 +2904,7 @@ const main = async () => {
   fs.writeFileSync(REPORT_PATH, `${JSON.stringify(report, null, 2)}\n`, "utf8");
 
   console.log(
-    `[KNOWLEDGE_PIPELINE] source=${sourceMode} notebooklm=${report.source.notebooklmStatus}/${report.source.notebooklmLoaded} collect=${report.source.notebooklmCollectStatus} zeroCode=${report.source.notebooklmZeroReasonCode} notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
+    `[KNOWLEDGE_PIPELINE] source=${sourceMode} notebooklm=${report.source.notebooklmStatus}/${report.source.notebooklmLoaded} collect=${report.source.notebooklmCollectStatus} zeroCode=${report.source.notebooklmZeroReasonCode} handoff=${report.handoff.status} handoffGate=${report.handoff.gateAllowed} notion=${report.notion.status} approved=${report.notion.approved} transitioned=${report.notion.transitioned} apply=${apply} obsidian=${report.obsidian.status} obsidianApply=${obsidianApply} queue=${path.relative(
       CWD,
       QUEUE_MD_PATH
     )} obsidianQueue=${path.relative(CWD, OBSIDIAN_QUEUE_MD_PATH)} report=${path.relative(CWD, REPORT_PATH)}`
@@ -2878,6 +2926,12 @@ const main = async () => {
     process.exit(1);
   }
   if (report.obsidian.status === "fail" && obsidianRequired) {
+    process.exit(1);
+  }
+  if (report.handoff.enabled && report.handoff.required && !report.handoff.gateAllowed) {
+    console.error(
+      `[KNOWLEDGE_PIPELINE][EXIT] handoff gate blocked (status=${report.handoff.status}, reason=${report.handoff.reason || "n/a"}, requirePass=${report.handoff.requirePass})`
+    );
     process.exit(1);
   }
 };
