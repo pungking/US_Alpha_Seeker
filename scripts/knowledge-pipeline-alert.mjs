@@ -4,6 +4,7 @@ import path from "node:path";
 const CWD = process.cwd();
 const REPORT_PATH = path.join(CWD, "state", "knowledge-intake-pipeline-report.json");
 const COLLECT_REPORT_PATH = path.join(CWD, "state", "notebooklm-mcp-collect-report.json");
+const HANDOFF_PATH = path.join(CWD, "state", "ops-knowledge-handoff.json");
 
 const env = (name, fallback = "") => String(process.env[name] ?? fallback).trim();
 const boolFromEnv = (name, fallback = false) => {
@@ -45,7 +46,7 @@ const buildRunUrl = () => {
   return `${server}/${repo}/actions/runs/${runId}`;
 };
 
-const classify = (report, collectReport) => {
+const classify = (report, collectReport, handoff) => {
   if (!report) return { shouldNotify: true, code: "REPORT_MISSING", reason: "knowledge pipeline report missing" };
 
   const sourceStatus = String(report?.source?.notebooklmStatus || "").trim();
@@ -56,6 +57,36 @@ const classify = (report, collectReport) => {
   const overallStatus = String(report?.status || "").trim();
   const collectStatus = String(collectReport?.status || "").trim();
   const collectReason = String(collectReport?.reason || "").trim();
+  const handoffStatus = String(handoff?.handoffStatus || "").trim().toUpperCase();
+  const handoffReason = String(handoff?.handoffReason || "").trim();
+  const handoffMissing = Array.isArray(handoff?.requiredMissing) ? handoff.requiredMissing.length : 0;
+
+  if (handoffStatus === "BLOCK") {
+    return {
+      shouldNotify: true,
+      code: "HANDOFF_BLOCK",
+      reason: handoffReason || "ops->knowledge handoff blocked",
+      sourceStatus,
+      collectStatus,
+      zeroCode: sourceZeroCode || "other",
+      handoffStatus,
+      handoffReason,
+      handoffMissing
+    };
+  }
+  if (handoffStatus === "HOLD") {
+    return {
+      shouldNotify: true,
+      code: "HANDOFF_HOLD",
+      reason: handoffReason || "ops->knowledge handoff hold",
+      sourceStatus,
+      collectStatus,
+      zeroCode: sourceZeroCode || "other",
+      handoffStatus,
+      handoffReason,
+      handoffMissing
+    };
+  }
 
   if (sourceStatus.startsWith("fail") || collectStatus.startsWith("fail")) {
     return {
@@ -142,7 +173,8 @@ const main = async () => {
 
   const report = safeReadJson(REPORT_PATH);
   const collectReport = safeReadJson(COLLECT_REPORT_PATH);
-  const decision = classify(report, collectReport);
+  const handoff = safeReadJson(HANDOFF_PATH);
+  const decision = classify(report, collectReport, handoff);
   const shouldNotify = notifyMode === "always" ? true : decision.shouldNotify;
 
   if (!shouldNotify) {
@@ -164,7 +196,11 @@ const main = async () => {
   if (decision.sourceStatus) lines.push(`sourceStatus=${decision.sourceStatus}`);
   if (decision.collectStatus) lines.push(`collectStatus=${decision.collectStatus}`);
   if (decision.zeroCode) lines.push(`zeroQueueCode=${decision.zeroCode}`);
+  if (decision.handoffStatus) lines.push(`handoffStatus=${decision.handoffStatus}`);
+  if (decision.handoffReason) lines.push(`handoffReason=${decision.handoffReason}`);
+  if (Number.isFinite(Number(decision.handoffMissing))) lines.push(`handoffMissing=${decision.handoffMissing}`);
   lines.push(`report=${path.relative(CWD, REPORT_PATH)}`);
+  if (fs.existsSync(HANDOFF_PATH)) lines.push(`handoff=${path.relative(CWD, HANDOFF_PATH)}`);
   if (runUrl) lines.push(`run=${runUrl}`);
   const text = lines.join("\n");
 
