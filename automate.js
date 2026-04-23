@@ -337,6 +337,26 @@ async function getAccessTokenBundle() {
         `[DISPATCH_PAYLOAD] stage6File=${dispatchPayload.stage6File || 'N/A'} stage6Hash=${(dispatchPayload.stage6Hash || 'N/A').slice(0, 12)} algo=${dispatchPayload.stage6HashAlgo || 'unknown'} sourceRun=${dispatchPayload.sourceRunId || 'N/A'}`
     );
 
+    const notionPayload = await page.evaluate(() => {
+        const payload = window.__NOTION_SYNC_PAYLOAD;
+        if (!payload || typeof payload !== 'object') return null;
+        try {
+            return JSON.parse(JSON.stringify(payload));
+        } catch {
+            return null;
+        }
+    });
+    if (notionPayload) {
+        fs.writeFileSync('notion-pipeline-sync-payload.json', JSON.stringify(notionPayload, null, 2), 'utf8');
+        const pickCount = Array.isArray(notionPayload.executablePicks) ? notionPayload.executablePicks.length : 0;
+        const watchCount = Array.isArray(notionPayload.watchlist) ? notionPayload.watchlist.length : 0;
+        console.log(
+            `[NOTION_PIPELINE_PAYLOAD] captured runId=${String(notionPayload.runId || "N/A")} picks=${pickCount} watchlist=${watchCount}`
+        );
+    } else {
+        console.log("[NOTION_PIPELINE_PAYLOAD] not_found");
+    }
+
     // Capture Individual Analysis dashboard section with recommended picks.
     await captureIndividualAnalysisDashboard();
     

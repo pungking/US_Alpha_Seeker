@@ -305,6 +305,18 @@ jobs:
           });
           NODE
 
+      - name: 7.25 Notion Pipeline Sync (Stock/AI/Watchlist)
+        if: always()
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          NOTION_DB_STOCK_SCORES: ${{ vars.NOTION_DB_STOCK_SCORES || secrets.NOTION_DB_STOCK_SCORES }}
+          NOTION_DB_AI_ALPHA_ANALYSIS: ${{ vars.NOTION_DB_AI_ALPHA_ANALYSIS || secrets.NOTION_DB_AI_ALPHA_ANALYSIS }}
+          NOTION_DB_WATCHLIST: ${{ vars.NOTION_DB_WATCHLIST || secrets.NOTION_DB_WATCHLIST }}
+          NOTION_PIPELINE_SYNC_ENABLED: ${{ vars.NOTION_PIPELINE_SYNC_ENABLED || 'true' }}
+          NOTION_PIPELINE_SYNC_REQUIRED: ${{ vars.NOTION_PIPELINE_SYNC_REQUIRED || 'false' }}
+          NOTION_PIPELINE_SYNC_PAYLOAD_PATH: notion-pipeline-sync-payload.json
+        run: node scripts/sync-pipeline-notion.mjs
+
       - name: 7.3 Notion Daily Snapshot Sync (GitHub Automation)
         if: always()
         env:
@@ -317,6 +329,32 @@ jobs:
           STAGE6_HASH: ${{ steps.stage6_dispatch_meta.outputs.stage6_hash }}
         run: node scripts/sync-gha-notion.mjs
 
+      - name: 7.35 Notion Pipeline Sync Summary
+        if: always()
+        run: |
+          if [ -f "state/notion-pipeline-sync.json" ]; then
+            node -e '
+              const fs=require("node:fs");
+              const p="state/notion-pipeline-sync.json";
+              const j=JSON.parse(fs.readFileSync(p,"utf8"));
+              const r=j.results||{};
+              const pick=(x)=>x&&typeof x==="object"?`${(x.created||0)+(x.updated||0)} (c${x.created||0}/u${x.updated||0})`:"N/A";
+              const lines=[
+                "## Notion Pipeline Sync",
+                `- status: \`${j.status || "unknown"}\``,
+                `- reason: \`${j.reason || "n/a"}\``,
+                `- rows: \`${j.rowCount ?? "n/a"}\``,
+                `- stock_scores: \`${pick(r.stockScores)}\``,
+                `- ai_alpha_analysis: \`${pick(r.aiAnalysis)}\``,
+                `- portfolio_watchlist: \`${pick(r.watchlist)}\``
+              ];
+              fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\\n")}\\n`);
+            '
+          else
+            echo "## Notion Pipeline Sync" >> "$GITHUB_STEP_SUMMARY"
+            echo "- result: no sync artifact generated" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
       - name: 8. 결과 증거물 저장 (Screenshots)
         if: always() # 성공/실패 여부와 관계없이 실행
         uses: actions/upload-artifact@v7
@@ -325,6 +363,8 @@ jobs:
           path: |
             *.png
             stage6-dispatch-payload.json
+            notion-pipeline-sync-payload.json
+            state/notion-pipeline-sync.json
           retention-days: 3
 
 

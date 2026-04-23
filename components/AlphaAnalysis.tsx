@@ -5584,7 +5584,7 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
       // Notion sync is best-effort: do not block pipeline completion.
       try {
           const runDurationSec = Number(((Date.now() - stage2StartedAt) / 1000).toFixed(2));
-          const notionResult = await syncPipelineToNotion({
+          const notionPayload = {
               runId: stage6FinalRunIdRef.current || getKstTimestamp(),
               runDateIso: new Date().toISOString(),
               engine: String(usedProvider || selectedBrain),
@@ -5603,7 +5603,11 @@ const AlphaAnalysis: React.FC<Props> = ({ selectedBrain, setSelectedBrain, onFin
               },
               executablePicks: top6ArchiveCandidates.map(mapToNotionCandidate),
               watchlist: modelTop6Watchlist.map(mapToNotionCandidate)
-          });
+          };
+
+          // Expose payload for CI automation fallback sync when /api route is unavailable.
+          (window as any).__NOTION_SYNC_PAYLOAD = notionPayload;
+          const notionResult = await syncPipelineToNotion(notionPayload);
 
           if (notionResult.ok) {
               const detailText = notionResult.details

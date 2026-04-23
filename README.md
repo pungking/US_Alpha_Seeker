@@ -76,6 +76,17 @@ Optional GitHub variables:
 - `NOTION_GHA_SYNC_ENABLED=true|false` (default: `true`)
 - `NOTION_GHA_SYNC_REQUIRED=true|false` (default: `false`, if `true` then sync failure fails workflow)
 
+Pipeline-level DB sync is also supported from automation payload (`notion-pipeline-sync-payload.json`):
+- target DBs:
+  - `NOTION_DB_STOCK_SCORES`
+  - `NOTION_DB_AI_ALPHA_ANALYSIS`
+  - `NOTION_DB_WATCHLIST`
+- optional workflow controls:
+  - `NOTION_PIPELINE_SYNC_ENABLED=true|false` (default: `true`)
+  - `NOTION_PIPELINE_SYNC_REQUIRED=true|false` (default: `false`)
+- local/manual trigger:
+  - `npm run ops:notion:pipeline:sync`
+
 ## Notion Workspace Operations
 
 Recommended schema/view cleanup and extension plan:
