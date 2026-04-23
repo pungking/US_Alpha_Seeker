@@ -202,6 +202,23 @@ order record 핵심:
 - `notional`, `limitPrice`, `takeProfitPrice`, `stopLossPrice`
 - `history[]`: 상태 전이 이력
 
+## `state/open-entry-replace-guard.json`
+
+오픈 엔트리 stale cancel+replace의 심볼별 쓰로틀(쿨다운/일일 상한) 상태.
+
+| 필드 | 타입 | 의미 |
+|---|---|---|
+| `symbols` | object | `SYMBOL -> guard state` |
+| `updatedAt` | string | 마지막 ledger 갱신 시각 |
+
+symbol guard state 핵심:
+- `lastReplaceAt`: 마지막 stale cancel+replace 실행 시각
+- `replaceCountByDay`: UTC 일자별 replace 실행 카운트 (`YYYY-MM-DD -> number`)
+
+운영 해석:
+- `ENTRY_OPEN_ORDER_REPLACE_COOLDOWN_MINUTES` 미충족이면 `open_entry_replace_cooldown_active`로 skip
+- `ENTRY_OPEN_ORDER_REPLACE_MAX_PER_SYMBOL_PER_DAY` 초과면 `open_entry_replace_daily_cap`으로 skip
+
 ## `state/regime-guard-state.json`
 
 | 필드 | 타입 | 의미 |
