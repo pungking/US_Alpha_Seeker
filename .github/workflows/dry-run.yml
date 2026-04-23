@@ -31,9 +31,9 @@ on:
       run_verify_mode:
         description: "Manual safety/verification preset (safe_default|submit_pass|guard_skip_pass|auto)"
         required: false
-        default: "safe_default"
+        default: "auto"
         type: choice
-        options: ["safe_default", "submit_pass", "guard_skip_pass", "auto"]
+        options: ["auto", "safe_default", "submit_pass", "guard_skip_pass"]
       run_allow_entry_outside_rth:
         description: "Allow entry outside RTH for this run"
         required: false
