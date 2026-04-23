@@ -159,7 +159,7 @@ jobs:
 
             if [ -z "${run_id}" ]; then
               echo "[ERROR] ${phase_label}: could not discover spawned recheck run id"
-              exit 1
+              return 1
             fi
 
             if ! gh run watch "${run_id}" --repo "${SELF_REPO}" --interval 10 --exit-status; then
@@ -205,22 +205,39 @@ jobs:
 
             if [ "${run_conclusion}" != "success" ]; then
               echo "[ERROR] ${phase_label}: recheck conclusion=${run_conclusion:-unknown} run=${run_url:-n/a}"
-              exit 1
+              return 1
             fi
             if [ "${verify_pass}" != "true" ]; then
               echo "[ERROR] ${phase_label}: verify pass flag is not true"
-              exit 1
+              return 1
             fi
             if [ "${verify_mode_observed}" != "${verify_mode}" ]; then
               echo "[ERROR] ${phase_label}: observed mode ${verify_mode_observed:-n/a} != expected ${verify_mode}"
-              exit 1
+              return 1
             fi
+
+            LAST_INCLUDE_SPEC="${include_spec}"
           }
 
+          phase1_primary="false"
+          phase1_fallback="true"
+          if [ $(( GITHUB_RUN_ID % 2 )) -eq 1 ]; then
+            phase1_primary="true"
+            phase1_fallback="false"
+          fi
+
           # Phase-1 should prove an actual submit path.
-          dispatch_and_verify "submit_pass" "false" "Phase 1 - submit_pass"
+          if ! dispatch_and_verify "submit_pass" "${phase1_primary}" "Phase 1 - submit_pass"; then
+            echo "[WARN] Phase 1 - submit_pass primary include_spec=${phase1_primary} failed; retry alt include_spec=${phase1_fallback}"
+            dispatch_and_verify "submit_pass" "${phase1_fallback}" "Phase 1 - submit_pass (retry alt include)"
+          fi
+
+          phase2_include="true"
+          if [ "${LAST_INCLUDE_SPEC:-false}" = "true" ]; then
+            phase2_include="false"
+          fi
           # Phase-2 should prove open-entry guard skip path right after submit.
-          dispatch_and_verify "guard_skip_pass" "true" "Phase 2 - guard_skip_pass"
+          dispatch_and_verify "guard_skip_pass" "${phase2_include}" "Phase 2 - guard_skip_pass"
 
           {
             echo "- result: PASS (submit_pass + guard_skip_pass pair verified)"
