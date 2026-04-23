@@ -67,12 +67,17 @@ jobs:
       TARGET_REPO: ${{ vars.SIDECAR_DISPATCH_REPO || 'pungking/alpha-exec-engine' }}
       TARGET_WORKFLOW: ${{ vars.SIDECAR_WATCHDOG_TARGET_WORKFLOW || 'dry-run.yml' }}
       TARGET_BRANCH: ${{ vars.SIDECAR_WATCHDOG_BRANCH || 'main' }}
+      TARGET_RUN_VERIFY_MODE: ${{ vars.SIDECAR_BRIDGE_VERIFY_MODE || 'auto' }}
+      TARGET_RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ vars.SIDECAR_BRIDGE_ALLOW_ENTRY_OUTSIDE_RTH || 'false' }}
+      TARGET_RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY: ${{ vars.SIDECAR_BRIDGE_ACTIONABLE_INCLUDE_SPECULATIVE_BUY || 'false' }}
+      TARGET_RUN_FORCE_SEND_ONCE: ${{ vars.SIDECAR_BRIDGE_FORCE_SEND_ONCE || 'false' }}
       STALE_MINUTES: ${{ vars.SIDECAR_BRIDGE_STALE_MINUTES || vars.SIDECAR_WATCHDOG_STALE_MINUTES || '25' }}
       DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
-      LOOP_ENABLED: ${{ inputs.loop_enabled || vars.SIDECAR_BRIDGE_LOOP_ENABLED || 'false' }}
+      LOOP_ENABLED: ${{ github.event_name == 'workflow_dispatch' && (inputs.loop_enabled || vars.SIDECAR_BRIDGE_LOOP_ENABLED || 'false') || vars.SIDECAR_BRIDGE_LOOP_ENABLED }}
       LOOP_INTERVAL_MIN: ${{ inputs.loop_interval_min || vars.SIDECAR_BRIDGE_LOOP_INTERVAL_MIN || '15' }}
       LOOP_MAX_RUNS: ${{ inputs.loop_max_runs || vars.SIDECAR_BRIDGE_LOOP_MAX_RUNS || '48' }}
       LOOP_RUN_INDEX: ${{ inputs.loop_run_index || '0' }}
+      WORKFLOW_EVENT_NAME: ${{ github.event_name }}
     steps:
       - name: Validate dispatch token
         run: |
@@ -100,6 +105,11 @@ jobs:
               if (["0", "false", "no", "n", "off"].includes(normalized)) return false;
               return fallback;
             };
+            const parseChoice = (raw, allowed, fallback) => {
+              const normalized = String(raw || "").trim().toLowerCase();
+              if (!normalized) return fallback;
+              return allowed.has(normalized) ? normalized : fallback;
+            };
 
             const targetRepoRaw = String(process.env.TARGET_REPO || "pungking/alpha-exec-engine").trim();
             const repoMatch = targetRepoRaw.match(/^([^/]+)\/([^/]+)$/);
@@ -112,8 +122,29 @@ jobs:
             const targetRepo = repoMatch[2];
             const targetWorkflow = String(process.env.TARGET_WORKFLOW || "dry-run.yml").trim() || "dry-run.yml";
             const targetBranch = String(process.env.TARGET_BRANCH || "main").trim() || "main";
+            const verifyModeAllowed = new Set(["safe_default", "submit_pass", "guard_skip_pass", "auto"]);
+            const requestedVerifyMode = parseChoice(
+              process.env.TARGET_RUN_VERIFY_MODE,
+              verifyModeAllowed,
+              "auto"
+            );
+            const requestedAllowOutsideRth = parseBool(
+              process.env.TARGET_RUN_ALLOW_ENTRY_OUTSIDE_RTH,
+              false
+            );
+            const requestedIncludeSpeculative = parseBool(
+              process.env.TARGET_RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY,
+              false
+            );
+            const requestedForceSendOnce = parseBool(
+              process.env.TARGET_RUN_FORCE_SEND_ONCE,
+              false
+            );
             const staleMinutes = parseNumber(process.env.STALE_MINUTES, 25, 15, 360);
-            const loopEnabled = parseBool(process.env.LOOP_ENABLED, false);
+            const isScheduleEvent = String(process.env.WORKFLOW_EVENT_NAME || "").trim().toLowerCase() === "schedule";
+            // Default schedule-triggered watchdogs to loop mode so a single cron hit can
+            // keep sidecar freshness even when GitHub drops later cron ticks.
+            const loopEnabled = parseBool(process.env.LOOP_ENABLED, isScheduleEvent);
             const loopIntervalMin = parseNumber(process.env.LOOP_INTERVAL_MIN, 15, 1, 60);
             const loopMaxRuns = Math.round(parseNumber(process.env.LOOP_MAX_RUNS, 48, 1, 500));
             const loopRunIndex = Math.round(parseNumber(process.env.LOOP_RUN_INDEX, 0, 0, 2000));
@@ -140,6 +171,8 @@ jobs:
             let latestEvent = "n/a";
             let latestConclusion = "n/a";
             let latestRunId = "n/a";
+            let dispatchVerifyModeSent = "not_dispatched";
+            let dispatchInputFallback = "none";
 
             if (!latest) {
               dispatch = true;
@@ -167,13 +200,55 @@ jobs:
             }
 
             if (dispatch) {
-              await github.rest.actions.createWorkflowDispatch({
-                owner: targetOwner,
-                repo: targetRepo,
-                workflow_id: targetWorkflow,
-                ref: targetBranch
-              });
+              const inputs = {
+                run_verify_mode: requestedVerifyMode,
+                run_allow_entry_outside_rth: requestedAllowOutsideRth ? "true" : "false",
+                run_actionable_include_speculative_buy: requestedIncludeSpeculative ? "true" : "false",
+                run_force_send_once: requestedForceSendOnce ? "true" : "false"
+              };
+              let dispatchedVerifyMode = requestedVerifyMode;
+              let inputFallback = "none";
+              try {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: targetOwner,
+                  repo: targetRepo,
+                  workflow_id: targetWorkflow,
+                  ref: targetBranch,
+                  inputs
+                });
+              } catch (error) {
+                const message = String(error?.message || error || "");
+                const unexpected = message.includes("Unexpected inputs provided");
+                const unsupportedKeys = [...message.matchAll(/'([^']+)'/g)]
+                  .map((match) => match[1])
+                  .filter((key) => Object.prototype.hasOwnProperty.call(inputs, key));
+                if (!unexpected || unsupportedKeys.length === 0) {
+                  throw error;
+                }
+                for (const key of unsupportedKeys) {
+                  delete inputs[key];
+                }
+                if (unsupportedKeys.includes("run_verify_mode")) {
+                  dispatchedVerifyMode = "legacy_default";
+                }
+                inputFallback = unsupportedKeys.join(",");
+                core.warning(
+                  `[BRIDGE_WATCHDOG_WARN] target workflow rejected input(s): ${inputFallback}; retrying without them`
+                );
+                await github.rest.actions.createWorkflowDispatch({
+                  owner: targetOwner,
+                  repo: targetRepo,
+                  workflow_id: targetWorkflow,
+                  ref: targetBranch,
+                  inputs
+                });
+              }
+              dispatchVerifyModeSent = dispatchedVerifyMode;
+              dispatchInputFallback = inputFallback;
             }
+            core.setOutput("dispatch_verify_mode_requested", requestedVerifyMode);
+            core.setOutput("dispatch_verify_mode_sent", dispatchVerifyModeSent);
+            core.setOutput("dispatch_input_fallback", dispatchInputFallback);
 
             const loopContinue = loopEnabled && loopNextIndex < loopMaxRuns;
 
@@ -196,6 +271,9 @@ jobs:
               `latestEvent=${latestEvent}`,
               `latestConclusion=${latestConclusion}`,
               `latestAgeMin=${ageMin == null ? "n/a" : ageMin}`,
+              `verifyModeReq=${requestedVerifyMode}`,
+              `verifyModeSent=${dispatchVerifyModeSent}`,
+              `inputFallback=${dispatchInputFallback}`,
               `loopEnabled=${loopEnabled}`,
               `loopRun=${loopRunIndex + 1}/${loopMaxRuns}`,
               `loopContinue=${loopContinue}`

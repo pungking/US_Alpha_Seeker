@@ -317,6 +317,74 @@ jobs:
           NOTION_PIPELINE_SYNC_PAYLOAD_PATH: notion-pipeline-sync-payload.json
         run: node scripts/sync-pipeline-notion.mjs
 
+      - name: 7.26 Seed bridge watchdog loop (self-healing)
+        if: always()
+        env:
+          SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+          BRIDGE_AUTOSTART_ENABLED: ${{ vars.SIDECAR_BRIDGE_AUTOSTART_ENABLED || 'true' }}
+          BRIDGE_LOOP_INTERVAL_MIN: ${{ vars.SIDECAR_BRIDGE_LOOP_INTERVAL_MIN || '15' }}
+          BRIDGE_LOOP_MAX_RUNS: ${{ vars.SIDECAR_BRIDGE_LOOP_MAX_RUNS || '48' }}
+          BRIDGE_LOOP_RUN_INDEX: "0"
+        run: |
+          node - <<'NODE'
+          (async () => {
+            const enabledRaw = String(process.env.BRIDGE_AUTOSTART_ENABLED || "").trim().toLowerCase();
+            const enabled = ["1", "true", "yes", "y", "on", ""].includes(enabledRaw);
+            if (!enabled) {
+              console.log("[BRIDGE_LOOP_SKIP] SIDECAR_BRIDGE_AUTOSTART_ENABLED=false");
+              process.exit(0);
+            }
+
+            const token = String(process.env.SIDECAR_DISPATCH_TOKEN || "").trim();
+            if (!token) {
+              console.log("[BRIDGE_LOOP_SKIP] dispatch token missing");
+              process.exit(0);
+            }
+
+            const repo = String(process.env.GITHUB_REPOSITORY || "").trim();
+            if (!repo.includes("/")) {
+              throw new Error(`invalid GITHUB_REPOSITORY=${repo || "N/A"}`);
+            }
+            const [owner, name] = repo.split("/", 2);
+            const workflowFile = "sidecar-dispatch-watchdog.yml";
+            const ref = String(process.env.GITHUB_REF_NAME || "main").trim() || "main";
+
+            const response = await fetch(
+              `https://api.github.com/repos/${owner}/${name}/actions/workflows/${encodeURIComponent(workflowFile)}/dispatches`,
+              {
+                method: "POST",
+                headers: {
+                  Accept: "application/vnd.github+json",
+                  Authorization: `Bearer ${token}`,
+                  "X-GitHub-Api-Version": "2022-11-28",
+                  "Content-Type": "application/json"
+                },
+                body: JSON.stringify({
+                  ref,
+                  inputs: {
+                    loop_enabled: "true",
+                    loop_interval_min: String(process.env.BRIDGE_LOOP_INTERVAL_MIN || "15"),
+                    loop_max_runs: String(process.env.BRIDGE_LOOP_MAX_RUNS || "48"),
+                    loop_run_index: String(process.env.BRIDGE_LOOP_RUN_INDEX || "0")
+                  }
+                })
+              }
+            );
+            if (!response.ok) {
+              const body = await response.text();
+              throw new Error(
+                `bridge watchdog loop seed failed (${response.status}): ${body.slice(0, 300)}`
+              );
+            }
+            console.log(
+              `[BRIDGE_LOOP_SEED_OK] workflow=${workflowFile} ref=${ref} interval=${process.env.BRIDGE_LOOP_INTERVAL_MIN || "15"} maxRuns=${process.env.BRIDGE_LOOP_MAX_RUNS || "48"}`
+            );
+          })().catch((error) => {
+            console.error(`[BRIDGE_LOOP_SEED_ERR] ${error?.message || error}`);
+            process.exit(1);
+          });
+          NODE
+
       - name: 7.3 Notion Daily Snapshot Sync (GitHub Automation)
         if: always()
         env:
