@@ -132,10 +132,12 @@ jobs:
               per_page: 1
             });
             const baselineRunId = Number(beforeRuns.data?.workflow_runs?.[0]?.id || 0);
-            // Dedupe-bust knob: vary max total notional slightly per dispatch
-            // so repeated canary runs are not skipped by same hash/mode.
+            // Dedupe-bust knobs for repeated canary runs:
+            // keep max total notional below default 2*100 so it actually changes
+            // the runtime mode key (values above 200 were effectively no-op).
+            const dedupeBustMaxOrders = "1";
             const dedupeBustMaxTotalNotional = String(
-              200 + (Math.floor(Date.now() / 1000) % 50)
+              130 + (Math.floor(Date.now() / 1000) % 60)
             );
 
             const inputs = {
@@ -145,7 +147,7 @@ jobs:
                 process.env.RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY || 'true'
               ),
               run_disable_order_idempotency: 'true',
-              run_dry_max_orders_override: '2',
+              run_dry_max_orders_override: dedupeBustMaxOrders,
               run_dry_max_total_notional_override: dedupeBustMaxTotalNotional,
               validation_pack: 'false',
               payload_probe: 'false'
@@ -166,9 +168,10 @@ jobs:
             core.setOutput('target_workflow', workflowId);
             core.setOutput('target_ref', ref);
             core.setOutput('baseline_run_id', String(baselineRunId));
+            core.setOutput('dedupe_bust_max_orders', dedupeBustMaxOrders);
             core.setOutput('dedupe_bust_max_total_notional', dedupeBustMaxTotalNotional);
 
-            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} maxTotalNotionalOverride=${inputs.run_dry_max_total_notional_override} baselineRunId=${baselineRunId} at=${dispatchAt}`;
+            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} maxOrdersOverride=${inputs.run_dry_max_orders_override} maxTotalNotionalOverride=${inputs.run_dry_max_total_notional_override} baselineRunId=${baselineRunId} at=${dispatchAt}`;
             core.notice(summaryLine);
             await core.summary
               .addHeading('Preflight Canary Dispatch')
