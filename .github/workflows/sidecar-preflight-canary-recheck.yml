@@ -36,6 +36,32 @@ on:
         default: "true"
         type: choice
         options: ["true", "false"]
+      run_entry_price_mode:
+        description: "Pass ENTRY_PRICE_MODE override to target dry-run"
+        required: false
+        default: "adaptive"
+        type: choice
+        options: ["strict", "adaptive"]
+      run_entry_price_max_chase_pct:
+        description: "Pass ENTRY_PRICE_MAX_CHASE_PCT override to target dry-run"
+        required: false
+        default: "1.8"
+        type: string
+      run_entry_price_distance_trigger_pct:
+        description: "Pass ENTRY_PRICE_DISTANCE_TRIGGER_PCT override to target dry-run"
+        required: false
+        default: "2.5"
+        type: string
+      run_entry_price_distance_scale:
+        description: "Pass ENTRY_PRICE_DISTANCE_SCALE override to target dry-run"
+        required: false
+        default: "0.35"
+        type: string
+      run_entry_price_min_rr:
+        description: "Pass ENTRY_PRICE_MIN_RR override to target dry-run"
+        required: false
+        default: "1.8"
+        type: string
       verify_mode:
         description: "Canary pass mode: auto(any), submit_pass, guard_skip_pass"
         required: false
@@ -68,6 +94,38 @@ on:
         required: false
         default: "3"
         type: string
+      verify_entry_price_tuning:
+        description: "Verify ENTRY_PRICE_* startup markers against expected values"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      expected_entry_price_mode:
+        description: "Expected ENTRY_PRICE_MODE value in sidecar startup summary"
+        required: false
+        default: "adaptive"
+        type: choice
+        options: ["strict", "adaptive"]
+      expected_entry_price_max_chase_pct:
+        description: "Expected ENTRY_PRICE_CHMAX value in sidecar startup summary"
+        required: false
+        default: "1.8"
+        type: string
+      expected_entry_price_distance_trigger_pct:
+        description: "Expected ENTRY_PRICE_DISTT value in sidecar startup summary"
+        required: false
+        default: "2.5"
+        type: string
+      expected_entry_price_distance_scale:
+        description: "Expected ENTRY_PRICE_DSCL value in sidecar startup summary"
+        required: false
+        default: "0.35"
+        type: string
+      expected_entry_price_min_rr:
+        description: "Expected ENTRY_PRICE_MINRR value in sidecar startup summary"
+        required: false
+        default: "1.8"
+        type: string
 
 permissions:
   contents: read
@@ -89,12 +147,23 @@ jobs:
       MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes || '25' }}
       RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth || 'true' }}
       RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY: ${{ inputs.run_actionable_include_speculative_buy || 'true' }}
+      RUN_ENTRY_PRICE_MODE: ${{ inputs.run_entry_price_mode || 'adaptive' }}
+      RUN_ENTRY_PRICE_MAX_CHASE_PCT: ${{ inputs.run_entry_price_max_chase_pct || '1.8' }}
+      RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT: ${{ inputs.run_entry_price_distance_trigger_pct || '2.5' }}
+      RUN_ENTRY_PRICE_DISTANCE_SCALE: ${{ inputs.run_entry_price_distance_scale || '0.35' }}
+      RUN_ENTRY_PRICE_MIN_RR: ${{ inputs.run_entry_price_min_rr || '1.8' }}
       VERIFY_MODE: ${{ inputs.verify_mode || 'auto' }}
       VERIFY_REPLACE_TUNING: ${{ inputs.verify_replace_tuning || 'true' }}
       EXPECT_REPLACE_MIN_DELTA_BPS: ${{ inputs.expected_replace_min_delta_bps || '10' }}
       EXPECT_REPLACE_MAX_CHASE_BPS: ${{ inputs.expected_replace_max_chase_bps || '120' }}
       EXPECT_REPLACE_COOLDOWN_MINUTES: ${{ inputs.expected_replace_cooldown_minutes || '10' }}
       EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY: ${{ inputs.expected_replace_max_per_symbol_per_day || '3' }}
+      VERIFY_ENTRY_PRICE_TUNING: ${{ inputs.verify_entry_price_tuning || 'true' }}
+      EXPECT_ENTRY_PRICE_MODE: ${{ inputs.expected_entry_price_mode || 'adaptive' }}
+      EXPECT_ENTRY_PRICE_MAX_CHASE_PCT: ${{ inputs.expected_entry_price_max_chase_pct || '1.8' }}
+      EXPECT_ENTRY_PRICE_DISTANCE_TRIGGER_PCT: ${{ inputs.expected_entry_price_distance_trigger_pct || '2.5' }}
+      EXPECT_ENTRY_PRICE_DISTANCE_SCALE: ${{ inputs.expected_entry_price_distance_scale || '0.35' }}
+      EXPECT_ENTRY_PRICE_MIN_RR: ${{ inputs.expected_entry_price_min_rr || '1.8' }}
     steps:
       - name: Validate dispatch token
         run: |
@@ -111,6 +180,11 @@ jobs:
           TARGET_REF: ${{ env.TARGET_REF }}
           TARGET_WORKFLOW: ${{ env.TARGET_WORKFLOW }}
           VERIFY_MODE: ${{ env.VERIFY_MODE }}
+          RUN_ENTRY_PRICE_MODE: ${{ env.RUN_ENTRY_PRICE_MODE }}
+          RUN_ENTRY_PRICE_MAX_CHASE_PCT: ${{ env.RUN_ENTRY_PRICE_MAX_CHASE_PCT }}
+          RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT: ${{ env.RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT }}
+          RUN_ENTRY_PRICE_DISTANCE_SCALE: ${{ env.RUN_ENTRY_PRICE_DISTANCE_SCALE }}
+          RUN_ENTRY_PRICE_MIN_RR: ${{ env.RUN_ENTRY_PRICE_MIN_RR }}
         with:
           github-token: ${{ env.SIDECAR_DISPATCH_TOKEN }}
           script: |
@@ -154,6 +228,13 @@ jobs:
               run_actionable_include_speculative_buy: String(
                 process.env.RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY || 'true'
               ),
+              run_entry_price_mode: String(process.env.RUN_ENTRY_PRICE_MODE || 'adaptive'),
+              run_entry_price_max_chase_pct: String(process.env.RUN_ENTRY_PRICE_MAX_CHASE_PCT || '1.8'),
+              run_entry_price_distance_trigger_pct: String(
+                process.env.RUN_ENTRY_PRICE_DISTANCE_TRIGGER_PCT || '2.5'
+              ),
+              run_entry_price_distance_scale: String(process.env.RUN_ENTRY_PRICE_DISTANCE_SCALE || '0.35'),
+              run_entry_price_min_rr: String(process.env.RUN_ENTRY_PRICE_MIN_RR || '1.8'),
               run_verify_mode: targetRunVerifyMode,
               run_disable_order_idempotency: 'true',
               run_dry_max_orders_override: dedupeBustMaxOrders,
@@ -164,35 +245,53 @@ jobs:
 
             let dispatchedVerifyMode = targetRunVerifyMode;
             let verifyModeFallback = false;
-            try {
-              await github.rest.actions.createWorkflowDispatch({
-                owner,
-                repo,
-                workflow_id: workflowId,
-                ref,
-                inputs
-              });
-            } catch (error) {
-              const message = String(error?.message || error || '');
-              const unsupportedVerifyMode =
-                message.includes('Unexpected inputs provided') &&
-                message.includes('run_verify_mode');
-              if (!unsupportedVerifyMode) {
-                throw error;
+            let unsupportedInputs = [];
+            let dispatched = false;
+            for (let retry = 0; retry < 2; retry += 1) {
+              try {
+                await github.rest.actions.createWorkflowDispatch({
+                  owner,
+                  repo,
+                  workflow_id: workflowId,
+                  ref,
+                  inputs
+                });
+                dispatched = true;
+                break;
+              } catch (error) {
+                const message = String(error?.message || error || '');
+                const matches = [...message.matchAll(/'([^']+)'/g)].map((m) => m[1]);
+                const unexpected = message.includes('Unexpected inputs provided');
+                if (!unexpected || retry > 0 || matches.length === 0) {
+                  throw error;
+                }
+                unsupportedInputs = matches.filter((key) => Object.prototype.hasOwnProperty.call(inputs, key));
+                if (unsupportedInputs.length === 0) {
+                  throw error;
+                }
+                for (const key of unsupportedInputs) {
+                  delete inputs[key];
+                }
+                if (unsupportedInputs.includes('run_verify_mode')) {
+                  verifyModeFallback = true;
+                  dispatchedVerifyMode = 'legacy_fallback';
+                }
+                core.warning(
+                  `[PREFLIGHT_CANARY_WARN] target workflow does not accept input(s): ${unsupportedInputs.join(', ')}; retried without them.`
+                );
               }
+            }
+            if (!dispatched) {
+              core.setFailed('target workflow dispatch failed');
+              return;
+            }
+            if (!Object.prototype.hasOwnProperty.call(inputs, 'run_verify_mode')) {
               verifyModeFallback = true;
-              delete inputs.run_verify_mode;
               dispatchedVerifyMode = 'legacy_fallback';
-              core.warning(
-                '[PREFLIGHT_CANARY_WARN] target workflow does not accept run_verify_mode yet; retried without this input.'
-              );
-              await github.rest.actions.createWorkflowDispatch({
-                owner,
-                repo,
-                workflow_id: workflowId,
-                ref,
-                inputs
-              });
+              core.warning('[PREFLIGHT_CANARY_WARN] dispatched without run_verify_mode (legacy fallback).');
+            }
+            if (unsupportedInputs.length > 0) {
+              core.notice(`[PREFLIGHT_CANARY] unsupported_inputs=${unsupportedInputs.join(',')}`);
             }
 
             const dispatchAt = new Date().toISOString();
@@ -209,6 +308,7 @@ jobs:
               `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} ` +
               `verifyModeExpected=${verifyModeRaw} verifyModeDispatch=${dispatchedVerifyMode} verifyModeFallback=${verifyModeFallback} ` +
               `allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} ` +
+              `entryPriceMode=${inputs.run_entry_price_mode || "n/a"} entryPriceMaxChasePct=${inputs.run_entry_price_max_chase_pct || "n/a"} entryPriceDistanceTriggerPct=${inputs.run_entry_price_distance_trigger_pct || "n/a"} entryPriceDistanceScale=${inputs.run_entry_price_distance_scale || "n/a"} entryPriceMinRr=${inputs.run_entry_price_min_rr || "n/a"} ` +
               `maxOrdersOverride=${inputs.run_dry_max_orders_override} maxTotalNotionalOverride=${inputs.run_dry_max_total_notional_override} ` +
               `baselineRunId=${baselineRunId} at=${dispatchAt}`;
             core.notice(summaryLine);
@@ -233,6 +333,12 @@ jobs:
           EXPECT_REPLACE_MAX_CHASE_BPS: ${{ env.EXPECT_REPLACE_MAX_CHASE_BPS }}
           EXPECT_REPLACE_COOLDOWN_MINUTES: ${{ env.EXPECT_REPLACE_COOLDOWN_MINUTES }}
           EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY: ${{ env.EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY }}
+          VERIFY_ENTRY_PRICE_TUNING: ${{ env.VERIFY_ENTRY_PRICE_TUNING }}
+          EXPECT_ENTRY_PRICE_MODE: ${{ env.EXPECT_ENTRY_PRICE_MODE }}
+          EXPECT_ENTRY_PRICE_MAX_CHASE_PCT: ${{ env.EXPECT_ENTRY_PRICE_MAX_CHASE_PCT }}
+          EXPECT_ENTRY_PRICE_DISTANCE_TRIGGER_PCT: ${{ env.EXPECT_ENTRY_PRICE_DISTANCE_TRIGGER_PCT }}
+          EXPECT_ENTRY_PRICE_DISTANCE_SCALE: ${{ env.EXPECT_ENTRY_PRICE_DISTANCE_SCALE }}
+          EXPECT_ENTRY_PRICE_MIN_RR: ${{ env.EXPECT_ENTRY_PRICE_MIN_RR }}
         run: |
           set -euo pipefail
 
@@ -311,6 +417,12 @@ jobs:
           const expectedReplaceMaxRaw = String(process.argv[9] || "120").trim();
           const expectedReplaceCooldownRaw = String(process.argv[10] || "10").trim();
           const expectedReplacePerDayRaw = String(process.argv[11] || "3").trim();
+          const verifyEntryPriceRaw = String(process.argv[12] || "true").trim().toLowerCase();
+          const expectedEntryPriceModeRaw = String(process.argv[13] || "adaptive").trim().toLowerCase();
+          const expectedEntryPriceMaxChaseRaw = String(process.argv[14] || "1.8").trim();
+          const expectedEntryPriceDistanceTriggerRaw = String(process.argv[15] || "2.5").trim();
+          const expectedEntryPriceDistanceScaleRaw = String(process.argv[16] || "0.35").trim();
+          const expectedEntryPriceMinRrRaw = String(process.argv[17] || "1.8").trim();
 
           const verifyModeExpected =
             verifyModeRaw === "submit_pass" || verifyModeRaw === "guard_skip_pass" ? verifyModeRaw : "auto";
@@ -320,6 +432,13 @@ jobs:
           const expectedReplaceMax = Number(expectedReplaceMaxRaw);
           const expectedReplaceCooldown = Number(expectedReplaceCooldownRaw);
           const expectedReplacePerDay = Number(expectedReplacePerDayRaw);
+          const verifyEntryPriceTuning = verifyEntryPriceRaw === "true";
+          const expectedEntryPriceMode =
+            expectedEntryPriceModeRaw === "adaptive" ? "adaptive" : "strict";
+          const expectedEntryPriceMaxChase = Number(expectedEntryPriceMaxChaseRaw);
+          const expectedEntryPriceDistanceTrigger = Number(expectedEntryPriceDistanceTriggerRaw);
+          const expectedEntryPriceDistanceScale = Number(expectedEntryPriceDistanceScaleRaw);
+          const expectedEntryPriceMinRr = Number(expectedEntryPriceMinRrRaw);
 
           const preview = JSON.parse(fs.readFileSync(previewPath, "utf8"));
           const preflight = typeof preview.preflight === "object" && preview.preflight ? preview.preflight : {};
@@ -350,11 +469,25 @@ jobs:
           const rmaxMatch = logText.match(/OPEN_ENTRY_RMAX\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
           const rcdnMatch = logText.match(/OPEN_ENTRY_RCDN\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
           const rdayMatch = logText.match(/OPEN_ENTRY_RDAY\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
+          const entryModeMatch = logText.match(/ENTRY_PRICE_MODE\s*:\s*([A-Za-z_]+)/);
+          const entryMaxChaseMatch = logText.match(/ENTRY_PRICE_CHMAX\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
+          const entryDistanceTriggerMatch = logText.match(/ENTRY_PRICE_DISTT\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
+          const entryDistanceScaleMatch = logText.match(/ENTRY_PRICE_DSCL\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
+          const entryMinRrMatch = logText.match(/ENTRY_PRICE_MINRR\s*:\s*([0-9]+(?:\.[0-9]+)?)/);
 
           const observedReplaceMin = rdelMatch ? Number(rdelMatch[1]) : null;
           const observedReplaceMax = rmaxMatch ? Number(rmaxMatch[1]) : null;
           const observedReplaceCooldown = rcdnMatch ? Number(rcdnMatch[1]) : null;
           const observedReplacePerDay = rdayMatch ? Number(rdayMatch[1]) : null;
+          const observedEntryPriceMode = entryModeMatch ? String(entryModeMatch[1]).trim().toLowerCase() : null;
+          const observedEntryPriceMaxChase = entryMaxChaseMatch ? Number(entryMaxChaseMatch[1]) : null;
+          const observedEntryPriceDistanceTrigger = entryDistanceTriggerMatch
+            ? Number(entryDistanceTriggerMatch[1])
+            : null;
+          const observedEntryPriceDistanceScale = entryDistanceScaleMatch
+            ? Number(entryDistanceScaleMatch[1])
+            : null;
+          const observedEntryPriceMinRr = entryMinRrMatch ? Number(entryMinRrMatch[1]) : null;
 
           const expectedReplaceValid =
             Number.isFinite(expectedReplaceMin) &&
@@ -378,8 +511,33 @@ jobs:
               observedReplaceMax === expectedReplaceMax &&
               observedReplaceCooldown === expectedReplaceCooldown &&
               observedReplacePerDay === expectedReplacePerDay;
+          const expectedEntryPriceValid =
+            ["strict", "adaptive"].includes(expectedEntryPriceMode) &&
+            Number.isFinite(expectedEntryPriceMaxChase) &&
+            expectedEntryPriceMaxChase >= 0 &&
+            Number.isFinite(expectedEntryPriceDistanceTrigger) &&
+            expectedEntryPriceDistanceTrigger >= 0 &&
+            Number.isFinite(expectedEntryPriceDistanceScale) &&
+            expectedEntryPriceDistanceScale >= 0 &&
+            Number.isFinite(expectedEntryPriceMinRr) &&
+            expectedEntryPriceMinRr > 0;
+          const observedEntryPricePresent =
+            observedEntryPriceMode != null &&
+            observedEntryPriceMaxChase != null &&
+            observedEntryPriceDistanceTrigger != null &&
+            observedEntryPriceDistanceScale != null &&
+            observedEntryPriceMinRr != null;
+          const entryPriceTuningPass = !verifyEntryPriceTuning
+            ? true
+            : expectedEntryPriceValid &&
+              observedEntryPricePresent &&
+              observedEntryPriceMode === expectedEntryPriceMode &&
+              observedEntryPriceMaxChase === expectedEntryPriceMaxChase &&
+              observedEntryPriceDistanceTrigger === expectedEntryPriceDistanceTrigger &&
+              observedEntryPriceDistanceScale === expectedEntryPriceDistanceScale &&
+              observedEntryPriceMinRr === expectedEntryPriceMinRr;
 
-          const pass = preflightPass && modePass && replaceTuningPass;
+          const pass = preflightPass && modePass && replaceTuningPass && entryPriceTuningPass;
           const out = {
             preflightPass,
             preflightCode: preflightCode || "N/A",
@@ -400,6 +558,18 @@ jobs:
             observedReplaceCooldown,
             observedReplacePerDay,
             replaceTuningPass,
+            verifyEntryPriceTuning,
+            expectedEntryPriceMode,
+            expectedEntryPriceMaxChase,
+            expectedEntryPriceDistanceTrigger,
+            expectedEntryPriceDistanceScale,
+            expectedEntryPriceMinRr,
+            observedEntryPriceMode,
+            observedEntryPriceMaxChase,
+            observedEntryPriceDistanceTrigger,
+            observedEntryPriceDistanceScale,
+            observedEntryPriceMinRr,
+            entryPriceTuningPass,
             pass,
             previewPath,
             runOutputPath,
@@ -414,7 +584,10 @@ jobs:
             `verify_replace_tuning=${out.verifyReplaceTuning} ` +
             `replace_expected=${out.expectedReplaceMin}/${out.expectedReplaceMax}/${out.expectedReplaceCooldown}/${out.expectedReplacePerDay} ` +
             `replace_observed=${out.observedReplaceMin ?? "n/a"}/${out.observedReplaceMax ?? "n/a"}/${out.observedReplaceCooldown ?? "n/a"}/${out.observedReplacePerDay ?? "n/a"} ` +
-            `replace_tuning_pass=${out.replaceTuningPass} pass=${out.pass} run_output=${out.runOutputPath} ` +
+            `replace_tuning_pass=${out.replaceTuningPass} verify_entry_price_tuning=${out.verifyEntryPriceTuning} ` +
+            `entry_price_expected=${out.expectedEntryPriceMode}/${out.expectedEntryPriceMaxChase}/${out.expectedEntryPriceDistanceTrigger}/${out.expectedEntryPriceDistanceScale}/${out.expectedEntryPriceMinRr} ` +
+            `entry_price_observed=${out.observedEntryPriceMode ?? "n/a"}/${out.observedEntryPriceMaxChase ?? "n/a"}/${out.observedEntryPriceDistanceTrigger ?? "n/a"}/${out.observedEntryPriceDistanceScale ?? "n/a"}/${out.observedEntryPriceMinRr ?? "n/a"} ` +
+            `entry_price_tuning_pass=${out.entryPriceTuningPass} pass=${out.pass} run_output=${out.runOutputPath} ` +
             `preview=${out.previewPath} url=${out.runUrl}`;
           console.log(line);
           if (!out.pass) process.exit(1);
@@ -429,8 +602,14 @@ jobs:
             "${EXPECT_REPLACE_MIN_DELTA_BPS}" \
             "${EXPECT_REPLACE_MAX_CHASE_BPS}" \
             "${EXPECT_REPLACE_COOLDOWN_MINUTES}" \
-            "${EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY}"
-          verify_line="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${x.preflightPass} preflight_code=${x.preflightCode} attempted=${x.attempted} submitted=${x.submitted} broker_reason=${x.brokerReason} guard_reason_count=${x.guardReasonCount} verify_mode_expected=${x.verifyModeExpected} verify_mode_observed=${x.verifyModeObserved} mode_pass=${x.modePass} verify_replace_tuning=${x.verifyReplaceTuning} replace_expected=${x.expectedReplaceMin}/${x.expectedReplaceMax}/${x.expectedReplaceCooldown}/${x.expectedReplacePerDay} replace_observed=${x.observedReplaceMin ?? "n/a"}/${x.observedReplaceMax ?? "n/a"}/${x.observedReplaceCooldown ?? "n/a"}/${x.observedReplacePerDay ?? "n/a"} replace_tuning_pass=${x.replaceTuningPass} pass=${x.pass} preview=${x.previewPath} url=${x.runUrl}`; process.stdout.write(line);' "$verify_json_path")"
+            "${EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY}" \
+            "${VERIFY_ENTRY_PRICE_TUNING}" \
+            "${EXPECT_ENTRY_PRICE_MODE}" \
+            "${EXPECT_ENTRY_PRICE_MAX_CHASE_PCT}" \
+            "${EXPECT_ENTRY_PRICE_DISTANCE_TRIGGER_PCT}" \
+            "${EXPECT_ENTRY_PRICE_DISTANCE_SCALE}" \
+            "${EXPECT_ENTRY_PRICE_MIN_RR}"
+          verify_line="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); const line=`[PREFLIGHT_CANARY_VERIFY] preflight_pass=${x.preflightPass} preflight_code=${x.preflightCode} attempted=${x.attempted} submitted=${x.submitted} broker_reason=${x.brokerReason} guard_reason_count=${x.guardReasonCount} verify_mode_expected=${x.verifyModeExpected} verify_mode_observed=${x.verifyModeObserved} mode_pass=${x.modePass} verify_replace_tuning=${x.verifyReplaceTuning} replace_expected=${x.expectedReplaceMin}/${x.expectedReplaceMax}/${x.expectedReplaceCooldown}/${x.expectedReplacePerDay} replace_observed=${x.observedReplaceMin ?? "n/a"}/${x.observedReplaceMax ?? "n/a"}/${x.observedReplaceCooldown ?? "n/a"}/${x.observedReplacePerDay ?? "n/a"} replace_tuning_pass=${x.replaceTuningPass} verify_entry_price_tuning=${x.verifyEntryPriceTuning} entry_price_expected=${x.expectedEntryPriceMode}/${x.expectedEntryPriceMaxChase}/${x.expectedEntryPriceDistanceTrigger}/${x.expectedEntryPriceDistanceScale}/${x.expectedEntryPriceMinRr} entry_price_observed=${x.observedEntryPriceMode ?? "n/a"}/${x.observedEntryPriceMaxChase ?? "n/a"}/${x.observedEntryPriceDistanceTrigger ?? "n/a"}/${x.observedEntryPriceDistanceScale ?? "n/a"}/${x.observedEntryPriceMinRr ?? "n/a"} entry_price_tuning_pass=${x.entryPriceTuningPass} pass=${x.pass} preview=${x.previewPath} url=${x.runUrl}`; process.stdout.write(line);' "$verify_json_path")"
           echo "$verify_line"
 
           verify_mode_expected="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.verifyModeExpected));' "$verify_json_path")"
@@ -452,6 +631,18 @@ jobs:
           observed_replace_cooldown="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedReplaceCooldown));' "$verify_json_path")"
           observed_replace_per_day="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedReplacePerDay));' "$verify_json_path")"
           replace_tuning_pass="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.replaceTuningPass));' "$verify_json_path")"
+          verify_entry_price_tuning="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.verifyEntryPriceTuning));' "$verify_json_path")"
+          expected_entry_price_mode="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedEntryPriceMode));' "$verify_json_path")"
+          expected_entry_price_max_chase="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedEntryPriceMaxChase));' "$verify_json_path")"
+          expected_entry_price_distance_trigger="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedEntryPriceDistanceTrigger));' "$verify_json_path")"
+          expected_entry_price_distance_scale="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedEntryPriceDistanceScale));' "$verify_json_path")"
+          expected_entry_price_min_rr="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.expectedEntryPriceMinRr));' "$verify_json_path")"
+          observed_entry_price_mode="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedEntryPriceMode));' "$verify_json_path")"
+          observed_entry_price_max_chase="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedEntryPriceMaxChase));' "$verify_json_path")"
+          observed_entry_price_distance_trigger="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedEntryPriceDistanceTrigger));' "$verify_json_path")"
+          observed_entry_price_distance_scale="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedEntryPriceDistanceScale));' "$verify_json_path")"
+          observed_entry_price_min_rr="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.observedEntryPriceMinRr));' "$verify_json_path")"
+          entry_price_tuning_pass="$(node -e 'const fs=require("node:fs"); const x=JSON.parse(fs.readFileSync(process.argv[1],"utf8")); process.stdout.write(String(x.entryPriceTuningPass));' "$verify_json_path")"
 
           {
             echo "## Sidecar Preflight Canary Recheck"
@@ -475,4 +666,8 @@ jobs:
             echo "| expected_replace(min/max/cooldown/day) | \`${expected_replace_min}/${expected_replace_max}/${expected_replace_cooldown}/${expected_replace_per_day}\` |"
             echo "| observed_replace(min/max/cooldown/day) | \`${observed_replace_min}/${observed_replace_max}/${observed_replace_cooldown}/${observed_replace_per_day}\` |"
             echo "| replace_tuning_pass | \`${replace_tuning_pass}\` |"
+            echo "| verify_entry_price_tuning | \`${verify_entry_price_tuning}\` |"
+            echo "| expected_entry_price(mode/maxChase/trigger/scale/minRr) | \`${expected_entry_price_mode}/${expected_entry_price_max_chase}/${expected_entry_price_distance_trigger}/${expected_entry_price_distance_scale}/${expected_entry_price_min_rr}\` |"
+            echo "| observed_entry_price(mode/maxChase/trigger/scale/minRr) | \`${observed_entry_price_mode}/${observed_entry_price_max_chase}/${observed_entry_price_distance_trigger}/${observed_entry_price_distance_scale}/${observed_entry_price_min_rr}\` |"
+            echo "| entry_price_tuning_pass | \`${entry_price_tuning_pass}\` |"
           } >> "$GITHUB_STEP_SUMMARY"
