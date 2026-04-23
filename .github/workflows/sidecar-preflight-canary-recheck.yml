@@ -110,6 +110,7 @@ jobs:
           TARGET_REPO: ${{ env.TARGET_REPO }}
           TARGET_REF: ${{ env.TARGET_REF }}
           TARGET_WORKFLOW: ${{ env.TARGET_WORKFLOW }}
+          VERIFY_MODE: ${{ env.VERIFY_MODE }}
         with:
           github-token: ${{ env.SIDECAR_DISPATCH_TOKEN }}
           script: |
@@ -139,6 +140,13 @@ jobs:
             const dedupeBustMaxTotalNotional = String(
               130 + (Math.floor(Date.now() / 1000) % 60)
             );
+            const verifyModeRaw = String(process.env.VERIFY_MODE || 'auto').trim().toLowerCase();
+            const verifyModeAllowed = new Set(['auto', 'submit_pass', 'guard_skip_pass']);
+            if (!verifyModeAllowed.has(verifyModeRaw)) {
+              core.setFailed(`invalid VERIFY_MODE: ${verifyModeRaw}`);
+              return;
+            }
+            const targetRunVerifyMode = verifyModeRaw === 'guard_skip_pass' ? 'guard_skip_pass' : 'submit_pass';
 
             const inputs = {
               run_force_send_once: 'true',
@@ -146,6 +154,7 @@ jobs:
               run_actionable_include_speculative_buy: String(
                 process.env.RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY || 'true'
               ),
+              run_verify_mode: targetRunVerifyMode,
               run_disable_order_idempotency: 'true',
               run_dry_max_orders_override: dedupeBustMaxOrders,
               run_dry_max_total_notional_override: dedupeBustMaxTotalNotional,
@@ -153,13 +162,38 @@ jobs:
               payload_probe: 'false'
             };
 
-            await github.rest.actions.createWorkflowDispatch({
-              owner,
-              repo,
-              workflow_id: workflowId,
-              ref,
-              inputs
-            });
+            let dispatchedVerifyMode = targetRunVerifyMode;
+            let verifyModeFallback = false;
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflowId,
+                ref,
+                inputs
+              });
+            } catch (error) {
+              const message = String(error?.message || error || '');
+              const unsupportedVerifyMode =
+                message.includes('Unexpected inputs provided') &&
+                message.includes('run_verify_mode');
+              if (!unsupportedVerifyMode) {
+                throw error;
+              }
+              verifyModeFallback = true;
+              delete inputs.run_verify_mode;
+              dispatchedVerifyMode = 'legacy_fallback';
+              core.warning(
+                '[PREFLIGHT_CANARY_WARN] target workflow does not accept run_verify_mode yet; retried without this input.'
+              );
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflowId,
+                ref,
+                inputs
+              });
+            }
 
             const dispatchAt = new Date().toISOString();
             core.setOutput('dispatch_at', dispatchAt);
@@ -171,7 +205,12 @@ jobs:
             core.setOutput('dedupe_bust_max_orders', dedupeBustMaxOrders);
             core.setOutput('dedupe_bust_max_total_notional', dedupeBustMaxTotalNotional);
 
-            const summaryLine = `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} maxOrdersOverride=${inputs.run_dry_max_orders_override} maxTotalNotionalOverride=${inputs.run_dry_max_total_notional_override} baselineRunId=${baselineRunId} at=${dispatchAt}`;
+            const summaryLine =
+              `[PREFLIGHT_CANARY] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} ` +
+              `verifyModeExpected=${verifyModeRaw} verifyModeDispatch=${dispatchedVerifyMode} verifyModeFallback=${verifyModeFallback} ` +
+              `allowEntryOutsideRth=${inputs.run_allow_entry_outside_rth} includeSpeculative=${inputs.run_actionable_include_speculative_buy} ` +
+              `maxOrdersOverride=${inputs.run_dry_max_orders_override} maxTotalNotionalOverride=${inputs.run_dry_max_total_notional_override} ` +
+              `baselineRunId=${baselineRunId} at=${dispatchAt}`;
             core.notice(summaryLine);
             await core.summary
               .addHeading('Preflight Canary Dispatch')

@@ -28,6 +28,12 @@ on:
         default: "false"
         type: choice
         options: ["false", "true"]
+      run_verify_mode:
+        description: "Manual safety/verification preset (safe_default|submit_pass|guard_skip_pass|auto)"
+        required: false
+        default: "safe_default"
+        type: choice
+        options: ["safe_default", "submit_pass", "guard_skip_pass", "auto"]
       run_allow_entry_outside_rth:
         description: "Allow entry outside RTH for this run"
         required: false
@@ -139,6 +145,7 @@ jobs:
           TARGET_REF: ${{ inputs.target_ref }}
           TARGET_WORKFLOW: ${{ inputs.target_workflow }}
           RUN_FORCE_SEND_ONCE: ${{ inputs.run_force_send_once }}
+          RUN_VERIFY_MODE: ${{ inputs.run_verify_mode }}
           RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth }}
           RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY: ${{ inputs.run_actionable_include_speculative_buy }}
           RUN_POSITION_LIFECYCLE_ENABLED: ${{ inputs.run_position_lifecycle_enabled }}
@@ -184,16 +191,62 @@ jobs:
               payload_probe_mode: String(process.env.PAYLOAD_PROBE_MODE || "tighten"),
               payload_probe_min_conviction: String(process.env.PAYLOAD_PROBE_MIN_CONVICTION || "30")
             };
+            const runVerifyMode = String(process.env.RUN_VERIFY_MODE || "").trim().toLowerCase();
+            const verifyModeAllowed = new Set(["safe_default", "submit_pass", "guard_skip_pass", "auto"]);
+            if (runVerifyMode && !verifyModeAllowed.has(runVerifyMode)) {
+              core.setFailed(
+                `invalid run_verify_mode=${runVerifyMode} (allowed: safe_default|submit_pass|guard_skip_pass|auto)`
+              );
+              return;
+            }
+            if (runVerifyMode) {
+              inputs.run_verify_mode = runVerifyMode;
+            }
 
-            await github.rest.actions.createWorkflowDispatch({
-              owner,
-              repo,
-              workflow_id: workflowId,
-              ref,
-              inputs
-            });
+            let dispatchedVerifyMode = runVerifyMode || "none";
+            let verifyModeFallback = false;
+            try {
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflowId,
+                ref,
+                inputs
+              });
+            } catch (error) {
+              const message = String(error?.message || error || "");
+              const unsupportedVerifyMode =
+                Boolean(runVerifyMode) &&
+                message.includes("Unexpected inputs provided") &&
+                message.includes("run_verify_mode");
+              if (!unsupportedVerifyMode) {
+                throw error;
+              }
+              if (runVerifyMode === "safe_default") {
+                core.setFailed(
+                  "[SIDECAR_BRIDGE_ERROR] target workflow does not accept run_verify_mode=safe_default. Sync target sidecar dry-run workflow before dispatching."
+                );
+                return;
+              }
+              verifyModeFallback = true;
+              delete inputs.run_verify_mode;
+              dispatchedVerifyMode = "legacy_fallback";
+              core.warning(
+                "[SIDECAR_BRIDGE_WARN] target workflow does not accept run_verify_mode yet; retried without this input."
+              );
+              await github.rest.actions.createWorkflowDispatch({
+                owner,
+                repo,
+                workflow_id: workflowId,
+                ref,
+                inputs
+              });
+            }
 
-            const summaryLine = `[SIDECAR_BRIDGE_OK] target=${owner}/${repo} workflow=${workflowId} ref=${ref} validation_pack=${inputs.validation_pack} payload_probe=${inputs.payload_probe}`;
+            const summaryLine =
+              `[SIDECAR_BRIDGE_OK] target=${owner}/${repo} workflow=${workflowId} ref=${ref} ` +
+              `verify_mode_request=${runVerifyMode || "none"} verify_mode_dispatch=${dispatchedVerifyMode} ` +
+              `verify_mode_fallback=${verifyModeFallback} validation_pack=${inputs.validation_pack} payload_probe=${inputs.payload_probe}`;
             core.notice(summaryLine);
             await core.summary
               .addHeading("Sidecar Dry-Run Bridge")
