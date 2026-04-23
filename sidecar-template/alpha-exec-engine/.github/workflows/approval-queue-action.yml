@@ -1,0 +1,101 @@
+# REFERENCE WORKFLOW (sidecar template mirror)
+# - This file mirrors pungking/alpha-exec-engine/.github/workflows/approval-queue-action.yml.
+# - It is not executed inside US_Alpha_Seeker.
+name: sidecar-approval-queue-action
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: "Approval action"
+        required: true
+        default: "approve"
+        type: choice
+        options: ["approve", "reject"]
+      request_id:
+        description: "Queue request id (preferred)"
+        required: false
+        default: ""
+        type: string
+      symbol:
+        description: "Fallback target symbol when request_id is empty"
+        required: false
+        default: ""
+        type: string
+      stage6_hash:
+        description: "Optional stage6 hash filter (with symbol mode)"
+        required: false
+        default: ""
+        type: string
+      reason:
+        description: "Optional operator note"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Preview only (no Drive update)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+
+jobs:
+  approval-action:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      GDRIVE_CLIENT_ID: ${{ secrets.GDRIVE_CLIENT_ID }}
+      GDRIVE_CLIENT_SECRET: ${{ secrets.GDRIVE_CLIENT_SECRET }}
+      GDRIVE_REFRESH_TOKEN: ${{ secrets.GDRIVE_REFRESH_TOKEN }}
+      GDRIVE_ROOT_FOLDER_ID: ${{ vars.GDRIVE_ROOT_FOLDER_ID }}
+      APPROVAL_QUEUE_FILE_NAME: ${{ vars.APPROVAL_QUEUE_FILE_NAME || 'APPROVAL_QUEUE.json' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          request_id="${{ inputs.request_id }}"
+          symbol="${{ inputs.symbol }}"
+          if [ -z "$request_id" ] && [ -z "$symbol" ]; then
+            echo "[ERROR] Provide request_id or symbol"
+            exit 1
+          fi
+
+      - name: Apply approval action
+        env:
+          ACTION: ${{ inputs.action }}
+          REQUEST_ID: ${{ inputs.request_id }}
+          SYMBOL: ${{ inputs.symbol }}
+          STAGE6_HASH: ${{ inputs.stage6_hash }}
+          REASON: ${{ inputs.reason }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          RESOLVED_BY: ${{ github.actor }}
+        run: |
+          set -euo pipefail
+          args=(--action "$ACTION" --dry-run "$DRY_RUN" --resolved-by "$RESOLVED_BY")
+          if [ -n "$REQUEST_ID" ]; then
+            args+=(--request-id "$REQUEST_ID")
+          fi
+          if [ -n "$SYMBOL" ]; then
+            args+=(--symbol "$SYMBOL")
+          fi
+          if [ -n "$STAGE6_HASH" ]; then
+            args+=(--stage6-hash "$STAGE6_HASH")
+          fi
+          if [ -n "$REASON" ]; then
+            args+=(--reason "$REASON")
+          fi
+
+          node scripts/manage-approval-queue.mjs "${args[@]}"

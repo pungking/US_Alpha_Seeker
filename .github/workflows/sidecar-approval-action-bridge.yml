@@ -1,0 +1,148 @@
+name: Sidecar Approval Action Bridge
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Target sidecar repository (owner/repo)"
+        required: false
+        default: "pungking/alpha-exec-engine"
+        type: string
+      target_ref:
+        description: "Target sidecar branch/ref"
+        required: false
+        default: "main"
+        type: string
+      target_workflow:
+        description: "Target workflow file"
+        required: false
+        default: "approval-queue-action.yml"
+        type: string
+      action:
+        description: "Approval action"
+        required: true
+        default: "approve"
+        type: choice
+        options: ["approve", "reject"]
+      request_id:
+        description: "Queue request id (preferred)"
+        required: false
+        default: ""
+        type: string
+      symbol:
+        description: "Fallback target symbol when request_id is empty"
+        required: false
+        default: ""
+        type: string
+      stage6_hash:
+        description: "Optional stage6 hash filter (with symbol mode)"
+        required: false
+        default: ""
+        type: string
+      reason:
+        description: "Optional operator note"
+        required: false
+        default: ""
+        type: string
+      dry_run:
+        description: "Preview only (no Drive update)"
+        required: false
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sidecar-approval-action-bridge-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+    steps:
+      - name: Validate inputs
+        run: |
+          set -euo pipefail
+          if [ -z "${SIDECAR_DISPATCH_TOKEN:-}" ]; then
+            echo "[ERROR] missing dispatch token (SIDECAR_DISPATCH_TOKEN|GH_PAT|MCP_GITHUB_TOKEN)."
+            exit 1
+          fi
+          request_id="${{ inputs.request_id }}"
+          symbol="${{ inputs.symbol }}"
+          if [ -z "$request_id" ] && [ -z "$symbol" ]; then
+            echo "[ERROR] provide request_id or symbol"
+            exit 1
+          fi
+
+      - name: Dispatch sidecar approval action workflow
+        uses: actions/github-script@v8
+        env:
+          TARGET_REPO: ${{ inputs.target_repo || 'pungking/alpha-exec-engine' }}
+          TARGET_REF: ${{ inputs.target_ref || 'main' }}
+          TARGET_WORKFLOW: ${{ inputs.target_workflow || 'approval-queue-action.yml' }}
+          ACTION_INPUT: ${{ inputs.action }}
+          REQUEST_ID_INPUT: ${{ inputs.request_id }}
+          SYMBOL_INPUT: ${{ inputs.symbol }}
+          STAGE6_HASH_INPUT: ${{ inputs.stage6_hash }}
+          REASON_INPUT: ${{ inputs.reason }}
+          DRY_RUN_INPUT: ${{ inputs.dry_run || 'false' }}
+        with:
+          github-token: ${{ env.SIDECAR_DISPATCH_TOKEN }}
+          script: |
+            const targetRepoRaw = String(process.env.TARGET_REPO || '').trim();
+            const repoMatch = targetRepoRaw.match(/^([^/]+)\/([^/]+)$/);
+            if (!repoMatch) {
+              core.setFailed(`invalid TARGET_REPO: ${targetRepoRaw}`);
+              return;
+            }
+            const owner = repoMatch[1];
+            const repo = repoMatch[2];
+            const workflowId = String(process.env.TARGET_WORKFLOW || '').trim() || 'approval-queue-action.yml';
+            const ref = String(process.env.TARGET_REF || '').trim() || 'main';
+
+            const requestId = String(process.env.REQUEST_ID_INPUT || '').trim();
+            const symbol = String(process.env.SYMBOL_INPUT || '').trim();
+            if (!requestId && !symbol) {
+              core.setFailed('request_id or symbol is required');
+              return;
+            }
+
+            const inputs = {
+              action: String(process.env.ACTION_INPUT || 'approve').trim().toLowerCase(),
+              request_id: requestId,
+              symbol,
+              stage6_hash: String(process.env.STAGE6_HASH_INPUT || '').trim(),
+              reason: String(process.env.REASON_INPUT || '').trim(),
+              dry_run: String(process.env.DRY_RUN_INPUT || 'false').trim().toLowerCase() === 'true' ? 'true' : 'false'
+            };
+
+            if (!['approve', 'reject'].includes(inputs.action)) {
+              core.setFailed(`invalid action: ${inputs.action}`);
+              return;
+            }
+
+            await github.rest.actions.createWorkflowDispatch({
+              owner,
+              repo,
+              workflow_id: workflowId,
+              ref,
+              inputs
+            });
+
+            const line =
+              `[APPROVAL_BRIDGE] dispatched target=${owner}/${repo} workflow=${workflowId} ref=${ref} ` +
+              `action=${inputs.action} requestId=${inputs.request_id || 'n/a'} symbol=${inputs.symbol || 'n/a'} ` +
+              `stage6Hash=${inputs.stage6_hash || 'n/a'} dryRun=${inputs.dry_run}`;
+            core.notice(line);
+            await core.summary
+              .addHeading('Sidecar Approval Action Bridge')
+              .addRaw('```text\n')
+              .addRaw(`${line}\n`)
+              .addRaw('```\n')
+              .write();
