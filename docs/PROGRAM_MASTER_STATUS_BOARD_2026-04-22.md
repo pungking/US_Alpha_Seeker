@@ -1,7 +1,7 @@
 # US Alpha Seeker Master Status Board (2026-04-22)
 
 Doc-Tier: P0 (Control Tower)
-Snapshot time: 2026-04-22 10:19 KST (2026-04-22 01:19 UTC)
+Snapshot time: 2026-04-23 14:09 KST (2026-04-23 05:09 UTC)
 
 ## 0) Scope and Operating Definition
 - System scope:
@@ -35,15 +35,23 @@ Non-core but critical unstable lanes:
 - `Master Control Plane (Scaffold)`: `6/10 = 60.0%`
 
 ### 1.2 Trading-Gate and Submit Metrics (paper lane)
-Evidence run: `alpha-exec-engine` run `24752324492` (2026-04-22 08:44 KST / 2026-04-21 23:44 UTC)
-- Preflight: `SKIP` (`PREFLIGHT_DISABLED`, temporary canary condition)
-- Perf gate: `GO`, progress `20/20`
-- HF live promotion: `PASS`, required checklist `5/5`
-- Broker submit: `attempted=2`, `submitted=2`, `failed=0` (accepted 2 orders)
-- Paper submit success rate (attempt-level, latest canary): `2 / 2 = 100.0%`
-- Safety reset check after canary:
-  - `PREFLIGHT_ENABLED=true` (restored)
-  - `ALLOW_ENTRY_OUTSIDE_RTH=false` (restored)
+Evidence runs (normal preflight condition):
+- Pair orchestration run: `US_Alpha_Seeker` `24817461328` (2026-04-23 13:52 KST / 2026-04-23 04:52 UTC), `success`
+- Phase-1 (`submit_pass`) recheck run: `24817465506`
+  - `preflight_pass=true`
+  - `attempted=1`, `submitted=1`, `broker_reason=submit_ok`
+  - `verify_mode_observed=submit_pass`
+- Phase-2 (`guard_skip_pass`) recheck run: `24817494463`
+  - `preflight_pass=true`
+  - `attempted=0`, `submitted=0`, `broker_reason=submit_skipped_all`
+  - `guard_reason_count=1`
+  - `verify_mode_observed=guard_skip_pass`
+
+Latest canary verification aggregate (ops daily report run `24817865979`):
+- `parsed=8/8`
+- `preflight_pass_runs=8/8 (100.0%)`
+- `submit_pass_runs=3/8 (37.5%)`
+- `attempted_total=3`, `submitted_total=3`, submit success on attempts `100.0%`
 
 ### 1.3 Program Milestone Completion (paper rollout)
 Milestones:
@@ -66,7 +74,7 @@ Completion:
 - Analysis scheduler lane is stable in recent window (`20/20`).
 - Harvester lane remains strong (`19/20`).
 - Sidecar operation lanes are stable (`dry-run/watchdog/market-guard` all `20/20`).
-- Paper broker acceptance is now observed in canary (`attempted=2`, `submitted=2`).
+- Normal-preflight submit path is re-proven (`attempted=1`, `submitted=1`) and guard-skip path is also re-proven.
 - Sidecar Notion sync step is green in sampled runs (recent checked runs all success).
 
 ### Not working (red)
@@ -75,9 +83,9 @@ Completion:
   - Error: `No STAGE6_ALPHA_FINAL_* file found in GDRIVE_STAGE6_FOLDER`
 - Knowledge automation lanes are not yet stable enough for operations baseline.
   - NotebookLM/Obsidian/Final-check lanes remain below acceptable reliability.
-- Canary submit proof exists, but normal operating condition proof is still incomplete.
-  - Latest submit success used temporary `PREFLIGHT_DISABLED` for controlled transport validation.
-  - Additional canary under normal preflight conditions is still required.
+- Consecutive submit-pass evidence is still insufficient for milestone close.
+  - Recent canary verify aggregate: `submit_pass_runs=3/8` (not consecutive, mixed with guard-skip runs).
+  - Need 3+ consecutive automated submit-pass runs under normal preflight and low-cap controls.
 
 ## 3) Repo Ownership / Drift Risk
 - Runtime owner is `pungking/alpha-exec-engine`.
@@ -94,13 +102,12 @@ Direction principle:
 - Do not widen exposure before repeatability criteria are met.
 
 ### Phase A (D0-D1): Normal-Condition Submit Proof
-1. Run one canary in market-open window with:
-   - `run_disable_order_idempotency=true`
-   - preflight enabled (`PREFLIGHT_ENABLED=true`)
-2. Target:
-   - `attempted >= 1`
-   - `submitted >= 1`
-   - `preflight=PASS` in same run.
+Status update (2026-04-23): **completed**
+1. Canary executed with preflight enabled and submit/guard pair verification.
+2. Proven:
+   - `preflight=PASS` on both phases
+   - submit path (`attempted>=1`, `submitted>=1`) confirmed in phase-1
+   - guard-skip path confirmed in phase-2
 
 ### Phase B (D1-D3): Bridge + Knowledge Stabilization
 1. Fix bridge failure path for Stage6 file absence/timing mismatch.
@@ -184,3 +191,13 @@ Ops reporting hardening applied (2026-04-22):
   - `ops:notion:audit`
   - `ops:daily:report`
   - `ops:daily:notion:sync`
+
+Ops reporting verification update (2026-04-23):
+- Canary pair validation succeeded:
+  - `24817461328` (pair orchestrator)
+  - `24817465506` (`submit_pass`)
+  - `24817494463` (`guard_skip_pass`)
+- `build-ops-daily-report.mjs` marker parser fixed (ANSI-safe key/value parse):
+  - commit: `ef6fc3c5`
+  - symptom before fix: `canaryVerify.parsed=0/8` (`verify_marker_not_found`)
+  - result after fix (run `24817865979`): `canaryVerify.parsed=8/8`
