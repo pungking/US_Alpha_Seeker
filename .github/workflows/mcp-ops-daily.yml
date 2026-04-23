@@ -45,6 +45,7 @@ jobs:
       NOTION_AUDIT_RUNKEY_PREFIXES: ${{ vars.NOTION_AUDIT_RUNKEY_PREFIXES || 'sidecar-' }}
       NOTION_OPS_DAILY_SYNC_ENABLED: ${{ vars.NOTION_OPS_DAILY_SYNC_ENABLED || 'true' }}
       NOTION_OPS_DAILY_SYNC_REQUIRED: ${{ vars.NOTION_OPS_DAILY_SYNC_REQUIRED || 'false' }}
+      NOTION_OPS_DAILY_REQUIRE_EVIDENCE_URL: ${{ vars.NOTION_OPS_DAILY_REQUIRE_EVIDENCE_URL || 'true' }}
       OPS_REPORT_LOOKBACK_HOURS: ${{ vars.OPS_REPORT_LOOKBACK_HOURS || '24' }}
       OPS_REPORT_MAX_RUNS: ${{ vars.OPS_REPORT_MAX_RUNS || '30' }}
       OPS_REPORT_CANARY_VERIFY_MAX_RUNS: ${{ vars.OPS_REPORT_CANARY_VERIFY_MAX_RUNS || '8' }}
@@ -116,7 +117,9 @@ jobs:
                 `- status: \`${j.status || "unknown"}\``,
                 `- action: \`${j.action || "n/a"}\``,
                 `- runKey: \`${j.runKey || "n/a"}\``,
-                `- reason: \`${j.reason || "n/a"}\``
+                `- reason: \`${j.reason || "n/a"}\``,
+                `- evidencePrimary: \`${j.evidencePrimary || "n/a"}\``,
+                `- evidenceCount: \`${j.evidenceCount ?? "n/a"}\``
               ];
               fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, `${lines.join("\\n")}\\n`);
             '
