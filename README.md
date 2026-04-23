@@ -209,6 +209,11 @@ Paper canary recheck automation:
   - `[PREFLIGHT] status=PASS`
   - `[BROKER_SUBMIT] ... attempted>=1, submitted>=1`
 - schedule: daily `00:15 UTC` (`09:15 KST`)
+- pair orchestration (manual): `.github/workflows/sidecar-preflight-canary-pair.yml`
+  - runs recheck twice in sequence:
+    1) `submit_pass` (actual submit path)
+    2) `guard_skip_pass` (open-entry guard path)
+  - emits one combined step summary with both verify lines
 - required secrets/vars:
   - `MCP_GITHUB_TOKEN` (or fallback `GITHUB_TOKEN` / `GH_PAT` / `SIDECAR_DISPATCH_TOKEN`)
   - `VERCEL_TOKEN`

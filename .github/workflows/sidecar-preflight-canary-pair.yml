@@ -1,0 +1,229 @@
+name: Sidecar Preflight Canary Pair
+
+on:
+  workflow_dispatch:
+    inputs:
+      target_repo:
+        description: "Target sidecar repository (owner/repo)"
+        required: false
+        default: "pungking/alpha-exec-engine"
+        type: string
+      target_ref:
+        description: "Target sidecar branch/ref"
+        required: false
+        default: "main"
+        type: string
+      target_workflow:
+        description: "Target workflow file"
+        required: false
+        default: "dry-run.yml"
+        type: string
+      max_wait_minutes:
+        description: "Max wait for target run completion"
+        required: false
+        default: "25"
+        type: choice
+        options: ["10", "15", "20", "25", "30", "40"]
+      verify_replace_tuning:
+        description: "Verify ENTRY_OPEN_ORDER_REPLACE_* tuning markers"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      expected_replace_min_delta_bps:
+        description: "Expected OPEN_ENTRY_RDEL value"
+        required: false
+        default: "10"
+        type: string
+      expected_replace_max_chase_bps:
+        description: "Expected OPEN_ENTRY_RMAX value"
+        required: false
+        default: "120"
+        type: string
+      expected_replace_cooldown_minutes:
+        description: "Expected OPEN_ENTRY_RCDN value"
+        required: false
+        default: "10"
+        type: string
+      expected_replace_max_per_symbol_per_day:
+        description: "Expected OPEN_ENTRY_RDAY value"
+        required: false
+        default: "3"
+        type: string
+
+permissions:
+  contents: read
+  actions: write
+
+concurrency:
+  group: sidecar-preflight-canary-pair-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  pair:
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    env:
+      FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
+      SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      SELF_REPO: ${{ github.repository }}
+      SELF_RECHECK_WORKFLOW: sidecar-preflight-canary-recheck.yml
+      TARGET_REPO: ${{ inputs.target_repo || 'pungking/alpha-exec-engine' }}
+      TARGET_REF: ${{ inputs.target_ref || 'main' }}
+      TARGET_WORKFLOW: ${{ inputs.target_workflow || 'dry-run.yml' }}
+      MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes || '25' }}
+      VERIFY_REPLACE_TUNING: ${{ inputs.verify_replace_tuning || 'true' }}
+      EXPECT_REPLACE_MIN_DELTA_BPS: ${{ inputs.expected_replace_min_delta_bps || '10' }}
+      EXPECT_REPLACE_MAX_CHASE_BPS: ${{ inputs.expected_replace_max_chase_bps || '120' }}
+      EXPECT_REPLACE_COOLDOWN_MINUTES: ${{ inputs.expected_replace_cooldown_minutes || '10' }}
+      EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY: ${{ inputs.expected_replace_max_per_symbol_per_day || '3' }}
+    steps:
+      - name: Validate dispatch token
+        run: |
+          if [ -z "${SIDECAR_DISPATCH_TOKEN:-}" ]; then
+            echo "[ERROR] dispatch token is missing (GITHUB_TOKEN|MCP_GITHUB_TOKEN|GH_PAT|SIDECAR_DISPATCH_TOKEN)."
+            exit 1
+          fi
+
+      - name: Run submit/guard canary pair
+        env:
+          GH_TOKEN: ${{ env.SIDECAR_DISPATCH_TOKEN }}
+        run: |
+          set -euo pipefail
+
+          summary_path="/tmp/sidecar-canary-pair-summary.md"
+          {
+            echo "## Sidecar Canary Pair"
+            echo ""
+            echo "- target_repo: \`${TARGET_REPO}\`"
+            echo "- target_ref: \`${TARGET_REF}\`"
+            echo "- target_workflow: \`${TARGET_WORKFLOW}\`"
+            echo "- recheck_workflow: \`${SELF_RECHECK_WORKFLOW}\`"
+            echo ""
+          } > "${summary_path}"
+
+          dispatch_and_verify() {
+            local verify_mode="$1"
+            local include_spec="$2"
+            local phase_label="$3"
+
+            local baseline_payload
+            baseline_payload="$(gh run list --repo "${SELF_REPO}" --workflow "${SELF_RECHECK_WORKFLOW}" --event workflow_dispatch --limit 30 --json databaseId)"
+            local baseline_run_id
+            baseline_run_id="$(node -e 'const rows=JSON.parse(process.argv[1]||"[]"); let max=0; for (const row of rows){ const v=Number(row.databaseId||0); if (v>max) max=v; } process.stdout.write(String(max));' "${baseline_payload}")"
+            if ! [[ "${baseline_run_id}" =~ ^[0-9]+$ ]]; then
+              baseline_run_id="0"
+            fi
+
+            local dispatch_at
+            dispatch_at="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
+
+            gh workflow run "${SELF_RECHECK_WORKFLOW}" \
+              --repo "${SELF_REPO}" \
+              -f target_repo="${TARGET_REPO}" \
+              -f target_ref="${TARGET_REF}" \
+              -f target_workflow="${TARGET_WORKFLOW}" \
+              -f max_wait_minutes="${MAX_WAIT_MINUTES}" \
+              -f run_allow_entry_outside_rth=true \
+              -f run_actionable_include_speculative_buy="${include_spec}" \
+              -f verify_mode="${verify_mode}" \
+              -f verify_replace_tuning="${VERIFY_REPLACE_TUNING}" \
+              -f expected_replace_min_delta_bps="${EXPECT_REPLACE_MIN_DELTA_BPS}" \
+              -f expected_replace_max_chase_bps="${EXPECT_REPLACE_MAX_CHASE_BPS}" \
+              -f expected_replace_cooldown_minutes="${EXPECT_REPLACE_COOLDOWN_MINUTES}" \
+              -f expected_replace_max_per_symbol_per_day="${EXPECT_REPLACE_MAX_PER_SYMBOL_PER_DAY}" >/dev/null
+
+            local max_wait_s=$(( MAX_WAIT_MINUTES * 60 ))
+            local sleep_s=10
+            local elapsed=0
+            local run_id=""
+            while [ "${elapsed}" -le "${max_wait_s}" ]; do
+              local payload
+              payload="$(gh run list --repo "${SELF_REPO}" --workflow "${SELF_RECHECK_WORKFLOW}" --event workflow_dispatch --limit 50 --json databaseId,createdAt,status,conclusion,url)"
+              run_id="$(node -e '
+                const baseline=Number(process.argv[1]||"0");
+                const dispatchAt=Date.parse(process.argv[2]||"");
+                const rows=JSON.parse(process.argv[3]||"[]");
+                const eligible=rows
+                  .filter((r)=>Number(r.databaseId||0) > baseline)
+                  .filter((r)=>!Number.isFinite(dispatchAt) || Date.parse(r.createdAt||"") >= dispatchAt)
+                  .sort((a,b)=>Number(a.databaseId||0)-Number(b.databaseId||0));
+                process.stdout.write(eligible.length ? String(eligible[0].databaseId||"") : "");
+              ' "${baseline_run_id}" "${dispatch_at}" "${payload}")"
+              if [ -n "${run_id}" ]; then
+                break
+              fi
+              sleep "${sleep_s}"
+              elapsed=$(( elapsed + sleep_s ))
+            done
+
+            if [ -z "${run_id}" ]; then
+              echo "[ERROR] ${phase_label}: could not discover spawned recheck run id"
+              exit 1
+            fi
+
+            if ! gh run watch "${run_id}" --repo "${SELF_REPO}" --interval 10 --exit-status; then
+              echo "[ERROR] ${phase_label}: spawned recheck run failed to complete successfully (run_id=${run_id})"
+            fi
+
+            local run_meta
+            run_meta="$(gh run view "${run_id}" --repo "${SELF_REPO}" --json conclusion,status,url,createdAt,updatedAt)"
+            local run_conclusion
+            run_conclusion="$(node -e 'const x=JSON.parse(process.argv[1]||"{}"); process.stdout.write(String(x.conclusion||""));' "${run_meta}")"
+            local run_url
+            run_url="$(node -e 'const x=JSON.parse(process.argv[1]||"{}"); process.stdout.write(String(x.url||""));' "${run_meta}")"
+
+            local log_path="/tmp/sidecar-canary-pair-${phase_label// /_}-${run_id}.log"
+            gh run view "${run_id}" --repo "${SELF_REPO}" --log > "${log_path}"
+
+            local verify_line
+            verify_line="$(sed -n 's/.*\(\[PREFLIGHT_CANARY_VERIFY\].*\)/\1/p' "${log_path}" | tail -n 1)"
+            if [ -z "${verify_line}" ]; then
+              verify_line="[PREFLIGHT_CANARY_VERIFY] missing"
+            fi
+
+            local verify_mode_observed
+            verify_mode_observed="$(printf '%s\n' "${verify_line}" | sed -n 's/.*verify_mode_observed=\([^ ]*\).*/\1/p')"
+            local verify_pass
+            verify_pass="$(printf '%s\n' "${verify_line}" | sed -n 's/.* pass=\([^ ]*\).*/\1/p')"
+            local attempted
+            attempted="$(printf '%s\n' "${verify_line}" | sed -n 's/.* attempted=\([^ ]*\).*/\1/p')"
+            local submitted
+            submitted="$(printf '%s\n' "${verify_line}" | sed -n 's/.* submitted=\([^ ]*\).*/\1/p')"
+            local broker_reason
+            broker_reason="$(printf '%s\n' "${verify_line}" | sed -n 's/.* broker_reason=\([^ ]*\).*/\1/p')"
+
+            {
+              echo "### ${phase_label}"
+              echo "- expected_mode: \`${verify_mode}\`"
+              echo "- include_speculative: \`${include_spec}\`"
+              echo "- recheck_run: ${run_url}"
+              echo "- verify: \`${verify_line}\`"
+              echo "- compact: \`mode=${verify_mode_observed:-n/a} attempted=${attempted:-n/a} submitted=${submitted:-n/a} broker_reason=${broker_reason:-n/a} pass=${verify_pass:-n/a}\`"
+              echo ""
+            } >> "${summary_path}"
+
+            if [ "${run_conclusion}" != "success" ]; then
+              echo "[ERROR] ${phase_label}: recheck conclusion=${run_conclusion:-unknown} run=${run_url:-n/a}"
+              exit 1
+            fi
+            if [ "${verify_pass}" != "true" ]; then
+              echo "[ERROR] ${phase_label}: verify pass flag is not true"
+              exit 1
+            fi
+            if [ "${verify_mode_observed}" != "${verify_mode}" ]; then
+              echo "[ERROR] ${phase_label}: observed mode ${verify_mode_observed:-n/a} != expected ${verify_mode}"
+              exit 1
+            fi
+          }
+
+          # Phase-1 should prove an actual submit path.
+          dispatch_and_verify "submit_pass" "false" "Phase 1 - submit_pass"
+          # Phase-2 should prove open-entry guard skip path right after submit.
+          dispatch_and_verify "guard_skip_pass" "true" "Phase 2 - guard_skip_pass"
+
+          {
+            echo "- result: PASS (submit_pass + guard_skip_pass pair verified)"
+          } >> "${summary_path}"
+
+          cat "${summary_path}" >> "$GITHUB_STEP_SUMMARY"
