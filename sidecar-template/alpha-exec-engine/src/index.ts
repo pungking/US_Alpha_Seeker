@@ -131,14 +131,14 @@ type Stage6CandidateSummary = {
   analysisEligible: boolean | null;
   historyTier: "FULL" | "PROVISIONAL" | "ONBOARDING" | "UNKNOWN";
   symbolLifecycleState:
-    | "ACTIVE"
-    | "PROVISIONAL"
-    | "ONBOARDING"
-    | "RECOVERED"
-    | "STALE"
-    | "RETIRED"
-    | "EXCLUDED"
-    | "UNKNOWN";
+  | "ACTIVE"
+  | "PROVISIONAL"
+  | "ONBOARDING"
+  | "RECOVERED"
+  | "STALE"
+  | "RETIRED"
+  | "EXCLUDED"
+  | "UNKNOWN";
   verdict: string;
   expectedReturn: string;
   expectedReturnPct: number | null;
@@ -155,17 +155,17 @@ type Stage6CandidateSummary = {
   executionScore: number | null;
   executionBucket: "EXECUTABLE" | "WATCHLIST" | "N/A";
   executionReason:
-    | "VALID_EXEC"
-    | "WAIT_PULLBACK_TOO_DEEP"
-    | "INVALID_GEOMETRY"
-    | "INVALID_DATA"
-    | "N/A";
+  | "VALID_EXEC"
+  | "WAIT_PULLBACK_TOO_DEEP"
+  | "INVALID_GEOMETRY"
+  | "INVALID_DATA"
+  | "N/A";
   finalDecision:
-    | "EXECUTABLE_NOW"
-    | "WAIT_PRICE"
-    | "BLOCKED_RISK"
-    | "BLOCKED_EVENT"
-    | "N/A";
+  | "EXECUTABLE_NOW"
+  | "WAIT_PRICE"
+  | "BLOCKED_RISK"
+  | "BLOCKED_EVENT"
+  | "N/A";
   decisionReason: string;
   stage6Tier: "TIER1" | "TIER2" | "NONE" | "N/A";
   stage6TierReason: string;
@@ -2481,9 +2481,9 @@ function parseStage6ShadowAlphaVantage(node: Record<string, unknown>): Stage6Sha
   const beta = parseFiniteNumber(payload.beta);
   const earningsDate = normalizeShadowDate(
     payload.earningsDate ??
-      payload.nextEarningsDate ??
-      payload.next_earnings_date ??
-      payload.reportDate
+    payload.nextEarningsDate ??
+    payload.next_earnings_date ??
+    payload.reportDate
   );
   const source =
     normalizeShadowString(payload.source ?? payload.provider ?? payload.vendor) ?? "alpha_vantage";
@@ -2613,7 +2613,7 @@ function parseCandidateSummariesFromRaw(raw: unknown, maxItems: number | null = 
             ? "WAIT_PULLBACK_TOO_DEEP"
             : executionReasonRaw === "INVALID_GEOMETRY"
               ? "INVALID_GEOMETRY"
-            : executionReasonRaw === "INVALID_DATA"
+              : executionReasonRaw === "INVALID_DATA"
                 ? "INVALID_DATA"
                 : "N/A";
       let finalDecision: Stage6CandidateSummary["finalDecision"] =
@@ -2727,7 +2727,7 @@ function parseCandidateSummariesFromRaw(raw: unknown, maxItems: number | null = 
                 ? "FAILED"
                 : hfSentimentStatusRaw === "DISABLED"
                   ? "DISABLED"
-                : "N/A",
+                  : "N/A",
         hfSentimentReason: hfSentimentReasonRaw || null,
         hfSentimentArticleCount:
           hfSentimentArticleCountRaw != null ? Math.max(0, Math.round(hfSentimentArticleCountRaw)) : null,
@@ -3980,17 +3980,17 @@ function resolveHeldLifecycleAction(
   );
   const scaleUpChasePct =
     heldPosition &&
-    heldPosition.avgEntryPrice != null &&
-    heldPosition.currentPrice != null &&
-    heldPosition.avgEntryPrice > 0 &&
-    heldPosition.currentPrice > 0
+      heldPosition.avgEntryPrice != null &&
+      heldPosition.currentPrice != null &&
+      heldPosition.avgEntryPrice > 0 &&
+      heldPosition.currentPrice > 0
       ? Number(
-          (
-            heldPosition.side === "short"
-              ? (heldPosition.avgEntryPrice - heldPosition.currentPrice) / heldPosition.avgEntryPrice
-              : (heldPosition.currentPrice - heldPosition.avgEntryPrice) / heldPosition.avgEntryPrice
-          ).toFixed(4)
-        )
+        (
+          heldPosition.side === "short"
+            ? (heldPosition.avgEntryPrice - heldPosition.currentPrice) / heldPosition.avgEntryPrice
+            : (heldPosition.currentPrice - heldPosition.avgEntryPrice) / heldPosition.avgEntryPrice
+        ).toFixed(4)
+      )
       : null;
   const scaleUpChaseToken = scaleUpChasePct == null ? "n/a" : scaleUpChasePct.toFixed(4);
 
@@ -6467,11 +6467,11 @@ async function updateHfDriftAlert(
       ? "hf_soft_disabled"
       : !hasPayloadSample
         ? `insufficient_payload(${snapshot.payloadCount ?? 0}/1)`
-      : !hasSample
-        ? baselineSamples < minHistory
-          ? `insufficient_history(${baselineSamples}/${minHistory})`
-          : `insufficient_candidates(${snapshot.checkedCandidates}/${minCandidates})`
-        : [negativeSpikeTriggered ? "negative_ratio_spike" : null, appliedDropTriggered ? "applied_ratio_drop" : null]
+        : !hasSample
+          ? baselineSamples < minHistory
+            ? `insufficient_history(${baselineSamples}/${minHistory})`
+            : `insufficient_candidates(${snapshot.checkedCandidates}/${minCandidates})`
+          : [negativeSpikeTriggered ? "negative_ratio_spike" : null, appliedDropTriggered ? "applied_ratio_drop" : null]
             .filter((row): row is string => Boolean(row))
             .join("|") || "stable";
 
@@ -6527,9 +6527,9 @@ async function loadHfFreezeState(): Promise<HfFreezeState> {
     const statusRaw = String(parsed?.status ?? "").trim().toUpperCase();
     const status: HfFreezeStatus =
       statusRaw === "OBSERVE" ||
-      statusRaw === "CANDIDATE" ||
-      statusRaw === "FROZEN" ||
-      statusRaw === "UNFREEZE_REVIEW"
+        statusRaw === "CANDIDATE" ||
+        statusRaw === "FROZEN" ||
+        statusRaw === "UNFREEZE_REVIEW"
         ? (statusRaw as HfFreezeStatus)
         : "OBSERVE";
     return {
@@ -7245,15 +7245,15 @@ function deriveHfLivePromotionSummary(
     },
     alert: hfAlert
       ? {
-          triggered: hfAlert.triggered,
-          reason: hfAlert.reason
-        }
+        triggered: hfAlert.triggered,
+        reason: hfAlert.reason
+      }
       : null,
     shadowTrend: hfShadowTrend
       ? {
-          comparedRuns: hfShadowTrend.comparedRuns,
-          alertTriggeredRate: hfShadowTrend.alertTriggeredRate
-        }
+        comparedRuns: hfShadowTrend.comparedRuns,
+        alertTriggeredRate: hfShadowTrend.alertTriggeredRate
+      }
       : null,
     payloadProbe: {
       active: hfPayloadProbe.active,
@@ -7394,14 +7394,14 @@ function deriveHfTuningPhase(
     tradeCount: perfLoop.tradeCount,
     alert: hfAlert
       ? {
-          triggered: hfAlert.triggered,
-          reason: hfAlert.reason
-        }
+        triggered: hfAlert.triggered,
+        reason: hfAlert.reason
+      }
       : null,
     shadowTrend: hfShadowTrend
       ? {
-          alertTriggeredRate: hfShadowTrend.alertTriggeredRate
-        }
+        alertTriggeredRate: hfShadowTrend.alertTriggeredRate
+      }
       : null,
     requiredTrades: PERFORMANCE_LOOP_REQUIRED_TRADES
   });
@@ -7456,10 +7456,10 @@ function buildHfSoftGateExplainLine(
   const blockerSummary =
     blockers.length > 0
       ? blockers
-          .sort((a, b) => b.count - a.count)
-          .slice(0, 3)
-          .map((item) => `${item.key}:${item.count}`)
-          .join(",")
+        .sort((a, b) => b.count - a.count)
+        .slice(0, 3)
+        .map((item) => `${item.key}:${item.count}`)
+        .join(",")
       : "none";
 
   if (gate.applied <= 0) {
@@ -7631,26 +7631,26 @@ function computeHfShadowTrendSummary(
   const avgAbsPayloadDelta =
     comparedCount > 0
       ? Number(
-          (
-            compared.reduce((acc, row) => acc + Math.abs(row.hfShadowPayloadDelta), 0) / comparedCount
-          ).toFixed(2)
-        )
+        (
+          compared.reduce((acc, row) => acc + Math.abs(row.hfShadowPayloadDelta), 0) / comparedCount
+        ).toFixed(2)
+      )
       : 0;
   const avgAbsNotionalDelta =
     comparedCount > 0
       ? Number(
-          (
-            compared.reduce((acc, row) => acc + Math.abs(row.hfShadowNotionalDelta), 0) / comparedCount
-          ).toFixed(2)
-        )
+        (
+          compared.reduce((acc, row) => acc + Math.abs(row.hfShadowNotionalDelta), 0) / comparedCount
+        ).toFixed(2)
+      )
       : 0;
   const avgAbsSkippedDelta =
     comparedCount > 0
       ? Number(
-          (
-            compared.reduce((acc, row) => acc + Math.abs(row.hfShadowSkippedDelta), 0) / comparedCount
-          ).toFixed(2)
-        )
+        (
+          compared.reduce((acc, row) => acc + Math.abs(row.hfShadowSkippedDelta), 0) / comparedCount
+        ).toFixed(2)
+      )
       : 0;
   const zeroPayloadRuns = window.filter((row) => row.payloadCount === 0).length;
   const alertTriggeredRate =
@@ -8396,13 +8396,13 @@ async function loadPerformanceLoopState(
       : [];
     const notifiedMilestones = Array.isArray(parsed?.notifiedMilestones)
       ? Array.from(
-          new Set(
-            parsed.notifiedMilestones
-              .map((value) => Number(value))
-              .filter((value) => Number.isFinite(value) && value > 0)
-              .map((value) => Math.round(value))
-          )
+        new Set(
+          parsed.notifiedMilestones
+            .map((value) => Number(value))
+            .filter((value) => Number.isFinite(value) && value > 0)
+            .map((value) => Math.round(value))
         )
+      )
       : [];
 
     return {
@@ -8751,10 +8751,10 @@ async function applyOrderIdempotency(
   for (const payload of dryExec.payloads) {
     const key = payload.idempotencyKey || buildOrderIdempotencyKey(stage6.sha256, payload.symbol, payload.side);
     payload.idempotencyKey = key;
-    let existing = state.orders[key];
+    let existing: OrderIdempotencyState["orders"][string] | undefined = state.orders[key];
     if (existing && entryResetDaily) {
       const existingTs = Date.parse(existing.lastSeenAt || existing.firstSeenAt || "");
-      const existingDayKey =
+      let existingDayKey =
         Number.isFinite(existingTs) && existingTs > 0 ? toTimeZoneDayKey(existingTs, idempotencyTimeZone) : "";
       if (existingDayKey && todayKey && existingDayKey !== todayKey) {
         delete state.orders[key];
@@ -9527,8 +9527,7 @@ async function main() {
       lifecycleHeldContext = await loadHeldPositionSnapshots();
       lifecycleHeldSymbols = new Set([...lifecycleHeldContext.keys()]);
       console.log(
-        `[LIFECYCLE_PLAN] held_positions=${lifecycleHeldSymbols.size} symbols=${
-          lifecycleHeldSymbols.size > 0 ? [...lifecycleHeldSymbols].slice(0, 10).join("/") : "none"
+        `[LIFECYCLE_PLAN] held_positions=${lifecycleHeldSymbols.size} symbols=${lifecycleHeldSymbols.size > 0 ? [...lifecycleHeldSymbols].slice(0, 10).join("/") : "none"
         }`
       );
     } catch (error) {
