@@ -4927,6 +4927,27 @@ function toUtcDayKey(ts: number): string {
   return new Date(ts).toISOString().slice(0, 10);
 }
 
+function toTimeZoneDayKey(ts: number, timeZone: string): string {
+  const date = new Date(ts);
+  if (!Number.isFinite(date.getTime())) return "";
+  try {
+    const parts = new Intl.DateTimeFormat("en-CA", {
+      timeZone,
+      year: "numeric",
+      month: "2-digit",
+      day: "2-digit"
+    }).formatToParts(date);
+    const lookup = new Map(parts.map((row) => [row.type, row.value]));
+    const year = lookup.get("year");
+    const month = lookup.get("month");
+    const day = lookup.get("day");
+    if (year && month && day) return `${year}-${month}-${day}`;
+  } catch {
+    // Fall back to UTC key when timezone format is unavailable.
+  }
+  return toUtcDayKey(ts);
+}
+
 function normalizeOpenEntryReplaceGuardState(raw: unknown): OpenEntryReplaceGuardState {
   if (!raw || typeof raw !== "object") return createOpenEntryReplaceGuardState();
   const node = raw as Record<string, unknown>;
@@ -8698,6 +8719,8 @@ async function applyOrderIdempotency(
   const enforceDryRun = readBoolEnv("ORDER_IDEMPOTENCY_ENFORCE_DRY_RUN", false);
   const ttlDays = Math.max(1, readPositiveNumberEnv("ORDER_IDEMPOTENCY_TTL_DAYS", 30));
   const enforced = enabled && (cfg.execEnabled || enforceDryRun);
+  const entryResetDaily = readBoolEnv("ORDER_IDEMPOTENCY_ENTRY_RESET_DAILY", true);
+  const idempotencyTimeZone = (process.env.TZ || "America/New_York").trim() || "America/New_York";
   const persistNewEntries = options?.persistNewEntries ?? true;
   const phase = options?.phase ?? "final";
 
@@ -8721,12 +8744,25 @@ async function applyOrderIdempotency(
   const skipped = [...dryExec.skipped];
   let duplicateCount = 0;
   let newCount = 0;
+  let releasedCount = 0;
   let changed = persistNewEntries && pruned > 0;
+  const todayKey = toTimeZoneDayKey(Date.now(), idempotencyTimeZone);
 
   for (const payload of dryExec.payloads) {
     const key = payload.idempotencyKey || buildOrderIdempotencyKey(stage6.sha256, payload.symbol, payload.side);
     payload.idempotencyKey = key;
-    const existing = state.orders[key];
+    let existing = state.orders[key];
+    if (existing && entryResetDaily) {
+      const existingTs = Date.parse(existing.lastSeenAt || existing.firstSeenAt || "");
+      const existingDayKey =
+        Number.isFinite(existingTs) && existingTs > 0 ? toTimeZoneDayKey(existingTs, idempotencyTimeZone) : "";
+      if (existingDayKey && todayKey && existingDayKey !== todayKey) {
+        delete state.orders[key];
+        existing = undefined;
+        if (persistNewEntries) changed = true;
+        releasedCount += 1;
+      }
+    }
     if (existing) {
       duplicateCount += 1;
       if (enforced) {
@@ -8760,7 +8796,7 @@ async function applyOrderIdempotency(
     await saveOrderIdempotencyState(state);
   }
   console.log(
-    `[ORDER_IDEMP] phase=${phase} enabled=${enabled} enforce=${enforced} persist=${persistNewEntries} ttlDays=${ttlDays} new=${newCount} duplicate=${duplicateCount} pruned=${pruned}`
+    `[ORDER_IDEMP] phase=${phase} enabled=${enabled} enforce=${enforced} persist=${persistNewEntries} ttlDays=${ttlDays} resetDaily=${entryResetDaily} tz=${idempotencyTimeZone} released=${releasedCount} new=${newCount} duplicate=${duplicateCount} pruned=${pruned}`
   );
 
   const nextDryExec: DryExecBuildResult = {
