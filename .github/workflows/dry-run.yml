@@ -7,21 +7,6 @@ name: sidecar-dry-run-bridge
 on:
   workflow_dispatch:
     inputs:
-      target_repo:
-        description: "Target sidecar repository (owner/repo)"
-        required: false
-        default: "pungking/alpha-exec-engine"
-        type: string
-      target_ref:
-        description: "Target sidecar branch/ref"
-        required: false
-        default: "main"
-        type: string
-      target_workflow:
-        description: "Target workflow file"
-        required: false
-        default: "dry-run.yml"
-        type: string
       run_force_send_once:
         description: "Force send once for current stage6Hash+mode"
         required: false
@@ -177,6 +162,9 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
+      TARGET_REPO: pungking/alpha-exec-engine
+      TARGET_REF: main
+      TARGET_WORKFLOW: dry-run.yml
     steps:
       - name: Validate dispatch token
         run: |
@@ -188,9 +176,9 @@ jobs:
       - name: Dispatch sidecar dry-run workflow
         uses: actions/github-script@v8
         env:
-          TARGET_REPO: ${{ inputs.target_repo }}
-          TARGET_REF: ${{ inputs.target_ref }}
-          TARGET_WORKFLOW: ${{ inputs.target_workflow }}
+          TARGET_REPO: ${{ env.TARGET_REPO }}
+          TARGET_REF: ${{ env.TARGET_REF }}
+          TARGET_WORKFLOW: ${{ env.TARGET_WORKFLOW }}
           RUN_FORCE_SEND_ONCE: ${{ inputs.run_force_send_once }}
           RUN_VERIFY_MODE: ${{ inputs.run_verify_mode }}
           RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth }}

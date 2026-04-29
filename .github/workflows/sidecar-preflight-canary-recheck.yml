@@ -3,21 +3,6 @@ name: Sidecar Preflight Canary Recheck
 on:
   workflow_dispatch:
     inputs:
-      target_repo:
-        description: "Target sidecar repository (owner/repo)"
-        required: false
-        default: "pungking/alpha-exec-engine"
-        type: string
-      target_ref:
-        description: "Target sidecar branch/ref"
-        required: false
-        default: "main"
-        type: string
-      target_workflow:
-        description: "Target workflow file"
-        required: false
-        default: "dry-run.yml"
-        type: string
       max_wait_minutes:
         description: "Max wait for target run completion"
         required: false
@@ -162,9 +147,9 @@ jobs:
     env:
       FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true
       SIDECAR_DISPATCH_TOKEN: ${{ vars.GITHUB_TOKEN || secrets.MCP_GITHUB_TOKEN || secrets.GH_PAT || secrets.SIDECAR_DISPATCH_TOKEN || github.token }}
-      TARGET_REPO: ${{ inputs.target_repo || 'pungking/alpha-exec-engine' }}
-      TARGET_REF: ${{ inputs.target_ref || 'main' }}
-      TARGET_WORKFLOW: ${{ inputs.target_workflow || 'dry-run.yml' }}
+      TARGET_REPO: pungking/alpha-exec-engine
+      TARGET_REF: main
+      TARGET_WORKFLOW: dry-run.yml
       MAX_WAIT_MINUTES: ${{ inputs.max_wait_minutes || '25' }}
       RUN_ALLOW_ENTRY_OUTSIDE_RTH: ${{ inputs.run_allow_entry_outside_rth || 'true' }}
       RUN_ACTIONABLE_INCLUDE_SPECULATIVE_BUY: ${{ inputs.run_actionable_include_speculative_buy || 'true' }}
